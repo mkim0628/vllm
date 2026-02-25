@@ -53,6 +53,21 @@ curl -N http://127.0.0.1:9000/v1/chat/completions \
 - 해당 값을 decode 요청에 그대로 주입합니다.
 - 즉, **Prefiller에서 생성된 KV cache 식별 정보가 Decoder로 전달**됩니다.
 
+### `kv_transfer_params`에 실제 KV 텐서가 들어가나요?
+
+아니요. 일반적으로 `kv_transfer_params`는 **실제 KV 텐서 자체**가 아니라,
+커넥터가 원격 KV를 찾거나 전송/수신을 조율하기 위한 **메타데이터**(예: 엔진/블록 식별자,
+핸드셰이크 정보, 전송 플래그)입니다.
+
+실제 KV 텐서 저장/전송은 KV Connector 경로에서 수행됩니다.
+
+- Worker 측: `start_load_kv`, `save_kv_layer`, `wait_for_save` 등을 통해 KV를 송수신
+- Scheduler 측: 요청 종료 시 connector가 반환한 파라미터가 출력의
+  `kv_transfer_params`로 노출될 수 있음
+
+즉 이 toy proxy는 KV 텐서를 옮기는 코드가 아니라,
+**prefill 단계에서 생성된 전송 메타데이터(`kv_transfer_params`)를 decode 단계로 전달**하는 역할입니다.
+
 ## 참고
 
 - LMCache의 전송 설정 YAML은 기존 예제의 파일을 재사용합니다.
