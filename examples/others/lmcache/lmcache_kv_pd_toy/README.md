@@ -68,6 +68,30 @@ curl -N http://127.0.0.1:9000/v1/chat/completions \
 즉 이 toy proxy는 KV 텐서를 옮기는 코드가 아니라,
 **prefill 단계에서 생성된 전송 메타데이터(`kv_transfer_params`)를 decode 단계로 전달**하는 역할입니다.
 
+
+## Decoder가 Prefiller KV를 실제로 받았는지 검증
+
+아래 검증 스크립트는 **A/B 방식**으로 확인합니다.
+
+- A: Decoder에 `kv_transfer_params` 없이 직접 요청 (baseline)
+- B: Prefiller에서 `kv_transfer_params`를 받은 뒤 Decoder에 주입 (disagg)
+- 이후 `decoder.log`에서 `LMCache hit tokens: N` 로그를 파싱해, `B > A`인지 검사
+
+```bash
+python3 examples/others/lmcache/lmcache_kv_pd_toy/verify_remote_kv.py   --prefill-url http://127.0.0.1:8100/v1   --decode-url http://127.0.0.1:8200/v1   --decoder-log examples/others/lmcache/lmcache_kv_pd_toy/decoder.log   --model meta-llama/Llama-3.1-8B-Instruct
+```
+
+성공 시 JSON 예시:
+
+```json
+{
+  "baseline_hit_tokens": 0,
+  "disagg_hit_tokens": 1024,
+  "kv_transfer_params_keys": ["..."],
+  "verification_passed": true
+}
+```
+
 ## 참고
 
 - LMCache의 전송 설정 YAML은 기존 예제의 파일을 재사용합니다.
