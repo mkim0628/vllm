@@ -69,6 +69,24 @@ curl -N http://127.0.0.1:9000/v1/chat/completions \
 **prefill 단계에서 생성된 전송 메타데이터(`kv_transfer_params`)를 decode 단계로 전달**하는 역할입니다.
 
 
+
+
+### `RuntimeError: cudaHostAlloc failed: 2` 가 뜰 때
+
+환경의 pinned-memory(memlock) 한도 때문에 LMCache LocalCPU backend 초기화가 실패한 경우입니다.
+`run_toy.sh`는 기본적으로 `max_local_cpu_size`를 **64MiB**로 낮춰서 실행하며,
+다음 환경 변수로 더 줄이거나 늘릴 수 있습니다.
+
+```bash
+LMCACHE_MAX_LOCAL_CPU_SIZE=16777216 bash run_toy.sh  # 16MiB
+```
+
+권장 순서:
+
+1. 먼저 `LMCACHE_MAX_LOCAL_CPU_SIZE`를 낮춰서 실행
+2. 가능하면 셸에서 memlock을 늘림 (`ulimit -l unlimited`)
+3. 시스템 정책상 memlock 상향이 불가하면, 작은 값(예: 8~64MiB) 유지
+
 ## Decoder가 Prefiller KV를 실제로 받았는지 검증
 
 아래 검증 스크립트는 **A/B 방식**으로 확인합니다.

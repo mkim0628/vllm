@@ -8,6 +8,7 @@ MODEL_NAME="${MODEL_NAME:-meta-llama/Llama-3.1-8B-Instruct}"
 PREFILL_PORT="${PREFILL_PORT:-8100}"
 DECODE_PORT="${DECODE_PORT:-8200}"
 PROXY_PORT="${PROXY_PORT:-9000}"
+LMCACHE_MAX_LOCAL_CPU_SIZE="${LMCACHE_MAX_LOCAL_CPU_SIZE:-67108864}"
 
 PREFILL_CONFIG="${PREFILL_CONFIG:-${SCRIPT_DIR}/configs/lmcache-prefiller-config.yaml}"
 DECODE_CONFIG="${DECODE_CONFIG:-${SCRIPT_DIR}/configs/lmcache-decoder-config.yaml}"
@@ -26,9 +27,24 @@ if [[ ! -f "${DECODE_CONFIG}" ]]; then
   exit 1
 fi
 
+if [[ ! "${LMCACHE_MAX_LOCAL_CPU_SIZE}" =~ ^[0-9]+$ ]]; then
+  echo "LMCACHE_MAX_LOCAL_CPU_SIZE must be an integer byte size"
+  exit 1
+fi
+
+MEMLOCK_KB="$(ulimit -l 2>/dev/null || echo unknown)"
+TMP_PREFILL_CONFIG="$(mktemp /tmp/lmcache-prefill.XXXX.yaml)"
+TMP_DECODE_CONFIG="$(mktemp /tmp/lmcache-decode.XXXX.yaml)"
+
+sed -E "s/^max_local_cpu_size:.*/max_local_cpu_size: ${LMCACHE_MAX_LOCAL_CPU_SIZE}/" \
+  "${PREFILL_CONFIG}" > "${TMP_PREFILL_CONFIG}"
+sed -E "s/^max_local_cpu_size:.*/max_local_cpu_size: ${LMCACHE_MAX_LOCAL_CPU_SIZE}/" \
+  "${DECODE_CONFIG}" > "${TMP_DECODE_CONFIG}"
+
 cleanup() {
   echo "[toy] cleaning up processes..."
   pkill -P $$ || true
+  rm -f "${TMP_PREFILL_CONFIG}" "${TMP_DECODE_CONFIG}" || true
 }
 trap cleanup EXIT INT TERM
 
@@ -36,6 +52,13 @@ echo "[toy] MODEL=${MODEL_NAME}"
 echo "[toy] starting prefiller:${PREFILL_PORT}, decoder:${DECODE_PORT}, proxy:${PROXY_PORT}"
 echo "[toy] prefill config: ${PREFILL_CONFIG}"
 echo "[toy] decode config : ${DECODE_CONFIG}"
+echo "[toy] local_cpu_size: ${LMCACHE_MAX_LOCAL_CPU_SIZE} bytes"
+echo "[toy] memlock limit : ${MEMLOCK_KB} KB"
+
+if [[ "${MEMLOCK_KB}" != "unknown" && "${MEMLOCK_KB}" != "unlimited" ]]; then
+  echo "[toy][warn] low memlock can cause cudaHostAlloc failure."
+  echo "[toy][warn] try: ulimit -l unlimited (or lower LMCACHE_MAX_LOCAL_CPU_SIZE)"
+fi
 
 echo "[toy] note: fixed PYTHONHASHSEED is used for demo-only key compatibility"
 export PYTHONHASHSEED="${VLLM_PYTHON_HASH_SEED:-123}"
@@ -43,7 +66,7 @@ export PYTHONHASHSEED="${VLLM_PYTHON_HASH_SEED:-123}"
 (
   cd "${ROOT_DIR}"
   UCX_TLS=cuda_ipc,cuda_copy,tcp \
-  LMCACHE_CONFIG_FILE="${PREFILL_CONFIG}" \
+  LMCACHE_CONFIG_FILE="${TMP_PREFILL_CONFIG}" \
   LMCACHE_USE_EXPERIMENTAL=True \
   VLLM_ENABLE_V1_MULTIPROCESSING=1 \
   VLLM_WORKER_MULTIPROC_METHOD=spawn \
@@ -57,7 +80,7 @@ export PYTHONHASHSEED="${VLLM_PYTHON_HASH_SEED:-123}"
 (
   cd "${ROOT_DIR}"
   UCX_TLS=cuda_ipc,cuda_copy,tcp \
-  LMCACHE_CONFIG_FILE="${DECODE_CONFIG}" \
+  LMCACHE_CONFIG_FILE="${TMP_DECODE_CONFIG}" \
   LMCACHE_USE_EXPERIMENTAL=True \
   VLLM_ENABLE_V1_MULTIPROCESSING=1 \
   VLLM_WORKER_MULTIPROC_METHOD=spawn \
