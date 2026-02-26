@@ -9,11 +9,20 @@ PREFILL_PORT="${PREFILL_PORT:-8100}"
 DECODE_PORT="${DECODE_PORT:-8200}"
 PROXY_PORT="${PROXY_PORT:-9000}"
 
-PREFILL_CONFIG="${ROOT_DIR}/examples/others/lmcache/disagg_prefill_lmcache_v1/configs/lmcache-prefiller-config.yaml"
-DECODE_CONFIG="${ROOT_DIR}/examples/others/lmcache/disagg_prefill_lmcache_v1/configs/lmcache-decoder-config.yaml"
+PREFILL_CONFIG="${PREFILL_CONFIG:-${SCRIPT_DIR}/configs/lmcache-prefiller-config.yaml}"
+DECODE_CONFIG="${DECODE_CONFIG:-${SCRIPT_DIR}/configs/lmcache-decoder-config.yaml}"
 
 if ! command -v vllm >/dev/null 2>&1; then
   echo "vllm CLI not found in PATH"
+  exit 1
+fi
+
+if [[ ! -f "${PREFILL_CONFIG}" ]]; then
+  echo "prefill config not found: ${PREFILL_CONFIG}"
+  exit 1
+fi
+if [[ ! -f "${DECODE_CONFIG}" ]]; then
+  echo "decode config not found: ${DECODE_CONFIG}"
   exit 1
 fi
 
@@ -25,6 +34,8 @@ trap cleanup EXIT INT TERM
 
 echo "[toy] MODEL=${MODEL_NAME}"
 echo "[toy] starting prefiller:${PREFILL_PORT}, decoder:${DECODE_PORT}, proxy:${PROXY_PORT}"
+echo "[toy] prefill config: ${PREFILL_CONFIG}"
+echo "[toy] decode config : ${DECODE_CONFIG}"
 
 echo "[toy] note: fixed PYTHONHASHSEED is used for demo-only key compatibility"
 export PYTHONHASHSEED="${VLLM_PYTHON_HASH_SEED:-123}"

@@ -94,6 +94,15 @@ python3 examples/others/lmcache/lmcache_kv_pd_toy/verify_remote_kv.py   --prefil
 
 ## 참고
 
-- LMCache의 전송 설정 YAML은 기존 예제의 파일을 재사용합니다.
-  - `examples/others/lmcache/disagg_prefill_lmcache_v1/configs/lmcache-prefiller-config.yaml`
-  - `examples/others/lmcache/disagg_prefill_lmcache_v1/configs/lmcache-decoder-config.yaml`
+- 이 toy는 `configs/` 아래 전용 LMCache YAML을 사용합니다.
+  - `examples/others/lmcache/lmcache_kv_pd_toy/configs/lmcache-prefiller-config.yaml`
+  - `examples/others/lmcache/lmcache_kv_pd_toy/configs/lmcache-decoder-config.yaml`
+- 위 설정은 `local_cpu: True` / `max_local_cpu_size > 0` 을 포함합니다.
+  - 일부 LMCache 버전에서 `local_cpu=False` 이면 `KeyError: 'LocalCPUBackend'` 로 초기화 실패가 날 수 있어, 이를 회피하기 위한 기본값입니다.
+- 필요 시 환경 변수로 설정 파일 경로를 덮어쓸 수 있습니다.
+
+```bash
+PREFILL_CONFIG=/path/to/prefill.yaml \
+DECODE_CONFIG=/path/to/decode.yaml \
+bash run_toy.sh
+```
