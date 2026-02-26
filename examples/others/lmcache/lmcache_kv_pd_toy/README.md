@@ -96,8 +96,19 @@ LMCACHE_MAX_LOCAL_CPU_SIZE=16777216 bash run_toy.sh  # 16MiB
 - 이후 `decoder.log`에서 `LMCache hit tokens: N` 로그를 파싱해, `B > A`인지 검사
 
 ```bash
-python3 examples/others/lmcache/lmcache_kv_pd_toy/verify_remote_kv.py   --prefill-url http://127.0.0.1:8100/v1   --decode-url http://127.0.0.1:8200/v1   --decoder-log examples/others/lmcache/lmcache_kv_pd_toy/decoder.log   --model meta-llama/Llama-3.1-8B-Instruct
+python3 examples/others/lmcache/lmcache_kv_pd_toy/verify_remote_kv.py \
+  --prefill-url http://127.0.0.1:8100/v1 \
+  --decode-url http://127.0.0.1:8200/v1 \
+  --decoder-log examples/others/lmcache/lmcache_kv_pd_toy/decoder.log \
+  --model meta-llama/Llama-3.1-8B-Instruct
 ```
+
+
+
+> 참고: LMCache/vLLM 조합에 따라 prefill 응답의 `kv_transfer_params`가 `None`일 수 있습니다.
+> 이 경우 verifier는 자동으로 **implicit lookup 모드**로 동작해,
+> "같은 프롬프트를 prefill 후 decode 했을 때 LMCache hit token이 증가하는지"를 검증합니다.
+> `kv_transfer_params`가 반드시 있어야 한다면 `--strict-kv-transfer-params`를 사용하세요.
 
 성공 시 JSON 예시:
 

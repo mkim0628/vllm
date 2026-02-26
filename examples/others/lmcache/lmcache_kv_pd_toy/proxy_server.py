@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 
@@ -87,17 +87,14 @@ def create_app(prefill_base_url: str, decode_base_url: str) -> FastAPI:
 
         prefill_json = prefill_resp.json()
         kv_transfer_params = prefill_json.get("kv_transfer_params")
-        if not isinstance(kv_transfer_params, dict) or not kv_transfer_params:
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    "Prefiller response does not contain kv_transfer_params. "
-                    "Cannot forward KV cache metadata to decoder."
-                ),
-            )
 
         decode_payload = copy.deepcopy(client_payload)
-        decode_payload["kv_transfer_params"] = kv_transfer_params
+        if isinstance(kv_transfer_params, dict) and kv_transfer_params:
+            decode_payload["kv_transfer_params"] = kv_transfer_params
+        else:
+            # Some LMCache/vLLM versions do not emit kv_transfer_params in
+            # prefill output and rely on implicit lookup keys instead.
+            decode_payload.pop("kv_transfer_params", None)
         return decode_payload
 
     async def stream_decode(
