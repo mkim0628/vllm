@@ -37,6 +37,14 @@
 
 두 옵션 모두 아래에서 module view / component view / layered architecture로 분석합니다.
 
+### 다이어그램 범례 (As-Is vs To-Be)
+
+아래 모든 다이어그램에서 색상은 동일한 규칙을 따릅니다.
+
+- ⬜ **회색** — 기존 코드, 변경 없음
+- 🟡 **노란색** — 기존 코드를 수정/확장
+- 🟢 **초록색** — 완전히 새로 추가되는 모듈/컴포넌트
+
 ---
 
 ## 1. 옵션 A — CXL을 오프로드 티어로 추가
@@ -53,7 +61,7 @@ CXL의 물리적 특성에 맞게 교체합니다.
 
 ```mermaid
 graph TB
-    subgraph L0["Layer 0 — Request/Scheduling Logic (변경 없음)"]
+    subgraph L0["Layer 0 — Request/Scheduling Logic (기존)"]
         L0A["Scheduler, KVCacheManager,<br/>KVCacheCoordinator (GPU 전용, 그대로)"]
     end
 
@@ -62,20 +70,20 @@ graph TB
         L1B["MultiConnector<br/>(여러 커넥터를 우선순위 체인으로 묶음, 변경 없음)"]
     end
 
-    subgraph L2["Layer 2 — 오프로드 정책/부기 (신규, 기존 CPU 구현 패턴 복제)"]
+    subgraph L2["🟢 Layer 2 — 오프로드 정책/부기 (신규, 기존 CPU 구현 패턴 복제)"]
         L2A["CXLOffloadingSpec<br/>(vllm/v1/kv_offload/cxl/spec.py, 신규)"]
         L2B["CXLOffloadingManager<br/>free-list + LRU/ARC eviction<br/>(cpu/manager.py 패턴 재사용)"]
     end
 
-    subgraph L3["Layer 3 — 물리 전송 (신규, 커널만 교체)"]
+    subgraph L3["🟢 Layer 3 — 물리 전송 (신규, 커널만 교체)"]
         L3A["CXLTransferHandler<br/>(cpu/gpu_worker.py의<br/>SingleDirectionOffloadingHandler 패턴)"]
         L3B["CXL 메모리 매핑<br/>(NUMA-aware mmap 또는<br/>CXL.mem 디바이스 드라이버 경유)"]
     end
 
     subgraph L4["Layer 4 — 물리 메모리"]
-        HBM[("GPU HBM<br/>(Tier 0, hot)")]
-        CXLMEM[("CXL Memory<br/>(Tier 1, warm)")]
-        DRAM[("CPU DRAM / Disk<br/>(Tier 2, cold, 선택적)")]
+        HBM[("GPU HBM<br/>(Tier 0, hot, 기존)")]
+        CXLMEM[("CXL Memory<br/>(Tier 1, warm, 🟢 신규)")]
+        DRAM[("CPU DRAM / Disk<br/>(Tier 2, cold, 기존, 선택적)")]
     end
 
     L0A --> L1A
@@ -88,7 +96,12 @@ graph TB
     L3B --> CXLMEM
     L0A -. "직접 소유" .-> HBM
     HBM -- "evict (LRU)" --> CXLMEM
-    CXLMEM -- "evict (추가 정책)" -.-> DRAM
+    CXLMEM -. "evict (추가 정책)" .-> DRAM
+
+    classDef existingBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef newBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:2px;
+    class L0,L0A,L1,L1A,L1B,L2B2,HBM,DRAM existingBox
+    class L2,L2A,L2B,L3,L3A,L3B,CXLMEM newBox
 ```
 
 **핵심 포인트**: Layer 0(스케줄러)은 CXL 존재 자체를 모릅니다. Layer 1(커넥터 인터페이스)
@@ -108,7 +121,7 @@ graph TD
         FACTORY["vllm.v1.kv_offload.factory<br/>OffloadingSpecFactory"]
     end
 
-    subgraph NEW["신규 (kv_offload/cpu 패턴 복제)"]
+    subgraph NEW["🟢 신규 (kv_offload/cpu 패턴 복제)"]
         CXLSPEC["vllm.v1.kv_offload.cxl.spec<br/>CXLOffloadingSpec"]
         CXLMGR["vllm.v1.kv_offload.cxl.manager<br/>CXLOffloadingManager<br/>(free-list + LRU/ARC)"]
         CXLWORKER["vllm.v1.kv_offload.cxl.worker<br/>CXLTransferHandler<br/>(전송 커널만 신규)"]
@@ -126,19 +139,24 @@ graph TD
     CXLWORKER --> CXLALLOC
 
     CPUOFF -. "코드 패턴 참고<br/>(free-list/eviction 로직 복제)" .-> CXLMGR
+
+    classDef existingBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef newBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:2px;
+    class EXISTING,SCHED,KVMGR,CONNBASE,MULTICONN,CPUOFF,FACTORY existingBox
+    class NEW,CXLSPEC,CXLMGR,CXLWORKER,CXLALLOC newBox
 ```
 
 ### 1.4 Component View — 런타임 계층 캐스케이드
 
 ```mermaid
 sequenceDiagram
-    participant SCHED as Scheduler<br/>(EngineCore Proc)
-    participant CONN as MultiConnector
-    participant CXL as CXLOffloadingManager
-    participant CPU as CPUOffloadingManager<br/>(2차 cold tier, 선택)
-    participant WORKER as Worker Proc<br/>(GPUModelRunner)
-    participant HBM as GPU HBM
-    participant CXLMEM as CXL Memory
+    participant SCHED as Scheduler (기존)<br/>(EngineCore Proc)
+    participant CONN as MultiConnector (기존)
+    participant CXL as 🟢 CXLOffloadingManager<br/>(신규)
+    participant CPU as CPUOffloadingManager (기존)<br/>(2차 cold tier, 선택)
+    participant WORKER as Worker Proc (기존)<br/>(GPUModelRunner)
+    participant HBM as GPU HBM (기존)
+    participant CXLMEM as 🟢 CXL Memory (신규)
 
     Note over SCHED: prefix cache miss 발생 (GPU에 없음)
     SCHED->>CONN: get_num_new_matched_tokens(request)
@@ -194,34 +212,34 @@ sequenceDiagram
 ```mermaid
 graph TB
     subgraph L0["Layer 0 — Request/Scheduling Logic"]
-        L0A["Scheduler, KVCacheManager"]
-        L0B["★ KVCacheCoordinator 확장<br/>티어 인지 admission/eviction 정책<br/>(SlidingWindow처럼 '그룹'을 memory-tier 기준으로도 분기)"]
+        L0A["Scheduler, KVCacheManager<br/>(기존)"]
+        L0B["🟡 KVCacheCoordinator 확장<br/>티어 인지 admission/eviction 정책<br/>(SlidingWindow처럼 '그룹'을 memory-tier 기준으로도 분기)"]
     end
 
     subgraph L1["Layer 1 — 논리 스펙 (수정 필요)"]
-        L1A["★ KVCacheSpec / KVCacheTensor / KVCacheConfig<br/>+ tier 필드 추가<br/>(vllm/v1/kv_cache_interface.py)"]
+        L1A["🟡 KVCacheSpec / KVCacheTensor / KVCacheConfig<br/>+ tier 필드 추가<br/>(vllm/v1/kv_cache_interface.py)"]
     end
 
-    subgraph L2["★ Layer 2 — Memory Tier Abstraction (신규 계층)"]
+    subgraph L2["🟢 Layer 2 — Memory Tier Abstraction (신규 계층)"]
         L2A["TierAllocator (ABC, 신규)<br/>alloc()/free()/get_base_ptr()"]
-        L2B["GPUHBMAllocator<br/>(기존 _allocate_kv_cache_tensors 로직 이관)"]
+        L2B["GPUHBMAllocator<br/>(🟡 기존 _allocate_kv_cache_tensors 로직 이관)"]
         L2C["CXLTierAllocator<br/>(신규, CXL 디바이스 메모리 매핑)"]
         L2D["TierPlacementPolicy<br/>(신규, 블록별 티어 배치 결정 —<br/>access frequency/recency 기반)"]
     end
 
     subgraph L3["Layer 3 — Block Table / Slot Mapping (수정 필요)"]
-        L3A["★ BlockTable<br/>물리 블록 ID → (tier_id, offset) 매핑 추가"]
-        L3B["★ slot_mapping 계산<br/>티어별 base 주소 오프셋 반영"]
+        L3A["🟡 BlockTable<br/>물리 블록 ID → (tier_id, offset) 매핑 추가"]
+        L3B["🟡 slot_mapping 계산<br/>티어별 base 주소 오프셋 반영"]
     end
 
     subgraph L4["Layer 4 — Attention Backend (수정 필요)"]
-        L4A["★ AttentionImpl.forward()<br/>멀티 base-pointer gather 지원<br/>(block_table 이 여러 메모리 풀을 가리킴)"]
-        L4B["do_kv_cache_update()<br/>write 대상 티어 결정"]
+        L4A["🟡 AttentionImpl.forward()<br/>멀티 base-pointer gather 지원<br/>(block_table 이 여러 메모리 풀을 가리킴)"]
+        L4B["🟡 do_kv_cache_update()<br/>write 대상 티어 결정"]
     end
 
     subgraph L5["Layer 5 — 물리 메모리"]
-        HBM[("GPU HBM")]
-        CXLMEM[("CXL Memory<br/>(GPU/CPU 양쪽에서 주소 지정 가능하다고 가정)")]
+        HBM[("GPU HBM<br/>(기존)")]
+        CXLMEM[("CXL Memory<br/>🟢 신규<br/>(GPU/CPU 양쪽에서 주소 지정 가능하다고 가정)")]
     end
 
     L0A --> L0B --> L1A --> L2D
@@ -234,15 +252,22 @@ graph TB
     L4A -- "gather (tier별 base ptr)" --> CXLMEM
     L4B -- "write" --> HBM
     L4B -- "write (콜드 블록)" --> CXLMEM
+
+    classDef existingBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef modifiedBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
+    classDef newBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:2px;
+    class L0A,HBM existingBox
+    class L0B,L1,L1A,L3,L3A,L3B,L4,L4A,L4B,L2B modifiedBox
+    class L2,L2A,L2C,L2D,CXLMEM newBox
 ```
 
-★ 표시가 실제 코드 변경이 필요한 지점입니다.
+🟡 표시가 기존 코드를 수정해야 하는 지점, 🟢 표시가 완전히 새로 추가되는 부분입니다.
 
 ### 2.3 Module View
 
 ```mermaid
 graph TD
-    subgraph MODIFIED["수정 필요"]
+    subgraph MODIFIED["🟡 수정 필요"]
         KVIFACE["vllm.v1.kv_cache_interface<br/>KVCacheSpec/Tensor/Config<br/>+ tier 필드"]
         COORD["vllm.v1.core.kv_cache_coordinator<br/>+ 티어 인지 admission 정책"]
         BLOCKTABLE["vllm.v1.worker.block_table<br/>BlockTable<br/>+ (tier_id, phys_offset) 매핑"]
@@ -250,7 +275,7 @@ graph TD
         GPURUNNER["vllm.v1.worker.gpu_model_runner<br/>_allocate_kv_cache_tensors()<br/>→ TierAllocator 로 위임"]
     end
 
-    subgraph NEW["신규 계층"]
+    subgraph NEW["🟢 신규 계층"]
         TIERALLOC["vllm.v1.memory_tier.allocator<br/>TierAllocator (ABC)"]
         GPUALLOC["vllm.v1.memory_tier.gpu<br/>GPUHBMAllocator"]
         CXLALLOC["vllm.v1.memory_tier.cxl<br/>CXLTierAllocator"]
@@ -275,6 +300,13 @@ graph TD
     BLOCKTABLE --> ATTNBACKEND
     ATTNBACKEND --> SAMPLER
     KVIFACE -. "그룹별 tier 메타데이터" .-> BLOCKTABLE
+
+    classDef existingBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef modifiedBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
+    classDef newBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:2px;
+    class UNCHANGED,SCHED,KVMGR,SAMPLER existingBox
+    class MODIFIED,KVIFACE,COORD,BLOCKTABLE,ATTNBACKEND,GPURUNNER modifiedBox
+    class NEW,TIERALLOC,GPUALLOC,CXLALLOC,PLACEMENT newBox
 ```
 
 ### 2.4 Component View — 런타임 흐름 (Tier-aware forward pass)
@@ -282,25 +314,25 @@ graph TD
 ```mermaid
 graph TD
     subgraph P1["Process: EngineCore"]
-        SCHED2["Scheduler.schedule()"]
-        ALLOC2["KVCacheManager.allocate_slots()<br/>+ TierPlacementPolicy 조회<br/>(신규 블록을 어느 티어에 둘지 결정)"]
-        SCHEDOUT2["SchedulerOutput<br/>+ block_ids 에 tier 정보 포함"]
+        SCHED2["Scheduler.schedule()<br/>(기존)"]
+        ALLOC2["🟡 KVCacheManager.allocate_slots()<br/>+ TierPlacementPolicy 조회<br/>(신규 블록을 어느 티어에 둘지 결정)"]
+        SCHEDOUT2["🟡 SchedulerOutput<br/>+ block_ids 에 tier 정보 포함"]
     end
 
     subgraph P2["Process: Worker"]
-        UPDATE2["GPUModelRunner._update_states()<br/>BlockTable 에 (tier_id, offset) 기록"]
-        FWD2["model.forward()"]
+        UPDATE2["🟡 GPUModelRunner._update_states()<br/>BlockTable 에 (tier_id, offset) 기록"]
+        FWD2["model.forward()<br/>(기존, 호출부는 그대로)"]
         subgraph ATTNSTEP["Attention 레이어 내부"]
             GATHERGPU["HBM 블록 gather<br/>(기존과 동일, 고속)"]
-            GATHERCXL["CXL 블록 gather<br/>(신규 경로, 추가 레이턴시)"]
-            MERGE["부분합 병합<br/>(flash-attn 류의<br/>online softmax 방식 재사용 가능)"]
+            GATHERCXL["🟢 CXL 블록 gather<br/>(신규 경로, 추가 레이턴시)"]
+            MERGE["🟡 부분합 병합<br/>(flash-attn 류의<br/>online softmax 방식 재사용 가능)"]
         end
-        WRITE2["do_kv_cache_update()<br/>배치 정책에 따라<br/>HBM 또는 CXL에 직접 write"]
+        WRITE2["🟡 do_kv_cache_update()<br/>배치 정책에 따라<br/>HBM 또는 CXL에 직접 write"]
     end
 
     subgraph MEM["물리 메모리 (Worker 프로세스 주소공간에서 모두 접근 가능해야 함)"]
-        HBM2[("GPU HBM")]
-        CXLMEM2[("CXL Memory")]
+        HBM2[("GPU HBM<br/>(기존)")]
+        CXLMEM2[("CXL Memory<br/>🟢 신규")]
     end
 
     SCHED2 --> ALLOC2 --> SCHEDOUT2
@@ -313,6 +345,13 @@ graph TD
     MERGE --> WRITE2
     WRITE2 -- "hot 블록" --> HBM2
     WRITE2 -- "cold 블록" --> CXLMEM2
+
+    classDef existingBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef modifiedBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
+    classDef newBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:2px;
+    class SCHED2,FWD2,GATHERGPU,HBM2 existingBox
+    class ALLOC2,SCHEDOUT2,UPDATE2,MERGE,WRITE2 modifiedBox
+    class GATHERCXL,CXLMEM2 newBox
 ```
 
 **성능상 중요한 설계 결정**: CXL 블록을 gather할 때 매 attention 호출마다 개별
