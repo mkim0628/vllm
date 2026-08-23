@@ -1,0 +1,472 @@
+# vLLM KV Cache — 범용 메모리 추상화 레이어(MAL) 설계
+
+> 선행 문서: `doc-mk/vllm-kv-cache-analysis.md` (현재 구조), `doc-mk/vllm-kv-cache-memory-tiering.md`
+> (CXL 한정 옵션 A/B 분석)
+>
+> 이전 문서의 "옵션 B"는 CXL 하나를 염두에 두고 `TierAllocator`를 제안했습니다. 이번
+> 문서는 이를 일반화합니다: **CXL이든, custom HBM이든, 향후 등장할 어떤 새 메모리든
+> 코어 로직이 그 정체를 몰라도 되도록** 하는 **범용 Memory Abstraction Layer(MAL)**를
+> 설계하고, class/sequence/component/deployment 다이어그램으로 표현합니다. 마지막에
+> 이 설계가 실제로 부딪히는 제약을 정리합니다.
+
+## 0. 설계 목표 재정의
+
+기존 옵션 A(오프로드 커넥터 복제)와 옵션 B(CXL 전용 `TierAllocator`)는 "CXL이라는
+특정 대상"을 기준으로 설계했습니다. 이번 요구사항은 다릅니다 — **메모리 종류가
+무엇이든 상위 계층(스케줄러, KVCacheManager, attention 백엔드)이 "티어 A/B/C"로만
+인지하고, 그 정체(CXL/CPU/custom HBM/향후 미지의 메모리)는 오직 플러그인 구현체
+내부에만 존재**해야 합니다.
+
+핵심 통찰: **옵션 A와 옵션 B는 사실 "같은 스펙트럼의 양 끝"입니다.**
+
+- 옵션 A(오프로드) = 메모리가 GPU에서 직접 접근 불가능해서 매번 GPU로 복사해야 하는 경우
+- 옵션 B(1급 승격) = 메모리가 GPU에서 직접 접근 가능해서 attention 커널이 바로 gather할 수 있는 경우
+
+MAL은 이 둘을 **하나의 인터페이스 + 능력치(capability) 기반 자동 분기**로 통합합니다.
+새 메모리 플러그인은 자신의 능력치만 선언하면, 프레임워크가 DIRECT(직접 gather)
+모드로 편입시킬지 STAGED(오프로드) 모드로 편입시킬지 자동으로 결정합니다.
+
+```
+                    ┌─────────────────────────────┐
+                    │   Memory Abstraction Layer   │
+                    │  (모든 티어를 동일 인터페이스로) │
+                    └──────────────┬───────────────┘
+                                   │  capability 선언에 따라 자동 분기
+                    ┌──────────────┴───────────────┐
+                    ▼                               ▼
+         DIRECT 모드                          STAGED 모드
+    (attention 커널이 직접 gather)         (async 오프로드 후 GPU에서 연산)
+    예: 미래의 GPU-coherent 신형 메모리      예: 현재의 CXL/CPU DRAM (P2P 미지원 시)
+    → doc-3의 "옵션 B" 경로                 → doc-3의 "옵션 A" 경로
+```
+
+이미 존재하는 근거: `OffloadingSpecFactory.create_spec()`
+(`vllm/v1/kv_offload/factory.py:32-52`)은 `spec_name`이 내장 레지스트리에 없으면
+`spec_module_path`로 **완전히 vLLM 트리 밖의 임의 모듈을 동적 import**해서 씁니다.
+즉 "새 메모리 벤더가 별도 pip 패키지로 자체 구현을 배포하고 vLLM 코드는 한 줄도 안
+건드린다"는 패턴은 이미 검증되어 있습니다. MAL은 이 패턴을 STAGED 모드뿐 아니라
+DIRECT 모드까지 일관되게 확장하는 설계입니다.
+
+---
+
+## 1. UML Class Diagram — MAL 핵심 인터페이스
+
+```mermaid
+classDiagram
+    class MemoryTierCapabilities {
+        <<dataclass>>
+        +str tier_id
+        +int capacity_bytes
+        +bool byte_addressable
+        +bool gpu_direct_access
+        +bool cache_coherent
+        +float read_latency_ns
+        +float write_bandwidth_GBps
+        +int numa_node
+        +dict topology_hints
+    }
+
+    class MemoryTier {
+        <<abstract>>
+        +capabilities() MemoryTierCapabilities
+        +allocate(nbytes) TierBuffer
+        +free(buf) void
+        +as_torch_storage(buf) Tensor
+        +copy_in(src, dst, block_ids) Future
+        +copy_out(src, dst, block_ids) Future
+        +health_check() bool
+    }
+    MemoryTier <|.. GPUHBMTier
+    MemoryTier <|.. CXLTier
+    MemoryTier <|.. CustomHBMTier
+    MemoryTier <|.. CPUDRAMTier
+    MemoryTier <|.. FutureUnknownTier
+
+    class GPUHBMTier
+    class CXLTier
+    class CustomHBMTier
+    class CPUDRAMTier
+    class FutureUnknownTier
+    note for GPUHBMTier "gpu_direct_access = true, cache_coherent = true"
+    note for CXLTier "gpu_direct_access = 장비/프로토콜에 따라 다름"
+    note for CustomHBMTier "gpu_direct_access = PyTorch 백엔드 등록 여부에 따라 다름"
+    note for CPUDRAMTier "gpu_direct_access = false"
+    note for FutureUnknownTier "신규 벤더 플러그인 (외부 패키지)"
+
+    class MemoryTierRegistry {
+        <<factory>>
+        -dict registry
+        +register(name, module_path, class_name) void
+        +discover_plugins() void
+        +create(name, config) MemoryTier
+        +list_tiers() list
+    }
+    MemoryTierRegistry --> MemoryTier : creates
+
+    class TierPlacementPolicy {
+        <<abstract>>
+        +decide_tier(block_meta, access_stats, tiers) str
+        +decide_mode(tier_caps) IntegrationMode
+    }
+    TierPlacementPolicy <|.. LatencyAwarePolicy
+    TierPlacementPolicy <|.. CapacityWatermarkPolicy
+    TierPlacementPolicy --> MemoryTierCapabilities : reads
+
+    class IntegrationMode {
+        <<enumeration>>
+        DIRECT
+        STAGED
+    }
+    TierPlacementPolicy --> IntegrationMode
+
+    class TieredKVCacheConfig {
+        +int num_blocks
+        +list kv_cache_tensors
+        +list kv_cache_groups
+        +dict group_tier_assignment
+    }
+    TieredKVCacheConfig --|> KVCacheConfig : extends
+
+    class TieredBlockTable {
+        +dict block_locations
+        +append_row(tier_id, block_ids, row) void
+        +get_device_tensor(tier_id) Tensor
+    }
+    class TierLocation {
+        <<dataclass>>
+        +str tier_id
+        +int local_block_id
+    }
+    TieredBlockTable --> TierLocation
+    TieredBlockTable --|> MultiGroupBlockTable : extends
+
+    class AttentionMemoryView {
+        +gather_mode(tier_ids) IntegrationMode
+        +get_base_ptrs(tier_ids) dict
+        +materialize_to_gpu(tier_id, block_ids) Future
+    }
+    AttentionMemoryView --> MemoryTierRegistry
+    AttentionMemoryView --> IntegrationMode
+
+    class KVCacheCoordinator
+    note for KVCacheCoordinator "기존 클래스, 확장"
+    KVCacheCoordinator --> TierPlacementPolicy
+    KVCacheCoordinator --> TieredKVCacheConfig
+
+    class AttentionImpl {
+        +forward(args) void
+        +do_kv_cache_update(args) void
+    }
+    note for AttentionImpl "기존 클래스, 확장"
+    AttentionImpl --> AttentionMemoryView
+```
+
+### 핵심 설계 결정
+
+- **`MemoryTierCapabilities`가 유일한 "정체 노출 지점"**입니다. `gpu_direct_access`,
+  `cache_coherent` 두 플래그가 DIRECT/STAGED 모드를 가르는 기준입니다.
+- **`TieredBlockTable`은 기존 `MultiGroupBlockTable`을 확장**합니다 — §7(하이브리드
+  attention-type 그룹)에서 이미 "그룹별로 다른 block table"을 다루는 메커니즘이
+  존재하므로, "그룹"의 정의에 "attention 타입"뿐 아니라 "티어"까지 포함하도록
+  일반화하는 것이 자연스러운 재사용 경로입니다.
+- **`AttentionMemoryView`가 attention 백엔드와 MAL 사이의 유일한 접점**입니다.
+  attention 구현체는 `gather_mode()`가 `DIRECT`면 `get_base_ptrs()`로 여러 텐서를
+  받아 직접 커널에 넘기고, `STAGED`면 `materialize_to_gpu()`를 먼저 await한 뒤
+  평소처럼 GPU 텐서 하나만 다룹니다 — **백엔드 코드가 몰라도 되는 부분은 "어느
+  티어인지"뿐, "직접 갈지 복사해서 갈지"는 알아야 함**이 이 설계의 현실적 한계입니다
+  (§5의 제약 4 참고).
+
+---
+
+## 2. UML Sequence Diagram
+
+### 2.1 시작 시점 — 티어 디스커버리 & 능력치 협상
+
+```mermaid
+sequenceDiagram
+    participant EC as EngineCore
+    participant REG as MemoryTierRegistry
+    participant PLUGIN as entry_points<br/>("vllm.memory_tier_plugins")
+    participant GPU as GPUHBMTier
+    participant CXL as CXLTier (외부 패키지)
+    participant HBM2 as CustomHBMTier (외부 패키지)
+    participant COORD as KVCacheCoordinator
+
+    EC->>REG: discover_plugins()
+    REG->>PLUGIN: importlib.metadata.entry_points(group=...)
+    PLUGIN-->>REG: [GPUHBMTier, CXLTier, CustomHBMTier, ...]
+    Note over REG: 기존 OffloadingSpecFactory.create_spec()의<br/>module_path 동적 import 패턴 재사용
+
+    loop 각 등록된 티어
+        REG->>GPU: instantiate + capabilities()
+        GPU-->>REG: {gpu_direct_access: true, coherent: true, ...}
+        REG->>CXL: instantiate + capabilities()
+        CXL-->>REG: {gpu_direct_access: "probe 결과에 따름", ...}
+        REG->>HBM2: instantiate + capabilities()
+        HBM2-->>REG: {gpu_direct_access: true (벤더가 PyTorch 백엔드 제공), ...}
+    end
+
+    REG->>COORD: list_tiers() 결과 전달
+    COORD->>COORD: TierPlacementPolicy.decide_mode(caps)<br/>티어별 DIRECT/STAGED 확정
+    alt DIRECT 확정 티어
+        COORD->>COORD: TieredKVCacheConfig 에 포함<br/>(get_kv_cache_configs 확장 경로)
+    else STAGED 확정 티어
+        COORD->>COORD: 기존 KVConnector 오프로드 경로로 등록<br/>(OffloadingConnector 패턴 그대로 재사용)
+    end
+```
+
+### 2.2 런타임 — 블록 배치 결정 + Attention Gather
+
+```mermaid
+sequenceDiagram
+    participant SCHED as Scheduler
+    participant POLICY as TierPlacementPolicy
+    participant BT as TieredBlockTable
+    participant AMV as AttentionMemoryView
+    participant ATTN as AttentionImpl (백엔드)
+    participant DIRT as DIRECT 티어 (예: CustomHBM)
+    participant STGT as STAGED 티어 (예: CXL)
+
+    SCHED->>POLICY: decide_tier(block_meta, access_stats)
+    POLICY-->>SCHED: tier_id (access 빈도/레이턴시 기준)
+    SCHED->>BT: append_row(tier_id, block_ids, row)
+
+    Note over SCHED,ATTN: forward pass 시작
+    ATTN->>AMV: gather_mode(tier_ids_in_batch)
+    alt 배치 내 티어가 모두 DIRECT
+        AMV-->>ATTN: DIRECT
+        ATTN->>AMV: get_base_ptrs(tier_ids)
+        AMV-->>ATTN: {gpu: ptr0, custom_hbm: ptr1}
+        ATTN->>DIRT: 커널이 직접 gather (P2P 접근)
+        ATTN->>ATTN: 부분합 병합 (online softmax)
+    else 배치 내 STAGED 티어 포함
+        AMV-->>ATTN: STAGED
+        ATTN->>AMV: materialize_to_gpu(tier_id, block_ids)
+        AMV->>STGT: copy_out(...) 비동기 요청
+        STGT-->>AMV: Future (GPU 버퍼로 복사 완료)
+        AMV-->>ATTN: GPU 텐서 준비 완료
+        ATTN->>ATTN: 기존과 동일한 단일-풀 gather
+    end
+```
+
+**중요한 관찰**: 같은 배치 안에 DIRECT 티어 블록과 STAGED 티어 블록이 섞이면
+(예: 어떤 요청은 GPU+CustomHBM만 쓰고, 다른 요청은 CXL도 걸침) attention 커널
+호출 한 번으로 처리할 수 없고 분리 실행 후 병합해야 합니다. 이는 배치 구성 자체에
+새로운 제약을 만듭니다 (§5의 제약 5).
+
+---
+
+## 3. UML Component Diagram — 통합 아키텍처
+
+```mermaid
+graph TB
+    subgraph SCHED_LAYER["스케줄러 계층 (변경 최소)"]
+        SCHEDULER["Scheduler"]
+        KVMGR["KVCacheManager"]
+    end
+
+    subgraph MAL["🟢 Memory Abstraction Layer (신규)"]
+        REGISTRY["MemoryTierRegistry<br/>(플러그인 디스커버리 + 팩토리)"]
+        PLACEMENT["TierPlacementPolicy<br/>(DIRECT/STAGED 자동 분기)"]
+        COORD_EXT["KVCacheCoordinator 확장<br/>(TieredKVCacheConfig 생성)"]
+        AMV["AttentionMemoryView<br/>(백엔드용 게이트웨이)"]
+    end
+
+    subgraph PLUGINS["티어 플러그인 (각각 독립 배포 가능한 패키지)"]
+        GPUTIER["GPUHBMTier<br/>(vLLM 내장, 기존 로직 이관)"]
+        CXLTIER["CXLTier<br/>(외부 패키지 예시)"]
+        HBMTIER["CustomHBMTier<br/>(외부 패키지 예시)"]
+        FUTURETIER["??? Tier<br/>(미지의 향후 메모리)"]
+    end
+
+    subgraph FALLBACK["STAGED 모드 실행 엔진 (기존 코드 재사용)"]
+        OFFLOADCONN["기존 OffloadingConnector 인프라<br/>(job queue, LRU/ARC eviction,<br/>비동기 전송 — 그대로 재사용)"]
+    end
+
+    subgraph WORKER_LAYER["Worker 계층 (attention 백엔드만 확장)"]
+        BLOCKTABLE["TieredBlockTable"]
+        ATTNBACKEND["AttentionImpl<br/>(백엔드별 DIRECT gather 지원 여부 상이)"]
+    end
+
+    SCHEDULER --> KVMGR --> COORD_EXT
+    COORD_EXT --> PLACEMENT
+    PLACEMENT --> REGISTRY
+    REGISTRY --> GPUTIER
+    REGISTRY -. "entry_points 로드<br/>(vllm 트리 밖 패키지)" .-> CXLTIER
+    REGISTRY -. "entry_points 로드<br/>(vllm 트리 밖 패키지)" .-> HBMTIER
+    REGISTRY -. "동일 인터페이스" .-> FUTURETIER
+
+    PLACEMENT -- "DIRECT 확정" --> BLOCKTABLE
+    PLACEMENT -- "STAGED 확정" --> OFFLOADCONN
+
+    BLOCKTABLE --> AMV
+    AMV --> ATTNBACKEND
+    AMV -. "STAGED 티어는 여기로 위임" .-> OFFLOADCONN
+
+    classDef existingBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef newBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:2px;
+    classDef modifiedBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
+    class SCHEDULER,KVMGR,GPUTIER,OFFLOADCONN existingBox
+    class REGISTRY,PLACEMENT,AMV,CXLTIER,HBMTIER,FUTURETIER newBox
+    class COORD_EXT,BLOCKTABLE,ATTNBACKEND modifiedBox
+```
+
+**이 다이어그램이 보여주는 핵심**: MAL을 도입해도 **STAGED 모드는 기존
+`OffloadingConnector` 인프라를 그대로 재사용**합니다 — 완전히 새로 만드는 게 아니라
+"기존 오프로드 인프라 + 새 DIRECT 경로"를 하나의 결정 지점(`TierPlacementPolicy`)
+아래 통합하는 것입니다. 새 메모리(CXL, custom HBM, 미래의 무언가)는 모두 같은
+`MemoryTier` 인터페이스만 구현하면 되고, `MemoryTierRegistry`가 entry_points로
+vLLM 트리 밖에서 로드합니다.
+
+---
+
+## 4. UML Deployment Diagram — 물리 토폴로지 관점
+
+```mermaid
+graph TB
+    subgraph NODE["서버 노드"]
+        subgraph GPUDEV["GPU 디바이스"]
+            HBM["GPU HBM<br/>(온보드, coherent, 가장 빠름)"]
+            SM["SM / Attention 커널"]
+        end
+
+        subgraph HOSTMEM["Host (CPU) 메모리 공간"]
+            DRAM["CPU DRAM<br/>(NUMA node 0/1)"]
+        end
+
+        subgraph CXLDEV["CXL 확장 장치 (PCIe/CXL 스위치 경유)"]
+            CXLPOOL["CXL Memory Pool<br/>(여러 GPU/노드가 공유 가능)"]
+        end
+
+        subgraph CUSTOMDEV["Custom HBM 가속기 카드"]
+            CUSTOMMEM["Custom HBM<br/>(벤더 자체 인터커넥트)"]
+        end
+    end
+
+    SM -- "온칩, ns 단위" --> HBM
+    SM -. "PCIe/NVLink, UVA 필요<br/>(coherent 여부는 프로토콜에 따름)" .-> DRAM
+    SM -. "CXL.mem, P2P 지원 시에만 직접 접근<br/>(스위치 홉 수만큼 레이턴시 증가)" .-> CXLPOOL
+    SM -. "벤더 인터커넥트 + PyTorch 백엔드 등록 필요<br/>(미지원 시 STAGED로 강등)" .-> CUSTOMMEM
+
+    CXLPOOL -. "다른 GPU/노드와 공유<br/>(경합 발생 가능)" .-> OTHERGPU["다른 노드의 GPU<br/>(동일 CXL 풀 공유 시)"]
+
+    classDef fast fill:#d8f5d0,stroke:#2f9e44,color:#1b4332;
+    classDef uncertain fill:#fff3bf,stroke:#f08c00,color:#5c3c00;
+    class HBM,SM fast
+    class DRAM,CXLPOOL,CUSTOMMEM uncertain
+```
+
+이 다이어그램은 MAL의 `MemoryTierCapabilities`가 **정적 스펙만으로는 담아내기 어려운
+것**을 보여줍니다: CXL 풀이 다른 GPU/노드와 공유되면 실측 레이턴시가 "현재 경합 상태"에
+따라 달라지고, 이는 티어 하나에 고정된 `read_latency_ns` 값으로는 표현이 안 됩니다.
+
+---
+
+## 5. 제약사항 (Constraints)
+
+### 5.1 GPU 직접 주소 지정 가능성 — DIRECT 모드의 진짜 관문
+
+`gpu_direct_access` 플래그 하나로 추상화했지만, 실제로는 하드웨어/프로토콜 수준의
+문제입니다. attention 커널이 어떤 메모리를 gather하려면 그 메모리가 **GPU의 가상
+주소공간에 매핑**되어 있어야 합니다 (P2P DMA, UVA, 혹은 `cudaHostRegister`류
+메커니즘). CXL.mem은 CXL 3.0의 P2P 기능이나 하드웨어 지원 여부에 따라 가능/불가능이
+갈리고, custom HBM 가속기는 애초에 별도 주소공간을 쓰는 경우가 많습니다. **MAL은
+이 판단을 캡슐화할 뿐 문제 자체를 없애지 못합니다** — capability가 `False`인 티어는
+항상 STAGED로 강등되고, DIRECT 모드가 주는 "유효 KV 용량 확장" 이점을 못 누립니다.
+
+### 5.2 PyTorch 디바이스 통합 제약
+
+새 메모리를 텐서 레벨에서 다루려면 PyTorch가 그 메모리를 "디바이스"로 인식해야
+합니다 — `PrivateUse1` 백엔드 등록, 혹은 `CUDAPluggableAllocator`/`MemPool`류의
+커스텀 allocator 구현이 필요합니다. 현재 vLLM의 `CuMemAllocator`
+(`vllm/device_allocator/cumem.py`)도 CUDA 전용입니다. **벤더가 자체 PyTorch 백엔드를
+제공하지 않으면 MAL의 인터페이스가 아무리 잘 설계돼도 `as_torch_storage()`가 `None`을
+반환할 수밖에 없고, 자동으로 STAGED로 떨어집니다.**
+
+### 5.3 캐시 일관성(coherency)
+
+CXL.mem처럼 GPU 캐시와 일관성이 보장되지 않는 프로토콜의 경우, write 후 명시적
+flush/fence가 필요합니다. `do_kv_cache_update()`가 티어마다 다른 동기화 시맨틱을
+가져야 하므로, **"어떤 티어인지 몰라도 된다"는 MAL의 약속이 attention write 경로에서는
+완전히 지켜지기 어렵습니다** — 최소한 "동기화 필요 여부" 플래그는 attention 백엔드까지
+새어 나갑니다.
+
+### 5.4 Attention 커널의 이종 gather는 결국 백엔드별 개별 구현
+
+MAL이 인터페이스를 통일해도, FlashAttention/FlashInfer/Triton/MLA 등 각 attention
+백엔드가 "여러 base pointer를 gather"하는 커널을 실제로 구현해야 DIRECT 모드의
+이점이 실현됩니다. **추상화 계층은 이 구현 작업량을 없애주지 않고, 오히려 "어떤
+백엔드가 어떤 티어 조합을 지원하는지"라는 새 호환성 매트릭스를 만들어냅니다**
+(예: 백엔드 A는 GPU+CustomHBM 조합만 지원, 백엔드 B는 GPU 단독만 지원 등). 이 매트릭스
+관리 자체가 새로운 유지보수 부담입니다.
+
+### 5.5 배치 구성 제약 — 이종 티어가 섞인 배치의 실행 분기
+
+§2.2에서 본 것처럼, 같은 스텝의 배치 안에 DIRECT 전용 요청과 STAGED 경유 요청이
+섞이면 attention 커널 호출을 분리해야 합니다. 이는 continuous batching의 단순함을
+깨뜨립니다 — Scheduler가 "이번 스텝에 묶을 요청들"을 고를 때 **티어 조합까지 고려한
+그룹핑**을 해야 커널 호출 분기 수를 최소화할 수 있습니다. 이는 §7(하이브리드
+attention-type 그룹)에서 이미 존재하는 문제(그룹별로 분리 실행)와 구조적으로
+동일하지만, 티어 축이 추가되면 그룹의 조합 수가 늘어납니다.
+
+### 5.6 레이턴시 이질성에 따른 스케줄링 불확실성
+
+Scheduler는 지금 "블록 하나 = 균일 비용"이라는 전제로 continuous batching을
+스케줄링합니다. 티어마다 레이턴시가 다르면 같은 블록 수라도 실제 스텝 시간이
+달라져 스케줄링 예측이 어려워집니다. `TierPlacementPolicy`가 배치 결정을 잘해도,
+**Scheduler 자체의 비용 모델(현재는 토큰 수/블록 수 기반)을 티어별 가중치까지
+반영하도록 갱신하지 않으면 정확한 SLA 보장이 어렵습니다.**
+
+### 5.7 용량/토폴로지 디스커버리 & 동적 리소스 경합
+
+CXL은 스위치 팬아웃 구조로 여러 GPU/노드가 하나의 풀을 공유할 수 있습니다
+(§4의 deployment 다이어그램). NUMA 거리, 스위치 홉 수, 다른 GPU와의 대역폭 경합까지
+고려해야 정확한 배치가 가능한데, `MemoryTierCapabilities`의 정적 필드(단일
+`read_latency_ns` 숫자)만으로는 "현재 경합 상태에 따라 달라지는 실측 레이턴시"를
+표현할 수 없습니다. 실사용에는 **정적 capability 선언 + 동적 프로빙/모니터링을
+결합한 2단계 설계**가 필요합니다 — 이는 초기 MAL 설계 범위를 넘어서는 추가 작업입니다.
+
+### 5.8 장애/핫플러그 대응
+
+새 메모리 계층은 GPU HBM과 다른 장애 도메인을 가집니다 (디바이스 hot-unplug, ECC
+오류, 링크 flap). MAL은 "이 티어가 갑자기 사라지면 그 안의 블록들을 어떻게 할지"에
+대한 정책을 새로 정의해야 합니다 (해당 블록을 가진 요청을 recompute 시킬지, 다른
+티어로 우선 강등할지 등). **기존 코드는 이런 시나리오를 아예 고려하지 않습니다** —
+지금은 "GPU가 사라지면 프로세스 자체가 죽는다"가 암묵적 전제입니다.
+
+### 5.9 외부 벤더 확장성은 STAGED 모드에서만 "설치만 하면 끝"
+
+`OffloadingSpecFactory.create_spec()`의 `spec_module_path` 동적 import
+(§0 참고)를 그대로 `MemoryTierRegistry`에 재사용하면, **STAGED 모드로만 동작하는
+새 메모리는 vLLM 코드를 한 줄도 안 건드리고 별도 pip 패키지로 배포/설치**할 수
+있습니다 — 이미 검증된 패턴이라 리스크가 낮습니다. 하지만 **DIRECT 모드로 편입되길
+원하는 벤더는 §5.4의 attention 백엔드 커널까지 손대야 하므로, "플러그인 설치만으로
+끝"이 되는 건 STAGED 모드뿐**입니다. 이 비대칭성을 벤더/사용자에게 명확히
+전달해야 기대치 관리가 됩니다.
+
+---
+
+## 6. 요약 — MAL 도입으로 정말 달라지는 것
+
+| | MAL 이전 (doc-3의 옵션 A/B 각각 별도 구현) | MAL 이후 |
+|---|---|---|
+| 새 메모리 추가 시 | CXL 전용 코드, custom HBM 전용 코드가 서로 다른 패턴으로 존재 | 동일한 `MemoryTier` 인터페이스 구현 + capability 선언만 하면 됨 |
+| DIRECT vs STAGED 선택 | 설계 시점에 사람이 미리 결정 (옵션 A로 갈지 B로 갈지) | 런타임에 capability 기반 자동 분기 |
+| 기존 오프로드 인프라 | 옵션 B에서는 재사용 안 됨 (완전 별개 경로) | STAGED 모드의 실행 엔진으로 그대로 재사용 |
+| 벤더 확장성 | 벤더가 vLLM 코어를 이해하고 침투적으로 수정해야 함 | STAGED는 순수 플러그인, DIRECT는 백엔드 커널 작업만 추가 |
+| 근본 제약(§5.1~5.8) | 옵션 B에서도 동일하게 존재했음 | **사라지지 않음** — MAL은 이 제약들을 "선언적으로 관리 가능하게" 만들 뿐, 하드웨어/커널 수준 문제 자체를 없애지는 못함 |
+
+**결론**: MAL은 "새 메모리를 추가하는 절차"를 표준화하고 기존 오프로드 인프라를
+재사용 가능하게 만드는 실질적 가치가 있지만, §5의 제약들은 추상화 레이어의
+존재 여부와 무관하게 하드웨어/PyTorch 생태계 수준에서 풀어야 하는 문제로 남습니다.
+즉 MAL은 **"엔지니어링 조직화 도구"**에 가깝고, **"성능/호환성 문제 자체의
+해결책"은 아닙니다.**
+
+---
+
+## 7. 관련 문서
+
+- `doc-mk/vllm-call-path-analysis.md` — 요청 처리 전체 call path
+- `doc-mk/vllm-kv-cache-analysis.md` — 현재 KV cache 구조 상세
+- `doc-mk/vllm-kv-cache-memory-tiering.md` — CXL 한정 옵션 A/B (본 문서가 이 둘을
+  하나의 프레임워크로 통합/일반화)
