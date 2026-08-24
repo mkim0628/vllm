@@ -464,9 +464,239 @@ CXL은 스위치 팬아웃 구조로 여러 GPU/노드가 하나의 풀을 공�
 
 ---
 
-## 7. 관련 문서
+## 7. 옵션 C — Compute-in-Memory(PIM) 확장: Tiering과 Compute를 분리된 축으로
 
-- `doc-mk/vllm-call-path-analysis.md` — 요청 처리 전체 call path
+§1~§6은 "데이터를 어디에 둘지"(tiering)만 다뤘습니다. CXL/custom HBM 중에는 자체
+연산 능력을 가진(PIM, near-memory compute) 디바이스도 있을 수 있는데, 이건 "어디서
+계산할지"라는 **별개의 축**입니다. 이 절은 두 축을 하나의 설계 포인트에 억지로
+합치지 않고, **얇은 공통 베이스 + 두 개의 독립된 확장 인터페이스**로 분리하는
+설계를 제시합니다.
+
+### 7.1 설계 원칙
+
+- **Tiering 축**은 스케줄러(EngineCore 프로세스)가 소비합니다 — "이 블록을 어느
+  메모리에 둘까"는 `TierPlacementPolicy`가 결정하고, 이 결정에는 저장 용량/레이턴시/
+  대역폭 정보만 있으면 됩니다.
+- **Compute 축**은 워커(Worker 프로세스)가 소비합니다 — "이 연산을 어디서 실행할까"는
+  attention forward pass 시점에 `ComputeDispatcher`가 결정하고, 이 결정에는 지원
+  연산 종류/정밀도/동시 실행 슬롯 정보가 필요합니다.
+- 두 축은 완전히 독립된 인터페이스(`MemoryTier` / `ComputeCapableTier`)로
+  분리하되, **같은 `tier_id`를 공유**해서 정합성을 보장합니다. 순수 저장 전용
+  디바이스는 `MemoryTier`만 구현하고, PIM처럼 저장+연산을 겸하는 디바이스는 두
+  인터페이스를 모두 구현합니다 (Interface Segregation).
+- 이 분리는 vLLM이 이미 갖고 있는 **스케줄러/워커 프로세스 경계**와 정확히
+  일치합니다 (`doc-mk/vllm-call-path-analysis.md` §2) — 새로운 구조를 발명하는 게
+  아니라 기존 경계에 두 축을 각각 얹는 것입니다.
+
+### 7.2 UML Class Diagram — 두 인터페이스의 분리와 결합
+
+```mermaid
+classDiagram
+    class MemoryTier {
+        <<interface>>
+        +capabilities() MemoryTierCapabilities
+        +allocate(nbytes) TierBuffer
+        +as_torch_storage(buf) Tensor
+    }
+
+    class ComputeCapableTier {
+        <<interface>>
+        +compute_capabilities() ComputeCapabilities
+        +supported_ops() list
+        +execute_partial(op, query, block_ids, meta) PartialResult
+        +max_concurrent_ops() int
+    }
+
+    class ComputeCapabilities {
+        <<dataclass>>
+        +list supported_ops
+        +str precision_profile
+        +int max_concurrent_ops
+        +float compute_latency_ns
+    }
+    ComputeCapableTier --> ComputeCapabilities : reports
+
+    class PartialResult {
+        <<dataclass>>
+        +Tensor partial_output
+        +Tensor partial_lse
+        +str tier_id
+        +list block_ids
+    }
+    ComputeCapableTier --> PartialResult : returns
+
+    class CXLTier
+    class CPUDRAMTier
+    class PIMTier
+    class FutureComputeTier
+
+    MemoryTier <|.. CXLTier
+    MemoryTier <|.. CPUDRAMTier
+    MemoryTier <|.. PIMTier
+    MemoryTier <|.. FutureComputeTier
+    ComputeCapableTier <|.. PIMTier
+    ComputeCapableTier <|.. FutureComputeTier
+    note for CXLTier "storage-only, MemoryTier만 구현"
+    note for PIMTier "storage와 compute 모두 지원, 두 인터페이스 모두 구현"
+
+    class TierPlacementPolicy {
+        <<abstract>>
+        +decide_tier(block_meta, tiers) str
+    }
+    TierPlacementPolicy --> MemoryTier : tiering 축, 스케줄러 측 소비
+
+    class ComputeDispatcher {
+        +should_dispatch(op, tier_id) bool
+        +dispatch(op, query, tier_id, block_ids) Future
+    }
+    ComputeDispatcher --> ComputeCapableTier : compute 축, 워커 측 소비
+
+    class PartialResultMerger {
+        +merge(results) Tensor
+    }
+    ComputeDispatcher --> PartialResultMerger
+
+    class MemoryTierRegistry
+    MemoryTierRegistry --> MemoryTier : creates
+    MemoryTierRegistry --> ComputeCapableTier : creates, 동일 tier_id
+
+    class AttentionImpl
+    AttentionImpl --> ComputeDispatcher
+    AttentionImpl --> AttentionMemoryView : 기존 DIRECT/STAGED 경로
+```
+
+`MemoryTierRegistry`가 **같은 `tier_id`로 두 인터페이스를 모두 생성**한다는 점이
+핵심입니다 — `TierPlacementPolicy`와 `ComputeDispatcher`는 서로의 존재를 몰라도
+되지만, 둘 다 같은 레지스트리를 참조하므로 "이 블록이 지금 어느 티어에 있는지"와
+"그 티어가 연산도 할 수 있는지"가 항상 같은 진실 소스에서 나옵니다.
+
+### 7.3 UML Sequence Diagram — 두 축이 같은 스텝 안에서 독립적으로 흐름
+
+```mermaid
+sequenceDiagram
+    participant SCHED as Scheduler
+    participant POLICY as TierPlacementPolicy
+    participant REG as MemoryTierRegistry
+    participant ATTN as AttentionImpl
+    participant DISP as ComputeDispatcher
+    participant PIM as PIMTier
+    participant GPUK as GPU SM 기존 attention 커널
+    participant MERGE as PartialResultMerger
+
+    rect rgb(238, 241, 244)
+        Note over SCHED,REG: Tiering 축 - 스케줄러 측, 기존 절과 동일
+        SCHED->>POLICY: decide_tier(block_meta)
+        POLICY->>REG: list_tiers()
+        REG-->>POLICY: capabilities, storage 정보만 사용
+        POLICY-->>SCHED: tier_id
+    end
+
+    Note over SCHED,MERGE: 같은 스텝의 forward pass
+
+    rect rgb(216, 245, 208)
+        Note over ATTN,MERGE: Compute 축 - 워커 측, 신규
+        ATTN->>DISP: should_dispatch(op attention, tier_id)
+        DISP->>REG: tier_id 가 ComputeCapableTier 인지 조회
+        alt tier_id 가 컴퓨팅 가능하고 op 지원됨
+            DISP->>PIM: execute_partial(op, query, block_ids, meta)
+            PIM-->>DISP: PartialResult partial_output, partial_lse
+            DISP->>GPUK: 나머지 블록은 기존 방식대로 GPU 에서 attention
+            GPUK-->>DISP: PartialResult GPU 측
+            DISP->>MERGE: merge 여러 PartialResult
+            MERGE-->>ATTN: 최종 attention 출력
+        else 미지원 이거나 STAGED 티어
+            DISP-->>ATTN: 기존 AttentionMemoryView 경로로 폴백
+        end
+    end
+```
+
+회색 블록(Tiering)과 초록 블록(Compute)이 **완전히 독립된 컴포넌트 조합으로
+실행**되지만, 같은 스텝 안에서 순서대로 일어난다는 걸 보여줍니다. `ComputeDispatcher`가
+연산을 못 위임할 상황이면 §2.2에서 이미 설계한 기존 DIRECT/STAGED 경로로 그냥
+폴백합니다 — Compute 축이 없어도 Tiering 축만으로 시스템이 정상 동작한다는 뜻이고,
+이게 두 축을 분리한 실질적 이득입니다.
+
+### 7.4 UML Component Diagram — 두 축과 공유 식별자
+
+```mermaid
+graph TB
+    subgraph SCHED_SIDE["EngineCore 프로세스 — Tiering 축"]
+        SCHEDULER["Scheduler"]
+        COORD["KVCacheCoordinator"]
+        TPP["TierPlacementPolicy"]
+    end
+
+    subgraph SHARED["공유 식별자 계층"]
+        REGISTRY["MemoryTierRegistry<br/>tier_id 로 두 축을 연결"]
+    end
+
+    subgraph WORKER_SIDE["Worker 프로세스 — Compute 축 신규"]
+        ATTN["AttentionImpl"]
+        DISPATCHER["ComputeDispatcher"]
+        MERGER["PartialResultMerger"]
+    end
+
+    subgraph PLUGINS["티어 플러그인"]
+        CXLP["CXLTier<br/>storage-only"]
+        PIMP["PIMTier<br/>storage + compute"]
+    end
+
+    SCHEDULER --> COORD --> TPP --> REGISTRY
+    REGISTRY --> CXLP
+    REGISTRY --> PIMP
+    ATTN --> DISPATCHER --> REGISTRY
+    DISPATCHER --> MERGER
+    DISPATCHER -. "compute 계약이 있을 때만 사용" .-> PIMP
+
+    classDef existingBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef newBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:2px;
+    classDef modifiedBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
+    class SCHEDULER,COORD,TPP,CXLP,REGISTRY existingBox
+    class DISPATCHER,MERGER,PIMP newBox
+    class ATTN modifiedBox
+```
+
+### 7.5 축별 소유권 정리
+
+| | Tiering 축 | Compute 축 |
+|---|---|---|
+| 소비 주체 | `Scheduler` (EngineCore 프로세스) | `AttentionImpl` (Worker 프로세스) |
+| 트리거 시점 | 블록 할당 시 (`allocate_slots`) | forward pass 매 스텝 |
+| 핵심 클래스 | `TierPlacementPolicy`, `KVCacheCoordinator` | `ComputeDispatcher`, `PartialResultMerger` |
+| 필요한 capability | 용량/레이턴시/대역폭/coherency | 지원 연산/정밀도/동시 슬롯 수 |
+| 실패 시 동작 | 다른 티어로 재배치 또는 recompute | 즉시 GPU SM 폴백 (§2.2 경로 재사용) |
+| 순수 storage 티어의 참여 | O (항상) | X (구현 안 하면 자동 제외) |
+
+### 7.6 Compute 축에서만 새로 생기는 제약 (§5의 9가지에 추가)
+
+- **실행 단위 불일치**: PIM 디바이스가 처리 가능한 연산 단위(예: 고정 크기 배치,
+  특정 시퀀스 길이)가 PagedAttention의 블록 단위와 정확히 맞아떨어지지 않을 수
+  있음 — `execute_partial()`이 내부적으로 재정렬/패딩을 해야 할 수 있습니다.
+- **이기종 수치 정밀도 정합성**: `PartialResultMerger`가 online-softmax 방식으로
+  GPU 결과와 PIM 결과를 병합하려면, 두 연산 유닛의 accumulation 순서/정밀도가
+  호환되어야 합니다 — 그렇지 않으면 병합 결과가 GPU 단독 연산과 미묘하게 달라질 수
+  있습니다.
+- **벤더 고유 ISA/커널 이식성**: `execute_partial()`의 실제 구현은 PIM 벤더의
+  고유 프로그래밍 모델에 묶이므로, `supported_ops()` 목록 자체가 벤더마다 크게
+  다를 수 있습니다.
+- **동시 실행 슬롯 제한에 따른 큐잉**: `max_concurrent_ops`를 넘는 요청이 몰리면
+  `ComputeDispatcher`가 자체적으로 큐잉/공정성 정책을 가져야 하는데, 이는 이미
+  존재하는 Scheduler의 continuous batching 큐와는 별개의 새 큐입니다 — 두 큐
+  사이의 우선순위 상호작용을 설계해야 합니다.
+- **연산 실패라는 새로운 실패 모드**: 기존 §5.8은 "티어가 사라지면 데이터를
+  잃는다"는 저장 실패만 다뤘습니다. Compute 축에서는 "디바이스는 살아있지만 연산이
+  타임아웃/에러로 실패"하는 상황이 새로 생기고, 이때는 데이터 재구성이 아니라
+  **해당 부분 연산만 즉시 GPU로 재실행**하는 폴백이 필요합니다.
+- **관측성/디버깅 난이도 증가**: 하나의 attention 호출이 GPU와 PIM 두 개의 독립
+  서브시스템에 걸쳐 실행되므로, end-to-end 레이턴시 프로파일링과 정확도 회귀
+  디버깅이 단일 커널 호출보다 복잡해집니다.
+
+---
+
+## 8. 관련 문서
+
+- `doc-mk/vllm-call-path-analysis.md` — 요청 처리 전체 call path (스케줄러/워커
+  프로세스 경계의 근거)
 - `doc-mk/vllm-kv-cache-analysis.md` — 현재 KV cache 구조 상세
-- `doc-mk/vllm-kv-cache-memory-tiering.md` — CXL 한정 옵션 A/B (본 문서가 이 둘을
-  하나의 프레임워크로 통합/일반화)
+- `doc-mk/vllm-kv-cache-memory-tiering.md` — CXL 한정 옵션 A/B (§1~§6이 이 둘을
+  하나의 프레임워크로 통합/일반화, §7이 Compute-in-Memory 축을 추가로 분리)
