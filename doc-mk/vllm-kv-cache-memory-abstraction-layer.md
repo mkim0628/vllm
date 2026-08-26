@@ -693,7 +693,94 @@ graph TB
 
 ---
 
-## 8. 관련 문서
+## 8. 메모리 관리 관점의 통합 Module View
+
+지금까지의 다이어그램들을 하나로 압축해서, **Scheduler에서 물리 메모리까지
+내려가는 단일 module view**로 그리면 다음과 같습니다. 시스템이 지원하는 메모리
+종류를 GPU HBM, CPU DRAM, Custom HBM(별도 가속기 카드의 HBM), CXL Memory, HBF로
+가정했습니다.
+
+```mermaid
+graph TD
+    SCHED["Scheduler<br/>EngineCore 프로세스"]
+
+    KVMGR["KVCacheManager / KVCacheCoordinator<br/>블록 할당·해제·prefix cache 부기"]
+
+    TPP["TierPlacementPolicy<br/>어느 티어에 둘지 결정"]
+
+    REGISTRY["MemoryTierRegistry<br/>Memory Abstraction Layer<br/>플러그인 팩토리 / capability 조회"]
+
+    subgraph PLUGIN_LAYER["MemoryTier 구현체 - 플러그인, tier_id 로 식별"]
+        GPUHBM["GPUHBMTier"]
+        DRAMT["CPUDRAMTier"]
+        CUSTOMT["CustomHBMTier"]
+        CXLT["CXLTier"]
+        HBFT["HBFTier"]
+    end
+
+    subgraph PHYS_LOCAL["물리 메모리 - 연산 유닛에 로컬, Tier 0"]
+        HBM_PHYS[("GPU HBM<br/>SM과 동일 패키지<br/>항상 상주, 선택 불가")]
+    end
+
+    subgraph PHYS_REMOTE["물리 메모리 - 상호연결 PCIe/CXL/NVLink 경유, 선택적"]
+        DRAM_PHYS[("CPU DRAM")]
+        CUSTOM_PHYS[("Custom HBM<br/>별도 가속기 카드의 HBM")]
+        CXL_PHYS[("CXL Memory")]
+        HBF_PHYS[("HBF<br/>초고용량 / 저속 / 비휘발성")]
+    end
+
+    SCHED --> KVMGR --> TPP --> REGISTRY
+    REGISTRY --> GPUHBM --> HBM_PHYS
+    REGISTRY --> DRAMT --> DRAM_PHYS
+    REGISTRY --> CUSTOMT --> CUSTOM_PHYS
+    REGISTRY --> CXLT --> CXL_PHYS
+    REGISTRY --> HBFT --> HBF_PHYS
+
+    classDef localMem fill:#dbe7ff,stroke:#3b5bdb,color:#1c2b5e,stroke-width:2px;
+    classDef remoteMem fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    class HBM_PHYS,GPUHBM localMem
+    class DRAM_PHYS,CUSTOM_PHYS,CXL_PHYS,HBF_PHYS,DRAMT,CUSTOMT,CXLT,HBFT remoteMem
+```
+
+### 8.1 검토 — GPU HBM을 이 자리에 두는 게 맞는가
+
+**결론: 리스트에 넣는 것 자체는 맞지만, "동급 선택지"로 나열하면 오해가 생깁니다.**
+위 다이어그램에서 GPU HBM만 파란색(로컬)으로, 나머지 넷은 회색(원격)으로 구분한
+이유가 이것입니다.
+
+- **플러그인 관점에서는 맞습니다**: `MemoryTierRegistry` 입장에서 GPU HBM도 결국
+  `GPUHBMTier`라는 하나의 `MemoryTier` 구현체로 등록되고, 다른 플러그인과 동일한
+  인터페이스로 다뤄집니다 — §1의 class diagram에서도 `GPUHBMTier`를 `CXLTier` 등과
+  나란히 그렸습니다. 이 자체는 일관성이 있습니다.
+- **하지만 위상이 다릅니다**: GPU HBM은 attention 커널을 실행하는 SM과 **물리적으로
+  같은 패키지**에 있는 유일한 메모리입니다. 나머지 넷(CPU DRAM, Custom HBM, CXL,
+  HBF)은 전부 PCIe/CXL/NVLink 같은 **상호연결(interconnect)을 거쳐야 도달 가능**한
+  메모리입니다. 이 차이가 바로 §5.1(GPU 직접 주소 지정 가능성)과 §5.3(캐시 일관성)에서
+  다룬 `gpu_direct_access`/`cache_coherent` capability 축이 애초에 왜 필요했는지의
+  근원입니다 — "메모리 기술 이름"이 아니라 "연산 유닛으로부터의 물리적 거리"가
+  DIRECT/STAGED를 가르는 진짜 기준입니다.
+- **실무적 함의**: GPU HBM은 "선택 가능한 티어 중 하나"가 아니라, 최소한 일부
+  블록은 반드시 여기 있어야 attention 연산 자체가 성립하는 **필수 baseline**입니다.
+  나머지 넷은 순수하게 optional한 확장(있으면 좋고 없어도 시스템이 동작)입니다.
+  그래서 module view에서 GPU HBM을 별도 그룹(로컬/Tier 0)으로 분리하고, 나머지를
+  "원격" 그룹으로 묶는 편이 구조적으로 더 정확합니다.
+- **"Custom HBM" 이름에 대한 참고**: 만약 이게 GPU 자신의 온보드 메모리가 아니라
+  "다른 가속기 카드에 달린 HBM"을 의미한다면(일반적으로 그렇게 해석됩니다), 기술
+  이름은 똑같이 "HBM"이어도 토폴로지상으로는 CXL-memory/HBF와 같은 **원격** 범주에
+  속합니다. **분류 기준은 메모리 기술 이름이 아니라 연산 유닛으로부터의 위치**여야
+  한다는 걸 보여주는 좋은 예시입니다.
+- **HBF에 대한 참고**: HBF(HBM 인터포저 위에 NAND 플래시를 얹은 초고용량·비휘발성
+  메모리)는 원격 그룹 안에서도 가장 STAGED 쪽에 가까울 가능성이 높습니다 — 용량은
+  압도적으로 크지만 레이턴시가 CXL보다도 느릴 것으로 예상되어, DIRECT 모드보다는
+  "콜드 티어" 역할(§1의 `CPUDRAMTier`보다 한 단계 더 차가운 계층)에 적합합니다.
+
+요약하면, **다이어그램에 GPU HBM을 포함하는 것은 맞지만, 다른 4개와 나란히 한 줄로
+그리기보다는 "로컬(필수, Tier 0)" vs "원격(선택적, Tier 1+)"이라는 두 그룹으로
+나눠 그리는 게 이 시스템의 실제 제약을 더 정확히 반영합니다.**
+
+---
+
+## 9. 관련 문서
 
 - `doc-mk/vllm-call-path-analysis.md` — 요청 처리 전체 call path (스케줄러/워커
   프로세스 경계의 근거)
