@@ -292,7 +292,67 @@ Eager를 선택하는 순간, "이 예측 결정을 누가 내리는가"라는 *
 
 ---
 
-## 5. 관련 문서
+## 5. Module View — 트리거 지점의 구조적 차이
+
+일반적인 module view(누가 누구를 참조/호출하는가)로 그리면 후보1은 그릴
+새 모듈이 없고, 후보2는 이미 §3.2 class diagram이 그 관계를 다 보여줍니다 —
+그대로 그리면 중복입니다. 이 DP에서 module view가 실제로 보여줘야 할 건
+**"이 모듈에 언제, 어떤 트리거로 진입하는가"**입니다. 그 관점으로 두 후보를
+하나의 다이어그램에 겹쳐 그리면 차이가 드러납니다.
+
+```mermaid
+graph TD
+    subgraph MAIN["메인 실행 경로 — 매 스텝, forward pass 안에서만 진입"]
+        RUNNER["GPUModelRunner.execute_model()"]
+        ATTN["AttentionImpl.forward()"]
+        AMV["AttentionMemoryView"]
+        DISP["ComputeDispatcher"]
+    end
+
+    subgraph EAGER["🟢 Eager 프리페치 경로 — 후보2에서만 존재<br/>forward pass 와 무관하게, 스텝 경계에서 독립 진입"]
+        SCHEDEND["Scheduler<br/>스텝 N 종료 시점"]
+        PRED["AccessPredictor"]
+        CACHE["PrefetchCache"]
+    end
+
+    subgraph TIERS["티어"]
+        STGT["STAGED 티어"]
+        PIMT["ComputeCapableTier"]
+    end
+
+    RUNNER --> ATTN
+    ATTN --> AMV
+    ATTN --> DISP
+    AMV -- "후보1: 바로 호출" --> STGT
+    DISP -- "후보1: 바로 호출" --> PIMT
+
+    AMV -. "후보2: 먼저 캐시 조회" .-> CACHE
+    DISP -. "후보2: 먼저 캐시 조회" .-> CACHE
+    SCHEDEND -.-> PRED
+    PRED -.-> CACHE
+    PRED -. "미리 트리거" .-> STGT
+    PRED -. "미리 트리거" .-> PIMT
+
+    classDef mainBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef eagerBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:2px;
+    class RUNNER,ATTN,AMV,DISP,STGT,PIMT mainBox
+    class SCHEDEND,PRED,CACHE eagerBox
+```
+
+**이 다이어그램이 실제로 보여주는 것**: 후보1(Lazy)은 진입점이 **하나**
+(`AttentionImpl.forward()`)뿐입니다 — 회색 상자들만 있으면 시스템 전체가
+완결됩니다. 후보2(Eager)는 여기에 **완전히 독립된 두 번째 진입점**
+(`Scheduler`가 스텝 종료 시점에 트리거하는 초록 상자들)이 추가되고, 이
+둘은 실선(직접 호출)이 아니라 점선(`PrefetchCache`라는 공유 상태를 매개로만
+연결)으로 이어집니다. 즉 Eager를 채택한다는 건 단순히 메서드 하나를 더
+호출하는 게 아니라, **forward pass의 호출 스택과는 완전히 다른 시점에
+독립적으로 실행되는 코드 경로 하나를 시스템에 추가**하는 일이라는 걸 이
+다이어그램이 명시적으로 보여줍니다 — §3.4에서 "구조적 복잡도: 높음"이라고
+평가한 근거가 바로 이 "진입점이 두 개로 늘어난다"는 사실입니다.
+
+---
+
+## 6. 관련 문서
 
 - `doc-mk/vllm-memory-abstraction-level-candidates.md` — DP-1, §4.5-4.6에
   Lazy 방식의 원형(`ComputeDispatcher`)이 이미 설계되어 있음
