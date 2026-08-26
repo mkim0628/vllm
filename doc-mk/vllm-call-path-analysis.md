@@ -74,7 +74,92 @@ self.llm_engine = LLMEngine.from_engine_args(engine_args, ...)
 
 ---
 
-## 2. Call Path — 요청 하나의 전체 흐름
+## 2. 엔진 기동 시 모델 로드 — "구조 build"는 어디서 일어나는가
+
+§3(요청 하나의 흐름)을 보기 전에, **요청을 하나도 받기 전에 딱 한 번** 일어나는
+단계를 짚어야 합니다. HF config의 `architectures` 필드(예: `LlamaForCausalLM`)로부터
+실제 `nn.Module` 구조를 만들고 가중치를 채워 넣는 지점입니다.
+
+### 2.1 호출 체인
+
+```
+EngineCore.__init__()                                    [vllm/v1/engine/core.py:118]
+  self.model_executor = executor_class(vllm_config)
+      │
+      ▼
+Executor.__init__()                                       [vllm/v1/executor/abstract.py:94-109]
+  self._init_executor()
+      │
+      ▼
+(예: UniProcExecutor._init_executor())                    [vllm/v1/executor/uniproc_executor.py:27-53]
+  driver_worker.init_device()   ← 디바이스/프로세스그룹 초기화
+  driver_worker.load_model()    ← 여기서부터 모델 로드 시작
+      │  (MultiprocExecutor/RayDistributedExecutor 등 다른 Executor도
+      │   동일하게 워커별 init_device() → load_model() 을 호출)
+      ▼
+Worker.load_model()                                        [vllm/v1/worker/gpu_worker.py:336-343]
+  self.model_runner.load_model(...)
+      │
+      ▼
+GPUModelRunner.load_model()                                [vllm/v1/worker/gpu_model_runner.py:4810-4833]
+  model_loader = get_model_loader(self.load_config)
+  self.model = model_loader.load_model(vllm_config, model_config)
+      │
+      ▼
+BaseModelLoader.load_model()                                [vllm/model_executor/model_loader/base_loader.py:43-82]
+  model = initialize_model(vllm_config, model_config, prefix)   ← ★ 구조 build
+  self.load_weights(model, model_config)                        ← 가중치 로딩(별도 단계)
+  process_weights_after_loading(model, model_config, device)    ← 양자화 등 후처리
+```
+
+### 2.2 "구조를 build"하는 실제 코드 — `initialize_model()`
+
+`initialize_model()` (`vllm/model_executor/model_loader/utils.py:40-96`)이 진짜
+아키텍처를 인스턴스화하는 지점입니다.
+
+1. **어떤 클래스를 쓸지 결정**: `get_model_architecture(model_config)`
+   (`utils.py:51,214`) → `model_config.registry.resolve_model_cls(architectures, ...)`
+   — HF config의 `architectures` 필드를 `vllm/model_executor/models/registry.py`의
+   `_VLLM_MODELS` 매핑 테이블에 대조해서 실제 Python 클래스를 지연(lazy) import
+2. **인스턴스화 (= 구조 build)**:
+   ```python
+   with set_current_vllm_config(vllm_config, ...):
+       model = model_class(vllm_config=vllm_config, prefix=prefix)
+   ```
+   이 한 줄이 레이어(attention, MLP, MoE, 정규화 등)를 실제로 쌓아 `nn.Module`
+   그래프를 만드는 지점입니다. `BaseModelLoader.load_model()`이 `target_device`
+   컨텍스트 안에서 이 함수를 호출하므로, 이 시점엔 아직 **빈 텐서(구조만 있고
+   값은 없는 상태)**입니다.
+3. **가중치는 별도 단계**: `initialize_model()` 리턴 직후 `BaseModelLoader`가
+   `self.load_weights(model, model_config)`를 호출해 safetensors 등에서 실제
+   파라미터 값을 읽어 방금 만든 구조에 채워 넣습니다 — "구조 build"와 "가중치
+   로드"가 명확히 분리된 두 단계입니다.
+
+### 2.3 요청 처리 흐름과의 순서 관계
+
+`EngineCore.__init__()`을 보면 `self.model_executor = executor_class(vllm_config)`
+(`core.py:118`, 위 체인 전체가 여기서 완료됨)가 `self._initialize_kv_caches(vllm_config)`
+(`core.py:128`, `doc-mk/vllm-kv-cache-analysis.md` §1의 대상)보다 **먼저**
+실행됩니다. 즉:
+
+```
+서버 프로세스 기동
+  → EngineCore.__init__
+       1) 모델 구조 build + 가중치 로드   ← 본 절, 프로세스당 딱 한 번
+       2) KV cache 메모리 프로파일링/할당  ← 모델이 이미 로드되어 있어야
+                                            메모리 사용량을 잴 수 있음
+  → (이제서야) API 서버가 요청을 받기 시작
+       §3의 Scheduler.schedule() / step() 루프 시작
+```
+
+이 순서가 중요한 이유: KV cache 크기는 "모델이 이미 GPU 메모리를 얼마나 쓰는지"를
+프로파일링해서 정해지므로(`GPUWorker.determine_available_memory()`), 모델 구조
+build + 가중치 로드가 KV cache 초기화보다 앞서지 않으면 애초에 성립하지 않는
+순서입니다.
+
+---
+
+## 3. Call Path — 요청 하나의 전체 흐름
 
 `vllm serve` 실행 후 HTTP 요청이 토큰 스트림으로 응답되기까지의 흐름입니다.
 기본 배포 형태(`distributed_executor_backend="mp"`, `api_server_count=1`)를 기준으로 하며,
@@ -172,7 +257,7 @@ self.llm_engine = LLMEngine.from_engine_args(engine_args, ...)
 
 ---
 
-## 3. Module View — 모듈(패키지) 의존 구조
+## 4. Module View — 모듈(패키지) 의존 구조
 
 정적 의존 방향(위 모듈이 아래 모듈을 import/사용)을 나타냅니다. 화살표는 "의존한다"는
 뜻입니다.
@@ -279,7 +364,7 @@ graph TD
 
 ---
 
-## 4. Component View — 런타임 프로세스/컴포넌트 구조
+## 5. Component View — 런타임 프로세스/컴포넌트 구조
 
 기본 배포(`vllm serve`, `--api-server-count 1`, `distributed_executor_backend="mp"`,
 `data_parallel_size=1`)에서의 프로세스 경계와 통신 방식입니다.
@@ -359,12 +444,12 @@ graph LR
 
 - API 서버 ↔ EngineCore 경계에서만 ZMQ(네트워크 소켓급 IPC, msgpack 직렬화)를 사용합니다.
 - EngineCore ↔ Worker 경계는 **공유 메모리 링 버퍼**(`vllm.distributed.device_communicators.shm_broadcast.MessageQueue`)를 사용하여 매 스텝마다 `SchedulerOutput`을 브로드캐스트합니다 — ZMQ보다 훨씬 저지연입니다.
-- `distributed_executor_backend="uni"` (오프라인/단일 GPU) 또는 `EngineCoreClient`가 `InprocClient`인 경우 위 3개 프로세스 경계가 모두 사라지고 하나의 프로세스로 collapse됩니다 (§2.1 참고).
+- `distributed_executor_backend="uni"` (오프라인/단일 GPU) 또는 `EngineCoreClient`가 `InprocClient`인 경우 위 3개 프로세스 경계가 모두 사라지고 하나의 프로세스로 collapse됩니다 (§3.1 참고).
 - `distributed_executor_backend="ray"`인 경우 Worker 프로세스 관리를 Ray Actor가 대신하지만, EngineCore→Worker 통신 원리는 동일합니다.
 
 ---
 
-## 5. 주요 클래스/파일 참조표
+## 6. 주요 클래스/파일 참조표
 
 | 레이어 | 파일 | 핵심 클래스/함수 |
 |---|---|---|
@@ -392,11 +477,11 @@ graph LR
 
 ---
 
-## 6. 참고 — 리팩터링 진행 중인 대체 경로
+## 7. 참고 — 리팩터링 진행 중인 대체 경로
 
 이 스냅샷에는 `gpu_model_runner.py`(약 7800줄, 레거시 단일 파일)와 병행하여, 모듈화된
 리팩터링 버전이 `vllm/v1/worker/gpu/` 하위에 존재합니다
 (`model_runner.py`, `sample/`, `spec_decode/`, `mm/`, `pool/`, `metrics/` 등으로 분리).
 `Worker` 초기화 시 `use_v2_model_runner` 플래그로 두 구현 중 하나를 선택합니다. 향후
-버전에서는 이 모듈화된 경로가 기본값이 될 가능성이 있으므로, 본 문서의 §2/§3에서 다룬
+버전에서는 이 모듈화된 경로가 기본값이 될 가능성이 있으므로, 본 문서의 §3/§4에서 다룬
 `gpu_model_runner.py`의 구조는 현재(레거시) 기본 경로 기준입니다.

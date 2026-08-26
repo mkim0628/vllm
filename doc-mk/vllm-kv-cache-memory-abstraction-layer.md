@@ -485,7 +485,7 @@ CXL은 스위치 팬아웃 구조로 여러 GPU/노드가 하나의 풀을 공�
   디바이스는 `MemoryTier`만 구현하고, PIM처럼 저장+연산을 겸하는 디바이스는 두
   인터페이스를 모두 구현합니다 (Interface Segregation).
 - 이 분리는 vLLM이 이미 갖고 있는 **스케줄러/워커 프로세스 경계**와 정확히
-  일치합니다 (`doc-mk/vllm-call-path-analysis.md` §2) — 새로운 구조를 발명하는 게
+  일치합니다 (`doc-mk/vllm-call-path-analysis.md` §3) — 새로운 구조를 발명하는 게
   아니라 기존 경계에 두 축을 각각 얹는 것입니다.
 
 ### 7.2 UML Class Diagram — 두 인터페이스의 분리와 결합
