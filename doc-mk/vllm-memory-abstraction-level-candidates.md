@@ -301,7 +301,118 @@ graph TD
 모양**으로 그렸습니다 — 후보 1과 달리 플러그인마다 구조가 달라지는 게 이 설계의
 본질입니다.
 
-### 4.3 Class Diagram — ComputeDispatcher가 Worker와 어떻게 연결되는가
+### 4.3 Class Diagram — 후보 2 자체 (§3.3과 나란히 비교)
+
+§3.3(후보 1)과 동일한 범위 — `MemoryTier` 베이스, `MemoryTierRegistry`,
+`TierPlacementPolicy` — 에 확장 인터페이스 3종을 더한 버전입니다. 후보 1에서는
+모든 구현체가 `MemoryTier` 하나만 realize 했지만, 여기서는 티어마다 realize하는
+인터페이스 수가 다릅니다.
+
+```mermaid
+classDiagram
+    class MemoryTierCapabilities {
+        <<dataclass>>
+        +str tier_id
+        +int capacity_bytes
+        +bool byte_addressable
+        +bool gpu_direct_access
+        +bool cache_coherent
+        +float read_latency_ns
+        +float write_bandwidth_GBps
+    }
+
+    class MemoryTier {
+        <<interface>>
+        +capabilities() MemoryTierCapabilities
+        +allocate(nbytes) TierBuffer
+        +free(buf) void
+        +as_torch_storage(buf) Tensor
+    }
+    MemoryTier <|.. GPUHBMTier
+    MemoryTier <|.. CPUDRAMTier
+    MemoryTier <|.. CustomHBMTier
+    MemoryTier <|.. CXLTier
+    MemoryTier <|.. HBFTier
+
+    class ComputeCapableTier {
+        <<interface>>
+        +compute_capabilities() ComputeCapabilities
+        +supported_ops() list
+        +execute_partial(op, query, block_ids, meta) PartialResult
+    }
+    class CXLPoolingExtension {
+        <<interface>>
+        +pool_id() str
+        +request_pooled_capacity(bytes) bool
+    }
+    class HBFBatchReadExtension {
+        <<interface>>
+        +batch_read(block_ids) Tensor
+    }
+    ComputeCapableTier <|.. CustomHBMTier
+    CXLPoolingExtension <|.. CXLTier
+    HBFBatchReadExtension <|.. HBFTier
+
+    note for GPUHBMTier "MemoryTier 만 구현 - base only"
+    note for CPUDRAMTier "MemoryTier 만 구현 - base only"
+    note for CustomHBMTier "MemoryTier + ComputeCapableTier"
+    note for CXLTier "MemoryTier + CXLPoolingExtension"
+    note for HBFTier "MemoryTier + HBFBatchReadExtension"
+
+    class MemoryTierRegistry {
+        <<factory>>
+        +register(name, module_path, class_name) void
+        +create(name, config) MemoryTier
+        +list_tiers() list
+    }
+    MemoryTierRegistry --> MemoryTier : creates
+    MemoryTierRegistry --> ComputeCapableTier : creates 동일 tier_id
+    MemoryTierRegistry --> CXLPoolingExtension : creates 동일 tier_id
+    MemoryTierRegistry --> HBFBatchReadExtension : creates 동일 tier_id
+
+    class TierPlacementPolicy {
+        +decide_tier(data_meta, tiers) str
+    }
+    TierPlacementPolicy --> MemoryTierRegistry : capabilities 조회<br/>확장 유무 포함
+```
+
+후보 1의 클래스 다이어그램(§3.3)과 나란히 놓고 보면, `MemoryTier <|.. X` 관계
+자체는 다섯 티어 모두 동일하지만 **그 외에 realize하는 인터페이스 수가
+0개(후보 1은 항상 0개, 즉 추가 없음) vs 0~1개(후보 2)로 갈린다**는 게 유일하고
+결정적인 구조 차이입니다.
+
+### 4.4 Sequence Diagram — 후보 2 자체, 배치 결정 흐름 (§3.4와 나란히 비교)
+
+§3.4(후보 1)와 같은 종류의 흐름 — "데이터를 어느 티어에 배치할지 결정"하는
+장면 — 을 후보 2 버전으로 그린 것입니다. 여기서 `tier_id`가 어떻게
+결정되고, 이후 forward pass 시점에 `AttentionImpl`이 그걸 어떻게 다시
+읽어오는지(질문하신 부분)까지 이어서 표시했습니다.
+
+```mermaid
+sequenceDiagram
+    participant CALLER as Scheduler / ModelLoader
+    participant TPP as TierPlacementPolicy
+    participant REG as MemoryTierRegistry
+    participant TIER as 선택된 MemoryTier 구현체<br/>예 CustomHBMTier
+    participant BT as TieredBlockTable
+
+    CALLER->>TPP: decide_tier(data_meta)
+    TPP->>REG: list_tiers()
+    REG-->>TPP: capabilities 목록<br/>base 필드 + 어떤 확장을 구현하는지 여부
+    TPP->>TPP: base 필드 비교 + 확장 유무까지 고려<br/>예 연산이 필요한 워크로드면<br/>ComputeCapableTier 구현 티어를 우대
+    TPP-->>CALLER: tier_id
+    CALLER->>REG: create(tier_id)
+    REG-->>CALLER: TIER 인스턴스<br/>base + 해당 확장까지 구현된 객체
+    CALLER->>TIER: allocate(nbytes)
+    TIER-->>CALLER: TierBuffer
+    CALLER->>BT: block_locations block_id = tier_id local_block_id 기록
+
+    Note over BT: 이렇게 기록된 tier_id 가 §4.6 sequence diagram 에서<br/>AttentionImpl 이 should_dispatch 호출 시 넘기는 값의 출처입니다.<br/>forward pass 시점에 AttentionImpl 은 attn_metadata.block_table 을 통해<br/>BT 에서 tier_id 를 조회만 하고, 새로 계산하지 않습니다.
+
+    Note over TPP,TIER: 후보 1과의 차이: TierPlacementPolicy 가 base 필드뿐 아니라<br/>확장 인터페이스 유무까지 알아야 최선의 배치를 할 수 있음<br/>→ §4.7 장단점의 상위 모듈 변경량 항목과 직결
+```
+
+### 4.5 Class Diagram — ComputeDispatcher가 Worker와 어떻게 연결되는가
 
 아래 다이어그램은 §4.2의 확장 인터페이스 3종(pooling/compute/batch-read) 중
 **연산(compute) 확장 하나만** 떼어내서, 그게 실제 모델 실행 경로(Worker 프로세스,
@@ -369,7 +480,7 @@ classDiagram
 `ComputeDispatcher`는 그 안에서 "이번 배치의 KV 블록이 연산 가능한 티어에 있는지"만
 추가로 확인하는 위치에 끼어듭니다.
 
-### 4.4 Sequence Diagram — ComputeDispatcher의 호출 순서 (연결 구조만)
+### 4.6 Sequence Diagram — ComputeDispatcher의 호출 순서 (연결 구조만)
 
 ```mermaid
 sequenceDiagram
@@ -406,7 +517,7 @@ sequenceDiagram
 풀어야 할 문제들의 예고편입니다. 이 문서에서는 "그런 분기점이 존재한다"까지만
 보여주고, 더 깊이 들어가지 않습니다.
 
-### 4.5 장단점
+### 4.7 장단점
 
 | 항목 | 평가 |
 |---|---|
