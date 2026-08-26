@@ -130,7 +130,84 @@ graph TD
 계약이 하나뿐이라 플러그인 사이에 구조적 차이가 없습니다. 빨간 점선 박스는 이
 구조가 원천적으로 놓치는 부분을 명시적으로 보여주기 위해 추가했습니다.
 
-### 3.3 장단점
+### 3.3 Class Diagram
+
+```mermaid
+classDiagram
+    class MemoryTierCapabilities {
+        <<dataclass>>
+        +str tier_id
+        +int capacity_bytes
+        +bool byte_addressable
+        +bool gpu_direct_access
+        +bool cache_coherent
+        +float read_latency_ns
+        +float write_bandwidth_GBps
+    }
+
+    class MemoryTier {
+        <<interface>>
+        +capabilities() MemoryTierCapabilities
+        +allocate(nbytes) TierBuffer
+        +free(buf) void
+        +as_torch_storage(buf) Tensor
+        +copy_in(src, dst, block_ids) Future
+        +copy_out(src, dst, block_ids) Future
+    }
+    MemoryTier <|.. GPUHBMTier
+    MemoryTier <|.. CPUDRAMTier
+    MemoryTier <|.. CustomHBMTier
+    MemoryTier <|.. CXLTier
+    MemoryTier <|.. HBFTier
+
+    note for CustomHBMTier "MemoryTier 하나만 구현<br/>PIM 연산 능력이 있어도 노출할 방법이 없음"
+    note for CXLTier "MemoryTier 하나만 구현<br/>fabric pooling 이 있어도 노출할 방법이 없음"
+
+    class MemoryTierRegistry {
+        <<factory>>
+        +register(name, module_path, class_name) void
+        +create(name, config) MemoryTier
+        +list_tiers() list
+    }
+    MemoryTierRegistry --> MemoryTier : creates
+
+    class TierPlacementPolicy {
+        +decide_tier(data_meta, tiers) str
+    }
+    TierPlacementPolicy --> MemoryTierRegistry : capabilities 조회
+```
+
+모든 구현체가 `MemoryTier` **단 하나만** 실현(realize)한다는 게 후보 1의
+클래스 구조에서 가장 뚜렷한 특징입니다 — 인터페이스가 여러 개로 갈라지지
+않습니다.
+
+### 3.4 Sequence Diagram — 배치 결정 흐름
+
+```mermaid
+sequenceDiagram
+    participant CALLER as Scheduler / ModelLoader
+    participant TPP as TierPlacementPolicy
+    participant REG as MemoryTierRegistry
+    participant TIER as 선택된 MemoryTier 구현체<br/>예 CXLTier
+
+    CALLER->>TPP: decide_tier(data_meta)
+    TPP->>REG: list_tiers()
+    REG-->>TPP: MemoryTierCapabilities 목록<br/>범용 필드만
+    TPP->>TPP: capacity/latency/bandwidth 비교<br/>모든 티어를 동일한 기준으로 평가
+    TPP-->>CALLER: tier_id
+    CALLER->>REG: create(tier_id)
+    REG-->>CALLER: TIER 인스턴스
+    CALLER->>TIER: allocate(nbytes)
+    TIER-->>CALLER: TierBuffer
+
+    Note over TPP,TIER: 모든 티어가 동일한 인터페이스로 응답하므로<br/>TierPlacementPolicy 는 티어 종류를 구분하는<br/>코드를 전혀 갖지 않음
+```
+
+이 흐름에는 "연산을 어디서 할지" 판단이 아예 등장하지 않습니다 — 후보 1에는
+연산 관련 확장 자체가 없기 때문에, 데이터 배치 이후의 연산은 항상 기존 GPU
+전용 경로(`call-path-analysis.md` §3)를 그대로 탑니다.
+
+### 3.5 장단점
 
 | 항목 | 평가 |
 |---|---|
@@ -224,7 +301,112 @@ graph TD
 모양**으로 그렸습니다 — 후보 1과 달리 플러그인마다 구조가 달라지는 게 이 설계의
 본질입니다.
 
-### 4.3 장단점
+### 4.3 Class Diagram — ComputeDispatcher가 Worker와 어떻게 연결되는가
+
+아래 다이어그램은 §4.2의 확장 인터페이스 3종(pooling/compute/batch-read) 중
+**연산(compute) 확장 하나만** 떼어내서, 그게 실제 모델 실행 경로(Worker 프로세스,
+`GPUModelRunner`/`AttentionImpl`)와 어떻게 이어지는지를 명확히 합니다.
+
+```mermaid
+classDiagram
+    class MemoryTier {
+        <<interface>>
+        +capabilities() MemoryTierCapabilities
+        +allocate(nbytes) TierBuffer
+        +as_torch_storage(buf) Tensor
+    }
+    MemoryTier <|.. GPUHBMTier
+    MemoryTier <|.. CustomHBMTier
+
+    class ComputeCapableTier {
+        <<interface>>
+        +compute_capabilities() ComputeCapabilities
+        +supported_ops() list
+        +execute_partial(op, query, block_ids, meta) PartialResult
+    }
+    ComputeCapableTier <|.. CustomHBMTier
+    note for CustomHBMTier "MemoryTier 와 ComputeCapableTier<br/>둘 다 구현 - base + 확장"
+    note for GPUHBMTier "MemoryTier 만 구현<br/>compute 확장 없음"
+
+    class PartialResult {
+        <<dataclass>>
+        +Tensor partial_output
+        +Tensor partial_lse
+        +str tier_id
+    }
+    ComputeCapableTier --> PartialResult : returns
+
+    class ComputeDispatcher {
+        <<신규>>
+        +should_dispatch(op, tier_id) bool
+        +dispatch(op, query, tier_id, block_ids) Future
+    }
+    ComputeDispatcher --> ComputeCapableTier : compute 확장이 있을 때만 호출
+    ComputeDispatcher --> PartialResultMerger
+
+    class PartialResultMerger {
+        <<신규>>
+        +merge(results) Tensor
+    }
+
+    class GPUModelRunner {
+        <<Worker 프로세스, 기존>>
+        +execute_model(scheduler_output) ModelRunnerOutput
+    }
+    class AttentionImpl {
+        <<attention 백엔드, 기존>>
+        +forward(query, kv_cache, attn_metadata) Tensor
+        +do_kv_cache_update(key, value, kv_cache, slot_mapping) void
+    }
+    GPUModelRunner --> AttentionImpl : 레이어별 forward 호출<br/>call-path-analysis.md §3
+    AttentionImpl --> ComputeDispatcher : compute-capable tier 감지 시에만 질의
+```
+
+**여기서 확인해야 할 관계 하나**: `ComputeDispatcher`는 `GPUModelRunner`를 대체하는
+새 실행 경로가 아니라, 기존 `AttentionImpl.forward()` **내부에서 호출되는 하나의
+추가 분기**입니다. `GPUModelRunner.execute_model()` → `AttentionImpl.forward()`로
+이어지는 기존 흐름(`call-path-analysis.md` §3)은 그대로 유지되고,
+`ComputeDispatcher`는 그 안에서 "이번 배치의 KV 블록이 연산 가능한 티어에 있는지"만
+추가로 확인하는 위치에 끼어듭니다.
+
+### 4.4 Sequence Diagram — ComputeDispatcher의 호출 순서 (연결 구조만)
+
+```mermaid
+sequenceDiagram
+    participant RUNNER as GPUModelRunner<br/>Worker 프로세스, 기존
+    participant ATTN as AttentionImpl<br/>attention 백엔드, 기존
+    participant DISP as ComputeDispatcher<br/>신규
+    participant PIM as CustomHBMTier<br/>ComputeCapableTier 구현
+    participant MERGE as PartialResultMerger<br/>신규
+
+    Note over RUNNER,ATTN: 기존 forward pass 흐름 - call-path-analysis.md §3
+    RUNNER->>ATTN: forward(query, kv_cache, attn_metadata)
+    ATTN->>DISP: should_dispatch(op=attention, tier_id)
+    alt tier_id 가 ComputeCapableTier 이고 op 지원
+        DISP->>PIM: execute_partial(op, query, block_ids, meta)
+        PIM-->>DISP: PartialResult
+        DISP-->>ATTN: PartialResult 전달
+        ATTN->>MERGE: merge GPU 결과 + PartialResult
+        MERGE-->>ATTN: 최종 attention 출력
+    else 미지원 또는 확장 없음
+        DISP-->>ATTN: 폴백 신호만 반환
+        Note over ATTN: 이후는 기존 GPU 전용 forward 와 동일
+    end
+    ATTN-->>RUNNER: attention 출력 반환
+```
+
+**의도적으로 생략한 부분**: 이 다이어그램은 "누가 누구를 호출하는가"라는 연결
+구조만 보여줍니다. 다음과 같은 질문들은 답하지 않습니다 — PIM 연산이 GPU 연산과
+동시에(비동기로) 진행되는지 순차적으로 기다리는지, `execute_partial()`이 레이어
+단위로 매번 호출되는지 스텝 단위로 한 번만 호출되는지, PIM이 느려서 타임아웃되면
+언제 어떻게 재시도/폴백하는지, CUDA stream/이벤트로 어떻게 동기화하는지. 이런
+질문은 "MAL의 추상화 수준"(DP-1)이 아니라 **"연산 실행 모델을 어떻게 통합할
+것인가"**라는 별개의 설계쟁점(DP-3 후보)에 속합니다 — §7.6에서 나열한 실행 단위
+불일치/정밀도 정합성/동시 슬롯 큐잉/연산 실패 폴백 같은 제약들이 바로 그 DP-3가
+풀어야 할 문제들의 예고편입니다. 이 문서에서는 "그런 분기점이 존재한다"까지만
+보여주고, 더 깊이 들어가지 않습니다.
+
+### 4.5 장단점
 
 | 항목 | 평가 |
 |---|---|
