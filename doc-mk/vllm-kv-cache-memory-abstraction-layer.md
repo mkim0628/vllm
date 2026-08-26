@@ -693,22 +693,31 @@ graph TB
 
 ---
 
-## 8. 메모리 관리 관점의 통합 Module View
+## 8. 메모리 관리 관점의 통합 Module View — KV Cache + Weight + Activation
 
-지금까지의 다이어그램들을 하나로 압축해서, **Scheduler에서 물리 메모리까지
-내려가는 단일 module view**로 그리면 다음과 같습니다. 시스템이 지원하는 메모리
-종류를 GPU HBM, CPU DRAM, Custom HBM(별도 가속기 카드의 HBM), CXL Memory, HBF로
-가정했습니다.
+이전 버전의 이 절은 KV cache만 다뤘습니다. vLLM이 관리하는 GPU 메모리는 실제로는
+**세 종류**입니다 — weight(가중치, 정적), KV cache(요청별, 동적, 스텝 간 유지),
+activation(레이어 중간값, 순간적, 스텝 내에서만 존재). 아래 다이어그램은 상위
+모듈을 Scheduler 하나가 아니라 **Scheduler(요청 스케줄링) + ModelLoader(가중치
+로드) + GPUModelRunner(forward 실행)** 셋으로 시작해서, 세 데이터 종류가 각자
+다른 배치 결정 경로를 거쳐 같은 물리 메모리 계층으로 수렴하는 구조를 보여줍니다.
 
 ```mermaid
 graph TD
-    SCHED["Scheduler<br/>EngineCore 프로세스"]
+    SCHED["Scheduler<br/>EngineCore 프로세스<br/>요청 스케줄링"]
 
-    KVMGR["KVCacheManager / KVCacheCoordinator<br/>블록 할당·해제·prefix cache 부기"]
+    subgraph EXEC["Worker 프로세스 — 모델 실행"]
+        LOADER["ModelLoader<br/>구조 build + 가중치 로드<br/>call-path-analysis.md §2"]
+        RUNNER["GPUModelRunner.execute_model<br/>forward pass 실행<br/>call-path-analysis.md §3"]
+    end
 
-    TPP["TierPlacementPolicy<br/>어느 티어에 둘지 결정"]
+    subgraph POLICY["데이터 종류별 배치 결정 — lifecycle 이 서로 다름"]
+        KVPOLICY["KV Cache<br/>TierPlacementPolicy<br/>매 스텝 · 블록 단위 · 동적"]
+        WPOLICY["Weight<br/>OffloadConfig uva 또는 prefetch<br/>기동 시 1회 · config 기반 · 정적<br/>vllm/config/offload.py, 기존 구현"]
+        APOLICY["Activation<br/>배치 정책 없음<br/>연산 자체가 HBM 위에서 값을 생성"]
+    end
 
-    REGISTRY["MemoryTierRegistry<br/>Memory Abstraction Layer<br/>플러그인 팩토리 / capability 조회"]
+    REGISTRY["MemoryTierRegistry<br/>Memory Abstraction Layer"]
 
     subgraph PLUGIN_LAYER["MemoryTier 구현체 - 플러그인, tier_id 로 식별"]
         GPUHBM["GPUHBMTier"]
@@ -729,7 +738,14 @@ graph TD
         HBF_PHYS[("HBF<br/>초고용량 / 저속 / 비휘발성")]
     end
 
-    SCHED --> KVMGR --> TPP --> REGISTRY
+    SCHED --> KVPOLICY
+    LOADER --> WPOLICY
+    RUNNER --> APOLICY
+
+    KVPOLICY --> REGISTRY
+    WPOLICY --> REGISTRY
+    APOLICY -. "오늘은 tiering 없이 항상 직결" .-> HBM_PHYS
+
     REGISTRY --> GPUHBM --> HBM_PHYS
     REGISTRY --> DRAMT --> DRAM_PHYS
     REGISTRY --> CUSTOMT --> CUSTOM_PHYS
@@ -738,11 +754,39 @@ graph TD
 
     classDef localMem fill:#dbe7ff,stroke:#3b5bdb,color:#1c2b5e,stroke-width:2px;
     classDef remoteMem fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef kvBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:1px;
+    classDef weightBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:1px;
+    classDef activationBox fill:#ffe3e3,stroke:#e03131,color:#5c1a1a,stroke-width:1px,stroke-dasharray: 4 3;
     class HBM_PHYS,GPUHBM localMem
     class DRAM_PHYS,CUSTOM_PHYS,CXL_PHYS,HBF_PHYS,DRAMT,CUSTOMT,CXLT,HBFT remoteMem
+    class KVPOLICY kvBox
+    class WPOLICY weightBox
+    class APOLICY activationBox
 ```
 
-### 8.1 검토 — GPU HBM을 이 자리에 두는 게 맞는가
+### 8.1 왜 세 종류가 같은 정책을 못 쓰는가
+
+세 데이터 종류는 lifecycle이 완전히 달라서, §7에서 tiering 축과 compute 축을
+분리했던 것과 같은 이유로 **배치 결정 로직도 분리해야 합니다** — 다만 물리
+계층(`MemoryTierRegistry` 아래)은 공유할 수 있습니다.
+
+| | Weight | KV Cache | Activation |
+|---|---|---|---|
+| 생성 시점 | 엔진 기동 시 1회 | 요청마다, 토큰 생성될 때마다 | 매 forward pass, 레이어마다 |
+| 존속 기간 | 프로세스 수명 전체 | 요청 종료까지 (초~분) | 커널 호출 하나 (μs~ms) |
+| 결정 주체 | `ModelLoader`/config (정적) | `Scheduler`/`TierPlacementPolicy` (동적) | 사실상 없음 — PyTorch/CUDA 컴파일러 |
+| 오늘 vLLM의 실제 구현 | `OffloadConfig` (uva/prefetch), MAL과 별개의 기존 코드 경로 | §1~§8의 MAL 설계 대상 | 오프로드 메커니즘 없음 |
+| MAL로 통합 가능성 | 가능 — `WPOLICY`를 `MemoryTierRegistry`에 연결하는 어댑터만 있으면 됨 | 이미 설계됨 | 어려움 — activation offload/recompute는 KV cache 페이징과 근본적으로 다른 메커니즘(체크포인팅류) 필요 |
+
+**결론**: 다이어그램에서 KV cache와 weight는 각자의 정책(`KVPOLICY`/`WPOLICY`)을
+거쳐 같은 `MemoryTierRegistry`로 수렴하도록 그렸습니다 — 이건 실제로 타당한
+통합입니다. 반면 activation은 점선으로 HBM에 직결시켰습니다 — 오늘 vLLM에는
+activation을 다른 티어로 옮기는 메커니즘이 없고, 있다 해도 "블록 단위 페이징"이
+아니라 "특정 중간 텐서를 다시 계산하거나 잠깐 다른 곳에 치워뒀다 가져오는" 전혀
+다른 접근(activation checkpointing/recompute)이 필요하므로, 지금 설계한
+`MemoryTier`/`TierPlacementPolicy` 인터페이스를 그대로 재사용하기 어렵습니다.
+
+### 8.2 검토 — GPU HBM을 이 자리에 두는 게 맞는가
 
 **결론: 리스트에 넣는 것 자체는 맞지만, "동급 선택지"로 나열하면 오해가 생깁니다.**
 위 다이어그램에서 GPU HBM만 파란색(로컬)으로, 나머지 넷은 회색(원격)으로 구분한
@@ -752,18 +796,26 @@ graph TD
   `GPUHBMTier`라는 하나의 `MemoryTier` 구현체로 등록되고, 다른 플러그인과 동일한
   인터페이스로 다뤄집니다 — §1의 class diagram에서도 `GPUHBMTier`를 `CXLTier` 등과
   나란히 그렸습니다. 이 자체는 일관성이 있습니다.
-- **하지만 위상이 다릅니다**: GPU HBM은 attention 커널을 실행하는 SM과 **물리적으로
-  같은 패키지**에 있는 유일한 메모리입니다. 나머지 넷(CPU DRAM, Custom HBM, CXL,
-  HBF)은 전부 PCIe/CXL/NVLink 같은 **상호연결(interconnect)을 거쳐야 도달 가능**한
-  메모리입니다. 이 차이가 바로 §5.1(GPU 직접 주소 지정 가능성)과 §5.3(캐시 일관성)에서
-  다룬 `gpu_direct_access`/`cache_coherent` capability 축이 애초에 왜 필요했는지의
-  근원입니다 — "메모리 기술 이름"이 아니라 "연산 유닛으로부터의 물리적 거리"가
-  DIRECT/STAGED를 가르는 진짜 기준입니다.
+- **하지만 위상이 다릅니다**: GPU HBM은 attention/MLP 커널을 실행하는 SM과
+  **물리적으로 같은 패키지**에 있는 유일한 메모리입니다. 나머지 넷(CPU DRAM,
+  Custom HBM, CXL, HBF)은 전부 PCIe/CXL/NVLink 같은 **상호연결(interconnect)을
+  거쳐야 도달 가능**한 메모리입니다. 이 차이가 바로 §5.1(GPU 직접 주소 지정
+  가능성)과 §5.3(캐시 일관성)에서 다룬 `gpu_direct_access`/`cache_coherent`
+  capability 축이 애초에 왜 필요했는지의 근원입니다 — "메모리 기술 이름"이 아니라
+  "연산 유닛으로부터의 물리적 거리"가 DIRECT/STAGED를 가르는 진짜 기준입니다.
+- **연산 시점 원칙과 그 예외**: activation과 (오늘의) KV cache는 "연산 시점엔
+  반드시 HBM에 있다"는 원칙에서 벗어나지 않습니다. 하지만 **weight는 이미 예외가
+  있습니다** — `UVAOffloadConfig`(`vllm/config/offload.py:16-32`)는 가중치를 HBM에
+  미리 복사하지 않고, forward pass 시점에 CPU pinned memory를 UVA로 zero-copy
+  접근합니다. 이게 바로 이 문서에서 설계한 "DIRECT 모드"(§0, §1)가 이미 vLLM에
+  실제로 존재하는 사례입니다 — 다만 KV cache가 아니라 weight에 대해서만.
+  (`PrefetchOffloadConfig`는 반대로 레이어를 미리 HBM에 복사해두는 방식이라
+  "연산 시점엔 HBM에 있다" 원칙을 그대로 따릅니다 — STAGED 모드에 해당합니다.)
 - **실무적 함의**: GPU HBM은 "선택 가능한 티어 중 하나"가 아니라, 최소한 일부
-  블록은 반드시 여기 있어야 attention 연산 자체가 성립하는 **필수 baseline**입니다.
-  나머지 넷은 순수하게 optional한 확장(있으면 좋고 없어도 시스템이 동작)입니다.
-  그래서 module view에서 GPU HBM을 별도 그룹(로컬/Tier 0)으로 분리하고, 나머지를
-  "원격" 그룹으로 묶는 편이 구조적으로 더 정확합니다.
+  데이터는 반드시 여기 있어야(activation은 전부, KV cache/weight는 최소 일부)
+  연산 자체가 성립하는 **필수 baseline**입니다. 나머지 넷은 순수하게 optional한
+  확장입니다. 그래서 module view에서 GPU HBM을 별도 그룹(로컬/Tier 0)으로
+  분리하고, 나머지를 "원격" 그룹으로 묶는 편이 구조적으로 더 정확합니다.
 - **"Custom HBM" 이름에 대한 참고**: 만약 이게 GPU 자신의 온보드 메모리가 아니라
   "다른 가속기 카드에 달린 HBM"을 의미한다면(일반적으로 그렇게 해석됩니다), 기술
   이름은 똑같이 "HBM"이어도 토폴로지상으로는 CXL-memory/HBF와 같은 **원격** 범주에
@@ -776,7 +828,9 @@ graph TD
 
 요약하면, **다이어그램에 GPU HBM을 포함하는 것은 맞지만, 다른 4개와 나란히 한 줄로
 그리기보다는 "로컬(필수, Tier 0)" vs "원격(선택적, Tier 1+)"이라는 두 그룹으로
-나눠 그리는 게 이 시스템의 실제 제약을 더 정확히 반영합니다.**
+나눠 그리는 게 이 시스템의 실제 제약을 더 정확히 반영합니다. Weight까지 포함해서
+보면 이 구분이 더 뚜렷해집니다 — weight는 DIRECT(UVA)/STAGED(prefetch) 두 모드를
+이미 실제로 오가고 있고, activation은 애초에 원격 티어라는 선택지 자체가 없습니다.**
 
 ---
 
