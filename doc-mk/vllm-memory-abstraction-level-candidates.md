@@ -71,14 +71,25 @@
 
 ## 3. 후보 1 — 범용성 강조 구조 (Uniform Capability Model)
 
+> **개정 노트**: 최초 버전의 후보 1은 "연산 가능 메모리의 연산 기능은 아예
+> 지원하지 못함"으로 정의되어 있었습니다. 그러나 연산 가능 메모리 지원이
+> 기능 요구사항(FR)이라면, 두 후보 모두 이 FR을 만족해야 하고 후보 1과 후보 2는
+> "지원하느냐 마느냐"가 아니라 "**어떻게** 지원하느냐"로 비교되어야 합니다.
+> 아래는 이를 반영한 정의입니다.
+
 ### 3.1 설계 철학
 
-모든 티어가 **정확히 같은 얕은 인터페이스**(`capacity`, `latency`, `bandwidth`,
-`byte_addressable`, `gpu_direct_access`, `cache_coherent`처럼 몇 개의 범용
-숫자/불리언 필드)만 노출합니다. 하드웨어가 이 필드들로 표현 안 되는 고유 기능을
-갖고 있어도, **이 인터페이스에 없으면 상위 모듈은 그 기능의 존재 자체를 모릅니다.**
-`vllm-kv-cache-memory-abstraction-layer.md` §1에서 처음 설계한 `MemoryTier`가
-바로 이 스타일입니다.
+모든 티어가 **정확히 하나의 인터페이스**(`MemoryTier`)만 구현합니다. 하드웨어
+고유 기능(연산, pooling, batch-read 등)을 위한 **별도 인터페이스는 만들지
+않습니다** — 대신 `MemoryTierCapabilities`에 `supported_ops`라는 데이터
+필드로 "이 티어가 어떤 연산을 지원하는지"를 선언하고, 실행은 모든 티어가
+공유하는 단일 진입점 `execute_op(op)` 하나로 이뤄집니다.
+
+`op`가 속하는 `ComputeOp`는 **코어가 소유하는 하나의 닫힌 연산 카탈로그**입니다.
+즉 "연산이 존재한다"는 사실 자체는 어떤 티어든 알릴 수 있어 FR은 만족되지만,
+**새로운 종류의 연산을 카탈로그에 추가하는 결정권은 항상 코어에 있습니다.**
+이게 후보 1과 후보 2를 가르는 유일하고 핵심적인 차이입니다 — 뒤에서 다시
+정리합니다(§3.5, §5).
 
 ### 3.2 Module View
 
@@ -86,14 +97,15 @@
 graph TD
     TPP["TierPlacementPolicy<br/>KV Cache / Weight 공통 배치 정책"]
     REGISTRY["MemoryTierRegistry"]
-    IFACE["MemoryTier 단일 공통 인터페이스<br/>capacity · latency · bandwidth ·<br/>byte_addressable · gpu_direct_access ·<br/>cache_coherent 만 존재"]
+    IFACE["MemoryTier 단일 공통 인터페이스<br/>capacity · latency · bandwidth ·<br/>supported_ops 데이터 필드 ·<br/>execute_op 단일 진입점"]
+    CATALOG["ComputeOp 카탈로그<br/>코어가 소유하는 닫힌 연산 목록<br/>PartialSumOp · ArgmaxOp · ..."]
 
     subgraph PLUGINS["MemoryTier 구현체 — 모두 동일한 계약, 동일한 모양"]
-        GPUHBM["GPUHBMTier"]
-        DRAMT["CPUDRAMTier"]
-        CUSTOMT["CustomHBMTier"]
-        CXLT["CXLTier"]
-        HBFT["HBFTier"]
+        GPUHBM["GPUHBMTier<br/>supported_ops = 없음"]
+        DRAMT["CPUDRAMTier<br/>supported_ops = 없음"]
+        CUSTOMT["CustomHBMTier<br/>supported_ops = partial_sum"]
+        CXLT["CXLTier<br/>supported_ops = 없음"]
+        HBFT["HBFTier<br/>supported_ops = 없음"]
     end
 
     subgraph PHYS_LOCAL["로컬, Tier 0"]
@@ -106,29 +118,33 @@ graph TD
         HBF_PHYS[("HBF")]
     end
 
-    UNUSED["활용되지 않는 하드웨어 고유 기능<br/>CXL fabric pooling · PIM 연산 ·<br/>HBF 배치 순차읽기 최적화 등"]
+    NEWOP["새 연산예 pooling 을 추가하려면<br/>ComputeOp 카탈로그를 코어에서<br/>직접 수정해야 함<br/>벤더가 코어 승인 없이 단독 확장 불가"]
 
     TPP --> REGISTRY --> IFACE
+    IFACE -.-> CATALOG
     IFACE --> GPUHBM --> HBM_PHYS
     IFACE --> DRAMT --> DRAM_PHYS
     IFACE --> CUSTOMT --> CUSTOM_PHYS
     IFACE --> CXLT --> CXL_PHYS
     IFACE --> HBFT --> HBF_PHYS
-    CUSTOMT -. "인터페이스에 없어서 노출 안 됨" .-> UNUSED
-    CXLT -. "인터페이스에 없어서 노출 안 됨" .-> UNUSED
-    HBFT -. "인터페이스에 없어서 노출 안 됨" .-> UNUSED
+    CATALOG -. "코어 PR 필요" .-> NEWOP
 
     classDef localMem fill:#dbe7ff,stroke:#3b5bdb,color:#1c2b5e,stroke-width:2px;
     classDef remoteMem fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
-    classDef unusedBox fill:#ffe3e3,stroke:#e03131,color:#5c1a1a,stroke-width:1px,stroke-dasharray: 4 3;
+    classDef catalogBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
+    classDef warnBox fill:#ffe3e3,stroke:#e03131,color:#5c1a1a,stroke-width:1px,stroke-dasharray: 4 3;
     class HBM_PHYS,GPUHBM localMem
     class DRAM_PHYS,CUSTOM_PHYS,CXL_PHYS,HBF_PHYS,DRAMT,CUSTOMT,CXLT,HBFT remoteMem
-    class UNUSED unusedBox
+    class CATALOG catalogBox
+    class NEWOP warnBox
 ```
 
 모든 `MemoryTier` 구현체 박스가 **같은 크기, 같은 모양**인 게 핵심입니다 — 인터페이스
-계약이 하나뿐이라 플러그인 사이에 구조적 차이가 없습니다. 빨간 점선 박스는 이
-구조가 원천적으로 놓치는 부분을 명시적으로 보여주기 위해 추가했습니다.
+계약이 하나뿐이라 플러그인 사이에 구조적 차이가 없습니다. `CustomHBMTier`처럼 연산을
+지원하는 티어도 `supported_ops`라는 데이터만 다를 뿐, 별도 인터페이스를 구현하지
+않습니다. 대신 "새 연산 종류 자체"는 노란 박스(`ComputeOp` 카탈로그)에 중앙집중되어
+있고, 거기에 새 항목을 추가하려면 코어를 거쳐야 한다는 제약이 남습니다 — 빨간
+점선 박스가 그 제약을 보여줍니다.
 
 ### 3.3 Class Diagram
 
@@ -143,6 +159,7 @@ classDiagram
         +bool cache_coherent
         +float read_latency_ns
         +float write_bandwidth_GBps
+        +list~str~ supported_ops
     }
 
     class MemoryTier {
@@ -151,8 +168,7 @@ classDiagram
         +allocate(nbytes) TierBuffer
         +free(buf) void
         +as_torch_storage(buf) Tensor
-        +copy_in(src, dst, block_ids) Future
-        +copy_out(src, dst, block_ids) Future
+        +execute_op(op) PartialResult
     }
     MemoryTier <|.. GPUHBMTier
     MemoryTier <|.. CPUDRAMTier
@@ -160,8 +176,17 @@ classDiagram
     MemoryTier <|.. CXLTier
     MemoryTier <|.. HBFTier
 
-    note for CustomHBMTier "MemoryTier 하나만 구현<br/>PIM 연산 능력이 있어도 노출할 방법이 없음"
-    note for CXLTier "MemoryTier 하나만 구현<br/>fabric pooling 이 있어도 노출할 방법이 없음"
+    class ComputeOp {
+        <<코어 소유, 닫힌 카탈로그>>
+    }
+    class PartialSumOp
+    class ArgmaxOp
+    ComputeOp <|-- PartialSumOp
+    ComputeOp <|-- ArgmaxOp
+    MemoryTier ..> ComputeOp : execute_op 인자
+
+    note for CustomHBMTier "MemoryTier 하나만 구현<br/>supported_ops = partial_sum<br/>연산도 execute_op 안에서 처리"
+    note for GPUHBMTier "MemoryTier 하나만 구현<br/>supported_ops = 없음<br/>나머지 티어와 클래스 구조는 동일"
 
     class MemoryTierRegistry {
         <<factory>>
@@ -174,48 +199,58 @@ classDiagram
     class TierPlacementPolicy {
         +decide_tier(data_meta, tiers) str
     }
-    TierPlacementPolicy --> MemoryTierRegistry : capabilities 조회
+    TierPlacementPolicy --> MemoryTierRegistry : capabilities 조회<br/>supported_ops 포함
 ```
 
 모든 구현체가 `MemoryTier` **단 하나만** 실현(realize)한다는 게 후보 1의
-클래스 구조에서 가장 뚜렷한 특징입니다 — 인터페이스가 여러 개로 갈라지지
-않습니다.
+클래스 구조에서 가장 뚜렷한 특징입니다 — 연산 지원 여부와 무관하게 인터페이스가
+여러 개로 갈라지지 않습니다. `CustomHBMTier`와 `GPUHBMTier`의 차이는 오직
+`capabilities()`가 반환하는 **데이터**(`supported_ops`)뿐이고, 실행 경로는
+`execute_op(op)` 하나로 공유됩니다. `ComputeOp`(및 그 서브타입들)는 이
+인터페이스가 참조하는 유일한 "외부" 타입 계층이며, 이게 §3.5에서 다룰
+트레이드오프의 핵심입니다.
 
-### 3.4 Sequence Diagram — 배치 결정 흐름
+### 3.4 Sequence Diagram — 배치 결정 + 연산 실행 흐름
 
 ```mermaid
 sequenceDiagram
     participant CALLER as Scheduler / ModelLoader
     participant TPP as TierPlacementPolicy
     participant REG as MemoryTierRegistry
-    participant TIER as 선택된 MemoryTier 구현체<br/>예 CXLTier
+    participant TIER as 선택된 MemoryTier 구현체<br/>예 CustomHBMTier
 
     CALLER->>TPP: decide_tier(data_meta)
     TPP->>REG: list_tiers()
-    REG-->>TPP: MemoryTierCapabilities 목록<br/>범용 필드만
-    TPP->>TPP: capacity/latency/bandwidth 비교<br/>모든 티어를 동일한 기준으로 평가
+    REG-->>TPP: MemoryTierCapabilities 목록<br/>supported_ops 포함
+    TPP->>TPP: capacity/latency 비교 +<br/>필요 연산이 supported_ops 에 있는지 확인
     TPP-->>CALLER: tier_id
     CALLER->>REG: create(tier_id)
     REG-->>CALLER: TIER 인스턴스
     CALLER->>TIER: allocate(nbytes)
     TIER-->>CALLER: TierBuffer
 
-    Note over TPP,TIER: 모든 티어가 동일한 인터페이스로 응답하므로<br/>TierPlacementPolicy 는 티어 종류를 구분하는<br/>코드를 전혀 갖지 않음
+    Note over CALLER,TIER: 이후 연산 실행 시점 - forward pass
+    CALLER->>TIER: execute_op(PartialSumOp(block_ids, axis))
+    TIER-->>CALLER: PartialResult
+
+    Note over TPP,TIER: 모든 티어가 동일한 인터페이스(execute_op 포함)로<br/>응답하므로 TierPlacementPolicy/호출부는<br/>티어 종류별 분기 코드를 전혀 갖지 않음<br/>단, "어떤 연산이 존재하는가"(ComputeOp 카탈로그)는<br/>여전히 코어가 중앙에서 정의
 ```
 
-이 흐름에는 "연산을 어디서 할지" 판단이 아예 등장하지 않습니다 — 후보 1에는
-연산 관련 확장 자체가 없기 때문에, 데이터 배치 이후의 연산은 항상 기존 GPU
-전용 경로(`call-path-analysis.md` §3)를 그대로 탑니다.
+배치 결정과 연산 실행이 **같은 인터페이스, 같은 진입점**으로 이어지는 게
+핵심입니다 — 후보 2(§4.4, §4.6)처럼 "확장 인터페이스를 인지하는 별도 상위
+모듈(`ComputeDispatcher`)"이 따로 필요하지 않습니다. 대신 `execute_op`가
+받는 `op`의 종류(`ComputeOp`의 서브타입)는 코어가 정의한 카탈로그 안에
+있어야 합니다.
 
 ### 3.5 장단점
 
 | 항목 | 평가 |
 |---|---|
-| 신규 메모리 온보딩 난이도 | **낮음** — 6개 필드만 채우면 끝 |
-| 상위 모듈 변경량 | **거의 없음** — `TierPlacementPolicy`가 다뤄야 할 케이스가 항상 고정 |
-| 하드웨어 고유 기능 활용도 | **낮음** — CXL pooling, PIM 연산, HBF batch-read 등은 아예 쓸 수 없음 |
-| 구현/유지보수 복잡도 | **낮음** — 인터페이스가 하나뿐 |
-| 성능 상한 | **낮음** — 최소공배수 추상화의 전형적 함정 |
+| 연산 가능 메모리 지원 (FR) | **만족** — `supported_ops` 데이터 필드 + `execute_op` 공통 진입점으로 커버 |
+| 신규 메모리(티어) 온보딩 난이도 | **낮음** — `MemoryTier` 하나만 구현, `supported_ops`에 지원 연산만 나열하면 됨 |
+| 상위 모듈 변경량 | **거의 없음** — `TierPlacementPolicy`/호출부는 항상 같은 진입점(`execute_op`)만 사용, 티어별 분기 없음 |
+| 신규 연산(하드웨어 고유 기능) 확장 자유도 | **낮음** — 새 연산 종류는 코어가 소유한 `ComputeOp` 카탈로그를 수정해야 등장 가능. 벤더가 코어 승인 없이 독자적으로 새 연산을 추가할 수 없음 |
+| 구현/유지보수 복잡도 | **낮음** — 인터페이스가 하나뿐이고, 연산 카탈로그도 한 곳에 모여 있어 "이 시스템에 어떤 연산이 존재하는지" 파악하기 쉬움 |
 
 ---
 
@@ -533,19 +568,21 @@ sequenceDiagram
 
 | 평가 기준 | 후보 1: 범용성 강조 | 후보 2: 하드웨어 특화 |
 |---|---|---|
-| 신규 메모리 온보딩 난이도 | 낮음 | 중간~높음 |
-| 상위 모듈 변경량 (목표 3) | 거의 없음 | 확장 활용 시 필요 |
-| 하드웨어 고유 기능 활용도 (목표 1) | 낮음 | 높음 |
-| 구현/유지보수 복잡도 | 낮음 | 높음 (조합 매트릭스) |
-| 성능 상한 | 낮음 | 높음 |
+| 연산 가능 메모리 지원 (FR) | 만족 — 공유 카탈로그(`ComputeOp`) 경유 | 만족 — 확장 인터페이스 경유 |
+| 신규 메모리(티어) 온보딩 난이도 | 낮음 | 중간~높음 |
+| 신규 연산(하드웨어 고유 기능) 확장 자유도 | **낮음** — 코어의 `ComputeOp` 카탈로그를 수정해야 함, 벤더 단독 확장 불가 | **높음** — 벤더가 자체 확장 인터페이스를 정의해 코어 승인 없이 독립 배포 가능 |
+| 상위 모듈 변경량 (목표 3) | 거의 없음 — 항상 같은 진입점(`execute_op`) | 확장 활용 시 필요 (확장별 분기) |
+| 구현/유지보수 복잡도 | 낮음 — 인터페이스 1개, 연산 카탈로그도 한 곳 | 높음 (확장 조합 매트릭스) |
 | 코드 재사용성 | 최대 | 확장 부분은 재사용 어려움 |
 
-두 후보는 정확히 "배경의 목표 1(이기종 지원 최대 활용)"과 "목표 3(상위 모듈 안정성)"
-사이에서 반대 방향으로 최적화되어 있습니다. 어느 쪽을 택할지는 **이 시스템이 지금
-단계에서 무엇을 더 우선하는지**(빠른 신규 하드웨어 지원 vs 이미 지원 중인 하드웨어의
-성능 극대화)에 달려 있고, 이건 정량적 가중치를 매겨서 판단할 문제이지 이 문서에서
-결론을 내릴 문제는 아닙니다. 다만 참고로, 두 후보가 상호 배타적이지 않다는 점은
-짚어둘 만합니다 — **후보 1을 기본 골격으로 채택하고, 특정 티어에 한해서만(예: 처음엔
+두 후보 모두 연산 가능 메모리라는 FR은 만족합니다 — 더 이상 "지원하느냐"의 문제가
+아닙니다. 실질적으로 갈리는 지점은 **새로운 연산이 하나 생겼을 때 그걸 시스템에
+편입시킬 결정권이 어디에 있는가**입니다: 후보 1은 그 결정권을 코어에 집중시켜
+일관성과 상위 모듈 안정성을 지키고(목표 3), 후보 2는 그 결정권을 벤더에게
+분산시켜 코어 조율 없이도 하드웨어 고유 기능을 빠르게 반영할 수 있게 합니다
+(목표 1). 이건 정량적 가중치를 매겨서 판단할 문제이지 이 문서에서 결론을 내릴
+문제는 아닙니다. 다만 참고로, 두 후보가 상호 배타적이지 않다는 점은 짚어둘
+만합니다 — **후보 1을 기본 골격으로 채택하고, 특정 티어에 한해서만(예: 처음엔
 PIM만) 후보 2의 확장 패턴을 국소적으로 도입**하는 절충도 가능합니다. 실제로 지금
 `vllm-kv-cache-memory-abstraction-layer.md` §7의 `ComputeCapableTier`가 정확히
 이 절충의 실제 사례입니다 — 후보 1의 얇은 베이스 위에, PIM이라는 한 가지 케이스에만
