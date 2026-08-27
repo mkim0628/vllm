@@ -85,11 +85,13 @@
 필드로 "이 티어가 어떤 연산을 지원하는지"를 선언하고, 실행은 모든 티어가
 공유하는 단일 진입점 `execute_op(op)` 하나로 이뤄집니다.
 
-`op`가 속하는 `ComputeOp`는 **코어가 소유하는 하나의 닫힌 연산 카탈로그**입니다.
-즉 "연산이 존재한다"는 사실 자체는 어떤 티어든 알릴 수 있어 FR은 만족되지만,
-**새로운 종류의 연산을 카탈로그에 추가하는 결정권은 항상 코어에 있습니다.**
-이게 후보 1과 후보 2를 가르는 유일하고 핵심적인 차이입니다 — 뒤에서 다시
-정리합니다(§3.5, §5).
+`op`의 타입 `ComputeOp`는 **코어 모듈에 정의된 닫힌 클래스 계층(sealed class
+hierarchy)**입니다 — `PartialSumOp`, `ArgmaxOp`처럼 정해진 서브클래스들만
+존재하고, 이 서브클래스 목록은 `ComputeOp`가 정의된 그 코어 모듈 파일 안에서만
+늘어날 수 있습니다. 즉 "연산이 존재한다"는 사실 자체는 어떤 티어든 알릴 수 있어
+FR은 만족되지만, **새 서브클래스를 이 계층에 추가하는 건 항상 코어 모듈 수정을
+필요로 합니다.** 이게 후보 1과 후보 2를 가르는 유일하고 핵심적인 차이입니다 —
+뒤에서 다시 정리합니다(§3.5, §5).
 
 ### 3.2 Module View
 
@@ -98,7 +100,14 @@ graph TD
     TPP["TierPlacementPolicy<br/>KV Cache / Weight 공통 배치 정책"]
     REGISTRY["MemoryTierRegistry"]
     IFACE["MemoryTier 단일 공통 인터페이스<br/>capacity · latency · bandwidth ·<br/>supported_ops 데이터 필드 ·<br/>execute_op 단일 진입점"]
-    CATALOG["ComputeOp 카탈로그<br/>코어가 소유하는 닫힌 연산 목록<br/>PartialSumOp · ArgmaxOp · ..."]
+
+    subgraph OPHIER["ComputeOp 클래스 계층 — 코어 모듈에 정의, 서브클래스 목록 고정"]
+        COMPUTEOP["ComputeOp<br/>최상위 클래스"]
+        PARTIALSUM["PartialSumOp<br/>서브클래스"]
+        ARGMAX["ArgmaxOp<br/>서브클래스"]
+        COMPUTEOP --> PARTIALSUM
+        COMPUTEOP --> ARGMAX
+    end
 
     subgraph PLUGINS["MemoryTier 구현체 — 모두 동일한 계약, 동일한 모양"]
         GPUHBM["GPUHBMTier<br/>supported_ops = 없음"]
@@ -118,33 +127,34 @@ graph TD
         HBF_PHYS[("HBF")]
     end
 
-    NEWOP["새 연산예 pooling 을 추가하려면<br/>ComputeOp 카탈로그를 코어에서<br/>직접 수정해야 함<br/>벤더가 코어 승인 없이 단독 확장 불가"]
+    NEWOP["새 서브클래스예 PoolingOp 를 추가하려면<br/>OPHIER 가 정의된 코어 모듈 파일을<br/>직접 수정해야 함<br/>벤더가 코어 승인 없이 단독 추가 불가"]
 
     TPP --> REGISTRY --> IFACE
-    IFACE -.-> CATALOG
+    IFACE -.-> OPHIER
     IFACE --> GPUHBM --> HBM_PHYS
     IFACE --> DRAMT --> DRAM_PHYS
     IFACE --> CUSTOMT --> CUSTOM_PHYS
     IFACE --> CXLT --> CXL_PHYS
     IFACE --> HBFT --> HBF_PHYS
-    CATALOG -. "코어 PR 필요" .-> NEWOP
+    OPHIER -. "코어 모듈 수정 필요" .-> NEWOP
 
     classDef localMem fill:#dbe7ff,stroke:#3b5bdb,color:#1c2b5e,stroke-width:2px;
     classDef remoteMem fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
-    classDef catalogBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
+    classDef hierBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
     classDef warnBox fill:#ffe3e3,stroke:#e03131,color:#5c1a1a,stroke-width:1px,stroke-dasharray: 4 3;
     class HBM_PHYS,GPUHBM localMem
     class DRAM_PHYS,CUSTOM_PHYS,CXL_PHYS,HBF_PHYS,DRAMT,CUSTOMT,CXLT,HBFT remoteMem
-    class CATALOG catalogBox
+    class COMPUTEOP,PARTIALSUM,ARGMAX hierBox
     class NEWOP warnBox
 ```
 
 모든 `MemoryTier` 구현체 박스가 **같은 크기, 같은 모양**인 게 핵심입니다 — 인터페이스
 계약이 하나뿐이라 플러그인 사이에 구조적 차이가 없습니다. `CustomHBMTier`처럼 연산을
 지원하는 티어도 `supported_ops`라는 데이터만 다를 뿐, 별도 인터페이스를 구현하지
-않습니다. 대신 "새 연산 종류 자체"는 노란 박스(`ComputeOp` 카탈로그)에 중앙집중되어
-있고, 거기에 새 항목을 추가하려면 코어를 거쳐야 한다는 제약이 남습니다 — 빨간
-점선 박스가 그 제약을 보여줍니다.
+않습니다. 대신 "새 연산 종류 자체"는 노란 박스(`ComputeOp` 클래스 계층 — 최상위
+클래스 하나에 정해진 서브클래스들만 매달린 구조)에 중앙집중되어 있고, 이 계층에
+새 서브클래스를 추가하려면 코어 모듈을 직접 수정해야 한다는 제약이 남습니다 —
+빨간 점선 박스가 그 제약을 보여줍니다.
 
 ### 3.3 Class Diagram
 
@@ -177,7 +187,7 @@ classDiagram
     MemoryTier <|.. HBFTier
 
     class ComputeOp {
-        <<코어 소유, 닫힌 카탈로그>>
+        <<코어 모듈 소유, sealed hierarchy>>
     }
     class PartialSumOp
     class ArgmaxOp
@@ -206,8 +216,8 @@ classDiagram
 클래스 구조에서 가장 뚜렷한 특징입니다 — 연산 지원 여부와 무관하게 인터페이스가
 여러 개로 갈라지지 않습니다. `CustomHBMTier`와 `GPUHBMTier`의 차이는 오직
 `capabilities()`가 반환하는 **데이터**(`supported_ops`)뿐이고, 실행 경로는
-`execute_op(op)` 하나로 공유됩니다. `ComputeOp`(및 그 서브타입들)는 이
-인터페이스가 참조하는 유일한 "외부" 타입 계층이며, 이게 §3.5에서 다룰
+`execute_op(op)` 하나로 공유됩니다. `ComputeOp`(및 그 서브클래스들)는 이
+인터페이스가 참조하는 유일한 "외부" 클래스 계층이며, 이게 §3.5에서 다룰
 트레이드오프의 핵심입니다.
 
 ### 3.4 Sequence Diagram — 배치 결정 + 연산 실행 흐름
@@ -233,14 +243,14 @@ sequenceDiagram
     CALLER->>TIER: execute_op(PartialSumOp(block_ids, axis))
     TIER-->>CALLER: PartialResult
 
-    Note over TPP,TIER: 모든 티어가 동일한 인터페이스(execute_op 포함)로<br/>응답하므로 TierPlacementPolicy/호출부는<br/>티어 종류별 분기 코드를 전혀 갖지 않음<br/>단, "어떤 연산이 존재하는가"(ComputeOp 카탈로그)는<br/>여전히 코어가 중앙에서 정의
+    Note over TPP,TIER: 모든 티어가 동일한 인터페이스(execute_op 포함)로<br/>응답하므로 TierPlacementPolicy/호출부는<br/>티어 종류별 분기 코드를 전혀 갖지 않음<br/>단, "어떤 연산이 존재하는가"(ComputeOp 클래스 계층)는<br/>여전히 코어 모듈에 고정되어 있음
 ```
 
 배치 결정과 연산 실행이 **같은 인터페이스, 같은 진입점**으로 이어지는 게
 핵심입니다 — 후보 2(§4.4, §4.6)처럼 "확장 인터페이스를 인지하는 별도 상위
 모듈(`ComputeDispatcher`)"이 따로 필요하지 않습니다. 대신 `execute_op`가
-받는 `op`의 종류(`ComputeOp`의 서브타입)는 코어가 정의한 카탈로그 안에
-있어야 합니다.
+받는 `op`의 타입(`ComputeOp`의 서브클래스)은 코어 모듈에 정의된 클래스
+계층 안에 있어야 합니다.
 
 ### 3.5 장단점
 
@@ -249,8 +259,8 @@ sequenceDiagram
 | 연산 가능 메모리 지원 (FR) | **만족** — `supported_ops` 데이터 필드 + `execute_op` 공통 진입점으로 커버 |
 | 신규 메모리(티어) 온보딩 난이도 | **낮음** — `MemoryTier` 하나만 구현, `supported_ops`에 지원 연산만 나열하면 됨 |
 | 상위 모듈 변경량 | **거의 없음** — `TierPlacementPolicy`/호출부는 항상 같은 진입점(`execute_op`)만 사용, 티어별 분기 없음 |
-| 신규 연산(하드웨어 고유 기능) 확장 자유도 | **낮음** — 새 연산 종류는 코어가 소유한 `ComputeOp` 카탈로그를 수정해야 등장 가능. 벤더가 코어 승인 없이 독자적으로 새 연산을 추가할 수 없음 |
-| 구현/유지보수 복잡도 | **낮음** — 인터페이스가 하나뿐이고, 연산 카탈로그도 한 곳에 모여 있어 "이 시스템에 어떤 연산이 존재하는지" 파악하기 쉬움 |
+| 신규 연산(하드웨어 고유 기능) 확장 자유도 | **낮음** — 새 연산 종류는 `ComputeOp` 클래스 계층에 서브클래스로 추가되어야 등장 가능. 이 계층은 코어 모듈에 정의되어 있어, 벤더가 코어 승인 없이 독자적으로 새 연산을 추가할 수 없음 |
+| 구현/유지보수 복잡도 | **낮음** — 인터페이스가 하나뿐이고, `ComputeOp` 서브클래스도 한 모듈에 모여 있어 "이 시스템에 어떤 연산이 존재하는지" 파악하기 쉬움 |
 
 ---
 
@@ -568,11 +578,11 @@ sequenceDiagram
 
 | 평가 기준 | 후보 1: 범용성 강조 | 후보 2: 하드웨어 특화 |
 |---|---|---|
-| 연산 가능 메모리 지원 (FR) | 만족 — 공유 카탈로그(`ComputeOp`) 경유 | 만족 — 확장 인터페이스 경유 |
+| 연산 가능 메모리 지원 (FR) | 만족 — `ComputeOp` 클래스 계층 경유 | 만족 — 확장 인터페이스 경유 |
 | 신규 메모리(티어) 온보딩 난이도 | 낮음 | 중간~높음 |
-| 신규 연산(하드웨어 고유 기능) 확장 자유도 | **낮음** — 코어의 `ComputeOp` 카탈로그를 수정해야 함, 벤더 단독 확장 불가 | **높음** — 벤더가 자체 확장 인터페이스를 정의해 코어 승인 없이 독립 배포 가능 |
+| 신규 연산(하드웨어 고유 기능) 확장 자유도 | **낮음** — 코어 모듈에 정의된 `ComputeOp` 클래스 계층에 서브클래스를 추가해야 함, 벤더 단독 확장 불가 | **높음** — 벤더가 자체 확장 인터페이스를 정의해 코어 승인 없이 독립 배포 가능 |
 | 상위 모듈 변경량 (목표 3) | 거의 없음 — 항상 같은 진입점(`execute_op`) | 확장 활용 시 필요 (확장별 분기) |
-| 구현/유지보수 복잡도 | 낮음 — 인터페이스 1개, 연산 카탈로그도 한 곳 | 높음 (확장 조합 매트릭스) |
+| 구현/유지보수 복잡도 | 낮음 — 인터페이스 1개, `ComputeOp` 서브클래스도 한 모듈에 모여 있음 | 높음 (확장 조합 매트릭스) |
 | 코드 재사용성 | 최대 | 확장 부분은 재사용 어려움 |
 
 두 후보 모두 연산 가능 메모리라는 FR은 만족합니다 — 더 이상 "지원하느냐"의 문제가
