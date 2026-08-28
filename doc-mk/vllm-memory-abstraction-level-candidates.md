@@ -178,6 +178,8 @@ classDiagram
         +allocate(nbytes) TierBuffer
         +free(buf) void
         +as_torch_storage(buf) Tensor
+        +copy_out(block_ids) bytes
+        +copy_in(block_ids, data) void
         +execute_op(op) PartialResult
     }
     MemoryTier <|.. GPUHBMTier
@@ -219,6 +221,12 @@ classDiagram
 `execute_op(op)` 하나로 공유됩니다. `ComputeOp`(및 그 서브클래스들)는 이
 인터페이스가 참조하는 유일한 "외부" 클래스 계층이며, 이게 §3.5에서 다룰
 트레이드오프의 핵심입니다.
+
+`copy_out(block_ids)`/`copy_in(block_ids, data)`는 연산과 무관한 기본 데이터
+이동 원시 동작입니다 — "자기 자신의 메모리에서 내보내기/받기"만 할 뿐, 어디로
+보내는지는 모릅니다. 이게 `vllm-memory-coordination-locus-candidates.md`의
+`TierDataMover`가 실제 티어 간 이관을 실행할 때 호출하는 메서드이고, DP-1의
+두 후보 모두 동일하게 가져야 하는 기본 계약입니다.
 
 ### 3.4 Sequence Diagram — 배치 결정 + 연산 실행 흐름
 
@@ -372,6 +380,8 @@ classDiagram
         +allocate(nbytes) TierBuffer
         +free(buf) void
         +as_torch_storage(buf) Tensor
+        +copy_out(block_ids) bytes
+        +copy_in(block_ids, data) void
     }
     MemoryTier <|.. GPUHBMTier
     MemoryTier <|.. CPUDRAMTier

@@ -37,11 +37,13 @@ sequenceDiagram
     CXLA->>CUSTOMA: query_neighbor_load
     HBFA-->>CXLA: 여유 있음, latency 프로파일 회신
     CUSTOMA-->>CXLA: 여유 없음
-    CXLA->>CXLA: 회신 비교 후 자율 결정
+    CXLA->>MOVER: estimate_transfer_cost dst HBFTier block_ids
+    MOVER-->>CXLA: 예상 소요시간 경로종류
+    CXLA->>CXLA: 이웃 응답 + 이관 비용 견적<br/>종합해 자율 결정
     CXLA->>HBFA: propose_migration block_ids
     HBFA-->>CXLA: 수락
     CXLA->>MOVER: transfer src CXLTier dst HBFTier block_ids
-    Note over MOVER: 양쪽 capabilities 비교해<br/>host 경유 여부 등 물리적 경로 결정<br/>시나리오 09 와 동일한 컴포넌트, 동일한 방식
+    Note over MOVER: 견적 때와 같은 경로 판단 로직으로 실행<br/>시나리오 09 와 동일한 컴포넌트, 동일한 방식
     MOVER-->>CXLA: 완료
 
     Note over CXLA,HBFA: 중앙 조정자 없이 완결<br/>단, HBFA 가 동시에 CustomHBMTier 의 Agent<br/>로부터도 같은 제안을 받으면 충돌 가능<br/>충돌 해소 프로토콜이 별도로 필요
@@ -61,18 +63,26 @@ sequenceDiagram
    자연스럽습니다.
 4. **`HBFA`가 "여유 있음" + latency 프로파일을 회신**합니다.
 5. **`CUSTOMA`가 "여유 없음"을 회신**합니다.
-6. **`CXLA`가 받은 회신들을 비교해서 자율적으로 결정**합니다
-   (self-message) — 이 판단은 `CXLA` 혼자서, 자신에게 온 응답만 갖고
-   내립니다. 시나리오 09의 3단계와 달리 **전역 상태를 보지 못합니다**.
-7. **`CXLA`가 `HBFA`에게 `propose_migration(block_ids)`을 제안**합니다
+6. **`CXLA`가 `TierDataMover`에 `estimate_transfer_cost(dst=HBFTier,
+   block_ids)`를 요청**합니다. `HBFA`의 응답(4단계)은 "이웃 자신이 얼마나
+   여유 있는지"만 알려줄 뿐, "거기까지 옮기는 데 얼마나 걸리는지"는 알려주지
+   않습니다 — 그건 `CXLTier`와 `HBFTier` 사이의 물리적 경로에 대한 지식이고,
+   이건 `TierAgent`가 아니라 `TierDataMover`만 갖고 있습니다. `CUSTOMA`는
+   이미 5단계에서 "여유 없음"으로 걸러졌으므로 견적을 물어볼 필요가
+   없습니다.
+7. **`TierDataMover`가 예상 소요시간과 경로 종류(DIRECT/STAGED/네트워크)를
+   회신**합니다.
+8. **`CXLA`가 이웃 응답(여유 용량)과 이관 비용 견적을 종합해서 자율적으로
+   결정**합니다(self-message) — 이 판단은 `CXLA` 혼자서, 자신에게 온
+   응답만 갖고 내립니다. 시나리오 09의 3~5단계와 달리 **전역 상태를 보지
+   못합니다**.
+9. **`CXLA`가 `HBFA`에게 `propose_migration(block_ids)`을 제안**합니다
    — 지시가 아니라 "제안"입니다.
-8. **`HBFA`가 수락**합니다.
-9. **`CXLA`가 `TierDataMover`에 `transfer(src=CXLTier, dst=HBFTier,
-   block_ids)`를 요청**합니다. `CXLA`는 "누구에게 보낼지"를 협상으로
-   결정했을 뿐, 실제로 그 데이터가 host DRAM을 거치는지 direct 경로로
-   가는지는 알지 못합니다 — `MemoryTier`도 마찬가지로 이 판단에 관여하지
-   않습니다. `TierDataMover`가 시나리오 09와 완전히 같은 방식으로
-   `CXLTier.copy_out()` → `HBFTier.copy_in()`을 수행합니다.
+10. **`HBFA`가 수락**합니다.
+11. **`CXLA`가 `TierDataMover`에 `transfer(src=CXLTier, dst=HBFTier,
+    block_ids)`를 요청**합니다. `TierDataMover`가 6~7단계의 견적과 같은
+    판단 로직으로, 시나리오 09와 완전히 같은 방식으로 `CXLTier.copy_out()`
+    → `HBFTier.copy_in()`을 수행합니다.
 
 ## 구현 시 반드시 처리해야 할 문제 — 충돌
 
@@ -99,12 +109,14 @@ sequenceDiagram
   디스커버리에만 관여합니다(시나리오 02와 달리, 재배치 국면에서는 등장하지
   않습니다). `MemoryTier`끼리는 후보 A와 마찬가지로 서로 직접 통신하지
   않습니다.
-- 6단계의 "자율 결정"이 국소 정보(이 시점에 응답한 이웃들의 상태)만으로
-  이뤄지므로, 전역적으로 보면 최적이 아닐 수 있습니다(예: 더 나은 목적지가
-  있었는데 `CXLA`가 미처 물어보지 않은 경우) — 실제 구현 시 "몇 개의
-  이웃에게 물어볼지"가 성능/정확도 트레이드오프의 튜닝 지점이 됩니다.
-- 시나리오 09와 정확히 같은 트리거(CXL 용량 초과)로 시작하고, 9단계의
-  `TierDataMover` 호출 이후도 완전히 동일한 방식으로 흐릅니다 — 다른 건
-  오직 1~8단계, "누가(오케스트레이터 1개 vs Agent N개), 얼마나 넓은
-  정보로 이관을 결정하는가"입니다. 이 둘을 나란히 놓고 비교하면 DP-2의
-  실질적 구현 차이가 뚜렷하게 드러납니다.
+- 8단계의 "자율 결정"이 국소 정보(이 시점에 응답한 이웃들의 상태 + 그
+  이웃까지의 이관 비용 견적)만으로 이뤄지므로, 전역적으로 보면 최적이
+  아닐 수 있습니다(예: 더 나은 목적지가 있었는데 `CXLA`가 미처 물어보지
+  않은 경우) — 실제 구현 시 "몇 개의 이웃에게 물어볼지"가 성능/정확도
+  트레이드오프의 튜닝 지점이 됩니다.
+- 시나리오 09와 정확히 같은 트리거(CXL 용량 초과)로 시작하고, 6~7단계의
+  이관 비용 견적 조회와 11단계의 `TierDataMover` 실행은 시나리오 09와
+  완전히 동일한 방식으로 흐릅니다 — 다른 건 오직 그 이전 단계, "누가
+  (오케스트레이터 1개 vs Agent N개), 얼마나 넓은 정보로 이관을
+  결정하는가"입니다. 이 둘을 나란히 놓고 비교하면 DP-2의 실질적 구현
+  차이가 뚜렷하게 드러납니다.

@@ -57,6 +57,17 @@ DP-2는 "**그 인터페이스로 얻은 정보를 누가 종합해서 판단할
   두 티어의 `capabilities()`를 보고 host DRAM 경유 여부·direct 연결 여부·네트워크
   경유 여부를 판단해서 각 티어의 `copy_out()`/`copy_in()`을 호출합니다. Agent는
   "누구에게 옮길지"만 결정하고, "어떻게 물리적으로 옮길지"는 알 필요가 없습니다.
+- **`TierDataMover`는 실행 전에 비용도 미리 알려줍니다.** Agent가 "옮길지 말지,
+  옮긴다면 어디로"를 결정하려면 목적지 후보의 여유 용량뿐 아니라 **거기까지
+  옮기는 데 걸리는 시간**(경로가 host 경유인지 direct인지 네트워크인지에 따라
+  크게 달라짐)도 알아야 이득/손해를 계산할 수 있습니다. 이 경로 판단 지식은
+  실행(`transfer`)에 쓰는 것과 완전히 같은 지식이므로, 별도로 복제하지 않고
+  `TierDataMover`에 읽기 전용 조회 메서드
+  `estimate_transfer_cost(src, dst, block_ids) -> TransferCostEstimate`
+  (예상 소요 시간 + DIRECT/STAGED/네트워크 중 어떤 경로인지)를 하나 더
+  추가합니다. Agent는 결정 단계에서 이걸 먼저 호출해 보고, 실제 이관을
+  실행할 때만 `transfer()`를 호출합니다 — 두 메서드가 같은 경로 지식을
+  공유하므로 "견적"과 "실행"이 항상 일치합니다.
 - 시나리오: CXL Memory 티어가 용량 임계치를 초과했을 때, 일부 블록을 다른 티어
   (예: HBF)로 이관해야 하는 상황을 두 후보 각각의 sequence diagram으로 그려서
   차이를 비교합니다.
@@ -108,7 +119,8 @@ graph TD
     CXLT -. "telemetry 보고" .-> ORCH
     HBFT -. "telemetry 보고" .-> ORCH
 
-    ORCH -- "이관 결정 - src dst block_ids" --> MOVER
+    ORCH -- "estimate_transfer_cost 후보들 견적 조회" --> MOVER
+    ORCH -- "transfer 결정 확정 후 실행 요청" --> MOVER
     MOVER -. "copy_out copy_in" .-> CXLT
     MOVER -. "copy_out copy_in" .-> HBFT
 
@@ -121,8 +133,9 @@ graph TD
 ```
 
 별(star) 형태 토폴로지입니다 — 티어끼리 연결된 선이 하나도 없고, 모든 결정이
-오케스트레이터(유일한 Agent)를 거칩니다. `TierDataMover`는 결정 이후의 실행
-단계에서만 등장하는 공통 컴포넌트이고, 후보 B(§3.2)에도 동일하게 등장합니다.
+오케스트레이터(유일한 Agent)를 거칩니다. `TierDataMover`는 결정 단계(후보별
+이관 비용 견적)와 실행 단계(확정된 이관 수행) 양쪽에서 등장하는 공통
+컴포넌트이고, 후보 B(§3.2)에도 동일하게 등장합니다.
 
 ### 2.3 Sequence Diagram — CXL 티어 용량 초과 시나리오
 
@@ -139,9 +152,14 @@ sequenceDiagram
     end
 
     Note over ORCH: CXLTier 용량 임계치 초과 감지<br/>전역 상태 테이블에서 판단
-    ORCH->>ORCH: 이관 대상 블록과 목적지 결정<br/>모든 티어 상태를 비교해서 선택
+    ORCH->>ORCH: 여유 있는 후보 티어들 추림<br/>예 HBFTier CustomHBMTier
+    ORCH->>MOVER: estimate_transfer_cost dst HBFTier block_ids
+    MOVER-->>ORCH: 예상 소요시간 경로종류
+    ORCH->>MOVER: estimate_transfer_cost dst CustomHBMTier block_ids
+    MOVER-->>ORCH: 예상 소요시간 경로종류
+    ORCH->>ORCH: 여유 용량 + 이관 비용 견적 종합해<br/>목적지 HBFTier 로 확정
     ORCH->>MOVER: transfer src CXLTier dst HBFTier block_ids
-    Note over MOVER: 양쪽 capabilities 비교해<br/>host 경유 여부 등 물리적 경로 결정
+    Note over MOVER: 견적 때와 같은 경로 판단 로직으로 실행
     MOVER->>CXLT: copy_out block_ids
     CXLT-->>MOVER: bytes
     MOVER->>HBFT: copy_in block_ids bytes
@@ -176,6 +194,14 @@ sequenceDiagram
 DP-1 후보 2(하드웨어 특화)의 "티어마다 고유 로직을 가질 수 있다"는 철학과
 자연스럽게 이어지는 건 여전히 유효하되, 그 고유 로직은 `TierAgent` 안에 있고
 `MemoryTier` 자체는 후보 A와 완전히 같은 수동적 모양을 유지합니다.
+
+`query_neighbor_load()`만으로는 "이웃이 얼마나 여유가 있는지"만 알 뿐,
+"거기까지 옮기는 데 얼마나 걸리는지"는 알 수 없습니다 — 그건 이웃 자신의
+상태가 아니라 나와 그 이웃 **사이의 경로**에 대한 지식이고, §1에서 정했듯
+이 지식은 `TierDataMover`에만 있습니다. 그래서 협상 중에는
+`query_neighbor_load()`(이웃 상태)와 `TierDataMover.estimate_transfer_cost()`
+(경로 비용) 둘을 함께 조회해서 "여유는 있지만 옮기는 데 너무 오래 걸리는
+이웃"을 걸러낼 수 있어야 합니다.
 
 ### 3.2 Module View
 
@@ -221,7 +247,8 @@ graph TD
     HBFA <--> DRAMA
     CUSTOMA <--> DRAMA
 
-    CXLA -. "이관 결정 후" .-> MOVER
+    CXLA -. "estimate_transfer_cost 협상 중 견적 조회" .-> MOVER
+    CXLA -. "transfer 결정 확정 후 실행 요청" .-> MOVER
     MOVER -. "copy_out copy_in" .-> CXLT
     MOVER -. "copy_out copy_in" .-> HBFT
 
@@ -255,11 +282,13 @@ sequenceDiagram
     CXLA->>CUSTOMA: query_neighbor_load
     HBFA-->>CXLA: 여유 있음, latency 프로파일 회신
     CUSTOMA-->>CXLA: 여유 없음
-    CXLA->>CXLA: 회신 비교 후 자율 결정
+    CXLA->>MOVER: estimate_transfer_cost dst HBFTier block_ids
+    MOVER-->>CXLA: 예상 소요시간 경로종류
+    CXLA->>CXLA: 이웃 응답 + 이관 비용 견적<br/>종합해 자율 결정
     CXLA->>HBFA: propose_migration block_ids
     HBFA-->>CXLA: 수락
     CXLA->>MOVER: transfer src CXLTier dst HBFTier block_ids
-    Note over MOVER: 양쪽 capabilities 비교해<br/>host 경유 여부 등 물리적 경로 결정<br/>후보 A 와 동일한 컴포넌트, 동일한 방식
+    Note over MOVER: 견적 때와 같은 경로 판단 로직으로 실행<br/>후보 A 와 동일한 컴포넌트, 동일한 방식
     MOVER-->>CXLA: 완료
 
     Note over CXLA,HBFA: 중앙 조정자 없이 완결<br/>단, HBFA 가 동시에 CustomHBMTier 의 Agent<br/>로부터도 같은 제안을 받으면 충돌 가능<br/>충돌 해소 프로토콜이 별도로 필요
