@@ -42,21 +42,35 @@ DP-2는 "**그 인터페이스로 얻은 정보를 누가 종합해서 판단할
   "티어 디스커버리"용으로는 유지됩니다 — 차이는 **디스커버리 이후의 조정 로직**이
   어디에 있는가입니다.
 - **`MemoryTier`는 두 후보 모두에서 항상 수동적 자원 객체입니다.** `capabilities()`,
-  `allocate()`/`free()`, `copy_out()`/`copy_in()`만 가지고 있고, 스스로 판단해서
-  먼저 행동을 개시하는 로직은 없습니다 — 이건 DP-1에서 정한 역할 그대로이고,
-  DP-2가 어느 후보로 정해지든 바뀌지 않습니다.
+  `allocate()`/`free()`, `copy_out()`/`copy_in()`, `get_dma_handle()`/
+  `receive_dma()`만 가지고 있고, 스스로 판단해서 먼저 행동을 개시하는 로직은
+  없습니다 — 이건 DP-1에서 정한 역할 그대로이고, DP-2가 어느 후보로 정해지든
+  바뀌지 않습니다.
 - **"판단"은 `MemoryTier`가 아니라 별도의 능동적 객체(Agent)가 담당합니다.**
   두 후보의 차이는 정확히 **이 Agent가 몇 개 존재하고, 각각 얼마나 넓은 정보를
   보고 판단하는가**입니다 — 후보 A는 Agent가 **1개**(`GlobalMemoryOrchestrator`)이고
   전체 티어의 전역 상태를 봅니다. 후보 B는 Agent가 **티어 개수만큼(N개)**
   존재하고(`TierAgent`, 티어당 1개), 각자 자기 티어와 일부 이웃의 국소 정보만
   봅니다.
-- **실제 물리적 데이터 이동은 두 후보 공통의 `TierDataMover`가 수행합니다.**
-  Agent가 "이 블록을 A에서 B로 옮겨라"라고 결정한 뒤에는, 두 후보 모두 동일하게
-  `TierDataMover.transfer(src, dst, block_ids)`를 호출합니다 — 이 컴포넌트가
-  두 티어의 `capabilities()`를 보고 host DRAM 경유 여부·direct 연결 여부·네트워크
-  경유 여부를 판단해서 각 티어의 `copy_out()`/`copy_in()`을 호출합니다. Agent는
-  "누구에게 옮길지"만 결정하고, "어떻게 물리적으로 옮길지"는 알 필요가 없습니다.
+- **실제 물리적 데이터 이동은 두 후보 공통의 `TierDataMover`가 수행하고,
+  두 개의 서로 다른 메커니즘 중 하나를 씁니다.** Agent가 "이 블록을 A에서
+  B로 옮겨라"라고 결정한 뒤에는, 두 후보 모두 동일하게
+  `TierDataMover.transfer(src, dst, block_ids)`를 호출합니다.
+  - **STAGED**: `src.copy_out(block_ids)`로 바이트를 꺼내 **호출자
+    (`TierDataMover`가 도는 host 프로세스)의 메모리, 즉 host DRAM에
+    실제로 만든 뒤**, `dst.copy_in(block_ids, data)`로 씁니다. `src →
+    host DRAM → dst`의 2단계이고, host를 거치지 않고는 갈 수 없는 조합
+    (예: 서로 다른 fabric)에 씁니다.
+  - **DIRECT**: 두 티어가 같은 cache-coherent fabric에 있어서 host를
+    거칠 필요가 없을 때 씁니다. `src.get_dma_handle(block_ids)`로 실제
+    바이트가 아니라 물리 주소 등을 담은 가벼운 `MemoryHandle`만 받고,
+    `dst.receive_dma(handle, block_ids)`로 넘깁니다 — 그러면 두
+    디바이스가 서로 직접 DMA로 복사하고, 바이트는 `TierDataMover`의
+    메모리(host DRAM)에 전혀 들어오지 않습니다.
+
+  `TierDataMover`가 두 티어의 `capabilities()`(예: 같은 fabric에
+  있는지)를 보고 이 둘 중 하나를 선택합니다. Agent는 "누구에게 옮길지"만
+  결정하고, 이 선택은 알 필요가 없습니다.
 - **`TierDataMover`는 실행 전에 비용도 미리 알려줍니다.** Agent가 "옮길지 말지,
   옮긴다면 어디로"를 결정하려면 목적지 후보의 여유 용량뿐 아니라 **거기까지
   옮기는 데 걸리는 시간**(경로가 host 경유인지 direct인지 네트워크인지에 따라
@@ -121,8 +135,8 @@ graph TD
 
     ORCH -- "estimate_transfer_cost 후보들 견적 조회" --> MOVER
     ORCH -- "transfer 결정 확정 후 실행 요청" --> MOVER
-    MOVER -. "copy_out copy_in" .-> CXLT
-    MOVER -. "copy_out copy_in" .-> HBFT
+    MOVER -. "STAGED copy_out copy_in<br/>또는 DIRECT get_dma_handle receive_dma" .-> CXLT
+    MOVER -. "STAGED copy_out copy_in<br/>또는 DIRECT get_dma_handle receive_dma" .-> HBFT
 
     classDef orchBox fill:#dbe7ff,stroke:#3b5bdb,color:#1c2b5e,stroke-width:2px;
     classDef tierBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
@@ -159,10 +173,18 @@ sequenceDiagram
     MOVER-->>ORCH: 예상 소요시간 경로종류
     ORCH->>ORCH: 여유 용량 + 이관 비용 견적 종합해<br/>목적지 HBFTier 로 확정
     ORCH->>MOVER: transfer src CXLTier dst HBFTier block_ids
-    Note over MOVER: 견적 때와 같은 경로 판단 로직으로 실행
-    MOVER->>CXLT: copy_out block_ids
-    CXLT-->>MOVER: bytes
-    MOVER->>HBFT: copy_in block_ids bytes
+    MOVER->>MOVER: 양쪽 capabilities 비교<br/>같은 fabric 이면 DIRECT 아니면 STAGED
+    alt DIRECT 같은 cache-coherent fabric
+        MOVER->>CXLT: get_dma_handle block_ids
+        CXLT-->>MOVER: MemoryHandle 물리주소 등 데이터 아님
+        MOVER->>HBFT: receive_dma handle block_ids
+        Note over CXLT,HBFT: 두 디바이스가 직접 DMA 로 복사<br/>바이트가 host DRAM 에 들어오지 않음
+        HBFT-->>MOVER: 완료
+    else STAGED host DRAM 경유
+        MOVER->>CXLT: copy_out block_ids
+        CXLT-->>MOVER: bytes host DRAM 에 생성됨
+        MOVER->>HBFT: copy_in block_ids bytes
+    end
     MOVER-->>ORCH: 이관 완료
     ORCH->>ORCH: 전역 상태 테이블 갱신
 ```
@@ -249,8 +271,8 @@ graph TD
 
     CXLA -. "estimate_transfer_cost 협상 중 견적 조회" .-> MOVER
     CXLA -. "transfer 결정 확정 후 실행 요청" .-> MOVER
-    MOVER -. "copy_out copy_in" .-> CXLT
-    MOVER -. "copy_out copy_in" .-> HBFT
+    MOVER -. "STAGED copy_out copy_in<br/>또는 DIRECT get_dma_handle receive_dma" .-> CXLT
+    MOVER -. "STAGED copy_out copy_in<br/>또는 DIRECT get_dma_handle receive_dma" .-> HBFT
 
     classDef tierBox fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
     classDef agentBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:1px;
@@ -276,6 +298,8 @@ sequenceDiagram
     participant HBFA as HBFTier 의 TierAgent
     participant CUSTOMA as CustomHBMTier 의 TierAgent
     participant MOVER as TierDataMover
+    participant CXLT as CXLTier
+    participant HBFT as HBFTier
 
     Note over CXLA: 자신의 MemoryTier.capabilities 를<br/>주기적으로 확인, 용량 임계치 초과를 스스로 감지
     CXLA->>HBFA: query_neighbor_load
@@ -288,7 +312,18 @@ sequenceDiagram
     CXLA->>HBFA: propose_migration block_ids
     HBFA-->>CXLA: 수락
     CXLA->>MOVER: transfer src CXLTier dst HBFTier block_ids
-    Note over MOVER: 견적 때와 같은 경로 판단 로직으로 실행<br/>후보 A 와 동일한 컴포넌트, 동일한 방식
+    MOVER->>MOVER: 양쪽 capabilities 비교<br/>같은 fabric 이면 DIRECT 아니면 STAGED
+    alt DIRECT 같은 cache-coherent fabric
+        MOVER->>CXLT: get_dma_handle block_ids
+        CXLT-->>MOVER: MemoryHandle 물리주소 등 데이터 아님
+        MOVER->>HBFT: receive_dma handle block_ids
+        Note over CXLT,HBFT: 두 디바이스가 직접 DMA 로 복사<br/>바이트가 host DRAM 에 들어오지 않음<br/>후보 A 와 동일한 컴포넌트, 동일한 방식
+        HBFT-->>MOVER: 완료
+    else STAGED host DRAM 경유
+        MOVER->>CXLT: copy_out block_ids
+        CXLT-->>MOVER: bytes host DRAM 에 생성됨
+        MOVER->>HBFT: copy_in block_ids bytes
+    end
     MOVER-->>CXLA: 완료
 
     Note over CXLA,HBFA: 중앙 조정자 없이 완결<br/>단, HBFA 가 동시에 CustomHBMTier 의 Agent<br/>로부터도 같은 제안을 받으면 충돌 가능<br/>충돌 해소 프로토콜이 별도로 필요

@@ -180,6 +180,8 @@ classDiagram
         +as_torch_storage(buf) Tensor
         +copy_out(block_ids) bytes
         +copy_in(block_ids, data) void
+        +get_dma_handle(block_ids) MemoryHandle
+        +receive_dma(handle, block_ids) void
         +execute_op(op) PartialResult
     }
     MemoryTier <|.. GPUHBMTier
@@ -187,6 +189,14 @@ classDiagram
     MemoryTier <|.. CustomHBMTier
     MemoryTier <|.. CXLTier
     MemoryTier <|.. HBFTier
+
+    class MemoryHandle {
+        <<dataclass>>
+        +str device_id
+        +int physical_address
+        +int nbytes
+    }
+    MemoryTier ..> MemoryHandle : get_dma_handle 반환 receive_dma 인자
 
     class ComputeOp {
         <<코어 모듈 소유, sealed hierarchy>>
@@ -224,9 +234,15 @@ classDiagram
 
 `copy_out(block_ids)`/`copy_in(block_ids, data)`는 연산과 무관한 기본 데이터
 이동 원시 동작입니다 — "자기 자신의 메모리에서 내보내기/받기"만 할 뿐, 어디로
-보내는지는 모릅니다. 이게 `vllm-memory-coordination-locus-candidates.md`의
-`TierDataMover`가 실제 티어 간 이관을 실행할 때 호출하는 메서드이고, DP-1의
-두 후보 모두 동일하게 가져야 하는 기본 계약입니다.
+보내는지는 모릅니다. 이 두 메서드는 반환값 `bytes`가 **호출자의 메모리 공간에
+실제로 만들어지는** 것을 전제하므로, 데이터가 host DRAM 같은 중간 지점을
+거치는 경로에서만 씁니다. `get_dma_handle(block_ids)`/`receive_dma(handle,
+block_ids)`는 그와 다른 원시 동작으로, 실제 바이트 대신 물리 주소 등을 담은
+가벼운 `MemoryHandle`만 주고받습니다 — 두 티어가 같은 상호연결(fabric)에
+있어서 호출자를 거치지 않고 디바이스끼리 직접 옮길 수 있는 경로에서 씁니다.
+이 네 메서드가 `vllm-memory-coordination-locus-candidates.md`의
+`TierDataMover`가 실제 티어 간 이관을 실행할 때 상황에 따라 골라 쓰는
+메서드들이고, DP-1의 두 후보 모두 동일하게 가져야 하는 기본 계약입니다.
 
 ### 3.4 Sequence Diagram — 배치 결정 + 연산 실행 흐름
 
@@ -382,6 +398,8 @@ classDiagram
         +as_torch_storage(buf) Tensor
         +copy_out(block_ids) bytes
         +copy_in(block_ids, data) void
+        +get_dma_handle(block_ids) MemoryHandle
+        +receive_dma(handle, block_ids) void
     }
     MemoryTier <|.. GPUHBMTier
     MemoryTier <|.. CPUDRAMTier

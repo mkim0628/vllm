@@ -21,7 +21,9 @@ DP-2의 **후보B: 분산 자율 협상**에서, 한 티어가 용량 임계치�
   정확히는 `CXLTier`의 `TierAgent`가 자신의 `MemoryTier.capabilities()`를
   주기적으로 확인하다가 감지합니다.
 - 실제 물리적 전송은 시나리오 09와 동일한 공통 컴포넌트 `TierDataMover`가
-  수행합니다.
+  수행하며, 두 티어가 같은 cache-coherent fabric에 있는지에 따라
+  DIRECT(host를 거치지 않고 두 디바이스가 직접 DMA)와 STAGED(host DRAM을
+  중간 버퍼로 경유) 중 하나를 씁니다.
 
 ## Sequence Diagram
 
@@ -31,6 +33,8 @@ sequenceDiagram
     participant HBFA as HBFTier 의 TierAgent
     participant CUSTOMA as CustomHBMTier 의 TierAgent
     participant MOVER as TierDataMover
+    participant CXLT as CXLTier
+    participant HBFT as HBFTier
 
     Note over CXLA: 자신의 MemoryTier.capabilities 를<br/>주기적으로 확인, 용량 임계치 초과를 스스로 감지
     CXLA->>HBFA: query_neighbor_load
@@ -43,7 +47,18 @@ sequenceDiagram
     CXLA->>HBFA: propose_migration block_ids
     HBFA-->>CXLA: 수락
     CXLA->>MOVER: transfer src CXLTier dst HBFTier block_ids
-    Note over MOVER: 견적 때와 같은 경로 판단 로직으로 실행<br/>시나리오 09 와 동일한 컴포넌트, 동일한 방식
+    MOVER->>MOVER: 양쪽 capabilities 비교<br/>같은 fabric 이면 DIRECT 아니면 STAGED
+    alt DIRECT 같은 cache-coherent fabric
+        MOVER->>CXLT: get_dma_handle block_ids
+        CXLT-->>MOVER: MemoryHandle 물리주소 등 데이터 아님
+        MOVER->>HBFT: receive_dma handle block_ids
+        Note over CXLT,HBFT: 두 디바이스가 직접 DMA 로 복사<br/>바이트가 host DRAM 에 들어오지 않음<br/>시나리오 09 와 동일한 컴포넌트, 동일한 방식
+        HBFT-->>MOVER: 완료
+    else STAGED host DRAM 경유
+        MOVER->>CXLT: copy_out block_ids
+        CXLT-->>MOVER: bytes host DRAM 에 생성됨
+        MOVER->>HBFT: copy_in block_ids bytes
+    end
     MOVER-->>CXLA: 완료
 
     Note over CXLA,HBFA: 중앙 조정자 없이 완결<br/>단, HBFA 가 동시에 CustomHBMTier 의 Agent<br/>로부터도 같은 제안을 받으면 충돌 가능<br/>충돌 해소 프로토콜이 별도로 필요
@@ -81,8 +96,16 @@ sequenceDiagram
 10. **`HBFA`가 수락**합니다.
 11. **`CXLA`가 `TierDataMover`에 `transfer(src=CXLTier, dst=HBFTier,
     block_ids)`를 요청**합니다. `TierDataMover`가 6~7단계의 견적과 같은
-    판단 로직으로, 시나리오 09와 완전히 같은 방식으로 `CXLTier.copy_out()`
-    → `HBFTier.copy_in()`을 수행합니다.
+    판단 로직으로 DIRECT/STAGED를 다시 결정합니다.
+12. **(DIRECT 분기) 두 티어가 같은 cache-coherent fabric에 있으면**,
+    `TierDataMover`가 `CXLTier.get_dma_handle(block_ids)`로 물리 주소 등을
+    담은 `MemoryHandle`만 받고 `HBFTier.receive_dma(handle, block_ids)`로
+    넘깁니다 — 바이트는 `TierDataMover`를 거치지 않고 두 디바이스끼리 직접
+    DMA로 복사됩니다.
+13. **(STAGED 분기) 직접 연결되어 있지 않으면**, `TierDataMover`가
+    `CXLTier.copy_out(block_ids)`로 데이터를 꺼내 자신이 도는 host DRAM에
+    실제로 만든 뒤 `HBFTier.copy_in(block_ids, bytes)`로 씁니다. 어느
+    분기든 시나리오 09의 8~9단계와 완전히 같은 방식입니다.
 
 ## 구현 시 반드시 처리해야 할 문제 — 충돌
 
@@ -115,8 +138,8 @@ sequenceDiagram
   않은 경우) — 실제 구현 시 "몇 개의 이웃에게 물어볼지"가 성능/정확도
   트레이드오프의 튜닝 지점이 됩니다.
 - 시나리오 09와 정확히 같은 트리거(CXL 용량 초과)로 시작하고, 6~7단계의
-  이관 비용 견적 조회와 11단계의 `TierDataMover` 실행은 시나리오 09와
-  완전히 동일한 방식으로 흐릅니다 — 다른 건 오직 그 이전 단계, "누가
-  (오케스트레이터 1개 vs Agent N개), 얼마나 넓은 정보로 이관을
-  결정하는가"입니다. 이 둘을 나란히 놓고 비교하면 DP-2의 실질적 구현
-  차이가 뚜렷하게 드러납니다.
+  이관 비용 견적 조회와 11~13단계의 `TierDataMover` 실행(DIRECT/STAGED
+  분기 포함)은 시나리오 09와 완전히 동일한 방식으로 흐릅니다 — 다른 건
+  오직 그 이전 단계, "누가(오케스트레이터 1개 vs Agent N개), 얼마나 넓은
+  정보로 이관을 결정하는가"입니다. 이 둘을 나란히 놓고 비교하면 DP-2의
+  실질적 구현 차이가 뚜렷하게 드러납니다.
