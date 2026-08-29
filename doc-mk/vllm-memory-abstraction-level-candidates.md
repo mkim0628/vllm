@@ -60,7 +60,8 @@
 - 상위 스택: `Scheduler`(KV cache) / `ModelLoader`(Weight) / `GPUModelRunner`(Activation)
   → 각 도메인별 배치 정책 → `MemoryTierRegistry`
 - 지원 메모리: GPU HBM(로컬, Tier 0, 필수) + CPU DRAM / Custom HBM / CXL Memory /
-  HBF(원격, 선택적)
+  HBF / SSD(원격, 선택적) — CXL·CustomHBM은 GEMM, SSD는 PIM 부착으로 GEMV를
+  지원하는 연산 가능 메모리
 - 평가 기준: ① 신규 메모리 온보딩 난이도, ② 상위 모듈 변경량, ③ 하드웨어 고유
   기능 활용도, ④ 구현/유지보수 복잡도, ⑤ 성능 상한
 
@@ -86,9 +87,9 @@
 공유하는 단일 진입점 `execute_op(op)` 하나로 이뤄집니다.
 
 `op`의 타입 `ComputeOp`는 **코어 모듈에 정의된 닫힌 클래스 계층(sealed class
-hierarchy)**입니다 — `PartialSumOp`, `ArgmaxOp`처럼 정해진 서브클래스들만
-존재하고, 이 서브클래스 목록은 `ComputeOp`가 정의된 그 코어 모듈 파일 안에서만
-늘어날 수 있습니다. 즉 "연산이 존재한다"는 사실 자체는 어떤 티어든 알릴 수 있어
+hierarchy)**입니다 — `GEMMOp`, `GEMVOp`처럼 정해진 서브클래스들만 존재하고,
+이 서브클래스 목록은 `ComputeOp`가 정의된 그 코어 모듈 파일 안에서만 늘어날
+수 있습니다. 즉 "연산이 존재한다"는 사실 자체는 어떤 티어든 알릴 수 있어
 FR은 만족되지만, **새 서브클래스를 이 계층에 추가하는 건 항상 코어 모듈 수정을
 필요로 합니다.** 이게 후보 1과 후보 2를 가르는 유일하고 핵심적인 차이입니다 —
 뒤에서 다시 정리합니다(§3.5, §5).
@@ -103,18 +104,19 @@ graph TD
 
     subgraph OPHIER["ComputeOp 클래스 계층 — 코어 모듈에 정의, 서브클래스 목록 고정"]
         COMPUTEOP["ComputeOp<br/>최상위 클래스"]
-        PARTIALSUM["PartialSumOp<br/>서브클래스"]
-        ARGMAX["ArgmaxOp<br/>서브클래스"]
-        COMPUTEOP --> PARTIALSUM
-        COMPUTEOP --> ARGMAX
+        GEMMOP["GEMMOp<br/>서브클래스"]
+        GEMVOP["GEMVOp<br/>서브클래스"]
+        COMPUTEOP --> GEMMOP
+        COMPUTEOP --> GEMVOP
     end
 
     subgraph PLUGINS["MemoryTier 구현체 — 모두 동일한 계약, 동일한 모양"]
         GPUHBM["GPUHBMTier<br/>supported_ops = 없음"]
         DRAMT["CPUDRAMTier<br/>supported_ops = 없음"]
-        CUSTOMT["CustomHBMTier<br/>supported_ops = partial_sum"]
-        CXLT["CXLTier<br/>supported_ops = 없음"]
         HBFT["HBFTier<br/>supported_ops = 없음"]
+        CXLT["CXLTier<br/>supported_ops = gemm"]
+        CUSTOMT["CustomHBMTier<br/>supported_ops = gemm"]
+        SSDT["SSDTier<br/>supported_ops = gemv - PIM 부착"]
     end
 
     subgraph PHYS_LOCAL["로컬, Tier 0"]
@@ -122,20 +124,22 @@ graph TD
     end
     subgraph PHYS_REMOTE["원격, 선택적"]
         DRAM_PHYS[("CPU DRAM")]
-        CUSTOM_PHYS[("Custom HBM")]
-        CXL_PHYS[("CXL Memory")]
         HBF_PHYS[("HBF")]
+        CXL_PHYS[("CXL Memory")]
+        CUSTOM_PHYS[("Custom HBM")]
+        SSD_PHYS[("SSD + PIM")]
     end
 
-    NEWOP["새 서브클래스예 PoolingOp 를 추가하려면<br/>OPHIER 가 정의된 코어 모듈 파일을<br/>직접 수정해야 함<br/>벤더가 코어 승인 없이 단독 추가 불가"]
+    NEWOP["새 서브클래스예 ArgmaxOp 를 추가하려면<br/>OPHIER 가 정의된 코어 모듈 파일을<br/>직접 수정해야 함<br/>벤더가 코어 승인 없이 단독 추가 불가"]
 
     TPP --> REGISTRY --> IFACE
     IFACE -.-> OPHIER
     IFACE --> GPUHBM --> HBM_PHYS
     IFACE --> DRAMT --> DRAM_PHYS
-    IFACE --> CUSTOMT --> CUSTOM_PHYS
-    IFACE --> CXLT --> CXL_PHYS
     IFACE --> HBFT --> HBF_PHYS
+    IFACE --> CXLT --> CXL_PHYS
+    IFACE --> CUSTOMT --> CUSTOM_PHYS
+    IFACE --> SSDT --> SSD_PHYS
     OPHIER -. "코어 모듈 수정 필요" .-> NEWOP
 
     classDef localMem fill:#dbe7ff,stroke:#3b5bdb,color:#1c2b5e,stroke-width:2px;
@@ -143,17 +147,23 @@ graph TD
     classDef hierBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
     classDef warnBox fill:#ffe3e3,stroke:#e03131,color:#5c1a1a,stroke-width:1px,stroke-dasharray: 4 3;
     class HBM_PHYS,GPUHBM localMem
-    class DRAM_PHYS,CUSTOM_PHYS,CXL_PHYS,HBF_PHYS,DRAMT,CUSTOMT,CXLT,HBFT remoteMem
-    class COMPUTEOP,PARTIALSUM,ARGMAX hierBox
+    class DRAM_PHYS,HBF_PHYS,CXL_PHYS,CUSTOM_PHYS,SSD_PHYS,DRAMT,HBFT,CXLT,CUSTOMT,SSDT remoteMem
+    class COMPUTEOP,GEMMOP,GEMVOP hierBox
     class NEWOP warnBox
 ```
 
-모든 `MemoryTier` 구현체 박스가 **같은 크기, 같은 모양**인 게 핵심입니다 — 인터페이스
-계약이 하나뿐이라 플러그인 사이에 구조적 차이가 없습니다. `CustomHBMTier`처럼 연산을
-지원하는 티어도 `supported_ops`라는 데이터만 다를 뿐, 별도 인터페이스를 구현하지
-않습니다. 대신 "새 연산 종류 자체"는 노란 박스(`ComputeOp` 클래스 계층 — 최상위
-클래스 하나에 정해진 서브클래스들만 매달린 구조)에 중앙집중되어 있고, 이 계층에
-새 서브클래스를 추가하려면 코어 모듈을 직접 수정해야 한다는 제약이 남습니다 —
+§4.2(후보 2)와 **같은 티어 구성**(GPU HBM/CPU DRAM/HBF/CXL/CustomHBM/SSD,
+CXL·CustomHBM은 GEMM, SSD는 PIM 부착으로 GEMV)으로 맞췄습니다 — 그래야 두
+후보를 같은 상황에 놓고 비교할 수 있습니다. 차이는 오직 **표현 방식**입니다:
+후보 2에서는 `CXLTier`/`CustomHBMTier`가 `GEMMCapableTier`라는 **별도 타입**을
+구현하고 `SSDTier`는 `GEMVCapableTier`라는 **다른 타입**을 구현해서 클래스
+계층 자체가 갈라지지만, 여기서는 모든 `MemoryTier` 구현체 박스가 **같은 크기,
+같은 모양**입니다 — 인터페이스 계약이 하나뿐이라 플러그인 사이에 구조적
+차이가 없습니다. `CXLTier`/`CustomHBMTier`/`SSDTier`가 연산을 지원하는 것도
+`supported_ops`라는 **데이터**만 다를 뿐, 별도 인터페이스를 구현하지 않습니다.
+대신 "새 연산 종류 자체"는 노란 박스(`ComputeOp` 클래스 계층 — 최상위 클래스
+하나에 정해진 서브클래스들만 매달린 구조)에 중앙집중되어 있고, 이 계층에 새
+서브클래스를 추가하려면 코어 모듈을 직접 수정해야 한다는 제약이 남습니다 —
 빨간 점선 박스가 그 제약을 보여줍니다.
 
 ### 3.3 Class Diagram
@@ -186,9 +196,10 @@ classDiagram
     }
     MemoryTier <|.. GPUHBMTier
     MemoryTier <|.. CPUDRAMTier
-    MemoryTier <|.. CustomHBMTier
-    MemoryTier <|.. CXLTier
     MemoryTier <|.. HBFTier
+    MemoryTier <|.. CXLTier
+    MemoryTier <|.. CustomHBMTier
+    MemoryTier <|.. SSDTier
 
     class MemoryHandle {
         <<dataclass>>
@@ -201,13 +212,15 @@ classDiagram
     class ComputeOp {
         <<코어 모듈 소유, sealed hierarchy>>
     }
-    class PartialSumOp
-    class ArgmaxOp
-    ComputeOp <|-- PartialSumOp
-    ComputeOp <|-- ArgmaxOp
+    class GEMMOp
+    class GEMVOp
+    ComputeOp <|-- GEMMOp
+    ComputeOp <|-- GEMVOp
     MemoryTier ..> ComputeOp : execute_op 인자
 
-    note for CustomHBMTier "MemoryTier 하나만 구현<br/>supported_ops = partial_sum<br/>연산도 execute_op 안에서 처리"
+    note for CXLTier "MemoryTier 하나만 구현<br/>supported_ops = gemm<br/>연산도 execute_op 안에서 처리"
+    note for CustomHBMTier "MemoryTier 하나만 구현<br/>supported_ops = gemm<br/>CXLTier 와 완전히 같은 클래스 구조"
+    note for SSDTier "MemoryTier 하나만 구현<br/>supported_ops = gemv - PIM 부착<br/>CXLTier/CustomHBMTier 와도 클래스 구조 동일"
     note for GPUHBMTier "MemoryTier 하나만 구현<br/>supported_ops = 없음<br/>나머지 티어와 클래스 구조는 동일"
 
     class MemoryTierRegistry {
@@ -226,11 +239,14 @@ classDiagram
 
 모든 구현체가 `MemoryTier` **단 하나만** 실현(realize)한다는 게 후보 1의
 클래스 구조에서 가장 뚜렷한 특징입니다 — 연산 지원 여부와 무관하게 인터페이스가
-여러 개로 갈라지지 않습니다. `CustomHBMTier`와 `GPUHBMTier`의 차이는 오직
+여러 개로 갈라지지 않습니다. `CXLTier`/`CustomHBMTier`(둘 다 GEMM)와
+`SSDTier`(GEMV)의 차이도, `GPUHBMTier`(연산 없음)와의 차이도 오직
 `capabilities()`가 반환하는 **데이터**(`supported_ops`)뿐이고, 실행 경로는
-`execute_op(op)` 하나로 공유됩니다. `ComputeOp`(및 그 서브클래스들)는 이
-인터페이스가 참조하는 유일한 "외부" 클래스 계층이며, 이게 §3.5에서 다룰
-트레이드오프의 핵심입니다.
+`execute_op(op)` 하나로 공유됩니다 — §4.3(후보 2)에서는 이 세 종류가
+`GEMMCapableTier`/`GEMVCapableTier`/(확장 없음)라는 **서로 다른 타입**으로
+갈라지는 것과 나란히 비교하면 두 후보의 차이가 가장 선명하게 드러납니다.
+`ComputeOp`(및 그 서브클래스들)는 이 인터페이스가 참조하는 유일한 "외부"
+클래스 계층이며, 이게 §3.5에서 다룰 트레이드오프의 핵심입니다.
 
 `copy_out(block_ids)`/`copy_in(block_ids, data)`는 연산과 무관한 기본 데이터
 이동 원시 동작입니다 — "자기 자신의 메모리에서 내보내기/받기"만 할 뿐, 어디로
@@ -264,7 +280,7 @@ sequenceDiagram
     TIER-->>CALLER: TierBuffer
 
     Note over CALLER,TIER: 이후 연산 실행 시점 - forward pass
-    CALLER->>TIER: execute_op(PartialSumOp(block_ids, axis))
+    CALLER->>TIER: execute_op(GEMMOp(block_ids, weight_ref))
     TIER-->>CALLER: PartialResult
 
     Note over TPP,TIER: 모든 티어가 동일한 인터페이스(execute_op 포함)로<br/>응답하므로 TierPlacementPolicy/호출부는<br/>티어 종류별 분기 코드를 전혀 갖지 않음<br/>단, "어떤 연산이 존재하는가"(ComputeOp 클래스 계층)는<br/>여전히 코어 모듈에 고정되어 있음
