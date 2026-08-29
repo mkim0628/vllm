@@ -268,6 +268,7 @@ sequenceDiagram
     participant TPP as TierPlacementPolicy
     participant REG as MemoryTierRegistry
     participant TIER as 선택된 MemoryTier 구현체<br/>예 CustomHBMTier
+    participant BT as TieredBlockTable
 
     CALLER->>TPP: decide_tier(data_meta)
     TPP->>REG: list_tiers()
@@ -278,6 +279,9 @@ sequenceDiagram
     REG-->>CALLER: TIER 인스턴스
     CALLER->>TIER: allocate(nbytes)
     TIER-->>CALLER: TierBuffer
+    CALLER->>BT: block_locations block_id = tier_id local_block_id 기록
+
+    Note over BT: 이렇게 기록된 tier_id 가 §3.6 sequence diagram 에서<br/>AttentionImpl 이 조회하는 값의 출처입니다.<br/>forward pass 시점엔 BT 에서 조회만 하고 새로 계산하지 않습니다 —<br/>이 기록/조회 메커니즘은 후보 2(§4.4)와 완전히 동일합니다.
 
     Note over CALLER,TIER: 이후 연산 실행 시점 - forward pass
     CALLER->>TIER: execute_op(GEMMOp(block_ids, weight_ref))
@@ -291,6 +295,15 @@ sequenceDiagram
 모듈(`ComputeDispatcher`)"이 따로 필요하지 않습니다. 대신 `execute_op`가
 받는 `op`의 타입(`ComputeOp`의 서브클래스)은 코어 모듈에 정의된 클래스
 계층 안에 있어야 합니다.
+
+`TieredBlockTable`은 "이 논리적 block_id가 물리적으로 어느 티어의 어느
+local_block_id에 있는가"를 기록하는 장부입니다. **DP-1(추상화 수준)과는
+무관하게 두 후보 모두 반드시 필요합니다** — 데이터를 배치해놓고 나중에
+어디 있는지 못 찾으면 어느 후보든 애초에 동작하지 않으므로, 이건 두 후보를
+가르는 설계 지점이 아니라 둘 다 그대로 가져다 써야 하는 공통 인프라입니다.
+차이가 있다면 오직 "여기에 기록되는 게 `tier_id` 하나뿐인가(후보 1), 아니면
+어떤 확장을 구현하는지까지 같이 캐싱해두는가(후보 2, §4.4)"인데, 이마저도
+필수는 아니고 순수 최적화 여지일 뿐입니다.
 
 #### `TierPlacementPolicy.decide_tier()` 상세 판단 로직
 
@@ -397,12 +410,15 @@ GPU 결과와 합치는 유틸리티)만 두 후보 공통으로 남아 있는�
 sequenceDiagram
     participant RUNNER as GPUModelRunner<br/>Worker 프로세스, 기존
     participant ATTN as AttentionImpl<br/>attention 백엔드, 기존
+    participant BT as TieredBlockTable
     participant TIER as CustomHBMTier<br/>supported_ops = gemm
     participant MERGE as PartialResultMerger
 
     Note over RUNNER,ATTN: 기존 forward pass 흐름 - call-path-analysis.md §3
     RUNNER->>ATTN: forward(query, kv_cache, attn_metadata)
-    ATTN->>ATTN: block_table 에서 tier_id 조회<br/>tier.capabilities().supported_ops 에<br/>gemm 있는지 확인
+    ATTN->>BT: lookup_tier(block_ids)
+    BT-->>ATTN: tier_id
+    ATTN->>ATTN: tier.capabilities().supported_ops 에<br/>gemm 있는지 확인
     alt supported_ops 에 gemm 있음
         ATTN->>TIER: execute_op(GEMMOp(query, block_ids))
         TIER-->>ATTN: PartialResult
@@ -422,6 +438,29 @@ should_dispatch(...)`처럼 판단 자체가 `ComputeDispatcher`라는 **별도
 gemm 있는지 확인`처럼 판단이 **`AttentionImpl` 자신의 self-message
 한 줄**입니다 — 위임할 별도 객체 자체가 필요 없습니다. 이게 §3.5에서
 "`ComputeDispatcher`에 대응하는 클래스가 없다"고 한 것의 실행 시점 버전입니다.
+`BT`(`TieredBlockTable`)를 거쳐 `tier_id`를 조회하는 첫 단계는 §4.6과
+완전히 동일합니다 — 이 부분은 DP-1과 무관한 공통 인프라이기 때문입니다.
+
+#### 소스코드로 본 호출 순서
+
+```python
+class AttentionImpl:
+    def forward(self, query, kv_cache, attn_metadata):
+        tier_id = self.block_table.lookup_tier(attn_metadata.block_ids)
+        tier = self.registry.get(tier_id)
+
+        if "gemm" in tier.capabilities().supported_ops:
+            partial = tier.execute_op(GEMMOp(attn_metadata.block_ids, self.weight_ref))
+            gpu_partial = self._gpu_forward(query, kv_cache, attn_metadata)
+            return self.merger.merge([gpu_partial, partial])
+
+        return self._gpu_forward(query, kv_cache, attn_metadata)
+```
+
+`ComputeDispatcher`가 없으니 이 함수 자체가 "판단(if) + 실행(execute_op)"을
+전부 담당합니다. 새 연산(예: conv)이 추가돼도 이 함수는 **한 글자도
+바뀌지 않습니다** — `"conv" in tier.capabilities().supported_ops`는 이미
+같은 코드 경로로 커버되기 때문입니다.
 
 ### 3.7 장단점
 
@@ -806,12 +845,15 @@ classDiagram
 sequenceDiagram
     participant RUNNER as GPUModelRunner<br/>Worker 프로세스, 기존
     participant ATTN as AttentionImpl<br/>attention 백엔드, 기존
+    participant BT as TieredBlockTable
     participant DISP as ComputeDispatcher<br/>신규
     participant TIER as CustomHBMTier<br/>GEMMCapableTier 구현
     participant MERGE as PartialResultMerger<br/>신규
 
     Note over RUNNER,ATTN: 기존 forward pass 흐름 - call-path-analysis.md §3
     RUNNER->>ATTN: forward(query, kv_cache, attn_metadata)
+    ATTN->>BT: lookup_tier(block_ids)
+    BT-->>ATTN: tier_id
     ATTN->>DISP: should_dispatch(op=gemm, tier_id)
     DISP->>DISP: isinstance(tier, GEMMCapableTier) 검사<br/>op=gemv 였다면 GEMVCapableTier 검사로 분기
     alt tier 가 GEMMCapableTier 이고 op 지원
@@ -833,7 +875,52 @@ sequenceDiagram
 객체 내부에서 **연산 종류별로 어떤 타입을 검사할지 분기**합니다. §3.6은
 `ATTN->>ATTN: ...supported_ops 에 gemm 있는지 확인` 한 줄로 끝났던 것과
 비교하면, "판단을 위임할 객체가 있는가"와 "그 판단이 연산마다 분기되는가"
-둘 다 §4.7의 "상위 모듈 변경량"·"구현 복잡도" 차이로 이어집니다.
+둘 다 §4.7의 "상위 모듈 변경량"·"구현 복잡도" 차이로 이어집니다. `BT`를
+거쳐 `tier_id`를 얻는 첫 단계는 §3.6과 동일합니다 — DP-1과 무관한 공통
+인프라이기 때문입니다.
+
+#### 소스코드로 본 호출 순서
+
+```python
+class AttentionImpl:
+    def forward(self, query, kv_cache, attn_metadata):
+        tier_id = self.block_table.lookup_tier(attn_metadata.block_ids)
+
+        if self.dispatcher.should_dispatch(op="gemm", tier_id=tier_id):
+            partial = self.dispatcher.dispatch(
+                op="gemm", query=query, tier_id=tier_id, block_ids=attn_metadata.block_ids,
+            )
+            gpu_partial = self._gpu_forward(query, kv_cache, attn_metadata)
+            return self.merger.merge([gpu_partial, partial])
+
+        return self._gpu_forward(query, kv_cache, attn_metadata)
+
+
+class ComputeDispatcher:
+    def should_dispatch(self, op: str, tier_id: str) -> bool:
+        tier = self.registry.get(tier_id)
+        if op == "gemm":
+            return isinstance(tier, GEMMCapableTier)
+        elif op == "gemv":
+            return isinstance(tier, GEMVCapableTier)
+        return False   # 새 연산이 늘면 elif 가 하나씩 늘어난다
+
+    def dispatch(self, op: str, query, tier_id: str, block_ids) -> PartialResult:
+        tier = self.registry.get(tier_id)
+        if op == "gemm":
+            return tier.execute_gemm(block_ids, self.weight_ref)
+        elif op == "gemv":
+            return tier.execute_gemv(block_ids, self.weight_ref)
+        raise UnsupportedOpError(op)   # 여기도 마찬가지
+```
+
+`AttentionImpl.forward`는 판단을 `ComputeDispatcher`에 위임해두었기 때문에
+새 연산이 늘어도 **이 함수 자체는 안 바뀝니다.** 대신 그 비용이
+`ComputeDispatcher` 안으로 옮겨갈 뿐입니다 — `should_dispatch`/`dispatch`
+둘 다 연산 하나당 `elif`가 하나씩 늘어납니다. §3.6의 `AttentionImpl.forward`는
+`ComputeDispatcher` 자체가 없어서 "어딘가 늘어나는 곳"이 아예 없었던 것과
+대비됩니다 — 후보 2는 "늘어나는 지점을 어디에 격리할 것인가"를 택한
+것이고, 후보 1은 애초에 늘어날 지점 자체가 없다는 차이입니다.
 
 **의도적으로 생략한 부분**: 이 다이어그램은 "누가 누구를 호출하는가"라는 연결
 구조만 보여줍니다. 다음과 같은 질문들은 답하지 않습니다 — PIM 연산이 GPU 연산과
