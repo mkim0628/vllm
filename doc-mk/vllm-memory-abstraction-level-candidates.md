@@ -92,7 +92,7 @@ hierarchy)**입니다 — `GEMMOp`, `GEMVOp`처럼 정해진 서브클래스들�
 수 있습니다. 즉 "연산이 존재한다"는 사실 자체는 어떤 티어든 알릴 수 있어
 FR은 만족되지만, **새 서브클래스를 이 계층에 추가하는 건 항상 코어 모듈 수정을
 필요로 합니다.** 이게 후보 1과 후보 2를 가르는 유일하고 핵심적인 차이입니다 —
-뒤에서 다시 정리합니다(§3.5, §5).
+뒤에서 다시 정리합니다(§3.7, §5).
 
 ### 3.2 Module View
 
@@ -246,7 +246,7 @@ classDiagram
 `GEMMCapableTier`/`GEMVCapableTier`/(확장 없음)라는 **서로 다른 타입**으로
 갈라지는 것과 나란히 비교하면 두 후보의 차이가 가장 선명하게 드러납니다.
 `ComputeOp`(및 그 서브클래스들)는 이 인터페이스가 참조하는 유일한 "외부"
-클래스 계층이며, 이게 §3.5에서 다룰 트레이드오프의 핵심입니다.
+클래스 계층이며, 이게 §3.7에서 다룰 트레이드오프의 핵심입니다.
 
 `copy_out(block_ids)`/`copy_in(block_ids, data)`는 연산과 무관한 기본 데이터
 이동 원시 동작입니다 — "자기 자신의 메모리에서 내보내기/받기"만 할 뿐, 어디로
@@ -292,7 +292,138 @@ sequenceDiagram
 받는 `op`의 타입(`ComputeOp`의 서브클래스)은 코어 모듈에 정의된 클래스
 계층 안에 있어야 합니다.
 
-### 3.5 장단점
+#### `TierPlacementPolicy.decide_tier()` 상세 판단 로직
+
+위 시퀀스의 3단계("`capacity/latency` 비교 + 필요 연산이 `supported_ops`에
+있는지 확인")가 실제로 뭘 하는지 의사코드로 풀면 이렇습니다:
+
+```python
+def decide_tier(self, data_meta: DataMeta, tiers: list[MemoryTier]) -> str:
+    # 1. Tier 0(GPU HBM)에 여유가 있으면 그냥 거기 — supported_ops 는 아예 안 봄
+    gpu_tier = self._get(tiers, "gpu_hbm")
+    if gpu_tier.free_bytes() >= data_meta.size:
+        return gpu_tier.tier_id
+
+    # 2. 원격 배치가 필요한 상황. 용량이 되는 티어만 후보로 추린다.
+    candidates = [t for t in tiers if t.free_bytes() >= data_meta.size]
+
+    # 3. 이 데이터에 결부된 연산 힌트가 있으면(예: MoE 전문가 가중치의 gemm,
+    #    decode activation 의 gemv), 그 연산을 지원하는 티어를 "우대"한다 —
+    #    필수 조건이 아니라 우선순위 필터일 뿐이라, 해당하는 티어가 하나도
+    #    없으면 그냥 원래 후보군으로 되돌아간다.
+    if data_meta.hint_op:
+        op_capable = [t for t in candidates if data_meta.hint_op in t.capabilities().supported_ops]
+        if op_capable:
+            candidates = op_capable
+
+    # 4. 남은 후보 중 latency 가 가장 낮은 티어를 선택
+    return min(candidates, key=lambda t: t.capabilities().read_latency_ns).tier_id
+```
+
+`hint_op`을 **"반드시 만족해야 하는 조건"이 아니라 "동점일 때 우선순위를
+매기는 힌트"**로 설계한 이유는, 연산 오프로드는 배치 자체를 실패시킬 이유가
+못 되기 때문입니다 — 오프로드할 티어가 없으면 그냥 GPU로 데이터를 당겨와서
+평소처럼 계산하면 그만입니다. 네 가지 상황으로 실제 동작을 짚어보면:
+
+| 상황 | `data_meta` | 1단계(GPU 여유?) | 3단계(op 우대) | 결과 |
+|---|---|---|---|---|
+| **A. 평범한 prefill KV 블록** | `hint_op=None` | 여유 있음 | (도달 안 함) | `GPUHBMTier` — 연산 고려 자체가 발동하지 않음 |
+| **B. GPU가 꽉 찬 뒤에 온 KV 블록** | `hint_op=None` | 없음 | 건너뜀(`hint_op` 없음) | 남은 후보 중 latency 최저 티어(예: `CPUDRAMTier`) — 순수 성능만으로 결정 |
+| **C. MoE 전문가 가중치, 원격 배치 확정** | `hint_op="gemm"` | 없음(가중치가 커서 GPU엔 못 올림) | `CXLTier`/`CustomHBMTier`만 남음(둘 다 `supported_ops`에 gemm) | 그중 latency 낮은 쪽, 예 `CustomHBMTier` — 나중에 그 자리에서 GEMM 오프로드 가능 |
+| **D. decode 단계 activation, GEMV 오프로드를 노림** | `hint_op="gemv"` | 없음 | `SSDTier`가 마침 여유 없어 `op_capable`이 빈 리스트 → 3단계 결과가 원래 후보군으로 되돌아감 | latency 기준 최선(예: `HBFTier`) — GEMV 오프로드는 못 하고, 필요할 때 그냥 GPU로 당겨와 계산(배치 실패는 아님) |
+
+A는 "연산 고려가 아예 발동하지 않는" 경우, B는 "연산 힌트가 없어서
+`supported_ops`를 쳐다볼 이유가 없는" 경우, C는 "연산 힌트가 실제로 후보를
+좁히는" 경우, D는 "연산 힌트는 있지만 맞는 티어가 없어서 조용히 무시되는"
+경우입니다 — `supported_ops` 검사는 이 4단계 로직 중 딱 한 줄(3단계)이고,
+나머지는 순수 용량/레이턴시 판단이라는 게 핵심입니다.
+
+### 3.5 Class Diagram — 연산 실행 시점, Worker 프로세스 연결 (§4.5와 나란히 비교)
+
+§4.5(후보 2)와 같은 장면 — 배치가 끝난 뒤 forward pass 시점에 실제로 연산이
+어떻게 호출되는가 — 를 후보 1 버전으로 그린 것입니다. 가장 중요한 차이를
+미리 말하면: **후보 1에는 `ComputeDispatcher`에 대응하는 별도 클래스가
+없습니다.**
+
+```mermaid
+classDiagram
+    class MemoryTier {
+        <<interface>>
+        +capabilities() MemoryTierCapabilities
+        +execute_op(op) PartialResult
+    }
+    MemoryTier <|.. GPUHBMTier
+    MemoryTier <|.. CustomHBMTier
+
+    note for CustomHBMTier "MemoryTier 하나만 구현<br/>supported_ops = gemm"
+    note for GPUHBMTier "MemoryTier 하나만 구현<br/>supported_ops = 없음"
+
+    class PartialResult {
+        <<dataclass>>
+        +Tensor partial_output
+        +Tensor partial_lse
+        +str tier_id
+    }
+    MemoryTier --> PartialResult : execute_op 반환
+
+    class PartialResultMerger {
+        <<후보 1 후보 2 공통 컴포넌트>>
+        +merge(results) Tensor
+    }
+
+    class GPUModelRunner {
+        <<Worker 프로세스, 기존>>
+        +execute_model(scheduler_output) ModelRunnerOutput
+    }
+    class AttentionImpl {
+        <<attention 백엔드, 기존>>
+        +forward(query, kv_cache, attn_metadata) Tensor
+    }
+    GPUModelRunner --> AttentionImpl : 레이어별 forward 호출<br/>call-path-analysis.md §3
+    AttentionImpl --> MemoryTier : supported_ops 확인 후<br/>execute_op 직접 호출<br/>별도 Dispatcher 없음
+    AttentionImpl --> PartialResultMerger
+```
+
+§4.5와 나란히 놓고 보면 빠진 게 뚜렷합니다 — `ComputeDispatcher`도,
+`should_dispatch()`/`dispatch()`라는 별도 진입점도 없습니다.
+`AttentionImpl`이 `tier.capabilities().supported_ops`를 직접 확인하고
+`tier.execute_op(op)`를 직접 부릅니다. `PartialResultMerger`(연산 결과를
+GPU 결과와 합치는 유틸리티)만 두 후보 공통으로 남아 있는데, 이건 DP-1(추상화
+수준)과 무관하게 "부분 결과를 어떻게 합칠 것인가"라는 별개 문제라서 그렇습니다.
+
+### 3.6 Sequence Diagram — 연산 실행 호출 순서 (§4.6과 나란히 비교)
+
+```mermaid
+sequenceDiagram
+    participant RUNNER as GPUModelRunner<br/>Worker 프로세스, 기존
+    participant ATTN as AttentionImpl<br/>attention 백엔드, 기존
+    participant TIER as CustomHBMTier<br/>supported_ops = gemm
+    participant MERGE as PartialResultMerger
+
+    Note over RUNNER,ATTN: 기존 forward pass 흐름 - call-path-analysis.md §3
+    RUNNER->>ATTN: forward(query, kv_cache, attn_metadata)
+    ATTN->>ATTN: block_table 에서 tier_id 조회<br/>tier.capabilities().supported_ops 에<br/>gemm 있는지 확인
+    alt supported_ops 에 gemm 있음
+        ATTN->>TIER: execute_op(GEMMOp(query, block_ids))
+        TIER-->>ATTN: PartialResult
+        ATTN->>MERGE: merge GPU 결과 + PartialResult
+        MERGE-->>ATTN: 최종 attention 출력
+    else 미지원
+        Note over ATTN: 이후는 기존 GPU 전용 forward 와 동일
+    end
+    ATTN-->>RUNNER: attention 출력 반환
+```
+
+§4.6과 겉모양(참가자 수, `alt`/`else` 구조)은 거의 똑같아 보이지만, **누가
+그 판단을 내리는가**가 다릅니다 — §4.6에서는 `ATTN->>DISP:
+should_dispatch(...)`처럼 판단 자체가 `ComputeDispatcher`라는 **별도
+객체에게 위임**되고, 그 객체 내부에서 `isinstance(tier, GEMMCapableTier)`
+같은 타입 검사가 (연산 종류만큼 분기하며) 일어납니다. 여기서는 `ATTN->>ATTN: ...supported_ops 에
+gemm 있는지 확인`처럼 판단이 **`AttentionImpl` 자신의 self-message
+한 줄**입니다 — 위임할 별도 객체 자체가 필요 없습니다. 이게 §3.5에서
+"`ComputeDispatcher`에 대응하는 클래스가 없다"고 한 것의 실행 시점 버전입니다.
+
+### 3.7 장단점
 
 | 항목 | 평가 |
 |---|---|
@@ -437,8 +568,9 @@ Pooling + GEMM`)만 봐도 그 티어의 구성이 바로 보입니다. `GEMMCap
 ### 4.3 Class Diagram — 후보 2 자체 (§3.3과 나란히 비교)
 
 §3.3(후보 1)과 동일한 범위 — `MemoryTier` 베이스, `MemoryTierRegistry`,
-`TierPlacementPolicy` — 에 확장 인터페이스 3종을 더한 버전입니다. 후보 1에서는
-모든 구현체가 `MemoryTier` 하나만 realize 했지만, 여기서는 티어마다 realize하는
+`TierPlacementPolicy` — 에 확장 인터페이스를 더한 버전입니다. §4.2 모듈뷰와
+같은 티어 6종·같은 GEMM/GEMV 분리를 그대로 반영합니다. 후보 1에서는 모든
+구현체가 `MemoryTier` 하나만 realize 했지만, 여기서는 티어마다 realize하는
 인터페이스 수가 다릅니다.
 
 ```mermaid
@@ -467,34 +599,35 @@ classDiagram
     }
     MemoryTier <|.. GPUHBMTier
     MemoryTier <|.. CPUDRAMTier
-    MemoryTier <|.. CustomHBMTier
-    MemoryTier <|.. CXLTier
     MemoryTier <|.. HBFTier
+    MemoryTier <|.. CXLTier
+    MemoryTier <|.. CustomHBMTier
+    MemoryTier <|.. SSDTier
 
-    class ComputeCapableTier {
+    class GEMMCapableTier {
         <<interface>>
-        +compute_capabilities() ComputeCapabilities
-        +supported_ops() list
-        +execute_partial(op, query, block_ids, meta) PartialResult
+        +execute_gemm(block_ids, weight_ref) PartialResult
+    }
+    class GEMVCapableTier {
+        <<interface>>
+        +execute_gemv(block_ids, weight_ref) PartialResult
     }
     class CXLPoolingExtension {
         <<interface>>
         +pool_id() str
         +request_pooled_capacity(bytes) bool
     }
-    class HBFBatchReadExtension {
-        <<interface>>
-        +batch_read(block_ids) Tensor
-    }
-    ComputeCapableTier <|.. CustomHBMTier
+    GEMMCapableTier <|.. CXLTier
+    GEMMCapableTier <|.. CustomHBMTier
+    GEMVCapableTier <|.. SSDTier
     CXLPoolingExtension <|.. CXLTier
-    HBFBatchReadExtension <|.. HBFTier
 
     note for GPUHBMTier "MemoryTier 만 구현 - base only"
     note for CPUDRAMTier "MemoryTier 만 구현 - base only"
-    note for CustomHBMTier "MemoryTier + ComputeCapableTier"
-    note for CXLTier "MemoryTier + CXLPoolingExtension"
-    note for HBFTier "MemoryTier + HBFBatchReadExtension"
+    note for HBFTier "MemoryTier 만 구현 - base only"
+    note for CXLTier "MemoryTier + GEMMCapableTier<br/>+ CXLPoolingExtension - 확장 2개"
+    note for CustomHBMTier "MemoryTier + GEMMCapableTier"
+    note for SSDTier "MemoryTier + GEMVCapableTier"
 
     class MemoryTierRegistry {
         <<factory>>
@@ -503,9 +636,9 @@ classDiagram
         +list_tiers() list
     }
     MemoryTierRegistry --> MemoryTier : creates
-    MemoryTierRegistry --> ComputeCapableTier : creates 동일 tier_id
+    MemoryTierRegistry --> GEMMCapableTier : creates 동일 tier_id
+    MemoryTierRegistry --> GEMVCapableTier : creates 동일 tier_id
     MemoryTierRegistry --> CXLPoolingExtension : creates 동일 tier_id
-    MemoryTierRegistry --> HBFBatchReadExtension : creates 동일 tier_id
 
     class TierPlacementPolicy {
         +decide_tier(data_meta, tiers) str
@@ -514,9 +647,9 @@ classDiagram
 ```
 
 후보 1의 클래스 다이어그램(§3.3)과 나란히 놓고 보면, `MemoryTier <|.. X` 관계
-자체는 다섯 티어 모두 동일하지만 **그 외에 realize하는 인터페이스 수가
-0개(후보 1은 항상 0개, 즉 추가 없음) vs 0~1개(후보 2)로 갈린다**는 게 유일하고
-결정적인 구조 차이입니다.
+자체는 여섯 티어 모두 동일하지만 **그 외에 realize하는 인터페이스 수가
+0개(후보 1은 항상 0개, 즉 추가 없음) vs 0~2개(후보 2, `CXLTier`가 GEMM +
+Pooling 둘 다 구현)로 갈린다**는 게 유일하고 결정적인 구조 차이입니다.
 
 ### 4.4 Sequence Diagram — 후보 2 자체, 배치 결정 흐름 (§3.4와 나란히 비교)
 
@@ -536,7 +669,7 @@ sequenceDiagram
     CALLER->>TPP: decide_tier(data_meta)
     TPP->>REG: list_tiers()
     REG-->>TPP: capabilities 목록<br/>base 필드 + 어떤 확장을 구현하는지 여부
-    TPP->>TPP: base 필드 비교 + 확장 유무까지 고려<br/>예 연산이 필요한 워크로드면<br/>ComputeCapableTier 구현 티어를 우대
+    TPP->>TPP: base 필드 비교 + 확장 유무까지 고려<br/>예 GEMM 필요하면 GEMMCapableTier,<br/>GEMV 필요하면 GEMVCapableTier 구현 티어를 우대
     TPP-->>CALLER: tier_id
     CALLER->>REG: create(tier_id)
     REG-->>CALLER: TIER 인스턴스<br/>base + 해당 확장까지 구현된 객체
@@ -549,11 +682,51 @@ sequenceDiagram
     Note over TPP,TIER: 후보 1과의 차이: TierPlacementPolicy 가 base 필드뿐 아니라<br/>확장 인터페이스 유무까지 알아야 최선의 배치를 할 수 있음<br/>→ §4.7 장단점의 상위 모듈 변경량 항목과 직결
 ```
 
-### 4.5 Class Diagram — ComputeDispatcher가 Worker와 어떻게 연결되는가
+#### `TierPlacementPolicy.decide_tier()` 상세 판단 로직 (§3.4와 같은 4가지 상황)
 
-아래 다이어그램은 §4.2의 확장 인터페이스 3종(pooling/compute/batch-read) 중
-**연산(compute) 확장 하나만** 떼어내서, 그게 실제 모델 실행 경로(Worker 프로세스,
+§3.4에서 후보 1의 `decide_tier()`를 의사코드로 풀었던 것과 **완전히 같은
+네 가지 상황(A~D)**에 대해, 후보 2 버전은 이렇게 동작합니다:
+
+```python
+def decide_tier(self, data_meta: DataMeta, tiers: list[MemoryTier]) -> str:
+    gpu_tier = self._get(tiers, "gpu_hbm")
+    if gpu_tier.free_bytes() >= data_meta.size:
+        return gpu_tier.tier_id
+
+    candidates = [t for t in tiers if t.free_bytes() >= data_meta.size]
+
+    # 연산 힌트마다 "어떤 타입을 볼지"가 다르므로 분기가 연산 종류만큼 늘어난다
+    if data_meta.hint_op == "gemm":
+        op_capable = [t for t in candidates if isinstance(t, GEMMCapableTier)]
+        if op_capable:
+            candidates = op_capable
+    elif data_meta.hint_op == "gemv":
+        op_capable = [t for t in candidates if isinstance(t, GEMVCapableTier)]
+        if op_capable:
+            candidates = op_capable
+    # 연산이 하나 더 늘면(예: conv) elif 가 하나 더 늘어난다
+
+    return min(candidates, key=lambda t: t.capabilities().read_latency_ns).tier_id
+```
+
+A~D 결과는 후보 1과 동일합니다(같은 상황이니 당연합니다 — 무엇을 하는지는
+같고 어떻게 하는지만 다릅니다). 코드 모양의 차이는 딱 한 곳입니다: 후보
+1(§3.4)은 `if data_meta.hint_op in tier.capabilities().supported_ops:`
+**한 줄**로 연산 종류에 상관없이 끝나지만, 후보 2는 **연산 하나마다
+`elif isinstance(t, XCapableTier)` 분기가 하나씩 필요**합니다 — `hint_op`
+문자열과 타입을 서로 매핑해줄 방법이 후보 2에는 없어서, 이 매핑을
+`decide_tier()` 안에 직접 하드코딩할 수밖에 없기 때문입니다. 연산이 GEMM,
+GEMV 둘뿐일 때는 크게 안 보이지만, §4.7에서 다루는 "상위 모듈 변경량"이
+정확히 이 지점에서 시작됩니다 — 연산이 하나 늘 때마다 `TierPlacementPolicy`
+본체를 다시 열어서 `elif`를 추가해야 합니다.
+
+### 4.5 Class Diagram — ComputeDispatcher가 Worker와 어떻게 연결되는가 (§3.5와 나란히 비교)
+
+아래 다이어그램은 §4.2의 확장 인터페이스들 중 **연산(compute) 확장만**
+떼어내서, 그게 실제 모델 실행 경로(Worker 프로세스,
 `GPUModelRunner`/`AttentionImpl`)와 어떻게 이어지는지를 명확히 합니다.
+GEMM과 GEMV가 별개 인터페이스이므로, `ComputeDispatcher`는 **둘 다** 알아야
+합니다.
 
 ```mermaid
 classDiagram
@@ -565,16 +738,21 @@ classDiagram
     }
     MemoryTier <|.. GPUHBMTier
     MemoryTier <|.. CustomHBMTier
+    MemoryTier <|.. SSDTier
 
-    class ComputeCapableTier {
+    class GEMMCapableTier {
         <<interface>>
-        +compute_capabilities() ComputeCapabilities
-        +supported_ops() list
-        +execute_partial(op, query, block_ids, meta) PartialResult
+        +execute_gemm(block_ids, weight_ref) PartialResult
     }
-    ComputeCapableTier <|.. CustomHBMTier
-    note for CustomHBMTier "MemoryTier 와 ComputeCapableTier<br/>둘 다 구현 - base + 확장"
-    note for GPUHBMTier "MemoryTier 만 구현<br/>compute 확장 없음"
+    class GEMVCapableTier {
+        <<interface>>
+        +execute_gemv(block_ids, weight_ref) PartialResult
+    }
+    GEMMCapableTier <|.. CustomHBMTier
+    GEMVCapableTier <|.. SSDTier
+    note for CustomHBMTier "MemoryTier 와 GEMMCapableTier<br/>둘 다 구현 - base + 확장"
+    note for SSDTier "MemoryTier 와 GEMVCapableTier<br/>둘 다 구현 - base + 확장"
+    note for GPUHBMTier "MemoryTier 만 구현<br/>연산 확장 없음"
 
     class PartialResult {
         <<dataclass>>
@@ -582,14 +760,16 @@ classDiagram
         +Tensor partial_lse
         +str tier_id
     }
-    ComputeCapableTier --> PartialResult : returns
+    GEMMCapableTier --> PartialResult : returns
+    GEMVCapableTier --> PartialResult : returns
 
     class ComputeDispatcher {
         <<신규>>
         +should_dispatch(op, tier_id) bool
         +dispatch(op, query, tier_id, block_ids) Future
     }
-    ComputeDispatcher --> ComputeCapableTier : compute 확장이 있을 때만 호출
+    ComputeDispatcher --> GEMMCapableTier : GEMM 워크로드일 때만 호출
+    ComputeDispatcher --> GEMVCapableTier : GEMV 워크로드일 때만 호출
     ComputeDispatcher --> PartialResultMerger
 
     class PartialResultMerger {
@@ -615,24 +795,28 @@ classDiagram
 추가 분기**입니다. `GPUModelRunner.execute_model()` → `AttentionImpl.forward()`로
 이어지는 기존 흐름(`call-path-analysis.md` §3)은 그대로 유지되고,
 `ComputeDispatcher`는 그 안에서 "이번 배치의 KV 블록이 연산 가능한 티어에 있는지"만
-추가로 확인하는 위치에 끼어듭니다.
+추가로 확인하는 위치에 끼어듭니다. §3.5(후보 1)와 비교하면, 후보 1엔 이
+박스 자체가 없고 `AttentionImpl`이 `MemoryTier`를 직접 부릅니다 — 여기선
+`ComputeDispatcher`가 `GEMMCapableTier`·`GEMVCapableTier` 두 타입을 **둘 다
+알아야 하는 존재**로 끼어 있다는 게 구조적으로 다른 지점입니다.
 
-### 4.6 Sequence Diagram — ComputeDispatcher의 호출 순서 (연결 구조만)
+### 4.6 Sequence Diagram — ComputeDispatcher의 호출 순서 (연결 구조만, §3.6과 나란히 비교)
 
 ```mermaid
 sequenceDiagram
     participant RUNNER as GPUModelRunner<br/>Worker 프로세스, 기존
     participant ATTN as AttentionImpl<br/>attention 백엔드, 기존
     participant DISP as ComputeDispatcher<br/>신규
-    participant PIM as CustomHBMTier<br/>ComputeCapableTier 구현
+    participant TIER as CustomHBMTier<br/>GEMMCapableTier 구현
     participant MERGE as PartialResultMerger<br/>신규
 
     Note over RUNNER,ATTN: 기존 forward pass 흐름 - call-path-analysis.md §3
     RUNNER->>ATTN: forward(query, kv_cache, attn_metadata)
-    ATTN->>DISP: should_dispatch(op=attention, tier_id)
-    alt tier_id 가 ComputeCapableTier 이고 op 지원
-        DISP->>PIM: execute_partial(op, query, block_ids, meta)
-        PIM-->>DISP: PartialResult
+    ATTN->>DISP: should_dispatch(op=gemm, tier_id)
+    DISP->>DISP: isinstance(tier, GEMMCapableTier) 검사<br/>op=gemv 였다면 GEMVCapableTier 검사로 분기
+    alt tier 가 GEMMCapableTier 이고 op 지원
+        DISP->>TIER: execute_gemm(block_ids, weight_ref)
+        TIER-->>DISP: PartialResult
         DISP-->>ATTN: PartialResult 전달
         ATTN->>MERGE: merge GPU 결과 + PartialResult
         MERGE-->>ATTN: 최종 attention 출력
@@ -642,6 +826,14 @@ sequenceDiagram
     end
     ATTN-->>RUNNER: attention 출력 반환
 ```
+
+§3.6과 참가자 구성·`alt`/`else` 모양은 비슷해 보이지만, 판단이 일어나는
+위치가 다릅니다 — 여기서는 `ATTN->>DISP: should_dispatch(...)`로 판단
+자체를 **별도 객체에 위임**하고, `DISP->>DISP: isinstance(...)` 로 그
+객체 내부에서 **연산 종류별로 어떤 타입을 검사할지 분기**합니다. §3.6은
+`ATTN->>ATTN: ...supported_ops 에 gemm 있는지 확인` 한 줄로 끝났던 것과
+비교하면, "판단을 위임할 객체가 있는가"와 "그 판단이 연산마다 분기되는가"
+둘 다 §4.7의 "상위 모듈 변경량"·"구현 복잡도" 차이로 이어집니다.
 
 **의도적으로 생략한 부분**: 이 다이어그램은 "누가 누구를 호출하는가"라는 연결
 구조만 보여줍니다. 다음과 같은 질문들은 답하지 않습니다 — PIM 연산이 GPU 연산과
