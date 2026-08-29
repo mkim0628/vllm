@@ -306,68 +306,104 @@ sequenceDiagram
 ### 4.2 Module View
 
 ```mermaid
-graph TD
-    TPP["TierPlacementPolicy"]
-    REGISTRY["MemoryTierRegistry"]
-    BASE["MemoryTier 공통 얇은 베이스<br/>identity · capacity ·<br/>범용 capability 최소셋<br/>모든 티어 필수"]
+graph LR
+    TPP["TierPlacementPolicy"] --> REGISTRY["MemoryTierRegistry"] --> BASE["MemoryTier 공통 얇은 베이스<br/>identity · capacity ·<br/>범용 capability 최소셋<br/>모든 티어 필수"]
 
-    subgraph EXT["선택적 확장 인터페이스 — 티어별로 유무가 다름"]
-        POOLEXT["CXLPoolingExtension<br/>fabric 공유/풀링"]
-        COMPUTEEXT["ComputeCapableTier<br/>PIM 연산 §7"]
-        BATCHEXT["HBFBatchReadExtension<br/>배치 순차읽기 최적화"]
+    subgraph G1["GPUHBMTier — base only"]
+        direction TB
+        GPUHBM["GPUHBMTier"]
+        HBM_PHYS[("GPU HBM<br/>로컬, Tier 0")]
+        GPUHBM --> HBM_PHYS
     end
 
-    subgraph PLUGINS["MemoryTier 구현체 — 베이스+확장 조합이 제각각"]
-        GPUHBM["GPUHBMTier<br/>base only"]
-        DRAMT["CPUDRAMTier<br/>base only"]
-        CUSTOMT["CustomHBMTier<br/>base + Compute"]
-        CXLT["CXLTier<br/>base + Pooling"]
-        HBFT["HBFTier<br/>base + BatchRead"]
-    end
-
-    subgraph UPPER["확장을 인지하는 상위 모듈 — 존재할 때만 사용"]
-        DISPATCHER["ComputeDispatcher §7"]
-        WPLACE["Weight/KV 배치 로직<br/>확장 인지 확장판"]
-    end
-
-    subgraph PHYS_LOCAL["로컬, Tier 0"]
-        HBM_PHYS[("GPU HBM")]
-    end
-    subgraph PHYS_REMOTE["원격, 선택적"]
+    subgraph G2["CPUDRAMTier — base only"]
+        direction TB
+        DRAMT["CPUDRAMTier"]
         DRAM_PHYS[("CPU DRAM")]
-        CUSTOM_PHYS[("Custom HBM")]
-        CXL_PHYS[("CXL Memory")]
-        HBF_PHYS[("HBF")]
+        DRAMT --> DRAM_PHYS
     end
 
-    TPP --> REGISTRY --> BASE
-    BASE --> GPUHBM --> HBM_PHYS
-    BASE --> DRAMT --> DRAM_PHYS
-    BASE --> CUSTOMT --> CUSTOM_PHYS
-    BASE --> CXLT --> CXL_PHYS
-    BASE --> HBFT --> HBF_PHYS
+    subgraph G3["CXLTier — base + Pooling + GEMM"]
+        direction TB
+        CXLT["CXLTier"]
+        POOLEXT["CXLPoolingExtension<br/>fabric 공유/풀링"]
+        CXL_PHYS[("CXL Memory")]
+        CXLT --> POOLEXT
+        CXLT --> CXL_PHYS
+    end
 
-    CUSTOMT --> COMPUTEEXT
-    CXLT --> POOLEXT
-    HBFT --> BATCHEXT
+    GEMMEXT["GEMMCapableTier<br/>execute_gemm<br/>CXLTier·CustomHBMTier 공통 구현"]
 
-    DISPATCHER -. "확장 인지 시에만 사용" .-> COMPUTEEXT
-    WPLACE -. "확장 인지 시에만 사용" .-> POOLEXT
-    WPLACE -. "확장 인지 시에만 사용" .-> BATCHEXT
+    subgraph G4["CustomHBMTier — base + GEMM"]
+        direction TB
+        CUSTOMT["CustomHBMTier"]
+        CUSTOM_PHYS[("Custom HBM")]
+        CUSTOMT --> CUSTOM_PHYS
+    end
+
+    subgraph G5["HBFTier — base + BatchRead"]
+        direction TB
+        HBFT["HBFTier"]
+        BATCHEXT["HBFBatchReadExtension<br/>배치 순차읽기 최적화"]
+        HBF_PHYS[("HBF")]
+        HBFT --> BATCHEXT
+        HBFT --> HBF_PHYS
+    end
+
+    subgraph G6["SSDTier — base + GEMV PIM"]
+        direction TB
+        SSDT["SSDTier"]
+        GEMVEXT["GEMVCapableTier<br/>execute_gemv - PIM 부착"]
+        SSD_PHYS[("SSD + PIM")]
+        SSDT --> GEMVEXT
+        SSDT --> SSD_PHYS
+    end
+
+    BASE --> GPUHBM
+    BASE --> DRAMT
+    BASE --> CXLT
+    BASE --> CUSTOMT
+    BASE --> HBFT
+    BASE --> SSDT
+
+    CXLT --> GEMMEXT
+    CUSTOMT --> GEMMEXT
 
     classDef localMem fill:#dbe7ff,stroke:#3b5bdb,color:#1c2b5e,stroke-width:2px;
     classDef remoteMem fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
     classDef extBox fill:#d8f5d0,stroke:#2f9e44,color:#1b4332,stroke-width:2px;
-    classDef upperBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:1px;
     class HBM_PHYS,GPUHBM localMem
-    class DRAM_PHYS,CUSTOM_PHYS,CXL_PHYS,HBF_PHYS,DRAMT,CUSTOMT,CXLT,HBFT remoteMem
-    class POOLEXT,COMPUTEEXT,BATCHEXT extBox
-    class DISPATCHER,WPLACE upperBox
+    class DRAM_PHYS,CXL_PHYS,CUSTOM_PHYS,HBF_PHYS,SSD_PHYS,DRAMT,CXLT,CUSTOMT,HBFT,SSDT remoteMem
+    class POOLEXT,GEMMEXT,BATCHEXT,GEMVEXT extBox
 ```
 
-`GPUHBMTier`/`CPUDRAMTier`는 확장이 없는 "평범한" 티어로, `CustomHBMTier`/
-`CXLTier`/`HBFTier`는 각자 다른 확장을 가진 "특화" 티어로 **의도적으로 비대칭
-모양**으로 그렸습니다 — 후보 1과 달리 플러그인마다 구조가 달라지는 게 이 설계의
+이전 버전은 "베이스 티어 한 줄 + 확장 인터페이스 한 줄"을 따로 그려서 어떤
+확장이 어떤 티어 것인지 선을 따라가야 알 수 있었습니다. 이번엔 **티어 하나당
+서브그래프 하나**로 묶어서, 그 티어가 갖는 확장(들)과 실제 물리 메모리까지
+같은 박스 안에 넣었습니다 — 박스 제목(`CXLTier — base + Pooling + GEMM`)만
+봐도 그 티어의 구성이 바로 보입니다. `GEMMCapableTier`만 유일하게 박스 밖,
+`CXLTier`와 `CustomHBMTier` 서브그래프 사이에 홀로 놓여 있는데, **이게
+의도적입니다** — 두 티어가 진짜로 같은 인터페이스 하나를 공유한다는 걸
+"두 박스 사이에 낀 공통 노드"로 시각화한 것입니다.
+
+새로 추가한 `SSDTier`가 이 모듈뷰에서 하는 역할이 중요합니다 — **"연산
+가능 메모리"가 하나의 획일적인 능력이 아니라는 걸 보여줍니다.** `CXLTier`와
+`CustomHBMTier`는 같은 `GEMMCapableTier`를 구현하지만, `SSDTier`는 PIM이
+붙어 있어서 GEMM이 아니라 **GEMV**만 지원하므로 완전히 별개의
+`GEMVCapableTier`를 구현합니다(그래서 `GEMVCapableTier`는 `GEMMCapableTier`처럼
+박스 밖으로 나올 필요 없이 `SSDTier` 서브그래프 안에 완전히 갇혀 있습니다 —
+공유하는 티어가 하나뿐이라서입니다). 이걸 후보 2 방식대로 표현하면, 하나의
+뭉뚱그린 `ComputeCapableTier` 대신 **연산 종류별로 인터페이스가 갈라지는 게
+자연스럽습니다** — `ComputeDispatcher`도 이제 `GEMMCapableTier`와
+`GEMVCapableTier` 둘 다 인지해야 하므로 확장이 늘수록 상위 모듈이 커진다는
+후보 2의 트레이드오프(§4.7)가 그대로 드러납니다. `ComputeDispatcher`가 이
+확장들을 실제로 어떻게 호출하는지는 §4.5·§4.6에서 다룹니다. 또한 `CXLTier`는
+`CXLPoolingExtension`과 `GEMMCapableTier` **두 개의 확장을 동시에 구현**하는
+유일한 티어입니다 — 확장을 여러 개 조합하는 실제 사례를 보여줍니다.
+
+`GPUHBMTier`/`CPUDRAMTier`는 확장이 없는 "평범한" 티어로, 나머지는 각자
+다른 확장(또는 조합)을 가진 "특화" 티어로 **의도적으로 비대칭 모양**으로
+그렸습니다 — 후보 1과 달리 플러그인마다 구조가 달라지는 게 이 설계의
 본질입니다.
 
 ### 4.3 Class Diagram — 후보 2 자체 (§3.3과 나란히 비교)
