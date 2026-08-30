@@ -4,8 +4,8 @@
 > §8 통합 module view)
 >
 > 본 문서는 위 문서에서 만든 module view를 출발점으로, **메모리 추상화 계층의
-> 추상화 수준을 어떻게 가져갈 것인가**라는 설계쟁점에 대해 두 후보 구조
-> (범용성 강조 / 하드웨어 특화 강조)를 설계하고 비교합니다.
+> 추상화 수준을 어떻게 가져갈 것인가**라는 설계쟁점에 대해 세 후보 구조
+> (범용성 강조 / 하드웨어 특화 강조 / 분리형 능력 모델)를 설계하고 비교합니다.
 
 ## 0. 배경 재정리
 
@@ -30,7 +30,8 @@
   첫 번째 목표에 유리)
 
 즉 이 쟁점은 **배경의 목표 1(이기종 지원)과 목표 3(상위 모듈 안정성)이 서로
-당기는 힘**을 어떻게 배분할지의 문제이고, 두 후보 구조로 스펙트럼의 양 끝을
+당기는 힘**을 어떻게 배분할지의 문제이고, 스펙트럼의 양 끝(후보 1, 후보 2)과
+그 둘의 결합 관계 자체를 바꾼 세 번째 지점(후보 3)까지 세 후보 구조로
 탐색하는 건 합리적인 접근입니다.
 
 ### 1.2 별도로 봐야 할 가능성이 있는 쟁점(DP-2) — 참고용
@@ -47,14 +48,14 @@
 
 이 축은 DP-1(범용 vs 특화)과 직교하기 때문에, "범용 인터페이스 + 중앙집중 조정",
 "특화 인터페이스 + 분산 자율 조정" 등 4가지 조합이 모두 가능합니다. 이번 문서는
-요청하신 대로 **DP-1에 대한 두 후보 구조**에 집중하고, DP-2(조정 주체의 위치)는
+요청하신 대로 **DP-1에 대한 세 후보 구조**에 집중하고, DP-2(조정 주체의 위치)는
 필요하시면 별도 문서로 다루는 걸 제안드립니다.
 
 ---
 
-## 2. 두 후보의 공통 전제
+## 2. 세 후보의 공통 전제
 
-두 후보 모두 다음은 동일하게 유지합니다 (`vllm-kv-cache-memory-abstraction-layer.md`
+세 후보 모두 다음은 동일하게 유지합니다 (`vllm-kv-cache-memory-abstraction-layer.md`
 §8과 동일):
 
 - 상위 스택: `Scheduler`(KV cache) / `ModelLoader`(Weight) / `GPUModelRunner`(Activation)
@@ -65,8 +66,12 @@
 - 평가 기준: ① 신규 메모리 온보딩 난이도, ② 상위 모듈 변경량, ③ 하드웨어 고유
   기능 활용도, ④ 구현/유지보수 복잡도, ⑤ 성능 상한
 
-두 후보는 `MemoryTierRegistry` **아래쪽**(플러그인 인터페이스가 얼마나 균일한가)
-에서만 갈라집니다.
+세 후보는 `MemoryTierRegistry` **아래쪽**에서만 갈라집니다 — 다만 갈라지는
+축이 후보 1↔2와 후보 3이 서로 다릅니다. 후보 1↔2는 "플러그인 인터페이스가
+얼마나 균일한가"(단일 인터페이스 vs 선택적 확장 인터페이스)의 문제이고,
+후보 3은 그 축과 독립적으로 "`MemoryTier`와 연산 능력이 애초에 같은 타입
+계층에 속하는가"(상속/구현 관계 vs 별도 계층 + 참조)의 문제입니다 — §5에서
+자세히 다룹니다.
 
 ---
 
@@ -928,7 +933,8 @@ class ComputeDispatcher:
 단위로 매번 호출되는지 스텝 단위로 한 번만 호출되는지, PIM이 느려서 타임아웃되면
 언제 어떻게 재시도/폴백하는지, CUDA stream/이벤트로 어떻게 동기화하는지. 이런
 질문은 "MAL의 추상화 수준"(DP-1)이 아니라 **"연산 실행 모델을 어떻게 통합할
-것인가"**라는 별개의 설계쟁점(DP-3 후보)에 속합니다 — §7.6에서 나열한 실행 단위
+것인가"**라는 별개의 설계쟁점(DP-3 후보)에 속합니다 —
+`vllm-kv-cache-memory-abstraction-layer.md` §7.6에서 나열한 실행 단위
 불일치/정밀도 정합성/동시 슬롯 큐잉/연산 실패 폴백 같은 제약들이 바로 그 DP-3가
 풀어야 할 문제들의 예고편입니다. 이 문서에서는 "그런 분기점이 존재한다"까지만
 보여주고, 더 깊이 들어가지 않습니다.
@@ -940,63 +946,410 @@ class ComputeDispatcher:
 | 신규 메모리 온보딩 난이도 | **중간~높음** — 베이스는 쉽지만, 고유 기능을 살리려면 "새 확장 인터페이스를 만들 것인가"를 매번 판단해야 함 |
 | 상위 모듈 변경량 | **있음** — 확장을 활용하려는 상위 모듈(`ComputeDispatcher` 등)은 확장별로 분기 코드가 필요, 목표 3(상위 모듈 안정성)과 정면으로 부딪힘 |
 | 하드웨어 고유 기능 활용도 | **높음** — CXL pooling, PIM 연산, HBF batch-read를 실제로 활용 가능 |
-| 구현/유지보수 복잡도 | **높음** — 확장 인터페이스가 늘어날수록 "어떤 백엔드/상위모듈이 어떤 확장 조합을 지원하는지" 매트릭스가 생김 (§5.4, §7.6에서 이미 지적한 문제) |
+| 구현/유지보수 복잡도 | **높음** — 확장 인터페이스가 늘어날수록 "어떤 백엔드/상위모듈이 어떤 확장 조합을 지원하는지" 매트릭스가 생김 (`vllm-kv-cache-memory-abstraction-layer.md` §5.4·§7.6에서 이미 지적한 문제) |
 | 성능 상한 | **높음** — 하드웨어 투자 대비 이득을 최대로 뽑아낼 수 있음 |
 
 ---
 
-## 5. 두 후보 비교
+## 5. 후보 3 — 분리형 능력 모델 (Decoupled Capability Model)
 
-### 5.1 평가 기준별 비교표
+### 5.1 설계 철학
 
-| 평가 기준 | 후보 1: 범용성 강조 | 후보 2: 하드웨어 특화 |
-|---|---|---|
-| 연산 가능 메모리 지원 (FR) | 만족 — `ComputeOp` 클래스 계층 경유 | 만족 — 확장 인터페이스 경유 |
-| 신규 메모리(티어) 온보딩 난이도 | 낮음 | 중간~높음 |
-| 신규 연산(하드웨어 고유 기능) 확장 자유도 | **낮음** — 코어 모듈에 정의된 `ComputeOp` 클래스 계층에 서브클래스를 추가해야 함, 벤더 단독 확장 불가 | **높음** — 벤더가 자체 확장 인터페이스를 정의해 코어 승인 없이 독립 배포 가능 |
-| 상위 모듈 변경량 (목표 3) | 거의 없음 — 항상 같은 진입점(`execute_op`) | 확장 활용 시 필요 (확장별 분기) |
-| 구현/유지보수 복잡도 | 낮음 — 인터페이스 1개, `ComputeOp` 서브클래스도 한 모듈에 모여 있음 | 높음 (확장 조합 매트릭스) |
-| 코드 재사용성 | 최대 | 확장 부분은 재사용 어려움 |
+후보 1과 후보 2는 둘 다 같은 전제를 공유합니다 — **"연산 능력은 `MemoryTier`
+구현체가 갖는 성질"**이라는 전제입니다. 후보 1은 그걸 데이터 필드
+(`supported_ops`)로, 후보 2는 그걸 추가 인터페이스 구현(`GEMMCapableTier`
+등)으로 표현할 뿐, 둘 다 "연산 능력이 있다/없다"는 사실이 **그 티어 클래스
+자체에 못박혀** 있다는 점은 같습니다.
 
-두 후보 모두 연산 가능 메모리라는 FR은 만족합니다 — 더 이상 "지원하느냐"의 문제가
-아닙니다. 다만 참고로, 두 후보가 상호 배타적이지 않다는 점은 짚어둘 만합니다 —
-**후보 1을 기본 골격으로 채택하고, 특정 티어에 한해서만(예: 처음엔 PIM만) 후보
-2의 확장 패턴을 국소적으로 도입**하는 절충도 가능합니다. 실제로 지금
-`vllm-kv-cache-memory-abstraction-layer.md` §7의 `ComputeCapableTier`가 정확히
-이 절충의 실제 사례입니다 — 후보 1의 얇은 베이스 위에, PIM이라는 한 가지 케이스에만
-후보 2 스타일의 확장을 얹은 것입니다.
+**후보 3은 이 전제 자체를 버립니다.** `MemoryTier`(저장)와
+`ComputeCapability`(연산 능력)를 **완전히 독립된 두 타입 계층**으로 만들고,
+상속도 구현(realize)도 아닌 **참조(association)** 하나로만 연결합니다 —
+`CXLGemmCapability`라는 클래스는 `CXLTier`를 상속하지도, 구현하지도
+않습니다. 그저 생성자에서 `CXLTier` 인스턴스 하나를 주입받아 `self._tier`에
+들고 있을 뿐입니다. 두 계층을 잇는 유일한 다리는 `tier_id`를 키로 쓰는
+**`ComputeCapabilityRegistry`**이고, 이 레지스트리의 키는 호출자가 따로
+지정하는 게 아니라 **`capability.tier.capabilities().tier_id`에서 스스로
+파생**됩니다 — capability가 참조하는 tier와 다른 tier_id로 등록되는 실수
+자체가 구조적으로 불가능하도록 만든 설계입니다.
 
-### 5.2 QA(품질 속성) 관점 비교
+이렇게 분리하는 이유는 **인스턴스 단위 유연성** 때문입니다. 후보 1/2에서는
+"연산 능력 있음"이 **클래스** 수준에 고정되어 있어서, 같은 `CXLTier`
+클래스는 항상 GEMM을 지원하거나 항상 지원하지 않습니다. 그런데 실제
+배포에서는 "PIM 모듈이 장착된 CXL 카드"와 "PIM 없는 저가형 CXL 카드"가
+같은 `CXLTier` 코드베이스를 쓰면서도 인스턴스별로 다른 연산 능력을 가질 수
+있습니다. 후보 3에서는 이게 자연스럽습니다 — PIM이 없는 배포에서는 단순히
+`CXLGemmCapability` 인스턴스를 생성해서 레지스트리에 등록하지 않으면
+그만이고, `CXLTier` 클래스 자체는 손댈 필요가 없습니다.
 
-위 §5.1 표의 "신규 메모리 온보딩 난이도"·"확장 자유도"·"상위 모듈 변경량"·
-"구현/유지보수 복잡도"·"코드 재사용성" 다섯 항목은 사실 전부 하나의 품질
+**대가**: 후보 1/2에서는 "이 티어가 이 연산을 지원한다"는 관계가 (약하든
+강하든) 타입 시스템 또는 최소한 같은 객체 안의 데이터로 **구조적으로**
+보장됩니다 — `tier.execute_op(op)`를 부르는 대상과 실제로 연산을 수행하는
+대상이 **항상 같은 객체**입니다. 후보 3에서는 이 보장이 사라집니다 —
+`CXLGemmCapability`가 참조하는 `_tier`가 실제로 그 capability를 등록할 때
+쓴 tier_id와 물리적으로 같은 장치인지는, capability를 **생성하는 시점에
+올바르게 연결했는가**라는 관례(convention)에 의존합니다. 이게 §5.6에서
+다루는 새로운 신뢰성 리스크, **"티어-능력 매칭 정합성"**입니다.
+
+> **위치 인지(memory-location-aware) 판단이 여전히 유지되는가?** 이 분리가
+> "이 데이터가 놓인 위치에서 이 연산이 유리한가"라는 판단 자체를 없애지는
+> 않습니다 — `ComputeCapabilityRegistry`의 키가 여전히 `tier_id`이고,
+> `TieredBlockTable`이 데이터가 **지금 물리적으로 놓인** `tier_id`를
+> 알려주는 체인이 그대로이기 때문에, "이 tier_id에 연산 능력이 등록되어
+> 있는가"라는 조회는 후보 1/2와 동일하게 위치 기반입니다. 달라지는 건
+> "그 판단의 근거가 객체 정체성(identity)이 아니라 레지스트리 조회
+> 결과(convention)로 바뀐다"는 것뿐입니다 — §5.4·§5.5에서 실제 호출
+> 순서로 확인합니다.
+
+### 5.2 Module View
+
+```mermaid
+graph LR
+    TPP["TierPlacementPolicy"] --> REGISTRY["MemoryTierRegistry"]
+    TPP -.-> CAPREG
+
+    subgraph TIERS["MemoryTier 계층 — 순수 저장, 연산 지식 전혀 없음"]
+        direction TB
+        GPUHBM["GPUHBMTier"]
+        DRAMT["CPUDRAMTier"]
+        HBFT["HBFTier"]
+        CXLT["CXLTier"]
+        CUSTOMT["CustomHBMTier"]
+        SSDT["SSDTier"]
+    end
+    REGISTRY --> GPUHBM
+    REGISTRY --> DRAMT
+    REGISTRY --> HBFT
+    REGISTRY --> CXLT
+    REGISTRY --> CUSTOMT
+    REGISTRY --> SSDT
+
+    subgraph CAPS["ComputeCapability 계층 — MemoryTier 와 완전히 별도<br/>상속도 구현도 아님"]
+        direction TB
+        CXLGEMM["CXLGemmCapability<br/>GEMMCapability 구현"]
+        CUSTOMGEMM["CustomHBMGemmCapability<br/>GEMMCapability 구현"]
+        SSDGEMV["SSDGemvCapability<br/>GEMVCapability 구현"]
+    end
+
+    CXLGEMM -. "tier 참조 상속 아님" .-> CXLT
+    CUSTOMGEMM -. "tier 참조 상속 아님" .-> CUSTOMT
+    SSDGEMV -. "tier 참조 상속 아님" .-> SSDT
+
+    CAPREG["ComputeCapabilityRegistry<br/>키 = capability.tier.tier_id 에서 파생<br/>별도로 지정하지 않음"]
+    CXLGEMM --> CAPREG
+    CUSTOMGEMM --> CAPREG
+    SSDGEMV --> CAPREG
+
+    NOTIER["HBFTier · CPUDRAMTier · GPUHBMTier 는<br/>대응하는 Capability 인스턴스가 아예 없음<br/>레지스트리에 등록 자체가 안 됨"]
+    NOTIER -.-> HBFT
+
+    classDef localMem fill:#dbe7ff,stroke:#3b5bdb,color:#1c2b5e,stroke-width:2px;
+    classDef remoteMem fill:#eef1f4,stroke:#8d99ae,color:#22303e,stroke-width:1px;
+    classDef capBox fill:#fff0f6,stroke:#c2255c,color:#5c0b28,stroke-width:2px;
+    classDef regBox fill:#fff3bf,stroke:#f08c00,color:#5c3c00,stroke-width:2px;
+    classDef noteBox fill:#f1f3f5,stroke:#868e96,color:#343a40,stroke-width:1px,stroke-dasharray: 4 3;
+    class GPUHBM localMem
+    class DRAMT,HBFT,CXLT,CUSTOMT,SSDT remoteMem
+    class CXLGEMM,CUSTOMGEMM,SSDGEMV capBox
+    class CAPREG regBox
+    class NOTIER noteBox
+```
+
+§3.2(후보 1)·§4.2(후보 2)와 가장 크게 다른 점은 **박스 두 세트가 서로
+겹치지 않는다**는 것입니다 — 후보 1/2에서는 `CXLTier` 박스 자체가 연산
+능력을 표현했지만(데이터 필드 또는 추가 인터페이스), 여기서는 `CXLTier`
+박스(TIERS 영역)와 `CXLGemmCapability` 박스(CAPS 영역)가 **물리적으로
+분리된 두 영역**에 있고, 점선 하나(`tier 참조`)로만 이어집니다. 회색 점선
+노트가 보여주듯, `HBFTier`/`CPUDRAMTier`/`GPUHBMTier`는 대응하는
+Capability 인스턴스가 **아예 존재하지 않아도** 됩니다 — 후보 1의
+`supported_ops = []`나 후보 2의 "확장 인터페이스 미구현"과 결과는 같지만,
+표현 방식이 "속성 없음"이 아니라 "레지스트리에 아무것도 등록 안 함"입니다.
+
+### 5.3 Class Diagram
+
+```mermaid
+classDiagram
+    class MemoryTierCapabilities {
+        <<dataclass>>
+        +str tier_id
+        +int capacity_bytes
+        +float read_latency_ns
+        +float write_bandwidth_GBps
+    }
+
+    class MemoryTier {
+        <<interface>>
+        +capabilities() MemoryTierCapabilities
+        +allocate(nbytes) TierBuffer
+        +free(buf) void
+        +copy_out(block_ids) bytes
+        +copy_in(block_ids, data) void
+        +get_dma_handle(block_ids) MemoryHandle
+        +receive_dma(handle, block_ids) void
+    }
+    MemoryTier <|.. GPUHBMTier
+    MemoryTier <|.. CPUDRAMTier
+    MemoryTier <|.. HBFTier
+    MemoryTier <|.. CXLTier
+    MemoryTier <|.. CustomHBMTier
+    MemoryTier <|.. SSDTier
+
+    note for MemoryTier "후보 1 §3.3 후보 2 §4.3 과<br/>완전히 동일한 저장 계약<br/>연산 관련 메서드 전혀 없음"
+
+    class GEMMCapability {
+        <<interface>>
+        +tier() MemoryTier
+        +execute_gemm(block_ids, weight_ref) PartialResult
+    }
+    class GEMVCapability {
+        <<interface>>
+        +tier() MemoryTier
+        +execute_gemv(block_ids, weight_ref) PartialResult
+    }
+    class CXLGemmCapability {
+        -MemoryTier _tier
+    }
+    class CustomHBMGemmCapability {
+        -MemoryTier _tier
+    }
+    class SSDGemvCapability {
+        -MemoryTier _tier
+    }
+    GEMMCapability <|.. CXLGemmCapability
+    GEMMCapability <|.. CustomHBMGemmCapability
+    GEMVCapability <|.. SSDGemvCapability
+
+    CXLGemmCapability --> CXLTier : tier 참조 - 상속 아님, 필드 하나
+    CustomHBMGemmCapability --> CustomHBMTier : tier 참조 - 상속 아님
+    SSDGemvCapability --> SSDTier : tier 참조 - 상속 아님
+
+    note for CXLGemmCapability "MemoryTier 계층과 완전히 무관한 클래스<br/>CXLTier 를 상속하지도 구현하지도 않음<br/>생성자에서 tier 인스턴스를 주입받아 보관할 뿐"
+
+    class ComputeCapabilityRegistry~C~ {
+        <<generic, tier_id 로 색인>>
+        -dict~str,C~ _by_tier_id
+        +register(capability C) void
+        +get(tier_id) C or None
+    }
+    note for ComputeCapabilityRegistry~C~ "register 내부에서 key = capability.tier.capabilities.tier_id<br/>로 스스로 파생 - 호출자가 key 를 따로 넘기지 않음<br/>= tier 와 다른 tier_id 로 등록되는 실수 자체가 불가능"
+
+    ComputeCapabilityRegistry~C~ --> GEMMCapability : gemm_registry 인스턴스
+    ComputeCapabilityRegistry~C~ --> GEMVCapability : gemv_registry 인스턴스
+
+    class MemoryTierRegistry {
+        <<factory>>
+        +register(name, module_path, class_name) void
+        +create(name, config) MemoryTier
+        +list_tiers() list
+    }
+    MemoryTierRegistry --> MemoryTier : creates
+
+    class TierPlacementPolicy {
+        +decide_tier(data_meta, tiers) str
+    }
+    TierPlacementPolicy --> MemoryTierRegistry : 저장 후보 조회
+    TierPlacementPolicy --> ComputeCapabilityRegistry~C~ : tier_id 로 연산 능력 유무 조회<br/>두 레지스트리가 완전히 별개
+```
+
+`MemoryTier`와 그 여섯 구현체는 §3.3·§4.3과 **글자 하나 다르지 않습니다**
+— 이게 핵심입니다. 저장 계약은 세 후보 모두 동일하고, 오직 "연산 능력을
+어떻게 표현하는가"만 다릅니다. `GEMMCapability`/`GEMVCapability`는
+`MemoryTier` 계층 그림 어디에도 `<|..` 화살표로 연결되지 않습니다 — 유일한
+연결은 `CXLGemmCapability --> CXLTier`처럼 **필드 하나를 참조**하는
+연관관계뿐이고, 이는 상속(`<|--`)도 실현(`<|..`)도 아닙니다.
+`ComputeCapabilityRegistry`가 `register()` 내부에서 키를 스스로 파생시키는
+부분이 §5.1에서 말한 "매칭 정합성" 리스크를 완화하는 유일한 안전장치입니다
+— 이마저 없다면 호출자가 실수로 다른 tier_id를 넘겨 등록할 수 있었습니다.
+
+### 5.4 Sequence Diagram — 배치 결정 흐름 (§3.4·§4.4와 나란히 비교)
+
+```mermaid
+sequenceDiagram
+    participant CALLER as Scheduler / ModelLoader
+    participant TPP as TierPlacementPolicy
+    participant REG as MemoryTierRegistry
+    participant CAPREG as ComputeCapabilityRegistry
+    participant TIER as 선택된 MemoryTier 구현체<br/>예 CustomHBMTier
+    participant BT as TieredBlockTable
+
+    CALLER->>TPP: decide_tier(data_meta)
+    TPP->>REG: list_tiers()
+    REG-->>TPP: MemoryTierCapabilities 목록<br/>연산 정보 전혀 없음
+    TPP->>TPP: capacity/latency 로 1차 후보 추림
+    opt data_meta.hint_op 있음
+        TPP->>CAPREG: get(tier_id) for tier_id in candidates<br/>gemm_registry 또는 gemv_registry
+        CAPREG-->>TPP: 해당 tier_id 로 등록된<br/>Capability 존재 여부
+        TPP->>TPP: Capability 존재하는 tier_id 만 우대
+    end
+    TPP-->>CALLER: tier_id
+    CALLER->>REG: create(tier_id)
+    REG-->>CALLER: TIER 인스턴스
+    CALLER->>TIER: allocate(nbytes)
+    TIER-->>CALLER: TierBuffer
+    CALLER->>BT: block_locations block_id = tier_id local_block_id 기록
+
+    Note over BT: 후보1 §3.4 후보2 §4.4 와 동일한 기록 메커니즘.<br/>차이는 3단계 - 여기선 REG 조회와 CAPREG 조회가<br/>서로 다른 두 레지스트리에 대한 별개 호출임
+    Note over TPP,CAPREG: MemoryTier 와 ComputeCapability 가 별도 계층이어도<br/>배치 결정은 여전히 tier_id 를 매개로 두 레지스트리를<br/>함께 조회함 - 위치 인지 dispatch 근거는 유지됨
+```
+
+후보 1(§3.4)의 `TIER.capabilities().supported_ops`나 후보 2(§4.4)의
+`isinstance(t, GEMMCapableTier)` 대신, 여기서는 **`ComputeCapabilityRegistry`
+조회**로 "이 tier_id가 연산을 지원하는가"를 판단합니다. `MemoryTierRegistry`
+조회(저장 후보)와 `ComputeCapabilityRegistry` 조회(연산 능력)가 **완전히
+분리된 두 번의 호출**이라는 게 후보 1/2와 다른 지점입니다 — 후보 1/2는
+`MemoryTierRegistry`가 반환하는 한 객체 안에 이미 연산 정보가 (데이터든
+타입이든) 같이 들어 있어서 조회가 한 번으로 끝났습니다.
+
+### 5.5 Sequence Diagram — 연산 실행 호출 순서 + 소스코드 (§3.6·§4.6과 나란히 비교)
+
+```mermaid
+sequenceDiagram
+    participant RUNNER as GPUModelRunner<br/>Worker 프로세스, 기존
+    participant ATTN as AttentionImpl<br/>attention 백엔드, 기존
+    participant BT as TieredBlockTable
+    participant CAPREG as ComputeCapabilityRegistry<br/>gemm_registry
+    participant CAP as CustomHBMGemmCapability
+    participant MERGE as PartialResultMerger
+
+    Note over RUNNER,ATTN: 기존 forward pass 흐름 - call-path-analysis.md §3
+    RUNNER->>ATTN: forward(query, kv_cache, attn_metadata)
+    ATTN->>BT: lookup_tier(block_ids)
+    BT-->>ATTN: tier_id
+    ATTN->>CAPREG: get(tier_id)
+    CAPREG-->>ATTN: CustomHBMGemmCapability 인스턴스 또는 None
+    alt Capability 존재
+        ATTN->>CAP: execute_gemm(block_ids, weight_ref)
+        Note over CAP: 내부에서 self.tier 로 저장 접근<br/>MemoryTier 자체는 이 호출을 전혀 모름
+        CAP-->>ATTN: PartialResult
+        ATTN->>MERGE: merge GPU 결과 + PartialResult
+        MERGE-->>ATTN: 최종 attention 출력
+    else None
+        Note over ATTN: 이후는 기존 GPU 전용 forward 와 동일
+    end
+    ATTN-->>RUNNER: attention 출력 반환
+```
+
+#### 소스코드로 본 호출 순서
+
+```python
+class AttentionImpl:
+    def forward(self, query, kv_cache, attn_metadata):
+        tier_id = self.block_table.lookup_tier(attn_metadata.block_ids)
+        capability = self.gemm_registry.get(tier_id)   # MemoryTierRegistry 가 아님
+
+        if capability is not None:
+            partial = capability.execute_gemm(attn_metadata.block_ids, self.weight_ref)
+            gpu_partial = self._gpu_forward(query, kv_cache, attn_metadata)
+            return self.merger.merge([gpu_partial, partial])
+
+        return self._gpu_forward(query, kv_cache, attn_metadata)
+
+
+class ComputeCapabilityRegistry:
+    def register(self, capability: "GEMMCapability") -> None:
+        # 키를 호출자가 넘기지 않고 capability 가 참조하는 tier 에서 스스로 파생
+        key = capability.tier().capabilities().tier_id
+        self._by_tier_id[key] = capability
+
+    def get(self, tier_id: str):
+        return self._by_tier_id.get(tier_id)   # 없으면 None, 예외 아님
+
+
+class CXLGemmCapability:
+    def __init__(self, tier: "MemoryTier"):
+        self._tier = tier   # 상속이 아니라 참조 - 생성 시점에 명시적으로 연결
+
+    def tier(self) -> "MemoryTier":
+        return self._tier
+
+    def execute_gemm(self, block_ids, weight_ref) -> "PartialResult":
+        return self._tier.dma_execute_gemm(block_ids, weight_ref)   # 내부적으로만 tier 사용
+```
+
+후보 1(§3.6)의 `tier.execute_op(...)`, 후보 2(§4.6)의
+`dispatcher.dispatch(...)`와 비교하면, 여기서는 **`self.registry.get(tier_id)`가
+곧 "이 tier의 MemoryTier 인스턴스"가 아니라 "이 tier_id에 등록된 별도
+Capability 인스턴스"를 반환**한다는 게 근본적으로 다른 지점입니다. 호출
+경로 자체는 후보 1(확인 1회 + 호출 1회)과 거의 같은 모양이지만, **확인
+대상이 같은 객체의 데이터(후보1)나 타입(후보2)이 아니라 별도 레지스트리
+조회 결과**라는 점에서 §5.6의 Reliability 논의로 이어집니다 — `execute_gemm`
+안에서 쓰는 `self._tier`가 실제로 `tier_id`가 가리키는 물리 장치와 같은
+것인지는, `CXLGemmCapability(tier=cxl_tier_instance)`처럼 **생성 시점에
+올바르게 연결했다는 관례**에 의존할 뿐, 타입 시스템이나 객체 정체성이
+보장해주지 않습니다.
+
+### 5.6 장단점
+
+| 항목 | 평가 |
+|---|---|
+| 연산 가능 메모리 지원 (FR) | **만족** — `ComputeCapabilityRegistry` + 참조 기반 연결로 커버 |
+| 신규 메모리(티어) 온보딩 난이도 | **낮음** — `MemoryTier`만 구현하면 되는 건 후보 1과 동일, 연산 능력은 완전히 별개로 나중에 붙여도 됨 |
+| 신규 연산(하드웨어 고유 기능) 확장 자유도 — 거버넌스 | **최고** — `GEMMCapability`/`GEMVCapability` 및 그 구현 클래스는 `MemoryTier` 코드베이스와 아예 무관한 별도 패키지에 둘 수 있음, 코어 모듈 승인도 `MemoryTier` 클래스 수정도 불필요 |
+| 신규 연산 확장 자유도 — 변경 범위 | **후보 2와 비슷** — 새 연산마다 `XCapability` 인터페이스 + 해당 `Registry` 인스턴스가 하나씩 늘어남, 호출부(`AttentionImpl`)에도 그만큼 조회 지점이 늘어남 |
+| 인스턴스 단위 유연성 (후보 1/2엔 없는 축) | **유일한 강점** — 같은 `CXLTier` 클래스가 "PIM 있는 배포"/"PIM 없는 배포"마다 Capability 인스턴스 등록 여부만 다르게 가져갈 수 있음, 클래스 자체를 나누거나 데이터 필드를 조건부로 채울 필요 없음 |
+| Reliability(결함 조기 발견성) | **중간** — `execute_gemm` 메서드 존재 자체는 여전히 타입 계약(후보 2와 동일하게 정적 검사 가능)이지만, **그 대상이 진짜 올바른 물리 tier를 참조하는지는 타입 시스템이 보장하지 못함** — 새로운 리스크: "티어-능력 매칭 정합성"(잘못된 tier로 `Capability`를 생성해 등록하면, 조회 자체는 성공하지만 엉뚱한 장치에 연산을 흘려보냄) |
+| 구현/유지보수 복잡도 | **후보 2보다 약간 높음** — 레지스트리가 두 종류(`MemoryTierRegistry`, `ComputeCapabilityRegistry`)로 늘고, "이 tier_id에 어떤 Capability가 등록되어 있는가"를 tier 자체를 봐서는 알 수 없어 항상 레지스트리를 함께 봐야 함 |
+
+---
+
+## 6. 세 후보 비교
+
+### 6.1 평가 기준별 비교표
+
+| 평가 기준 | 후보 1: 범용성 강조 | 후보 2: 하드웨어 특화 | 후보 3: 분리형 능력 모델 |
+|---|---|---|---|
+| 연산 가능 메모리 지원 (FR) | 만족 — `ComputeOp` 클래스 계층 경유 | 만족 — 확장 인터페이스 경유 | 만족 — 별도 `ComputeCapabilityRegistry` 경유 |
+| 신규 메모리(티어) 온보딩 난이도 | 낮음 | 중간~높음 | 낮음 |
+| 신규 연산(하드웨어 고유 기능) 확장 자유도 — 거버넌스 | **낮음** — 코어 모듈에 정의된 `ComputeOp` 클래스 계층에 서브클래스를 추가해야 함, 벤더 단독 확장 불가 | **높음** — 벤더가 자체 확장 인터페이스를 정의해 코어 승인 없이 독립 배포 가능 | **최고** — `MemoryTier` 코드베이스와 완전히 분리된 패키지에 둘 수 있음 |
+| 상위 모듈 변경량 (목표 3) | 거의 없음 — 항상 같은 진입점(`execute_op`) | 확장 활용 시 필요 (확장별 분기) | 확장 활용 시 필요 (Capability 종류별 조회 지점) |
+| 구현/유지보수 복잡도 | 낮음 — 인터페이스 1개, `ComputeOp` 서브클래스도 한 모듈에 모여 있음 | 높음 (확장 조합 매트릭스) | 높음 + 레지스트리 2종 관리, "티어-능력 매칭 정합성" 리스크 |
+| 코드 재사용성 | 최대 | 확장 부분은 재사용 어려움 | 최대 — `MemoryTier`는 세 후보 중 유일하게 연산 관련 코드가 전혀 섞이지 않음 |
+| 인스턴스 단위 유연성(같은 티어 클래스가 배포마다 다른 연산 능력을 가질 수 있는가) | 불가 — 클래스 수준 고정 | 불가 — 클래스 수준 고정 | **가능** — 후보 3만의 고유한 강점(§5.1, §5.6) |
+
+세 후보 모두 연산 가능 메모리라는 FR은 만족합니다 — 더 이상 "지원하느냐"의 문제가
+아닙니다. 세 후보가 상호 배타적이지도 않습니다 — **후보 1을 기본 골격으로
+채택하고, 특정 티어에 한해서만(예: 처음엔 PIM만) 후보 2의 확장 패턴이나 후보
+3의 분리형 레지스트리 패턴을 국소적으로 도입**하는 절충도 가능합니다. 실제로
+지금 `vllm-kv-cache-memory-abstraction-layer.md` §7의 `ComputeCapableTier`가
+정확히 이런 절충의 실제 사례입니다 — 후보 1의 얇은 베이스 위에, PIM이라는 한
+가지 케이스에만 후보 2 스타일의 확장을 얹은 것입니다.
+
+### 6.2 QA(품질 속성) 관점 비교
+
+위 §6.1 표의 "신규 메모리 온보딩 난이도"·"확장 자유도"·"상위 모듈 변경량"·
+"구현/유지보수 복잡도"·"코드 재사용성" 항목은 사실 전부 하나의 품질
 속성, **Modifiability(수정 용이성)**로 수렴합니다. 여기에 이 문서 전체에서
-다룬 두 관찰 — §3.3/§4.3의 타입 안전성 논의, §3.6/§4.6의 디스패치 구조
-차이 — 을 더해 **Modifiability**, **Reliability(결함 조기 발견성)**,
-**Performance** 세 가지 QA로 다시 비교합니다.
+다룬 관찰들 — §3.3/§4.3/§5.3의 타입 안전성 논의, §3.6/§4.6/§5.5의 디스패치
+구조 차이, §5.1/§5.6의 인스턴스 단위 유연성 — 을 더해 **Modifiability**와
+**Reliability(결함 조기 발견성)** 두 가지 QA로 비교합니다. Performance는
+아래에서 설명하는 이유로 이 비교에서 제외합니다.
 
-#### Modifiability — "누가 고칠 권한이 있는가"와 "몇 곳을 고쳐야 하는가"는 다른 질문
+#### Modifiability — "누가 고칠 권한이 있는가", "몇 곳을 고쳐야 하는가", "인스턴스 단위로 유연한가"는 서로 다른 질문
 
-이 둘을 하나의 점수로 합치면 왜곡됩니다 — 두 후보에서 정반대 방향으로
+이 세 축을 하나의 점수로 합치면 왜곡됩니다 — 세 후보에서 서로 다른 방향으로
 갈리기 때문입니다.
 
-| Modifiability 하위 축 | 후보 1 | 후보 2 | 근거 |
-|---|---|---|---|
-| 신규 **티어** 추가(이미 아는 능력) | ★★★ | ★★★ | 둘 다 새 클래스 하나, 상위 코드 무변경(§3.2, §4.2) |
-| 신규 **연산** 추가 — 거버넌스(승인 없이 확장 가능한가) | ★☆☆ | ★★★ | 후보1은 `ComputeOp`가 코어 모듈 소유라 새 서브클래스에 코어 PR 필요(§3.1). 후보2는 벤더가 자기 패키지에 새 확장 인터페이스만 정의하면 됨(§4.1) |
-| 신규 **연산** 추가 — 변경 범위(실제로 몇 곳을 고쳐야 하는가) | ★★☆ | ★☆☆ | 후보1은 `decide_tier()`·`AttentionImpl`이 무변경(§3.4, §3.6). 후보2는 `decide_tier()`에 `elif` 추가 + `ComputeDispatcher`에 새 접속 추가 필요(§4.4, §4.6) |
+| Modifiability 하위 축 | 후보 1 | 후보 2 | 후보 3 | 근거 |
+|---|---|---|---|---|
+| 신규 **티어** 추가(이미 아는 능력) | ★★★ | ★★★ | ★★★ | 셋 다 새 클래스 하나, 상위 코드 무변경(§3.2, §4.2, §5.2) |
+| 신규 **연산** 추가 — 거버넌스(승인 없이 확장 가능한가) | ★☆☆ | ★★★ | ★★★ | 후보1은 `ComputeOp`가 코어 모듈 소유라 새 서브클래스에 코어 PR 필요(§3.1). 후보2는 벤더가 자기 패키지에 새 확장 인터페이스만 정의하면 됨(§4.1). 후보3은 한발 더 나아가 `MemoryTier` 코드베이스 자체를 건드릴 필요조차 없음(§5.1) |
+| 신규 **연산** 추가 — 변경 범위(실제로 몇 곳을 고쳐야 하는가) | ★★☆ | ★☆☆ | ★☆☆ | 후보1은 `decide_tier()`·`AttentionImpl`이 무변경(§3.4, §3.6). 후보2는 `decide_tier()`에 `elif` 추가 + `ComputeDispatcher`에 새 접속 추가 필요(§4.4, §4.6). 후보3도 새 `XCapability` 인터페이스 + `Registry` 인스턴스 + 호출부 조회 지점이 그만큼 늘어남(§5.4, §5.5) |
+| 인스턴스 단위 유연성(같은 티어 클래스, 배포별 다른 연산 능력) | ☆☆☆ 해당 없음 | ☆☆☆ 해당 없음 | ★★★ | 후보1/2는 연산 능력이 클래스에 고정되어 배포마다 다르게 가져가려면 서브클래싱이나 조건부 데이터가 필요. 후보3은 Capability 인스턴스 등록 여부만으로 표현됨(§5.1) |
 
-후보1은 "고칠 수 있는 사람은 적지만 고쳐야 할 곳도 적고", 후보2는 "고칠 수
+후보1은 "고칠 수 있는 사람은 적지만 고쳐야 할 곳도 적고", 후보2·3은 "고칠 수
 있는 사람은 많지만 고쳐야 할 곳도 많습니다" — 이게 서로 상쇄되므로 "확장
 자유도" 하나로는 어느 쪽이 더 낫다고 말하기 어렵고, 조직 구조(코어 팀 승인이
-병목인가, 벤더별 조율 비용이 더 문제인가)에 따라 답이 달라집니다.
+병목인가, 벤더별 조율 비용이 더 문제인가)에 따라 답이 달라집니다. 후보2와
+후보3은 거버넌스·변경범위 두 축에서는 거의 같은 점수지만, **인스턴스 단위
+유연성**에서만 후보3이 유일하게 앞섭니다 — 이게 후보3을 도입할지 말지를
+가르는 실질적인 이유입니다(연산 능력이 배포마다 갈리는 하드웨어가 실제로
+있는가?).
 
 #### Reliability — 결함 조기 발견성
 
-| | 후보 1 | 후보 2 |
-|---|---|---|
-| 별점 | ★☆☆ | ★★★ |
-| 근거 | "이 티어가 이 연산을 받는다"는 관계가 타입이 아니라 `supported_ops`라는 런타임 데이터에만 있음 — 잘못된 조합은 티어 구현자가 `else: raise`를 빠뜨리면 조용히 통과됨 | `execute_gemm` 같은 메서드 존재 자체가 타입 계약 — `mypy`가 대부분 CI 시점에 잡고, 최악의 경우도 즉시 `AttributeError` |
+| | 후보 1 | 후보 2 | 후보 3 |
+|---|---|---|---|
+| 별점 | ★☆☆ | ★★★ | ★★☆ |
+| 근거 | "이 티어가 이 연산을 받는다"는 관계가 타입이 아니라 `supported_ops`라는 런타임 데이터에만 있음 — 잘못된 조합은 티어 구현자가 `else: raise`를 빠뜨리면 조용히 통과됨 | `execute_gemm` 같은 메서드 존재 자체가 타입 계약 — `mypy`가 대부분 CI 시점에 잡고, 최악의 경우도 즉시 `AttributeError` | 메서드 존재 자체는 후보2와 동일하게 타입 계약이지만, **그 메서드가 참조하는 `_tier`가 진짜 올바른 물리 tier인지는 타입 시스템이 보장 못 함** — "티어-능력 매칭 정합성" 리스크(§5.1, §5.6)가 새로 생김 |
 
 ```python
 # 후보 1 — 문법적으로 유효, 런타임까지 가야 실패(그나마 구현자가 챙겼을 때만)
@@ -1004,41 +1357,79 @@ result = ssd_tier.execute_op(GEMMOp(block_ids, weight_ref))
 
 # 후보 2 — SSDTier에 execute_gemm이 없어 그 줄에서 즉시 실패
 result = ssd_tier.execute_gemm(block_ids, weight_ref)   # AttributeError, 혹은 mypy 사전 차단
+
+# 후보 3 — 메서드는 있고 타입 검사도 통과하지만, 등록 시점에 tier 를 잘못 연결하면
+# (예: SSDGemvCapability(tier=cxl_tier_instance) 처럼 실수로 다른 tier 주입)
+# 조회·호출 모두 "정상적으로" 성공한 뒤 엉뚱한 물리 장치에 연산이 흘러감 — 컴파일러도
+# 런타임 예외도 이 실수를 잡지 못함
+capability = gemm_registry.get(tier_id)
+result = capability.execute_gemm(block_ids, weight_ref)
 ```
 
-#### Performance
+후보3이 후보1보다는 낫지만(메서드 존재 자체는 타입 계약이므로) 후보2보다는
+못한 이유가 바로 이것입니다 — 후보2는 "티어 객체 자신이 곧 연산 수행자"라서
+매칭 실수가 구조적으로 불가능하지만, 후보3은 "별도 객체가 참조로 연결"되어
+있어서 그 참조가 틀릴 가능성 자체는 남아 있습니다(다만 §5.3에서 다룬 대로
+`ComputeCapabilityRegistry`가 키를 `capability.tier()`에서 자동 파생시켜
+**등록 단계의 키 불일치**는 막아주므로, 남은 리스크는 "애초에 Capability를
+생성할 때 잘못된 tier 인스턴스를 주입하는" 더 좁은 범위로 줄어듭니다).
 
-| | 후보 1 | 후보 2 |
-|---|---|---|
-| 별점 | ★★☆ | ★★★ |
-| 근거 | 디스패치가 2단계(티어 조회 + `execute_op` 내부의 op 타입 분기) | 디스패치가 1단계(메서드 이름 자체가 티어+연산을 동시에 특정) |
+#### Performance — QA 비교표에서 제외
+
+초기 초안에서 이 항목에 후보1 ★★☆ / 후보2 ★★★ 점수를 매겼었지만, 이는
+후보 2의 "코드로 그려본" 실제 구현(`ComputeDispatcher.should_dispatch()` +
+`dispatch()`, §4.6)을 다시 세어보면 근거가 무너집니다:
 
 ```python
-# 후보 2 — 디스패치 1회
-tier.execute_gemm(block_ids, weight_ref)
+# 후보 1 (§3.6) — 호출 1회 + 내부 확인 1회
+if "gemm" in tier.capabilities().supported_ops:   # 1) 데이터 필드 확인
+    tier.execute_op(GEMMOp(block_ids, weight_ref))  # 2) 단일 진입점 호출
 
-# 후보 1 — 디스패치 2회
-tier.execute_op(op)                 # 1) 티어의 execute_op 조회
-# execute_op 내부:
-#   if isinstance(op, GEMMOp): ...  # 2) op 타입 분기
+# 후보 2 (§4.6, ComputeDispatcher 경유) — 호출 3회 + 내부 분기 2회
+if self.dispatcher.should_dispatch(op="gemm", tier_id=tier_id):  # 1) 호출
+    #   should_dispatch 내부: isinstance(tier, GEMMCapableTier)   # 2) 타입 분기
+    self.dispatcher.dispatch(op="gemm", ...)                     # 3) 호출
+    #   dispatch 내부: if op == "gemm": tier.execute_gemm(...)    # 4) 문자열 분기 + 호출
 ```
 
-정적 바인딩(후보2, 메서드 이름이 곧 연산)과 동적 바인딩(후보1, 조회 후
-타입으로 재분기)의 실제 메커니즘 차이입니다. 다만 이 차이가 실제 GEMM/GEMV
-실행 시간과 비교하면 어느 정도인지가 관건입니다 — `isinstance` 체크 1회는
-수십~수백 ns인데, prefill의 대형 GEMM(수십 μs~수 ms)에 비하면 6자리 가까이
-작아 사실상 무시할 수준입니다. 다만 decode 단계의 작은 GEMV(수 μs)처럼
-호출당 작업량이 작아질수록 이 고정 오버헤드가 차지하는 비중이 상대적으로
-커집니다 — 그래도 최대 한 자릿수 % 안쪽이라 결정적 요인은 아니지만,
-"완전히 동일"은 부정확하므로 근소하게 후보2 쪽에 둡니다.
+실제로 코드를 세어보면 후보 2(`ComputeDispatcher`를 경유하는 버전)가
+**더 많은** 호출·분기를 거칩니다 — 애초의 "후보2가 메서드 이름 하나로 바로
+디스패치하니 더 빠르다"는 주장은, `ComputeDispatcher`라는 특정 파사드
+구현을 상정한 채 후보 1과는 불공정하게 비교한 결과였습니다.
+
+더 근본적으로는, `ComputeDispatcher`를 걷어내고 호출부가 직접
+`isinstance(tier, GEMMCapableTier)`를 확인한 뒤 `tier.execute_gemm(...)`을
+부르는 **최소 형태의 후보 2**를 놓고 비교하면:
+
+```python
+# 최소 형태 후보 2 — 호출 1회 + 확인 1회, 후보 1과 기계적으로 대칭
+if isinstance(tier, GEMMCapableTier):   # 1) 타입 확인
+    tier.execute_gemm(block_ids, weight_ref)  # 2) 호출
+```
+
+이건 후보 1의 "확인 1회 + 호출 1회"와 순서만 다를 뿐 완전히 대칭입니다.
+후보 3(§5.5)도 마찬가지입니다 — `registry.get(tier_id)`(조회 1회) +
+`capability.execute_gemm(...)`(호출 1회)로, 세 후보 모두 **기계적으로
+같은 모양**입니다. 즉 **호출/분기 횟수 차이는 DP-1(추상화 수준)이
+구조적으로 강제하는 게 아니라, `ComputeDispatcher`라는 부가적인 파사드
+패턴을 넣기로 한 구현 선택의 부작용**이었습니다 — DP-1 자체와는 독립적인
+변수라서, 후보 간 견고한 QA 트레이드오프로 취급할 수 없습니다. 실제
+GEMM/GEMV 실행 시간(수 μs~수 ms) 앞에서 `isinstance`/`dict` 조회 수준의
+오버헤드 차이는 애초에 무시할 수준이기도 합니다.
+
+**결론**: Performance는 §6.1 비교표와 이 QA 비교에서 제외합니다. DP-1이
+구조적으로 강제하는 견고한 트레이드오프는 **Modifiability**와
+**Reliability** 둘뿐입니다 — Performance 차이가 필요하다면 그건 DP-1이
+아니라 상위 모듈(`ComputeDispatcher` 등)을 어떻게 구현하느냐의 별개
+설계 선택에서 나옵니다.
 
 ---
 
-## 6. 관련 문서
+## 7. 관련 문서
 
 - `doc-mk/vllm-kv-cache-memory-abstraction-layer.md` — MAL 기본 설계 (§1 class
   diagram이 후보 1의 원형, §7 `ComputeCapableTier`가 후보 2 패턴의 축소 사례,
-  §8이 두 후보 모두의 공통 상위 전제)
+  §8이 세 후보 모두의 공통 상위 전제)
 - `doc-mk/vllm-kv-cache-memory-tiering.md` — CXL 한정 옵션 A/B
 - `doc-mk/vllm-call-path-analysis.md` — 요청 처리 전체 call path, ModelLoader
   위치(§2)
