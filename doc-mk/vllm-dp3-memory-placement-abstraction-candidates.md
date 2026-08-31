@@ -95,7 +95,7 @@ Allocation / Migration Request
 
 # 4. Candidate 1 — Memory-Centric Placement
 
-## 4.1 SW Structure
+## 4.1 SW Module View
 
 ```mermaid
 graph TD
@@ -118,93 +118,183 @@ graph TD
     MR --> HW
 ```
 
+### Responsibility
+
+| Module | Responsibility |
+|---|---|
+| PlacementManager | Allocation/migration request를 적절한 MemoryResource로 전달 |
+| MemoryResourceRegistry | Runtime이 사용할 MemoryResource 관리 |
+| MemoryResource | Memory operation + local placement capability 제공 |
+| PlacementPolicy | 해당 Memory의 capacity/state/locality를 이용한 local decision |
+| BlockTable | Block → Memory 위치 관리 |
+| MigrationManager | 실제 data movement 및 metadata update |
+
 ---
 
-## 4.2 Allocation
+## 4.2 Class Diagram
 
-```text
-allocate(B1)
-    ↓
-PlacementManager
-    ↓
-MemoryResource 후보 확인
-    ↓
-각 MemoryResource의 local state/policy 확인
-    ↓
-선택
-    ↓
-MemoryResource.allocate(B1)
-    ↓
-BlockTable[B1] = selected Memory
+```mermaid
+classDiagram
+    class PlacementManager {
+        +allocate(block, requirement)
+        +request_migration(block, trigger)
+    }
+    class MemoryResourceRegistry {
+        +get(resource_id)
+        +list_resources()
+    }
+    class MemoryResource {
+        +allocate(block)
+        +free(block)
+        +get_state()
+        +get_locality()
+        +get_placement_policy()
+    }
+    class PlacementPolicy {
+        +select_local_target(requirement)
+        +should_migrate(block, state)
+        +select_migration_target(block)
+    }
+    class BlockTable {
+        +get_location(block)
+        +update_location(block, resource)
+    }
+    class MigrationManager {
+        +migrate(block, source, target)
+    }
+
+    PlacementManager --> MemoryResourceRegistry
+    PlacementManager --> BlockTable
+    MemoryResourceRegistry --> MemoryResource
+    MemoryResource --> PlacementPolicy
+    PlacementManager --> MigrationManager
+    MigrationManager --> MemoryResource
 ```
 
 ---
 
-## 4.3 Migration
+## 4.3 Allocation Sequence
 
-```text
-B1 currently in CXL
-        ↓
-Migration trigger
-        ↓
-MemoryResource state / local policy
-        ↓
-Migration target 결정
-        ↓
-HBM으로 이동
-        ↓
-BlockTable update
+```mermaid
+sequenceDiagram
+    participant R as Runtime
+    participant PM as PlacementManager
+    participant REG as MemoryResourceRegistry
+    participant MR as MemoryResource
+    participant P as PlacementPolicy
+    participant BT as BlockTable
+
+    R->>PM: allocate(B1, requirement)
+    PM->>REG: list_resources()
+    REG-->>PM: MemoryResource candidates
+    PM->>MR: evaluate(B1, requirement)
+    MR->>P: select_local_target(requirement)
+    P-->>MR: placement decision
+    MR-->>PM: selected resource
+    PM->>MR: allocate(B1)
+    MR-->>PM: allocation success
+    PM->>BT: update_location(B1, MR)
+    BT-->>PM: updated
+```
+
+### Allocation 의미
+
+Candidate 1에서도 여러 MemoryResource 후보 중 하나를 선택할 수 있다. 핵심 차이는 **global planner가 모든 Resource의 cost를 통합 최적화하는 것이 아니라, 각 MemoryResource가 자신의 state/locality를 기준으로 placement 판단을 제공한다는 것**이다.
+
+---
+
+## 4.4 Migration Sequence
+
+```mermaid
+sequenceDiagram
+    participant R as Runtime
+    participant PM as PlacementManager
+    participant SRC as Source MemoryResource
+    participant P as Local PlacementPolicy
+    participant MIG as MigrationManager
+    participant DST as Target MemoryResource
+    participant BT as BlockTable
+
+    R->>PM: migration_trigger(B1)
+    PM->>SRC: get_state(B1)
+    SRC->>P: should_migrate(B1, state)
+    P-->>SRC: migrate = true / target
+    SRC-->>PM: target MemoryResource
+    PM->>MIG: migrate(B1, SRC, DST)
+    MIG->>DST: allocate(B1)
+    MIG->>SRC: read(B1)
+    MIG->>DST: write(B1)
+    MIG->>BT: update_location(B1, DST)
+    MIG-->>PM: migration complete
 ```
 
 ---
 
-## 4.4 장점
+## 4.5 Candidate 1 Advantages — Why?
 
-### ① Low Placement Decision Complexity
+### ① Low Placement Decision Overhead
 
-Memory Resource가 자신의 capacity와 상태를 중심으로 판단하므로 전체 Memory system의 상태를 매번 종합할 필요가 적다.
+Memory Resource가 자신의 capacity와 상태를 중심으로 판단하므로 global Memory system 전체의 state를 매번 종합할 필요가 적다.
+
+```text
+Request
+  ↓
+MemoryResource
+  ↓
+Local Policy
+  ↓
+Decision
+```
+
+**왜 장점인가?**
+
+Placement decision을 위한 control path가 짧아지고, global cost model이나 중앙 planner의 계산 비용을 줄일 수 있다.
 
 ### ② Memory Locality에 유리
 
-Memory가 자신의 locality 특성을 알고 있으므로 해당 Memory에서 효율적인 placement를 우선하기 쉽다.
+Memory가 자신의 locality 특성을 직접 알고 있기 때문에 해당 Memory에서 효율적인 placement를 우선하기 쉽다.
 
-### ③ Predictable Control Path
+**왜 장점인가?**
 
-복잡한 global optimization 없이 정해진 policy에 따라 결정할 수 있어 placement/migration latency를 예측하기 쉽다.
+Memory-centric system에서 데이터 이동 자체가 비용이므로, local resource가 자신의 특성을 기준으로 결정하면 불필요한 remote placement를 줄이기 쉽다.
 
-### ④ 구현 및 디버깅이 비교적 단순
+### ③ Predictable Placement / Migration Behavior
 
-placement responsibility가 Memory Resource 주변에 집중되므로 global planner의 복잡성을 줄일 수 있다.
+복잡한 global optimization보다 명시적인 local policy를 사용하므로 동일한 resource 상태에서 decision이 비교적 예측 가능하다.
+
+### ④ 구조 및 디버깅 단순성
+
+Global planner가 workload 전체를 모델링하지 않아도 되므로 policy의 책임 범위를 작게 유지하기 쉽다.
 
 ---
 
-## 4.5 단점
+## 4.6 Candidate 1 Disadvantages — Why?
 
 ### ① Global Optimization에 불리
 
-개별 Memory의 상태만으로 판단하면 다른 Memory의 상태와 workload 전체를 고려한 최적 선택이 어려워질 수 있다.
+각 MemoryResource가 자신의 상태를 중심으로 판단하면 다른 Resource와 workload 전체를 비교한 결과를 반영하기 어렵다.
 
-예를 들어:
+예:
 
 ```text
-HBM: free 20 GB / high bandwidth
-CXL: free 200 GB / low bandwidth
+HBM: free 20 GB / high BW
+CXL: free 200 GB / low BW
 PNM: free 50 GB / GEMM capable
 ```
 
-처럼 각 Resource의 장단점이 다르면 global cost를 비교하는 것이 필요하다.
+어떤 Block을 어디에 둘지가 workload의 향후 access와 compute까지 고려해야 한다면 local policy만으로 최적점을 찾기 어렵다.
 
-### ② Workload-level Access Pattern 반영이 제한될 수 있음
+### ② Workload-level Access Pattern 반영 제한
 
-MemoryResource가 자신의 상태는 잘 알지만 전체 application의 향후 access pattern이나 다른 Block과의 관계를 알기 어렵다.
+MemoryResource는 자신의 상태는 잘 알지만 application 전체의 access frequency, hot/cold 관계, 다른 Block과의 상호작용을 알기 어렵다.
 
-### ③ Migration thrashing 방지에 불리할 수 있음
+### ③ Global Migration Coordination이 어려움
 
-각 Resource가 local policy로 판단하면 전체 workload 관점의 migration history/cost를 일관되게 관리하기 어렵다.
+여러 Resource가 독립적으로 migration을 판단하면 전체 workload 관점에서 migration budget이나 migration history를 일관되게 최적화하기 어렵다.
 
-### ④ Compute affinity를 global하게 반영하기 어려움
+### ④ Compute Affinity 반영 시 책임 증가
 
-DP2의 compute capability까지 고려하려면 단순히 Memory 상태뿐 아니라:
+DP2의 compute capability까지 고려하려면 Memory-local policy가:
 
 ```text
 Data location
@@ -213,13 +303,13 @@ Data location
 + Access pattern
 ```
 
-을 함께 봐야 한다. 이 정보가 Memory-local policy에 흩어지면 정책이 복잡해질 수 있다.
+을 알아야 할 수 있다. 이 정보가 늘어나면 원래 단순했던 Memory abstraction이 점점 복잡해진다.
 
 ---
 
 # 5. Candidate 2 — Runtime-Centric Placement
 
-## 5.1 SW Structure
+## 5.1 SW Module View
 
 ```mermaid
 graph TD
@@ -249,80 +339,149 @@ graph TD
     MIG --> PNM
 ```
 
+### Responsibility
+
+| Module | Responsibility |
+|---|---|
+| Placement/Migration Planner | Global placement 및 migration decision |
+| MemoryResourceRegistry | 전체 Memory Resource Pool 관리 |
+| Runtime Monitor | access pattern, capacity, pressure, utilization 등 관찰 |
+| Compute Affinity | DP2의 compute capability/affinity 정보 제공 |
+| BlockTable | Block → Memory 위치 관리 |
+| MigrationManager | 실제 data movement 및 metadata update |
+
 ---
 
-## 5.2 Allocation
+## 5.2 Class Diagram
 
-```text
-allocate(B1)
-    ↓
-PlacementPlanner
-    ↓
-Block/workload information
-    + Memory capacity/state
-    + Access pattern
-    + Compute affinity
-    ↓
-Candidate Memory evaluation
-    ↓
-Cost / Policy
-    ↓
-Selected Memory
-    ↓
-Allocation
-    ↓
-BlockTable update
+```mermaid
+classDiagram
+    class PlacementPlanner {
+        +allocate(block, requirement)
+        +evaluate_candidates(block, requirement)
+        +plan_migration(block, trigger)
+    }
+    class MemoryResourceRegistry {
+        +list_resources()
+        +get(resource_id)
+        +get_states()
+    }
+    class MemoryResource {
+        +allocate(block)
+        +free(block)
+        +get_state()
+        +get_locality()
+    }
+    class WorkloadMonitor {
+        +get_access_pattern(block)
+        +get_memory_pressure()
+    }
+    class ComputeAffinity {
+        +get_preferred_memory(op)
+        +get_compute_affinity(block, op)
+    }
+    class CostModel {
+        +estimate_placement_cost(block, resource)
+        +estimate_migration_cost(block, source, target)
+    }
+    class BlockTable {
+        +get_location(block)
+        +update_location(block, resource)
+    }
+    class MigrationManager {
+        +migrate(block, source, target)
+    }
+
+    PlacementPlanner --> MemoryResourceRegistry
+    PlacementPlanner --> WorkloadMonitor
+    PlacementPlanner --> ComputeAffinity
+    PlacementPlanner --> CostModel
+    PlacementPlanner --> BlockTable
+    PlacementPlanner --> MigrationManager
+    MemoryResourceRegistry --> MemoryResource
+    MigrationManager --> MemoryResource
 ```
 
 ---
 
-## 5.3 Migration
+## 5.3 Allocation Sequence
 
-```text
-B1 currently in CXL
-        ↓
-Runtime monitor
-        ↓
-Access pattern / pressure change
-        ↓
-PlacementPlanner
-        ↓
-Evaluate HBM / CXL / PNM
-        ↓
-Migration cost vs expected benefit
-        ↓
-Migration decision
-        ↓
-Block move
-        ↓
-BlockTable update
+```mermaid
+sequenceDiagram
+    participant R as Runtime
+    participant PP as PlacementPlanner
+    participant MON as WorkloadMonitor
+    participant REG as MemoryResourceRegistry
+    participant CM as CostModel
+    participant MR as MemoryResource
+    participant BT as BlockTable
+
+    R->>PP: allocate(B1, requirement)
+    PP->>MON: get_access_pattern(B1)
+    MON-->>PP: access pattern
+    PP->>REG: get_states()
+    REG-->>PP: HBM/CXL/PNM states
+    PP->>CM: evaluate(B1, candidates)
+    CM-->>PP: ranked candidates
+    PP->>MR: allocate(B1)
+    MR-->>PP: allocation success
+    PP->>BT: update_location(B1, MR)
+    BT-->>PP: updated
 ```
 
 ---
 
-## 5.4 장점
+## 5.4 Migration Sequence
+
+```mermaid
+sequenceDiagram
+    participant MON as WorkloadMonitor
+    participant PP as PlacementPlanner
+    participant BT as BlockTable
+    participant REG as MemoryResourceRegistry
+    participant CM as CostModel
+    participant MIG as MigrationManager
+    participant SRC as Source Memory
+    participant DST as Target Memory
+
+    MON->>PP: access pattern / pressure change
+    PP->>BT: get_location(B1)
+    BT-->>PP: CXL
+    PP->>REG: get_states()
+    REG-->>PP: HBM/CXL/PNM states
+    PP->>CM: estimate migration benefit/cost
+    CM-->>PP: migrate CXL -> HBM
+    PP->>MIG: migrate(B1, CXL, HBM)
+    MIG->>DST: allocate(B1)
+    MIG->>SRC: read(B1)
+    MIG->>DST: write(B1)
+    MIG->>BT: update_location(B1, HBM)
+    MIG-->>PP: migration complete
+```
+
+---
+
+## 5.5 Candidate 2 Advantages — Why?
 
 ### ① Global Memory Optimization
 
-전체 Memory Resource의 상태를 동시에 보고 결정할 수 있다.
+Planner가 HBM/CXL/PNM의 상태를 동시에 볼 수 있다.
 
-따라서 capacity뿐 아니라 bandwidth, queueing, contention 등을 함께 고려할 수 있다.
+따라서 capacity뿐 아니라 bandwidth, contention, queueing 등의 global state를 함께 고려할 수 있다.
 
-### ② Workload-aware Placement 가능
+### ② Workload-aware Placement
 
-Runtime이 access frequency, read/write pattern, hot/cold state 등을 알고 있다면 이를 placement decision에 직접 사용할 수 있다.
-
-예:
+Runtime이 access frequency, hot/cold state, access pattern 등을 알고 있다면 placement에 직접 사용할 수 있다.
 
 ```text
-Hot KV → HBM
-Cold KV → CXL
-GEMM-heavy data → PNM
+Hot data → HBM
+Cold data → CXL
+Compute-heavy data → PNM
 ```
 
-### ③ Compute Affinity 반영 가능
+### ③ Compute Affinity 반영
 
-DP2에서 얻은 Compute capability와 연결하여:
+DP2의 Compute capability를 placement decision과 연결할 수 있다.
 
 ```text
 Data
@@ -332,23 +491,19 @@ Preferred Compute
 Preferred Memory
 ```
 
-관계를 placement에 반영할 수 있다.
+따라서 Memory placement와 Compute placement를 함께 최적화할 가능성이 커진다.
 
-### ④ Dynamic Rebalancing 가능
+### ④ Dynamic Rebalancing
 
-Workload가 변화하면 기존 placement를 다시 평가하고 migration할 수 있다.
-
-즉 allocation을 한 번 결정하고 끝내는 것이 아니라:
+Workload가 변하면 기존 placement를 재평가하고 migration할 수 있다.
 
 ```text
 observe → evaluate → migrate → observe
 ```
 
-cycle을 구성할 수 있다.
-
 ---
 
-## 5.5 단점
+## 5.6 Candidate 2 Disadvantages — Why?
 
 ### ① Placement/Migration Decision Overhead 증가
 
@@ -356,36 +511,40 @@ Global state와 workload 정보를 수집하고 여러 Resource를 비교해야 
 
 ### ② Runtime Architecture 복잡도 증가
 
-Placement Planner, monitor, cost model, migration policy 등이 필요해진다.
+Planner, monitor, cost model, migration policy 등이 필요해지고 이들 간 interface가 추가된다.
 
 ### ③ Migration Thrashing 위험
 
-Runtime이 workload 변화에 민감하게 반응하면 다음과 같은 문제가 발생할 수 있다.
+Runtime이 workload 변화에 지나치게 민감하게 반응하면:
 
 ```text
 HBM → CXL → HBM → CXL → ...
 ```
 
-Migration cost가 실제 성능 이득보다 커질 수 있다.
+이 발생할 수 있다. Migration cost가 placement benefit보다 커질 수 있다.
 
-### ④ 정확한 모델링이 어려움
+### ④ Policy / Cost Model의 정확성이 중요
 
-Capacity만 보는 것이 아니라 bandwidth, access pattern, compute load, migration cost 등을 종합해야 하므로 policy tuning이 어려워진다.
+capacity, bandwidth, access pattern, compute load, migration cost 등을 잘못 모델링하면 global optimization이 오히려 잘못된 placement를 선택할 수 있다.
 
 ---
 
-# 6. Candidate Trade-off
+# 6. QA Evaluation
 
-| QA | Candidate 1 | Candidate 2 |
-|---|:---:|:---:|
-| **Placement Decision Efficiency** | ★★★ | ★★☆ |
-| **Memory Locality Exploitation** | ★★★ | ★★☆ |
-| **Global Resource Utilization** | ★★☆ | ★★★ |
-| **Workload Adaptability** | ★★☆ | ★★★ |
-| **Compute Affinity Awareness** | ★★☆ | ★★★ |
-| **Runtime Complexity / Predictability** | ★★★ | ★★☆ |
+| QA | Candidate 1 | Candidate 2 | Evaluation Rationale |
+|---|:---:|:---:|---|
+| **Placement Decision Efficiency** | ★★★ | ★★☆ | C1은 local decision으로 짧은 path를 유지하기 쉬움 |
+| **Memory Locality Exploitation** | ★★★ | ★★☆ | C1은 Memory-local state/policy 중심 |
+| **Global Resource Utilization** | ★★☆ | ★★★ | C2는 전체 Resource 상태를 동시에 고려 가능 |
+| **Workload Adaptability** | ★★☆ | ★★★ | C2는 runtime access pattern을 직접 반영 가능 |
+| **Compute Affinity Awareness** | ★★☆ | ★★★ | C2는 DP2 capability와 placement를 연결하기 쉬움 |
+| **Runtime Complexity / Predictability** | ★★★ | ★★☆ | C1은 global planner/cost model 의존성이 낮음 |
 
-### Fundamental Trade-off
+> 별점은 절대 성능값이 아니라 **동일한 Memory system과 workload에서 architecture가 제공하는 상대적 특성**을 의미한다.
+
+---
+
+# 7. Fundamental Trade-off
 
 ```text
 Candidate 1                              Candidate 2
@@ -401,23 +560,15 @@ Low overhead / predictable             Adaptive / globally optimized
 Limited global visibility               Higher decision complexity
 ```
 
----
-
-# 7. When Each Candidate Is Preferable
-
-## Candidate 1
-
-다음 조건에서 유리하다.
+## Candidate 1이 유리한 조건
 
 - Memory topology가 비교적 단순한 경우
-- Memory-locality가 성능에 결정적인 경우
+- Memory locality가 성능에 결정적인 경우
 - placement decision overhead를 최소화해야 하는 경우
 - workload 변화가 크지 않은 경우
 - migration이 자주 발생하지 않는 경우
 
-## Candidate 2
-
-다음 조건에서 유리하다.
+## Candidate 2가 유리한 조건
 
 - HBM/CXL/PNM 등 여러 Memory Resource가 동시에 존재하는 경우
 - workload access pattern이 동적으로 변화하는 경우
