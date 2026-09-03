@@ -73,6 +73,173 @@ function newSlide(kicker,title,subA,subB){
   return s;
 }
 
+/* ===== 해설 페이지 공통 렌더러 (gen_dp1.js에 주입) ===== */
+function estW(t,pt){let w=0;for(const c of t){const o=c.codePointAt(0);
+  const wide=(o>=0x1100&&o<=0x11FF)||(o>=0x2460&&o<=0x24FF)||(o>=0x3000&&o<=0x9FFF)||(o>=0xAC00&&o<=0xD7AF)||(o>=0xFF00&&o<=0xFF60)||o===0x26A0;
+  w += wide?pt : (c===' '?pt*0.28:pt*0.52);} return w/72;}
+
+const QY=1.14, QH=0.66;      // 질문 밴드
+const IY=2.22, IH=3.52;      // 항목 영역
+const MY=5.94, MH=0.98;      // 숫자 밴드
+
+function qBand(s,q,how){
+  s.addShape(pres.ShapeType.roundRect,{x:L,y:QY,w:R-L,h:QH,rectRadius:0.05,
+    fill:{color:"F2F5F6"},line:{color:RULE,width:0.75}});
+  s.addText([{text:"이 그림이 답하는 질문   ",options:{bold:true,color:MUTED,fontSize:9}},
+             {text:q,options:{bold:true,color:INK,fontSize:11}}],
+    {x:L+0.18,y:QY+0.05,w:R-L-0.36,h:0.30,isTextBox:true,margin:0,fontFace:F,valign:"middle"});
+  s.addText([{text:"읽는 법   ",options:{bold:true,color:MUTED,fontSize:9}},
+             {text:how,options:{color:BODY,fontSize:9.5}}],
+    {x:L+0.18,y:QY+0.33,w:R-L-0.36,h:0.28,isTextBox:true,margin:0,fontFace:F,valign:"middle"});
+}
+function itemList(s,x,accent,list){
+  let y=IY;
+  list.forEach((it,i)=>{
+    const tw=CW-0.40;
+    const lines=Math.max(1,Math.ceil(estW(it,9.5)/(tw*0.95)));   // 경계값은 보수적으로 2줄 확보
+    const h=lines*0.165+0.06;
+    s.addShape(pres.ShapeType.ellipse,{x:x,y:y+0.02,w:0.22,h:0.22,
+      fill:{color:accent},line:{color:accent}});
+    s.addText(String(i+1),{x:x,y:y+0.02,w:0.22,h:0.22,isTextBox:true,margin:0,
+      fontFace:F,fontSize:8,bold:true,color:"FFFFFF",align:"center",valign:"middle"});
+    s.addText(it,{x:x+0.32,y:y,w:tw,h:h,isTextBox:true,margin:0,
+      fontFace:F,fontSize:9.5,color:BODY,lineSpacingMultiple:1.12,valign:"top"});
+    y+=h+0.13;
+  });
+  return y;
+}
+function metricBand(s,cards){
+  const n=cards.length, gap=0.30, w=(R-L-gap*(n-1))/n;
+  s.addText("이 그림이 만들어내는 숫자",{x:L,y:MY-0.28,w:5,h:0.22,isTextBox:true,margin:0,
+    fontFace:F,fontSize:9,bold:true,color:MUTED,charSpacing:0.8});
+  cards.forEach((c,i)=>{
+    const cx=L+i*(w+gap);
+    s.addShape(pres.ShapeType.roundRect,{x:cx,y:MY,w:w,h:MH,rectRadius:0.05,
+      fill:{color:"FFFFFF"},line:{color:RULE,width:0.75}});
+    s.addText(c[0],{x:cx+0.16,y:MY+0.08,w:w-0.32,h:0.26,isTextBox:true,margin:0,
+      fontFace:F,fontSize:9,color:MUTED,valign:"middle"});
+    s.addText([{text:c[1],options:{bold:true,color:C1,fontSize:13}},
+               {text:"   vs   ",options:{color:MUTED,fontSize:9}},
+               {text:c[2],options:{bold:true,color:C2,fontSize:13}}],
+      {x:cx+0.16,y:MY+0.36,w:w-0.32,h:0.52,isTextBox:true,margin:0,fontFace:F,valign:"middle"});
+  });
+}
+function explainSlide(cfg){
+  const s=pres.addSlide(); s.background={color:BG};
+  head(s,cfg.kicker,cfg.title);
+  qBand(s,cfg.q,cfg.how);
+  s.addShape(pres.ShapeType.roundRect,{x:AX,y:1.84,w:0.18,h:0.18,rectRadius:0.09,
+    fill:{color:C1},line:{color:C1}});
+  s.addText("Candidate 1 — Tier-Indexed",{x:AX+0.28,y:1.80,w:CW-0.3,h:0.26,isTextBox:true,margin:0,
+    fontFace:F,fontSize:12,bold:true,color:C1});
+  s.addShape(pres.ShapeType.roundRect,{x:BX,y:1.84,w:0.18,h:0.18,rectRadius:0.09,
+    fill:{color:C2},line:{color:C2}});
+  s.addText("Candidate 2 — Object-Indexed",{x:BX+0.28,y:1.80,w:CW-0.3,h:0.26,isTextBox:true,margin:0,
+    fontFace:F,fontSize:12,bold:true,color:C2});
+  itemList(s,AX,C1,cfg.a);
+  itemList(s,BX,C2,cfg.b);
+  metricBand(s,cfg.metrics);
+  s.addNotes(cfg.notes);
+  return s;
+}
+
+/* ===== 각 뷰 해설 페이지 내용 ===== */
+const EXPLAIN = {
+module:{
+  kicker:"DP1 · 백데이터 ① 해설", title:"모듈 뷰 해설 — 그림을 요소별로 풀어보면",
+  q:"코드가 어느 모듈에 살고, 의존이 어디로 향하는가?",
+  how:"화살표는 의존·호출 방향이다. 좌측 세로 스택(Scheduler→Placer→BlockPool→HW)은 두 후보가 동일하므로, 오른쪽에 무엇이 붙는지만 비교하면 된다.",
+  a:[
+    "Scheduler — \"블록 몇 개가 필요하다\"만 전달한다. tier를 지정하지 않는다.",
+    "Placer — 배치를 결정하는 유일한 지점. 결정 입력을 TierStateTable 한 곳에서만 얻는다.",
+    "TierStateTable — 어느 tier에 얼마나 여유가 있는가에 대한 단일 진실 원천. 스케줄 스텝마다 갱신된다.",
+    "Metrics / Device probes — 이 표를 채우는 유일한 소스. 시스템 내부 계측이라 새 파이프라인이 필요 없다.",
+    "BlockPool / HW tiers — 결정된 tier의 풀에서 실제 블록을 꺼낸다. 여기에는 결정 로직이 없다.",
+    "Request 타입에 대한 의존이 어디에도 없다 — 스케줄러 쪽 타입이 바뀌어도 배치 모듈로 전파되지 않는다.",
+  ],
+  b:[
+    "Scheduler / Placer — 위치는 같지만 Placer가 request를 함께 받는다. 여기서부터 갈린다.",
+    "ObjectClassifier — 요청을 등급으로 바꾸는 모듈. C1에는 없던 것이다.",
+    "Feature source — hotness·lifetime을 채우는 외부 소스(힌트 API · 휴리스틱 · 과거 통계). 시스템 밖에서 정보를 들여오는 새 파이프라인이다.",
+    "Class-Tier Contract — 등급에서 목표 tier로 가는 매핑. 정책이 사는 자리가 여기다.",
+    "Evictor — 계약을 지키려면 자리를 만들어야 하므로 Placer가 호출 권한을 갖는다.",
+    "그 결과 배치 모듈이 eviction 정책과 결합된다 — C1에는 없는 의존이다.",
+  ],
+  metrics:[["신규 모듈 수","2개","4개"],["외부 정보 소스","0개","1개 (Feature source)"],["Placer가 의존하는 모듈","1개","3개"]],
+  notes:"핵심은 좌측 스택이 동일하다는 점. 차이는 오른쪽에 붙는 모듈 수와 그중 하나가 시스템 외부 소스라는 것.",
+},
+component:{
+  kicker:"DP1 · 백데이터 ② 해설", title:"컴포넌트 & 커넥터 해설 — 화살표가 모이는가 흩어지는가",
+  q:"런타임에 무엇이 몇 개 존재하고, 같은 스텝의 요청들이 어디로 가는가?",
+  how:"왼쪽은 같은 스텝에 도착한 요청 2건, 가운데는 결정 주체와 그 결정이 참조하는 상태, 오른쪽은 tier다. 화살표가 한 곳으로 모이는지 갈라지는지가 이 그림의 전부다.",
+  a:[
+    "요청 A·B가 익명이다 — 크기 말고는 둘을 구별할 정보가 그림 어디에도 없다.",
+    "Placer가 참조하는 것은 24개 지표 1벌. 요청이 몇 개든 이 상태는 하나뿐이다.",
+    "그래서 A와 B는 같은 점수표를 보고 같은 답을 낸다 → 화살표 두 개가 HBM 하나로 수렴한다.",
+    "이것이 herding이다. 스텝 경계에서만 상태를 갱신하면 그 스텝의 모든 할당이 한 tier로 몰린다.",
+    "max_num_seqs=128 기준 스텝당 수십~수백 건이 동시에 몰릴 수 있다.",
+    "해결하려면 스텝 내 예약 카운터가 필요하다 — 구현 부담이지 구조 변경은 아니다.",
+  ],
+  b:[
+    "요청마다 등급이 붙는다 — A는 hot · short, B는 cold · long.",
+    "Placer가 참조하는 것은 등급에서 tier로 가는 계약(이진 3특성 기준 8개 클래스).",
+    "등급이 다르면 답도 다르다 → 화살표가 HBM과 SSD로 갈라진다.",
+    "같은 스텝이 자연히 분산되므로 herding이 발생하지 않는다 — C1의 실패 모드가 구조적으로 없다.",
+    "대신 유지할 상태가 요청 수에 비례한다(요청당 특성 벡터 1개).",
+    "목표 tier가 차 있으면 계약을 지키기 위해 eviction이 발생한다 — 점선 커넥터가 그것이다.",
+  ],
+  metrics:[["유지 상태","24개 고정","요청 수에 비례"],["구분 가능한 등급","1종 (익명)","8종"],["스텝 내 herding","있음","없음"]],
+  notes:"C1의 약점(수렴)과 C2의 강점(분산)이 같은 프레임에서 대비되도록 그린 슬라이드.",
+},
+sequence:{
+  kicker:"DP1 · 백데이터 ③ 해설", title:"시퀀스 해설 — 화살표 하나가 곧 control path 한 단계",
+  q:"할당 1건이 실제 블록을 받기까지 몇 단계를 거치는가?",
+  how:"세로 점선은 참여자, 가로 화살표는 메시지다. 실선은 호출, 점선은 반환. 두 후보는 반드시 같은 시나리오(블록 4개 신규 할당)를 그려야 개수 비교가 성립한다.",
+  a:[
+    "allocate(4) — Scheduler는 개수만 준다. 인자에 request가 없다.",
+    "read states(6) — 6개 tier 상태를 한 번 읽는다. 전역 상태 조회는 이 1회뿐이다.",
+    "scores 반환 — 이미 측정되어 있는 값이라 추정 단계가 없다.",
+    "get_blocks(4) — 선택된 tier의 풀에서 블록을 꺼낸다.",
+    "blocks 반환 — 총 5개 메시지로 끝난다.",
+    "요청 식별자가 이 경로 어디에도 등장하지 않는다. 이것이 익명 요청의 실체다.",
+  ],
+  b:[
+    "allocate(4, request) — request가 인자에 들어온다. 갈림길이 여기다.",
+    "classify(req) → class 반환 — 분류는 객체당 최초 1회이므로 반복 비용 자체는 낮다.",
+    "target_tier() → 목표 tier 반환 — 계약을 조회하는 정책 단계.",
+    "get_blocks(4) → blocks 반환 — 여기까지 총 7개 메시지.",
+    "tier full이면 Evictor.make_room() 2단계가 임계 경로에 추가되어 9개가 된다.",
+    "분류 결과는 수명 동안 재사용되지만, 그 첫 결정이 틀리면 교정 없이 고착된다.",
+  ],
+  metrics:[["dispatch 메시지 수","5개","7개 (경합 시 9개)"],["추정이 필요한 단계","0개","1개 (classify)"],["경로에 요청 식별자","등장 안 함","등장함"]],
+  notes:"메시지 수 차이(5 vs 7)가 QA1의 정량 근거, 추정 단계 유무가 QA2, 첫 결정 고착이 QA3의 근거.",
+},
+klass:{
+  kicker:"DP1 · 백데이터 ④ 해설", title:"클래스 해설 — 시그니처와 필드가 곧 제약이다",
+  q:"새 tier나 새 객체 유형을 추가할 때 어디를 수정하는가?",
+  how:"색 헤더는 그 후보가 새로 도입하는 타입이다. 필드 목록은 곧 '결정에 필요한 정보'이고, 메서드 시그니처는 '무엇을 알 수 있는가'를 강제한다.",
+  a:[
+    "place(num_blocks) — 인자에 request가 없다. 시그니처가 익명성을 구조적으로 강제한다.",
+    "TierState의 필드 4개는 전부 런타임에 측정 가능한 값이다 — 추정할 것이 없다.",
+    "정책은 score() 하나에 응축된다. 배치 규칙을 바꾸려면 이 메서드만 보면 된다.",
+    "새 tier 추가는 이 표에 행 하나를 더하는 일이고, 정책 함수는 그대로다(argmax의 정의역만 넓어진다).",
+    "BlockPool은 결정에 관여하지 않는다 — 꺼내는 역할만 한다.",
+    "나중에 객체 정보를 쓰려면 place() 시그니처부터 바꿔야 한다. C2로 옮기는 비용에 인터페이스 변경이 포함된다.",
+  ],
+  b:[
+    "place(num_blocks, request) — request가 시그니처에 들어와 스케줄러 타입과 결합된다.",
+    "ObjectFeature의 세 필드(hotness · locality · lifetime)는 할당 시점에 측정할 수 없다 — ⚠를 붙인 이유다.",
+    "값을 채우려면 힌트 API(인터페이스 오염) · 휴리스틱(정확도 미보장) · 과거 통계(콜드스타트) 중 하나를 골라야 한다.",
+    "ClassTierContract가 정책이 사는 자리다. target_tier와 fallback_order를 함께 갖는다.",
+    "새 tier를 넣으면 8개 클래스 전부에 대해 계약을 다시 써야 한다 — 행 추가로 끝나지 않는다.",
+    "대신 결정 근거가 ObjectClass라는 값으로 남아 로깅 · 재현 · 단위 테스트가 가능하다.",
+  ],
+  metrics:[["결정에 쓰는 필드","4개 (전부 관측 가능)","3개 (전부 관측 불가)"],["새 tier 추가 비용","테이블 행 1개","계약 8개 재정의"],["클래스 수","3개","4개"]],
+  notes:"⚠ 표시한 ObjectFeature 세 필드가 C2 비용의 본질. 관측 불가 지표 비율 0% vs 100%가 여기서 나온다.",
+},
+};
+
+
 /* ================= 1. 표지 ================= */
 {
   const s=pres.addSlide(); s.background={color:DARK};
@@ -82,6 +249,8 @@ function newSlide(kicker,title,subA,subB){
     fontFace:F,fontSize:38,bold:true,color:"FFFFFF"});
   s.addText("설계 결정 변수: 배치 정책의 인덱스 축을 자원(tier)에 둘 것인가, 객체 특성에 둘 것인가",
     {x:L,y:3.40,w:11.5,h:0.34,isTextBox:true,margin:0,fontFace:F,fontSize:13,color:"9BAAB4"});
+  s.addText("각 뷰는 그림 1장 + 해설 1장으로 구성된다",{x:L,y:3.76,w:11.5,h:0.28,isTextBox:true,margin:0,
+    fontFace:F,fontSize:11,bold:true,color:"5FBFB0"});
   const rows=[
     ["모듈 뷰","코드가 어디에 살고 의존이 어디로 향하는가","QA2 · QA4"],
     ["컴포넌트 & 커넥터","런타임 인스턴스와 통신 경로, 표현 가능한 관계","QA1 · QA3"],
@@ -148,6 +317,7 @@ function newSlide(kicker,title,subA,subB){
   ],"→ QA2 · QA4 근거: 정보 소스가 늘고, 결정 근거는 객체에 남는다");
   s.addNotes("좌측 스택(Scheduler→Placer→BlockPool→HW)은 두 후보가 동일하다. 차이는 오른쪽에 무엇이 붙는가뿐이며, 그것이 곧 결정 변수의 차이다.");
 }
+explainSlide(EXPLAIN.module);
 
 /* ================= 3. 컴포넌트 & 커넥터 ================= */
 {
@@ -196,6 +366,7 @@ function newSlide(kicker,title,subA,subB){
   ],"→ QA1 근거 및 QA2 비용 근거");
   s.addNotes("C1의 실패 모드(herding)와 C2의 이점(분산)이 같은 그림에서 대비된다.");
 }
+explainSlide(EXPLAIN.component);
 
 /* ================= 4. 시퀀스 ================= */
 function seq(s,x,accent,parts,msgs,foot){
@@ -248,6 +419,7 @@ function seq(s,x,accent,parts,msgs,foot){
   ],"→ QA1 · QA3 · QA4 근거");
   s.addNotes("두 시퀀스는 반드시 동일 시나리오여야 메시지 수 비교가 성립한다. 점선은 반환 메시지.");
 }
+explainSlide(EXPLAIN.sequence);
 
 /* ================= 5. 클래스 ================= */
 function umlBox(s,x,y,w,title,fields,accent,soft){
@@ -308,6 +480,7 @@ function umlBox(s,x,y,w,title,fields,accent,soft){
   ],"→ QA2 · QA4 근거");
   s.addNotes("⚠ 표시한 ObjectFeature 세 필드가 C2 비용의 본질 — 관측 불가 지표 100%.");
 }
+explainSlide(EXPLAIN.klass);
 
 /* ================= 6. 정량 지표 추출표 ================= */
 {
