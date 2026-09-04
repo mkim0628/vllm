@@ -230,11 +230,11 @@ klass:{
     "place(num_blocks, request) — request가 시그니처에 들어와 스케줄러 타입과 결합된다.",
     "ObjectFeature의 세 필드(hotness · locality · lifetime)는 할당 시점에 측정할 수 없다 — ⚠를 붙인 이유다.",
     "값을 채우려면 힌트 API(인터페이스 오염) · 휴리스틱(정확도 미보장) · 과거 통계(콜드스타트) 중 하나를 골라야 한다.",
-    "ClassTierContract가 정책이 사는 자리다. target_tier와 fallback_order를 함께 갖는다.",
-    "새 tier를 넣으면 8개 클래스 전부에 대해 계약을 다시 써야 한다 — 행 추가로 끝나지 않는다.",
+    "CostModel이 정책이 사는 자리다. 비용을 블록 1개 단위로 계산하므로 크기는 가치와 가격에서 상쇄된다 — 크기를 무시하는 것이 아니라 상쇄되는 것이 옳다.",
+    "그래서 배치를 가르는 것은 블록당 읽기 강도뿐이고, 그 주성분인 수명은 관측할 수 없다. 구분 능력이 미래 정보에 묶여 있다는 사실이 비용 함수의 형태에서 나온다.",
     "대신 결정 근거가 ObjectClass라는 값으로 남아 로깅 · 재현 · 단위 테스트가 가능하다.",
   ],
-  metrics:[["결정에 쓰는 필드","4개 (전부 관측 가능)","3개 (전부 관측 불가)"],["새 tier 추가 비용","테이블 행 1개","계약 8개 재정의"],["클래스 수","3개","4개"]],
+  metrics:[["결정에 쓰는 필드","4개 (전부 관측 가능)","3개 (강도의 주성분은 관측 불가)"],["새 tier 추가 비용","테이블 행 1개","비용 함수는 그대로, 유보량 재튜닝"],["클래스 수","3개","4개"]],
   notes:"⚠ 표시한 ObjectFeature 세 필드가 C2 비용의 본질. 관측 불가 지표 비율 0% vs 100%가 여기서 나온다.",
 },
 };
@@ -459,12 +459,12 @@ function umlBox(s,x,y,w,title,fields,accent,soft){
     umlBox(s,BX+0.20,DY+1.00,2.85,"ObjectClassifier",["+ classify(request) → ObjectClass"],C2,C2S);
     umlBox(s,BX+0.20,DY+1.72,2.85,"ObjectFeature  ⚠ 관측 불가",
       ["+ hotness","+ locality","+ lifetime"],C2,C2S);
-    umlBox(s,BX+3.25,DY+1.00,2.50,"ClassTierContract",
-      ["+ target_tier(class)","+ fallback_order"],C2,C2S);
+    umlBox(s,BX+3.25,DY+1.00,2.60,"CostModel  (정책)",
+      ["+ cost(obs, tier, util, blocks)","  = -(강도 × 대역폭)","    + 자리값 + 이동비용","+ reserve_for_future"],C2,C2S);
     arrow(s,cx-0.80,DY+0.16+0.64,BX+0.20+1.4,DY+1.00,C2);
-    arrow(s,cx+0.80,DY+0.16+0.64,BX+3.25+1.25,DY+1.00,C2);
+    arrow(s,cx+0.80,DY+0.16+0.64,BX+3.25+1.30,DY+1.00,C2);
     arrow(s,BX+0.20+1.4,DY+1.00+0.64,BX+0.20+1.4,DY+1.72,C2);
-    s.addText("신규 tier 추가 = 8개 클래스 × 새 tier 계약 재정의",
+    s.addText("크기는 가치와 가격에 똑같이 비례해 상쇄된다 — 남는 것은 블록당 읽기 강도",
       {x:BX+0.20,y:DY+DH-0.42,w:CW-0.4,h:0.28,isTextBox:true,margin:0,
        fontFace:F,fontSize:8.5,italic:true,color:C2,align:"center",valign:"middle"});
   }
@@ -474,11 +474,11 @@ function umlBox(s,x,y,w,title,fields,accent,soft){
     "Request 의존이 없어 스케줄러 쪽 타입 변경이 배치 모듈로 전파되지 않는다",
   ],"→ QA2 · QA3 근거");
   notesCol(s,BX,C2,[
-    "클래스 4개. ObjectFeature의 세 필드는 모두 할당 시점에 관측 불가능하다",
-    "값을 채우려면 힌트 API · 휴리스틱 · 과거 통계 중 하나가 필요하다",
-    "결정 근거가 ObjectClass 값으로 남아 로깅과 재현이 자연스럽다",
-  ],"→ QA2 · QA4 근거");
-  s.addNotes("⚠ 표시한 ObjectFeature 세 필드가 C2 비용의 본질 — 관측 불가 지표 100%.");
+    "정책은 CostModel 하나에 응축된다 — 비용은 블록 1개 단위로 계산한다",
+    "큰 객체는 블록을 많이 쓰는 만큼 값도 이득도 커지므로 크기가 상쇄된다. 남는 것은 블록당 읽기 강도뿐이고, 그 주성분인 수명은 관측 불가능하다",
+    "reserve_for_future는 아직 오지 않은 고강도 요청을 위해 상위 tier를 비워 두는 손잡이다 — 적정값이 미래 분포에 달려 있다",
+  ],"→ QA1 · QA2 · QA4 근거");
+  s.addNotes("⚠ 표시한 ObjectFeature 세 필드가 C2 비용의 본질. 비용 함수의 형태 자체에서 '구분 능력이 미래 정보에 묶여 있다'가 나온다.");
 }
 explainSlide(EXPLAIN.klass);
 
@@ -494,6 +494,9 @@ explainSlide(EXPLAIN.klass);
   ]];
   const data=[
     ["결정 입력 지표 수","클래스","24 (6 tier × 4)","3 (객체 특성) + tier 제약"],
+    ["[실측] dispatch 메시지 수","프로토타입","5.00","7.00 ~ 7.56"],
+    ["[실측] 구분 지표 (이질 워크로드)","프로토타입","2.06","2.11 유보X / 8.40 유보O"],
+    ["[실측] 예약 없을 때 용량 초과 커밋","프로토타입","72회","해당 없음 (유보 A 필요는 동일)"],
     ["관측 불가(추정 필요) 지표 비율","클래스","0 %","100 %"],
     ["구분 가능한 객체 등급","컴포넌트","1 (익명)","8 (2³)"],
     ["상태 갱신 비용","컴포넌트","스텝당 O(T)=6, 요청 수 무관","스텝당 O(new_N·D)"],
@@ -511,11 +514,11 @@ explainSlide(EXPLAIN.klass);
     {text:d[3],options:{color:C2,bold:true,fontSize:9.5,align:"center"}},
   ]));
   s.addTable(rows,{x:L,y:1.20,w:R-L,colW:[4.10,1.20,3.50,3.50],
-    rowH:[0.40].concat(new Array(10).fill(0.44)),
+    rowH:[0.36].concat(new Array(13).fill(0.36)),
     border:{type:"solid",pt:0.75,color:RULE},fontFace:F,valign:"middle",
     margin:[4,8,4,8]});
-  s.addText("별점을 매길 때 근거가 다이어그램에서 나오지 않는다면, 별점이 아니라 다이어그램이 부족한 것이다.",
-    {x:L,y:6.42,w:R-L,h:0.34,isTextBox:true,margin:0,
+  s.addText("[실측] 표시는 doc-mk/prototype 실행 결과다. 나머지는 다이어그램에서 센 값이다.",
+    {x:L,y:6.46,w:R-L,h:0.30,isTextBox:true,margin:0,
      fontFace:F,fontSize:10,italic:true,color:MUTED,valign:"middle"});
   s.addNotes("이 표가 QA 별점 매트릭스의 정량 근거 원본이다.");
 }

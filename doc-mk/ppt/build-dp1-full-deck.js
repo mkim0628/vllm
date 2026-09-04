@@ -6,7 +6,7 @@ const pres=new pptxgen(); pres.layout="LAYOUT_WIDE";
 pres.title="DP1 — Memory Placement Decision Basis";
 const L=0.5,R=12.8,W=13.3,H=7.5;
 const AX=0.5,BX=6.85,CW=5.95;
-let PAGE=0; const TOTAL=17;
+let PAGE=0; const TOTAL=19;
 
 function head(s,kicker,title,sub){
   s.addText(kicker,{x:L,y:0.32,w:9.5,h:0.24,isTextBox:true,margin:0,
@@ -75,7 +75,7 @@ function hdr(t,al){return {text:t,options:{bold:true,color:"FFFFFF",fill:{color:
     ["후보 2","Object-Indexed — 객체 등급이 목표 tier를 지시, tier는 조정 대상. 불변식 = 객체 계약 우선"],
     ["트레이드오프","9 : 9 동점, 지배 없음. 각 후보가 ★★★ 2개"],
     ["문제 해결 검증","두 후보 모두 핵심 문제를 해결하고 제약을 지킨다. 다만 서로 다른 잔여를 남긴다 — C1은 QA1, C2는 QA3"],
-    ["최종 선택","Candidate 1 (Tier-Indexed) + 컨텍스트 길이 보강. C2의 이득이 미측정 예측 정확도에 전적으로 의존하기 때문"],
+    ["최종 선택","Candidate 1 (Tier-Indexed) + 컨텍스트 길이 보강. C2의 이득이 아직 알 수 없는 값 두 가지 — 수명 예측 정확도와 유보량 — 에 걸려 있기 때문"],
     ["잔여 인계","R1 재분류 → DP3(신규)   ·   R2 구분 능력 → DP4(신규)   ·   R3 재현성 → 관측성 작업"],
   ];
   let y=1.36;
@@ -351,7 +351,7 @@ function hdr(t,al){return {text:t,options:{bold:true,color:"FFFFFF",fill:{color:
   const s=slide("DP1 · 5장 트레이드오프","QA 별점 평가 — 지배 없음, 9 : 9 동점",
     "★★★ 구조적으로 유리 · ★★☆ 가능하나 비용 발생 · ★☆☆ 구조적으로 불리");
   const data=[
-    ["QA1. 이기종 환경 배치 품질","★★☆","★★★","구분 가능 등급 1종 vs 8종. C1은 상위 tier 점유가 도착 순서로 결정됨 (컴포넌트)"],
+    ["QA1. 이기종 환경 배치 품질","★★☆","★★★","구분 가능 등급 1종 vs 8종. C1은 상위 tier 점유가 도착 순서로 결정됨. C2의 ★★★는 분류가 맞고 유보량이 적절할 때의 값이다"],
     ["QA2. 결정 정보 비용","★★★","★★☆","갱신 O(T)=6 · 요청 수 무관 vs O(new_N·D) + 외부 특성 소스 1개. 관측 불가 지표 0% vs 최대 100% — QA1 이득을 내는 특성일수록 미래 정보다"],
     ["QA3. 적응성 / 자기 교정","★★★","★☆☆","오배치 교정까지 결정 1회 vs 교정 불가(수명 내 고착). C1은 herding 대비 예약 카운터 필요 (시퀀스)"],
     ["QA4. 설명 가능성 / 재현성","★☆☆","★★★","동일 배치 재현 보장 없음(24개 상태 스냅샷 필요) vs 보장(클래스 라벨 1개)"],
@@ -443,32 +443,42 @@ function hdr(t,al){return {text:t,options:{bold:true,color:"FFFFFF",fill:{color:
   txt(s,L+0.24,1.54,R-L-0.48,0.28,"선택 근거",{fs:10,b:true,c:C1,cs:1.2});
   txt(s,L+0.24,1.84,R-L-0.48,0.84,
     "우리 맥락에서 QA3(적응성)은 QA1(배치 품질)보다 중요하다. 근거는 1장의 제약 두 가지 — 배치 결정이 스케줄 스텝 임계 경로에 있고, 요청 인터페이스를 건드리지 않아야 한다.\n"+
-    "그리고 C2가 QA1에서 얻는 이득은 출력 길이·재사용 예측 정확도에 전적으로 의존하는데, 그 값이 아직 측정되지 않았다. 미측정 상태에서 C2를 고르면 QA2 비용과 QA3 고착은 확실히 지불하고 QA1 이득은 불확실하다.",
+    "그리고 C2를 최선 형태(블록 단위 비용 모델)로 세워 실측해도, C2가 QA1에서 얻는 이득은 아직 알 수 없는 값 두 가지에 걸려 있다.",
     {fs:10.5,c:INK,ls:1.28});
-  txt(s,L,2.94,6.0,0.26,"포기한 축과 완화책",{fs:10.5,b:true,c:MUTED});
+  const unc=[
+    ["① 수명 예측 정확도","크기가 가치·가격에서 상쇄되고 나면 배치를 가르는 것은 블록당 읽기 강도뿐인데, 그 주성분인 수명은 할당 시점에 관측 불가"],
+    ["② 유보량","유보하지 않으면 구분 지표가 2.11로 C1(2.06)과 같아져 객체 축을 쓴 이득이 0이 된다"],
+  ];
+  unc.forEach((u,i)=>{
+    const x=L+i*((R-L)/2+0.14), w=(R-L)/2-0.14;
+    card(s,x,2.82,w,0.94,"FFFFFF",C2);
+    txt(s,x+0.16,2.90,w-0.32,0.26,u[0],{fs:11,b:true,c:C2});
+    txt(s,x+0.16,3.16,w-0.32,0.56,u[1],{fs:9.5,c:BODY,ls:1.18});
+  });
+  txt(s,L,3.86,R-L,0.24,
+    "둘 중 ②가 더 나쁘다 — 예측 정확도는 로그로 사후 측정이라도 되지만, 적정 유보량은 아직 오지 않은 요청의 분포에 달려 있어 요청별로 잴 수조차 없다.",
+    {fs:10,i:true,c:MUTED});
+  txt(s,L,4.14,6.0,0.26,"포기한 축과 완화책",{fs:10.5,b:true,c:MUTED});
   const mit=[
     ["QA1 구분 능력","관측 가능한 특성 중 컨텍스트 길이를 TierState.score()의 한 항으로 넣는다","스텝당 대역폭 요구는 구분 가능. 읽기 빈도(미래 정보)는 여전히 불가"],
     ["QA4 재현성","배치 결정 시 tier score 스냅샷을 결정 로그로 남긴다 (24개 값 → 요약 스칼라 3~4개)","재현은 불가하나 사후 설명은 가능해진다"],
   ];
-  let y=3.24;
-  mit.forEach(m=>{ card(s,L,y,6.0,1.10,"FFFFFF",RULE);
+  let y=4.44;
+  mit.forEach(m=>{ card(s,L,y,6.0,1.02,"FFFFFF",RULE);
     txt(s,L+0.18,y+0.10,5.64,0.26,m[0],{fs:11,b:true,c:INK});
     txt(s,L+0.18,y+0.38,5.64,0.36,m[1],{fs:9.5,c:BODY,ls:1.15});
-    txt(s,L+0.18,y+0.78,5.64,0.26,"→ "+m[2],{fs:9,c:C1});
-    y+=1.22;});
-  txt(s,6.80,2.94,6.0,0.26,"혼합 판정 — 이것은 혼합이 아니라 \"C1 + 보강\"이다",{fs:10.5,b:true,c:MUTED});
-  card(s,6.80,3.24,6.0,2.32,PANEL,C1);
-  txt(s,6.98,3.38,5.64,0.30,"판정 질문: 단일 진실 원천이 여전히 하나인가?",{fs:11,b:true,c:C1});
-  bullets(s,6.98,3.76,5.64,1.66,[
+    txt(s,L+0.18,y+0.74,5.64,0.24,"→ "+m[2],{fs:9,c:C1});
+    y+=1.10;});
+  txt(s,6.80,4.14,6.0,0.26,"혼합 판정 — 이것은 혼합이 아니라 \"C1 + 보강\"이다",{fs:10.5,b:true,c:MUTED});
+  card(s,6.80,4.44,6.0,2.22,PANEL,C1);
+  txt(s,6.98,4.56,5.64,0.30,"판정 질문: 단일 진실 원천이 여전히 하나인가?",{fs:11,b:true,c:C1});
+  bullets(s,6.98,4.92,5.64,1.62,[
     "그렇다 — 단일 진실 원천은 여전히 TierStateTable 하나다",
     "객체 정보(컨텍스트 길이)는 정책의 인덱스가 아니라 score의 한 항(가중치)으로만 들어간다",
     "경합 시 불변식은 그대로 \"자원 제약 우선\"이다",
     "인덱스 축이 바뀌지 않았으므로 3.3장의 배타성 논증은 그대로 유효하다",
   ],9.5);
-  card(s,L,5.72,R-L,0.90,"FDF6E7",WARN);
-  txt(s,L+0.22,5.72,R-L-0.44,0.90,
-    "혼합을 최종안으로 삼는다면 \"왜 처음부터 후보가 아니었는가\"에 답해야 한다. 여기서는 진짜 혼합이 아니므로 그 부담이 없다 — 정직하게 \"C1 선택 + 보강\"으로 부른다.",
-    {fs:11,b:true,c:INK,va:"middle"});
+
   s.addNotes("별점 합계로 고르지 않는다. 가중치는 1장의 제약에서 도출한다.");
 }
 
@@ -483,6 +493,8 @@ function hdr(t,al){return {text:t,options:{bold:true,color:"FFFFFF",fill:{color:
      "예약 카운터로 편중이 해소되면 QA3 우려 소멸 → C1 확정"],
     ["상위 tier 점유의 워크로드 편향","도착 순서 배치 시 상위 tier를 차지한 요청의 KV 읽기량 비중 측정",
      "상위 20 % 요청이 전체 읽기량의 80 % 미만이면 구분의 이득이 작음 → C1 유지"],
+    ["유보량 민감도","C2 비용 모델에서 상위 tier 유보 비율을 0~50 %로 훑으며 구분 지표와 활용률 곡선을 그린다",
+     "두 지표가 동시에 허용치를 넘는 유보 비율이 없으면 C2는 튜닝 불가능한 구조 → C1 확정"],
   ];
   const rows=[[hdr("측정 대상"),hdr("측정 방법"),hdr("판정 임계값")]];
   data.forEach(d=>rows.push([
@@ -490,8 +502,8 @@ function hdr(t,al){return {text:t,options:{bold:true,color:"FFFFFF",fill:{color:
     {text:d[1],options:{color:BODY,fontSize:9.5}},
     {text:d[2],options:{color:C1,bold:true,fontSize:9.5}},
   ]));
-  table(s,rows,{y:1.72,colW:[3.10,5.10,4.10],rowH:[0.38,0.92,0.92,0.92]});
-  txt(s,L,4.98,R-L,0.28,"반전 조건 — 다음 중 하나가 성립하면 이 선택은 뒤집힌다",{fs:11,b:true,c:MUTED});
+  table(s,rows,{y:1.66,colW:[3.10,5.10,4.10],rowH:[0.34,0.74,0.68,0.68,0.80]});
+  txt(s,L,5.34,R-L,0.26,"반전 조건 — 다음 중 하나가 성립하면 이 선택은 뒤집힌다",{fs:11,b:true,c:MUTED});
   const rev=[
     ["1","출력 길이 예측 정확도가 위 임계값을 넘는다","C2의 QA1 이득이 확실해진다"],
     ["2","배치 재현성이 SLA · 과금 근거로 요구된다","QA4가 수용 불가 축이 된다"],
@@ -499,13 +511,73 @@ function hdr(t,al){return {text:t,options:{bold:true,color:"FFFFFF",fill:{color:
   ];
   const cw=(R-L-2*0.26)/3; 
   rev.forEach((r,i)=>{ const x=L+i*(cw+0.26);
-    card(s,x,5.32,cw,1.32,"FFFFFF",C2);
-    s.addShape(pres.ShapeType.ellipse,{x:x+0.18,y:5.46,w:0.24,h:0.24,fill:{color:C2},line:{color:C2}});
-    txt(s,x+0.18,5.46,0.24,0.24,r[0],{fs:9,b:true,c:"FFFFFF",al:"center",va:"middle"});
-    txt(s,x+0.52,5.44,cw-0.70,0.50,r[1],{fs:10,b:true,c:INK,ls:1.15});
-    txt(s,x+0.52,6.02,cw-0.70,0.46,"→ "+r[2],{fs:9,c:C2,ls:1.15});
+    card(s,x,5.64,cw,1.06,"FFFFFF",C2);
+    s.addShape(pres.ShapeType.ellipse,{x:x+0.18,y:5.76,w:0.22,h:0.22,fill:{color:C2},line:{color:C2}});
+    txt(s,x+0.18,5.76,0.22,0.22,r[0],{fs:8.5,b:true,c:"FFFFFF",al:"center",va:"middle"});
+    txt(s,x+0.48,5.74,cw-0.66,0.46,r[1],{fs:9.5,b:true,c:INK,ls:1.12});
+    txt(s,x+0.48,6.24,cw-0.66,0.40,"→ "+r[2],{fs:8.5,c:C2,ls:1.12});
   });
   s.addNotes("선택하지 않은 후보는 폐기가 아니라 조건부 재검토 대상.");
+}
+
+/* ---------- 16. 두 종류의 유보 ---------- */
+{
+  const s=slide("DP1 · 부록 D.3 / 실측","두 종류의 유보 — 같은 단어, 다른 메커니즘",
+    "구현 시 두 개를 한 코드로 합치려 들면 안 된다. 대비 대상도, 유보량을 정하는 방법도 다르다.");
+  const rows=[[hdr(""),hdr("유보 A — 스텝 내 예약","center"),hdr("유보 B — 미래를 위한 여유","center")]];
+  [["누가 필요한가","C1 (그리고 C2도)","C2만"],
+   ["무엇을 대비하나","이미 내린 같은 스텝의 다른 결정","아직 오지 않은 고강도 요청"],
+   ["왜 필요한가","tier 상태가 스텝 경계에서만 갱신되어\n앞선 결정이 다음 결정에 보이지 않는다","지금 상위 tier를 채우면 나중에 올\n고강도 요청이 들어갈 자리가 없다"],
+   ["메커니즘","reserved[tier] += blocks\nfree = capacity - used - reserved","빈 tier에도 값을 매긴다\n(희소성 항 바닥을 0이 아닌 값으로)"],
+   ["유보량은?","계산된다 — 이번 스텝에서 이미 약속한 양","튜닝 파라미터 — 미래 도착 분포에 의존"],
+   ["정답이 있나","있다","없다 (관측만으로는)"],
+   ["없으면","용량 초과 커밋 (실측 overcommit 72회)","구분 능력 0 (2.11 ≈ C1의 2.06)"],
+   ["성격","정합성 요건","성능 요건"],
+  ].forEach(d=>rows.push([
+    {text:d[0],options:{bold:true,color:MUTED,fontSize:9.5}},
+    {text:d[1],options:{color:C1,fontSize:9.5,align:"center"}},
+    {text:d[2],options:{color:C2,fontSize:9.5,align:"center"}},
+  ]));
+  table(s,rows,{y:1.72,colW:[2.40,4.95,4.95],rowH:[0.34].concat(new Array(8).fill(0.50))});
+  card(s,L,6.02,R-L,0.62,PANEL,RULE);
+  txt(s,L+0.20,6.02,R-L-0.40,0.62,
+    "식당 좌석에 비유하면 A는 예약 접수(이미 받은 예약을 빈자리로 세면 오버부킹), B는 VIP석 남겨두기(몇 개 남길지는 오늘 VIP가 몇 명 올지에 달렸다).",
+    {fs:10.5,b:true,c:INK,va:"middle"});
+  s.addNotes("C1은 A만 필요하다. C2는 A도 B도 필요하다 — 이것이 C2가 추가로 지는 구현·운영 부담이다.");
+}
+
+/* ---------- 17. 프로토타입 실측 ---------- */
+{
+  const s=slide("DP1 · 프로토타입 실측","코드를 돌려 문서로 되돌린 것",
+    "doc-mk/prototype — 두 후보의 배치 결정 로직을 구현하고 문서의 주장을 31개 테스트로 검증했다");
+  const items=[
+    ["오분류는 이득을 없애는 정도가 아니라 배치를 역전시킨다",
+     "misclassification 시나리오에서 C2 구분 지표 0.43 (1.0 미만 = 역전). C1은 1.00 — 구분 못 하지만 역전도 없다",
+     "→ QA1 ★★★는 분류가 맞았을 때의 조건부 값"],
+    ["예약 카운터는 완화책이 아니라 정합성 요건이다",
+     "예약 없는 C1은 overcommit 72회 — 자기 불변식(자원 제약)을 스스로 어긴다",
+     "→ C1 정의의 일부로 승격"],
+    ["크기는 무시하는 것이 아니라 상쇄되는 것이 옳다",
+     "블록 단위 비용 모델에서 큰 객체는 값도 이득도 비례해 커진다. 초기 구현의 크기 편향은 구조가 아니라 아티팩트였다",
+     "→ 후보를 최선 형태(steelman)로 세운 뒤 재측정"],
+    ["구분은 유보를 요구하고, 유보량은 미래에 달려 있다",
+     "유보 없음 2.11 (≈ C1의 2.06) / 유보 있음 8.40. 대신 저부하 활용률 1.000 → 0.500",
+     "→ 선택 근거에 두 번째 불확실성으로 추가"],
+  ];
+  const cw=(R-L-0.26)/2, ch=2.20;
+  items.forEach((it,i)=>{
+    const x=L+(i%2)*(cw+0.26), y=1.72+Math.floor(i/2)*(ch+0.24);
+    card(s,x,y,cw,ch,"FFFFFF",RULE);
+    s.addShape(pres.ShapeType.ellipse,{x:x+0.18,y:y+0.18,w:0.26,h:0.26,fill:{color:WARN},line:{color:WARN}});
+    txt(s,x+0.18,y+0.18,0.26,0.26,String(i+1),{fs:9,b:true,c:"FFFFFF",al:"center",va:"middle"});
+    txt(s,x+0.54,y+0.14,cw-0.72,0.56,it[0],{fs:11.5,b:true,c:INK,ls:1.15});
+    txt(s,x+0.18,y+0.80,cw-0.36,0.90,it[1],{fs:9.5,c:BODY,ls:1.2});
+    txt(s,x+0.18,y+1.78,cw-0.36,0.32,it[2],{fs:9.5,b:true,c:C1,ls:1.15});
+  });
+  txt(s,L,6.60,R-L,0.26,
+    "문서의 수치가 예측이라면 이 값들은 실측이다. 테스트가 깨지면 코드가 틀렸거나 문서가 틀린 것이며, 별점을 맞추려고 테스트를 고치지 않는다.",
+    {fs:10,i:true,c:MUTED});
+  s.addNotes("네 건 모두 코드를 돌려보지 않았으면 나오지 않았을 발견이다.");
 }
 
 /* ---------- 16. 잔여와 DP 결합 ---------- */
