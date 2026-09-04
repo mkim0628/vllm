@@ -8,11 +8,13 @@ prototype/
 ├── dp1/
 │   ├── model.py            공통 모델 — Tier, 요청, 관측 가능성 분리, 결정 계측
 │   ├── tier_indexed.py     Candidate 1 — 자원 축 인덱스
-│   ├── object_indexed.py   Candidate 2 — 객체 축 인덱스
-│   ├── workload.py         문서에서 산정한 케이스들
+│   ├── object_indexed.py   Candidate 2 — 객체 축 인덱스 (계약 / 비용 모델)
+│   ├── policies.py         정책 레지스트리 — 형태마다 이름, 최선 형태(★) 표시
+│   ├── cases.py            케이스 카탈로그 — 무엇을 재현하고 무엇을 봐야 하나
+│   ├── workload.py         시나리오 생성
 │   ├── harness.py          시뮬레이션 + 정량 프록시 측정
 │   └── run_experiment.py   후보 비교 실험 CLI
-├── tests/test_dp1_claims.py  문서 주장 26건의 검증
+├── tests/test_dp1_claims.py  문서 주장 35건의 검증
 ├── TESTING.md              테스트 가이드 (읽는 법 · 실행법 · 실패 시 판단)
 └── README.md               이 파일
 ```
@@ -30,8 +32,10 @@ prototype/
 
 ```bash
 cd doc-mk/prototype
-python3 -m unittest discover -s . -v     # 테스트 26건
-python3 -m dp1.run_experiment            # 후보 비교 실험
+python3 -m unittest discover -s . -v     # 테스트 35건
+python3 -m dp1.cases                     # 케이스 카탈로그
+python3 -m dp1.run_experiment --list     # 케이스·정책 목록
+python3 -m dp1.run_experiment --steelman # 두 후보의 최선 형태 비교
 ```
 
 의존성 없음 (Python 3.10+ 표준 라이브러리만). 자세한 내용은 `TESTING.md`.

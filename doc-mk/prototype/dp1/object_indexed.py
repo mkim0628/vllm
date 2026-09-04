@@ -107,6 +107,7 @@ class ObjectIndexedPlacer:
         upgrade_if_free: bool = False,
         upgrade_headroom: float = 1.0,
         cost_model: "CostModel | None" = None,
+        reserve_within_step: bool = True,
         mimic_c1: bool = False,
     ) -> None:
         # mimic_c1=True: 계약을 버리고 C1의 정책(자원 상태 argmax)으로 tier를 고른다.
@@ -121,6 +122,11 @@ class ObjectIndexedPlacer:
         # 주체가 계약이 아니라 자원 상태가 된다 — 축이 C1 쪽으로 이동한다.
         # cost_model이 주어지면 계약 대신 비용 최소화로 tier를 고른다.
         # 등급은 로깅·계약 검증용으로 남고, 정책의 인덱스는 여전히 객체 축이다.
+        # 유보 A — 스텝 내 예약. C1과 같은 이유로 C2에도 필요하다.
+        # tier 상태는 스텝 경계에서만 갱신되므로, 이것이 없으면 같은 스텝의
+        # 결정들이 서로를 보지 못해 용량을 넘겨 커밋한다(정합성 요건).
+        # 유보 B(CostModel.reserve_for_future)와는 다른 것이다 — 부록 D.3.
+        self.reserve_within_step = reserve_within_step
         self.cost_model = cost_model
         self.upgrade_if_free = upgrade_if_free
         # 상향 시 남겨둘 여유. 1.0이면 빈 자리를 끝까지 쓴다(도착 순서가 등급을 이긴다).
@@ -202,6 +208,8 @@ class ObjectIndexedPlacer:
                     best = name
             if best is None:
                 raise MemoryError("모든 tier에 여유가 없다")
+            if self.reserve_within_step:
+                self.table.reserve(best, num_blocks)
             messages += 2  # get_blocks(n) / blocks 반환
             return Decision(
                 tier=best, messages=messages, state_reads=1, object_reads=1,
@@ -236,6 +244,8 @@ class ObjectIndexedPlacer:
                 if tier is None:
                     raise MemoryError("모든 tier에 여유가 없다")
 
+        if self.reserve_within_step:
+            self.table.reserve(tier, num_blocks)
         messages += 2  # get_blocks(n) / blocks 반환
         return Decision(
             tier=tier,

@@ -17,16 +17,20 @@ from .model import (  # noqa: F401
     TierTable,
     TripwireView,
 )
+from .cases import CASES, Case  # noqa: F401
 from .object_indexed import (  # noqa: F401
     ClassTierContract,
+    CostModel,
     HeuristicClassifier,
     ObjectIndexedPlacer,
 )
+from .policies import POLICIES, Policy, build, steelman_pair  # noqa: F401
 from .tier_indexed import TierIndexedPlacer  # noqa: F401
 
 __all__ = [
     "BLOCK_TOKENS", "DEFAULT_TIERS", "AnonymityViolation", "Decision",
     "ObservableRequest", "Oracle", "Placement", "Request", "TierSpec",
     "TierTable", "TripwireView", "ClassTierContract", "HeuristicClassifier",
-    "ObjectIndexedPlacer", "TierIndexedPlacer",
+    "ObjectIndexedPlacer", "TierIndexedPlacer", "CostModel",
+    "POLICIES", "Policy", "build", "steelman_pair", "CASES", "Case",
 ]

@@ -373,6 +373,31 @@ class TestQA3Adaptivity(unittest.TestCase):
         self.assertEqual(off.herding_first_step, 1.0, "전부 한 tier로 몰린다")
         self.assertLess(on.herding_first_step, off.herding_first_step)
 
+    def test_reservation_A_is_required_by_both_candidates(self):
+        """유보 A(스텝 내 예약)는 두 후보 모두의 정합성 요건이다.
+
+        유보 B(미래를 위한 여유)와 다르다 — A는 이미 내린 같은 스텝의 결정을
+        다음 결정에 보이게 하는 것이고, 없으면 용량을 넘겨 커밋한다.
+        """
+        scenario = workload.burst()
+        for label, make in [
+            ("C1", lambda t, on: c1(t, reserve_within_step=on)),
+            ("C2", lambda t, on: c2(t, cost_model=CostModel(),
+                                    reserve_within_step=on)),
+        ]:
+            t_off = TierTable()
+            off = run(make(t_off, False), t_off, scenario)
+            t_on = TierTable()
+            on = run(make(t_on, True), t_on, scenario)
+            self.assertGreater(
+                off.overcommits, 0,
+                f"{label}: 유보 A 없이는 tier 용량을 넘겨 커밋한다",
+            )
+            self.assertEqual(
+                on.overcommits, 0,
+                f"{label}: 유보 A가 있으면 자원 제약을 지킨다",
+            )
+
     def test_c2_grade_is_sticky_and_can_invert_the_right_answer(self):
         """오분류가 수명 내내 고착된다 — 부록 D.4.
 
@@ -532,6 +557,50 @@ class TestSelectedStructure(unittest.TestCase):
         d = c1(table, context_length_term=True).place(4, obs)
         self.assertEqual(d.object_reads, 1)
         self.assertEqual(d.grade, (), "보강된 C1의 결정에도 등급은 붙지 않는다")
+
+
+# ==========================================================================
+# 레지스트리 — 정책과 케이스가 문서와 어긋나지 않는지
+# ==========================================================================
+class TestRegistries(unittest.TestCase):
+    def test_every_case_runs_under_every_policy(self):
+        """카탈로그의 모든 케이스가 모든 정책에서 예외 없이 돈다."""
+        from dp1.cases import CASES
+        from dp1.policies import POLICIES
+
+        for case in CASES.values():
+            scenario = case.build()
+            for key, policy in POLICIES.items():
+                table = TierTable()
+                m = run(policy.build(table), table, scenario)
+                self.assertGreater(
+                    m.decisions, 0, f"{case.key} × {key} 에서 결정이 0건"
+                )
+
+    def test_exactly_one_steelman_per_candidate(self):
+        """후보마다 최선 형태가 정확히 하나 지정되어 있어야 한다."""
+        from dp1.policies import POLICIES, steelman_pair
+
+        for cand in ("C1", "C2"):
+            marked = [p for p in POLICIES.values()
+                      if p.candidate == cand and p.steelman]
+            self.assertEqual(len(marked), 1, f"{cand}의 steelman이 {len(marked)}개")
+        a, b = steelman_pair()
+        self.assertEqual(POLICIES[a].candidate, "C1")
+        self.assertEqual(POLICIES[b].candidate, "C2")
+
+    def test_every_case_names_an_existing_test(self):
+        """케이스가 가리키는 테스트가 실제로 존재해야 한다."""
+        import dp1.cases as cases_mod
+
+        module = sys.modules[__name__]
+        for case in cases_mod.CASES.values():
+            cls_name, method = case.test.split(".")
+            cls = getattr(module, cls_name, None)
+            self.assertIsNotNone(cls, f"{case.key}: 클래스 {cls_name} 없음")
+            self.assertTrue(
+                hasattr(cls, method), f"{case.key}: 메서드 {method} 없음"
+            )
 
 
 if __name__ == "__main__":

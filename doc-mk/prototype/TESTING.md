@@ -58,10 +58,20 @@ tier 상태는 **스케줄 스텝 경계에서만 갱신**된다(`TierTable.begi
 
 ```bash
 cd doc-mk/prototype
-python3 -m unittest discover -s . -v
-python3 -m dp1.run_experiment
-python3 -m dp1.run_experiment heterogeneous burst   # 시나리오 선택
+
+python3 -m unittest discover -s . -v          # 테스트 35건
+python3 -m dp1.cases                          # 케이스 카탈로그 (무엇을 재현하나)
+python3 -m dp1.run_experiment --list          # 케이스·정책 목록
+
+python3 -m dp1.run_experiment                 # 전체 케이스 × 전체 정책
+python3 -m dp1.run_experiment heterogeneous   # 케이스 하나
+python3 -m dp1.run_experiment --steelman      # 두 후보의 최선 형태만 비교
+python3 -m dp1.run_experiment --policies c1,c2-steelman burst
 ```
+
+> **`--steelman`이 기본 비교 방법이다.** 정직한 트레이드오프는 각 후보의 최선
+> 형태끼리 비교해야 나온다. 나머지 정책은 결함 형태를 재현해 "왜 그것이 최선이
+> 아닌지"를 보이기 위해 남겨둔 것이다.
 
 ### 2.2 pytest로 실행 (저장소 규약)
 
@@ -77,7 +87,39 @@ uv pip install pytest
 
 ---
 
-## 3. 테스트 지도 — 무엇이 무엇을 검증하는가
+## 3. 케이스 — 무엇을 재현하는가
+
+`python -m dp1.cases` 가 출력하는 카탈로그다. 각 케이스는 문서의 주장 하나에 대응한다.
+
+| 케이스 | 문서 | 재현하는 상황 | 볼 지표 | 기대 |
+|---|---|---|---|---|
+| `homogeneous` | 9장 선택 조건 | 균질 워크로드 (1024 토큰 · 출력 256, 40건) | separation | 두 후보 모두 1.00 — 구분의 이득이 사라진다 |
+| `heterogeneous` | QA1 / 부록 D.3 | long 6건(32K) + short 48건(512) | separation | c2-steelman 8.40 vs c1 2.06. 유보 B를 끄면 2.11로 이득 0 |
+| `burst` | QA3 / 발견 ③ | 한 스텝에 200건 동시 도착 | overcommit | 유보 A 없으면 두 후보 모두 72회, 있으면 0회 |
+| `misclassification` | QA3 / 부록 D.4 | max_tokens가 실제 길이와 어긋나는 16건 | separation | c2-contract 0.43 — **1.00 미만은 역전**을 뜻한다 |
+| `shared_prefix` | QA3 예측 대상 오류 | 같은 prefix를 공유하는 100건 (소유자는 cold) | shared_viol | c2-contract 99건, C1 0건 |
+| `invariant_conflict` | 3.3-① 불변식 충돌 | 상위 tier를 채운 뒤 더 높은 등급 1건 도착 | 배치 tier · evictions | C1 → CUSTOM_HBM 축출 0 / C2 → HBM 축출 발생 |
+
+## 4. 정책 — 어느 형태로 측정했는가
+
+같은 후보도 여러 형태를 가질 수 있고, **어느 형태로 쟀는지가 결론을 좌우한다.**
+그래서 형태마다 이름을 붙이고 최선 형태(★)를 명시한다.
+
+| 정책 키 | 후보 | 설명 |
+|---|:-:|---|
+| `c1` | C1 | 기본형. 자원 상태 점수 argmax + 유보 A |
+| **`c1-steelman`** ★ | C1 | **11장 최종 구조.** 관측 가능한 컨텍스트 길이를 score의 한 항으로 |
+| `c1-no-reserve` | C1 | 결함 형태. 유보 A 없음 → 자기 불변식 위반 |
+| `c2-contract` | C2 | 초기 형태. 등급 → tier 고정 매핑, 상태가 아래로만 작용 |
+| `c2-naive-upgrade` | C2 | 결함 형태. "빈자리 있으면 위로" — 등급도 크기도 안 봄 |
+| `c2-cost` | C2 | 블록 단위 비용 모델, 유보 B 없음 |
+| **`c2-steelman`** ★ | C2 | **C2의 최선 형태.** 비용 모델 + 유보 B |
+| `c2-mimic-c1` | C2 | 상위호환 반박용. 배치는 같고 비용만 남는다 |
+
+> 결함 형태(`c1-no-reserve`, `c2-naive-upgrade`)를 지운 것이 아니라 **이름을 붙여
+> 남겼다.** 왜 그 형태가 최선이 아닌지가 트레이드오프 논증의 일부이기 때문이다.
+
+## 5. 테스트 지도 — 무엇이 무엇을 검증하는가
 
 | 테스트 클래스 | 검증하는 문서 절 | 핵심 단언 |
 |---|---|---|
@@ -124,7 +166,7 @@ C2 흉내 : 7.00 msg/decision, 270 object reads   ← 같은 결과, 더 비쌈
 
 ---
 
-## 4. 실험 지표 읽는 법
+## 6. 실험 지표 읽는 법
 
 `python3 -m dp1.run_experiment` 가 내는 열의 의미다.
 
@@ -157,7 +199,7 @@ C2 흉내 : 7.00 msg/decision, 270 object reads   ← 같은 결과, 더 비쌈
 
 ---
 
-## 5. 테스트가 깨졌을 때의 판단 절차
+## 7. 테스트가 깨졌을 때의 판단 절차
 
 1. **모델링 오류인가?** 시뮬레이터가 현실과 다르게 굴었는지 먼저 본다.
    예: 하드 제약은 stale view로 보면서 점수는 실시간 값으로 보면 모델이 현실보다
@@ -168,7 +210,7 @@ C2 흉내 : 7.00 msg/decision, 270 object reads   ← 같은 결과, 더 비쌈
 
 ---
 
-## 6. 실측이 문서와 어긋난 지점 — 문서로 되돌려야 할 발견
+## 8. 실측이 문서와 어긋난 지점 — 문서로 되돌려야 할 발견
 
 **이 절이 이 프로토타입의 가장 큰 산출물이다.** 세 건 모두 DP1 문서의 별점 근거에
 영향을 준다.
@@ -261,7 +303,7 @@ C1은 A만 필요하다. **C2는 A도 B도 필요하다.**
 
 ---
 
-## 7. 이 프로토타입이 모델링하지 않은 것
+## 9. 이 프로토타입이 모델링하지 않은 것
 
 정직하게 적어둔다. 아래는 결론을 바꿀 수 있는 요소이므로 실측으로 확장할 때 우선순위다.
 

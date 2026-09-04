@@ -1,40 +1,26 @@
-"""DP1 후보 구조 비교 실험 — 문서 4.5절의 정량 지표를 실측으로 채운다.
+"""DP1 후보 비교 실험 — 문서 4.5절의 정량 지표를 실측으로 채운다.
 
 사용:
-    python -m dp1.run_experiment                # 전체 시나리오
-    python -m dp1.run_experiment heterogeneous  # 하나만
+    python -m dp1.run_experiment                    # 전체 케이스 × 전체 정책
+    python -m dp1.run_experiment heterogeneous      # 케이스 하나
+    python -m dp1.run_experiment --steelman         # 두 후보의 최선 형태만 비교
+    python -m dp1.run_experiment --policies c1,c2-steelman  burst
+    python -m dp1.run_experiment --list             # 케이스·정책 목록
+
+케이스 설명은 `python -m dp1.cases`.
 """
 
 from __future__ import annotations
 
 import sys
 
+from .cases import CASES
 from .harness import run
 from .model import TierTable
-from .object_indexed import CostModel, HeuristicClassifier, ObjectIndexedPlacer
-from .tier_indexed import TierIndexedPlacer
-from .workload import ALL_SCENARIOS
-
-VARIANTS = {
-    "C1 Tier-Indexed": lambda t: TierIndexedPlacer(t),
-    "C1 + 보강(ctx)": lambda t: TierIndexedPlacer(t, context_length_term=True),
-    "C1 예약 없음": lambda t: TierIndexedPlacer(t, reserve_within_step=False),
-    "C2 Object-Indexed": lambda t: ObjectIndexedPlacer(t),
-    "C2 cost 모델": lambda t: ObjectIndexedPlacer(t, cost_model=CostModel()),
-    "C2 cost + 유보": lambda t: ObjectIndexedPlacer(
-        t, cost_model=CostModel(reserve_for_future=True)
-    ),
-    "C2 상향 무제한(구멍)": lambda t: ObjectIndexedPlacer(t, upgrade_if_free=True),
-    "C2 단일 클래스": lambda t: ObjectIndexedPlacer(
-        t, HeuristicClassifier(single_class=True)
-    ),
-    "C2가 C1 흉내": lambda t: ObjectIndexedPlacer(
-        t, HeuristicClassifier(single_class=True), mimic_c1=True
-    ),
-}
+from .policies import POLICIES, steelman_pair
 
 COLUMNS = [
-    ("placer", 19, "s"),
+    ("policy", 24, "s"),
     ("decisions", 10, "d"),
     ("msg/decision", 13, ".2f"),
     ("object_reads", 13, "d"),
@@ -58,23 +44,63 @@ def _fmt(v, spec):
         return str(v)
 
 
+def _print_case(case_key: str, policy_keys: list[str]) -> None:
+    case = CASES[case_key]
+    scenario = case.build()
+    print(f"\n=== {case.key}   —   {case.doc_ref}")
+    print(f"    {case.reproduces}")
+    print(f"    볼 지표: {case.watch}")
+    header = "".join(f"{c[0]:>{c[1]}}" for c in COLUMNS)
+    print(header)
+    print("-" * len(header))
+    for key in policy_keys:
+        table = TierTable()
+        metrics = run(POLICIES[key].build(table), table, scenario)
+        row = metrics.as_row()
+        row["policy"] = POLICIES[key].label
+        print("".join(f"{_fmt(row[c[0]], c[2]):>{c[1]}}" for c in COLUMNS))
+        if case.key == "invariant_conflict":
+            tier = metrics.placement_log.get("hot_arrival")
+            print(f"{'':>24}    └ hot_arrival → {tier}, 축출 {metrics.evictions}건")
+
+
 def main(argv: list[str]) -> int:
-    names = argv[1:] or list(ALL_SCENARIOS)
-    for name in names:
-        if name not in ALL_SCENARIOS:
-            print(f"알 수 없는 시나리오: {name}  (가능: {', '.join(ALL_SCENARIOS)})")
+    args = argv[1:]
+    policy_keys = list(POLICIES)
+
+    if "--list" in args:
+        print("\n케이스:")
+        for c in CASES.values():
+            print(f"  {c.key:22s} {c.doc_ref}")
+        print("\n정책:")
+        for p in POLICIES.values():
+            mark = " ★ steelman" if p.steelman else ""
+            print(f"  {p.key:20s} [{p.candidate}] {p.label}{mark}")
+            print(f"  {'':20s} {p.note}")
+        print("\n케이스 상세: python -m dp1.cases")
+        return 0
+
+    if "--steelman" in args:
+        args = [a for a in args if a != "--steelman"]
+        policy_keys = list(steelman_pair())
+
+    for a in list(args):
+        if a.startswith("--policies"):
+            args.remove(a)
+            spec = a.split("=", 1)[1] if "=" in a else args.pop(0)
+            policy_keys = [k.strip() for k in spec.split(",")]
+
+    unknown = [k for k in policy_keys if k not in POLICIES]
+    if unknown:
+        print(f"알 수 없는 정책: {', '.join(unknown)}")
+        return 2
+
+    case_keys = args or list(CASES)
+    for key in case_keys:
+        if key not in CASES:
+            print(f"알 수 없는 케이스: {key}  (가능: {', '.join(CASES)})")
             return 2
-        scenario = ALL_SCENARIOS[name]()
-        print(f"\n=== {scenario.name}  —  {scenario.ref}")
-        header = "".join(f"{c[0]:>{c[1]}}" for c in COLUMNS)
-        print(header)
-        print("-" * len(header))
-        for label, make in VARIANTS.items():
-            table = TierTable()
-            m = run(make(table), table, scenario)
-            row = m.as_row()
-            row["placer"] = label
-            print("".join(f"{_fmt(row[c[0]], c[2]):>{c[1]}}" for c in COLUMNS))
+        _print_case(key, policy_keys)
     print()
     return 0
 
