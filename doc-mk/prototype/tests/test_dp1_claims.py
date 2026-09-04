@@ -187,6 +187,41 @@ class TestQA1PlacementQuality(unittest.TestCase):
         self.assertGreater(results["headroom25"].separation_ratio,
                            results["open"].separation_ratio)
 
+    def test_open_upgrade_has_a_small_object_bias(self):
+        """상향 규칙의 이진 판정은 작은 객체에 유리한 편향을 내장한다.
+
+        short(32블록)는 long(2048블록)이 못 들어가는 틈에도 들어간다.
+        C1의 점유율 페널티는 그 편향을 완화하므로 short가 여러 tier로 흩어진다.
+        """
+        scenario = workload.heterogeneous()
+        t1 = TierTable(); base = run(c1(t1), t1, scenario)
+        t2 = TierTable(); openv = run(c2(t2, upgrade_if_free=True), t2, scenario)
+
+        def short_tiers(metrics):
+            return {metrics.placement_log[f"S{i}"] for i in range(48)}
+
+        def avg_bw(metrics, table, ids):
+            vals = [table.specs[metrics.placement_log[i]].bandwidth_gbps for i in ids]
+            return sum(vals) / len(vals)
+
+        shorts = [f"S{i}" for i in range(48)]
+        longs = [f"L{i}" for i in range(6)]
+
+        self.assertGreater(
+            avg_bw(openv, t2, shorts), avg_bw(base, t1, shorts),
+            "상향 규칙에서는 작은 요청이 더 빠른 tier를 차지한다",
+        )
+        self.assertGreaterEqual(
+            len(short_tiers(base)), 3,
+            "C1은 점유율 페널티로 작은 요청을 여러 tier에 흩뿌린다",
+        )
+        self.assertLessEqual(
+            len(short_tiers(openv)), 2,
+            "상향 규칙은 작은 요청을 상위 tier에 몰아넣는다",
+        )
+        # 큰 요청만 보면 오히려 C2가 낫다 — C1의 페널티가 상위 tier를 덜 채운다
+        self.assertGreater(avg_bw(openv, t2, longs), avg_bw(base, t1, longs))
+
     def test_fully_open_upgrade_separates_worse_than_c1(self):
         """상향을 끝까지 열면 C1보다도 구분을 못 한다.
 
