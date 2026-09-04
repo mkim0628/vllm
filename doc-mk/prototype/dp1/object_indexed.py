@@ -104,6 +104,8 @@ class ObjectIndexedPlacer:
         classifier: HeuristicClassifier | None = None,
         *,
         allow_eviction: bool = True,
+        upgrade_if_free: bool = False,
+        upgrade_headroom: float = 1.0,
         mimic_c1: bool = False,
     ) -> None:
         # mimic_c1=True: 계약을 버리고 C1의 정책(자원 상태 argmax)으로 tier를 고른다.
@@ -111,6 +113,15 @@ class ObjectIndexedPlacer:
         # DP1 3.3-③ 상위호환 반박 ②의 실행 가능한 형태다.
         from .tier_indexed import TierIndexedPlacer
 
+        # upgrade_if_free=True: 계약이 지시한 tier를 **하한**으로만 쓰고,
+        # 그보다 빠른 tier에 여유가 있으면 올려서 배치한다.
+        # 순수 C2에서 tier 상태는 아래로만 작용한다(목표가 차면 내려간다).
+        # 이 옵션은 위로도 작용하게 만드는데, 그 순간 '어느 tier인가'를 고르는
+        # 주체가 계약이 아니라 자원 상태가 된다 — 축이 C1 쪽으로 이동한다.
+        self.upgrade_if_free = upgrade_if_free
+        # 상향 시 남겨둘 여유. 1.0이면 빈 자리를 끝까지 쓴다(도착 순서가 등급을 이긴다).
+        # 0.5면 상위 tier의 절반을 고등급용으로 남긴다.
+        self.upgrade_headroom = upgrade_headroom
         self._mimic = TierIndexedPlacer(table) if mimic_c1 else None
         self.table = table
         self.classifier = classifier or HeuristicClassifier()
@@ -170,6 +181,20 @@ class ObjectIndexedPlacer:
         branches = 1  # 정책 판정 자체가 데이터 의존 분기다
         evicted: list[str] = []
         tier = target
+
+        if self.upgrade_if_free:
+            # 계약을 하한으로 보고 위쪽 여유를 확인한다 (자원 상태로 '선택')
+            order = self.table.by_bandwidth
+            for faster in order[: order.index(target)]:
+                branches += 1
+                cap = self.table.specs[faster].capacity_blocks
+                after = (cap - self.table.free(faster, _instrumented=False)
+                         + num_blocks) / cap
+                if (self.table.free(faster, _instrumented=False) >= num_blocks
+                        and after <= self.upgrade_headroom):
+                    tier = faster
+                    target = faster
+                    break
         if self.table.free(target, _instrumented=False) < num_blocks:
             branches += 1
             if self.allow_eviction:

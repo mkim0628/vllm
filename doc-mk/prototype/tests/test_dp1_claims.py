@@ -148,17 +148,55 @@ class TestQA1PlacementQuality(unittest.TestCase):
         self.assertAlmostEqual(m2.separation_ratio, 1.0, places=2)
         self.assertAlmostEqual(m1.separation_ratio, 1.0, places=2)
 
-    def test_c2_contract_is_capacity_blind(self):
-        """실측으로 발견된 C2의 추가 비용.
+    def test_pure_c2_reads_tier_state_only_downward(self):
+        """실측으로 정정된 발견 — C2도 tier 상태를 본다. 다만 아래로만 본다.
 
-        계약은 고정 매핑이므로 한 등급이 워크로드를 지배하면 빠른 tier가
-        비어 있는데도 전부 느린 tier로 간다. C1은 자원 상태를 보므로 채운다.
+        계약이 지시한 tier가 차면 하위로 내려가지만, 상위가 비어 있어도
+        올라가지 않는다. 그래서 한 등급이 워크로드를 지배하면 빠른 tier가
+        비어 있는데도 쓰지 않는다.
         """
         (m1, _), (m2, _) = run_both(workload.homogeneous())
         self.assertGreater(
             m1.bandwidth_match, m2.bandwidth_match,
-            "균질 워크로드에서는 자원 상태를 보는 C1이 더 잘 채운다",
+            "순수 C2는 계약이 지시한 tier 아래로만 움직이므로 빈 상위 tier를 놓친다",
         )
+
+    def test_upgrade_knob_trades_utilization_against_separation(self):
+        """"적당히 보게" 만들 수 있다 — 그러나 공짜가 아니다.
+
+        계약을 하한으로 보고 위쪽 여유를 쓰게 하면(upgrade_if_free) 총량 활용은
+        올라가지만 구분 능력은 무너진다. 빈 자리를 먼저 온 요청이 가져가므로
+        **도착 순서가 등급을 이기기** 때문이다.
+        """
+        scenario = workload.heterogeneous()
+        results = {}
+        for label, kw in [
+            ("pure", {}),
+            ("headroom25", {"upgrade_if_free": True, "upgrade_headroom": 0.25}),
+            ("open", {"upgrade_if_free": True}),
+        ]:
+            table = TierTable()
+            results[label] = run(c2(table, **kw), table, scenario)
+
+        self.assertLess(results["pure"].bandwidth_match, results["open"].bandwidth_match)
+        self.assertGreater(results["pure"].separation_ratio,
+                           results["open"].separation_ratio)
+        # headroom은 두 값 사이를 잇는 손잡이다
+        self.assertLess(results["headroom25"].separation_ratio,
+                        results["pure"].separation_ratio)
+        self.assertGreater(results["headroom25"].separation_ratio,
+                           results["open"].separation_ratio)
+
+    def test_fully_open_upgrade_separates_worse_than_c1(self):
+        """상향을 끝까지 열면 C1보다도 구분을 못 한다.
+
+        "빈 자리가 있으면 무조건 위로"는 초반 도착자가 상위 tier를 독식하게
+        만든다. C1은 최소한 점유율 페널티로 분산이라도 한다.
+        """
+        scenario = workload.heterogeneous()
+        t1 = TierTable(); base = run(c1(t1), t1, scenario)
+        t2 = TierTable(); openv = run(c2(t2, upgrade_if_free=True), t2, scenario)
+        self.assertLess(openv.separation_ratio, base.separation_ratio)
 
 
 # ==========================================================================
