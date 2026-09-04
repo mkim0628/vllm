@@ -26,7 +26,11 @@ from dp1.model import (  # noqa: E402
     TierTable,
     TripwireView,
 )
-from dp1.object_indexed import HeuristicClassifier, ObjectIndexedPlacer  # noqa: E402
+from dp1.object_indexed import (  # noqa: E402
+    CostModel,
+    HeuristicClassifier,
+    ObjectIndexedPlacer,
+)
 from dp1.tier_indexed import TierIndexedPlacer  # noqa: E402
 
 
@@ -187,7 +191,63 @@ class TestQA1PlacementQuality(unittest.TestCase):
         self.assertGreater(results["headroom25"].separation_ratio,
                            results["open"].separation_ratio)
 
-    def test_open_upgrade_has_a_small_object_bias(self):
+    def test_proper_cost_model_has_no_size_bias(self):
+        """steelman한 C2에는 크기 편향이 없다 — 크기는 가치와 가격에서 상쇄된다.
+
+        (초기 구현의 "빈자리 있으면 위로" 규칙은 등급도 크기도 보지 않는 약한
+        형태였고, 거기서 나온 크기 편향은 구조가 아니라 구현 아티팩트였다.)
+        """
+        scenario = workload.heterogeneous()
+        t_naive = TierTable()
+        naive = run(c2(t_naive, upgrade_if_free=True), t_naive, scenario)
+        t_cost = TierTable()
+        cost = run(c2(t_cost, cost_model=CostModel(reserve_for_future=True)),
+                   t_cost, scenario)
+
+        def avg_bw(metrics, table, ids):
+            vals = [table.specs[metrics.placement_log[i]].bandwidth_gbps for i in ids]
+            return sum(vals) / len(vals)
+
+        shorts = [f"S{i}" for i in range(48)]
+        longs = [f"L{i}" for i in range(6)]
+
+        # 약한 구현: 작은 요청이 상위 tier를 잠식해 큰 요청과 평균이 비슷해진다
+        self.assertLess(
+            avg_bw(naive, t_naive, longs) / avg_bw(naive, t_naive, shorts), 1.5
+        )
+        # 제대로 된 비용 모델: 강도가 높은 큰 요청이 경쟁에서 이긴다
+        self.assertGreater(
+            avg_bw(cost, t_cost, longs) / avg_bw(cost, t_cost, shorts), 3.0
+        )
+
+    def test_discrimination_requires_holding_fast_tiers_back(self):
+        """steelman 후 남는 구조적 제약 — 구분은 유보를 요구한다.
+
+        유보하지 않으면 먼저 온 저강도 요청이 상위 tier를 채워 구분이 C1 수준으로
+        떨어진다. 유보하면 구분이 오르지만 저부하 구간에서 빠른 tier를 비워 둔다.
+        적정 유보량은 아직 오지 않은 요청의 분포에 달려 있어 관측으로 정할 수 없다.
+        """
+        het = workload.heterogeneous()
+        t1 = TierTable(); base = run(c1(t1), t1, het)
+        t2 = TierTable()
+        no_hold = run(c2(t2, cost_model=CostModel()), t2, het)
+        t3 = TierTable()
+        hold = run(c2(t3, cost_model=CostModel(reserve_for_future=True)), t3, het)
+
+        # 유보 없이는 객체 축의 이득이 사라진다 (C1과 같은 수준)
+        self.assertLess(abs(no_hold.separation_ratio - base.separation_ratio), 0.5)
+        # 유보하면 구분이 크게 오른다
+        self.assertGreater(hold.separation_ratio, 3 * base.separation_ratio)
+
+        # 그 대가: 균질(저부하) 워크로드에서 빠른 tier를 비워 둔다
+        hom = workload.homogeneous()
+        t4 = TierTable()
+        hold_hom = run(c2(t4, cost_model=CostModel(reserve_for_future=True)), t4, hom)
+        t5 = TierTable()
+        free_hom = run(c2(t5, cost_model=CostModel()), t5, hom)
+        self.assertLess(hold_hom.bandwidth_match, free_hom.bandwidth_match)
+
+    def test_naive_upgrade_rule_has_a_small_object_bias(self):
         """상향 규칙의 이진 판정은 작은 객체에 유리한 편향을 내장한다.
 
         short(32블록)는 long(2048블록)이 못 들어가는 틈에도 들어간다.
@@ -222,8 +282,8 @@ class TestQA1PlacementQuality(unittest.TestCase):
         # 큰 요청만 보면 오히려 C2가 낫다 — C1의 페널티가 상위 tier를 덜 채운다
         self.assertGreater(avg_bw(openv, t2, longs), avg_bw(base, t1, longs))
 
-    def test_fully_open_upgrade_separates_worse_than_c1(self):
-        """상향을 끝까지 열면 C1보다도 구분을 못 한다.
+    def test_naive_upgrade_rule_separates_worse_than_c1(self):
+        """약한 상향 규칙은 C1보다도 구분을 못 한다 (구현 아티팩트의 사례).
 
         "빈 자리가 있으면 무조건 위로"는 초반 도착자가 상위 tier를 독식하게
         만든다. C1은 최소한 점유율 페널티로 분산이라도 한다.

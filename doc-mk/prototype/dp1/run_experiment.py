@@ -11,7 +11,7 @@ import sys
 
 from .harness import run
 from .model import TierTable
-from .object_indexed import HeuristicClassifier, ObjectIndexedPlacer
+from .object_indexed import CostModel, HeuristicClassifier, ObjectIndexedPlacer
 from .tier_indexed import TierIndexedPlacer
 from .workload import ALL_SCENARIOS
 
@@ -20,10 +20,11 @@ VARIANTS = {
     "C1 + 보강(ctx)": lambda t: TierIndexedPlacer(t, context_length_term=True),
     "C1 예약 없음": lambda t: TierIndexedPlacer(t, reserve_within_step=False),
     "C2 Object-Indexed": lambda t: ObjectIndexedPlacer(t),
-    "C2 상향 여유25%": lambda t: ObjectIndexedPlacer(
-        t, upgrade_if_free=True, upgrade_headroom=0.25
+    "C2 cost 모델": lambda t: ObjectIndexedPlacer(t, cost_model=CostModel()),
+    "C2 cost + 유보": lambda t: ObjectIndexedPlacer(
+        t, cost_model=CostModel(reserve_for_future=True)
     ),
-    "C2 상향 무제한": lambda t: ObjectIndexedPlacer(t, upgrade_if_free=True),
+    "C2 상향 무제한(구멍)": lambda t: ObjectIndexedPlacer(t, upgrade_if_free=True),
     "C2 단일 클래스": lambda t: ObjectIndexedPlacer(
         t, HeuristicClassifier(single_class=True)
     ),
