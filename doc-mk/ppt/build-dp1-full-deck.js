@@ -6,7 +6,7 @@ const pres=new pptxgen(); pres.layout="LAYOUT_WIDE";
 pres.title="DP1 — Memory Placement Decision Basis";
 const L=0.5,R=12.8,W=13.3,H=7.5;
 const AX=0.5,BX=6.85,CW=5.95;
-let PAGE=0; const TOTAL=19;
+let PAGE=0; const TOTAL=21;
 
 function head(s,kicker,title,sub){
   s.addText(kicker,{x:L,y:0.32,w:9.5,h:0.24,isTextBox:true,margin:0,
@@ -89,71 +89,171 @@ function hdr(t,al){return {text:t,options:{bold:true,color:"FFFFFF",fill:{color:
   s.addNotes("이 장만 봐도 DP1의 결론까지 전달되도록 구성. 이후 장은 각 줄의 근거.");
 }
 
-/* ---------- 3. 배경 ---------- */
+/* ---------- 3. 응용: 메모리 월 ---------- */
 {
-  const s=slide("DP1 · 1장 배경","현재 vLLM v1은 \"메모리는 한 종류\"라는 전제 위에 있다");
-  card(s,L,1.42,6.0,2.30,PANEL,RULE);
-  txt(s,L+0.18,1.54,5.6,0.24,"할당 인터페이스는 크기만 받는다",{fs:10,b:true,c:MUTED});
-  txt(s,L+0.18,1.84,5.65,1.80,
-    "def allocate_slots(\n    self, request: Request,\n    num_new_tokens: int, ...\n) -> KVCacheBlocks | None: ...\n\ndef get_new_blocks(num_blocks: int) -> list[KVCacheBlock]\ndef get_num_free_blocks() -> int   # 정수 1개",
-    {fs:9.5,c:INK,ls:1.22});
-  card(s,6.75,1.42,6.05,2.30,PANEL,RULE);
-  txt(s,6.93,1.54,5.7,0.24,"블록에도 위치 개념이 없다",{fs:10,b:true,c:MUTED});
-  txt(s,6.93,1.84,5.7,1.80,
-    "@dataclass(slots=True)\nclass KVCacheBlock:\n    block_id: int        # 텐서 인덱스일 뿐\n    ref_cnt: int = 0\n    _block_hash / prev_free / next_free / is_null\n\n→ 6개 필드 중 위치·연산 능력을 나타내는 것 0개",
-    {fs:9.5,c:INK,ls:1.22});
-  card(s,L,3.92,R-L,0.86,C1S,C1);
-  txt(s,L+0.20,3.92,R-L-0.4,0.86,
-    "현재 구조의 전제:  \"메모리는 한 종류이고, 부족하면 배치가 아니라 스케줄(preempt)로 해결한다\"",
-    {fs:14,b:true,c:C1,va:"middle"});
-  txt(s,L,5.00,R-L,0.26,"기존 CPU offload(vllm/v1/kv_offload)도 이 전제를 깨지 않는다",{fs:11,b:true,c:INK});
-  bullets(s,L,5.32,R-L,1.20,[
-    "LoadStoreSpec · OffloadingManager — 이름이 말하듯 배치(placement)가 아니라 사후 이동(load/store) 모델이다",
-    "정책도 policies/lru.py · arc.py 처럼 이미 발생한 접근 이력 기반 — \"새 메모리를 어디에 잡을 것인가\"를 정하는 자리가 아니다",
-    "즉 지금까지는 \"얼마나\"만 알면 충분했다",
-  ],10.5);
-  s.addNotes("배경은 사실만. 여기서 문제를 말하지 않는다.");
+  const s=slide("DP1 · 1.1 응용","AI 서빙의 병목은 연산이 아니라 메모리다",
+    "그 사실을 가장 단적으로 보여주는 것이 KV 캐시다");
+  card(s,L,1.46,5.95,2.05,PANEL,RULE);
+  txt(s,L+0.20,1.58,5.55,0.24,"70B급 모델 (GQA · 80 layer · KV head 8 · head_dim 128 · fp16)",{fs:9.5,b:true,c:MUTED});
+  txt(s,L+0.20,1.92,5.55,1.00,
+    "80 layer × 8 head × 128 dim × 2 (K,V) × 2 byte\n\n        =  327,680 byte  ≈  320 KB / 토큰",
+    {fs:12,b:true,c:INK,ls:1.35});
+  txt(s,L+0.20,3.02,5.55,0.36,"여기에 컨텍스트 길이를 곱하면 규모가 드러난다",{fs:10,i:true,c:MUTED});
+
+  const rows=[[hdr("컨텍스트"),hdr("요청 1건의 KV","center"),hdr("")]];
+  [["4 K","1.25 GB",""],["32 K","10 GB",""],
+   ["128 K","40 GB","H100 80GB의 절반을 요청 하나가 쓴다"]].forEach((d,i)=>rows.push([
+    {text:d[0],options:{bold:true,color:INK,fontSize:11}},
+    {text:d[1],options:{bold:true,color:i===2?WARN:C1,fontSize:i===2?15:12,align:"center"}},
+    {text:d[2],options:{color:i===2?WARN:BODY,bold:i===2,fontSize:9.5}},
+  ]));
+  s.addTable(rows,{x:6.85,y:1.46,w:5.95,colW:[1.30,1.60,3.05],
+    rowH:[0.34,0.55,0.55,0.61],border:{type:"solid",pt:0.75,color:RULE},
+    fontFace:F,valign:"middle",margin:[4,8,4,8]});
+
+  card(s,L,3.80,R-L,1.34,C1S,C1);
+  txt(s,L+0.24,3.94,R-L-0.48,0.30,"가중치는 고정, KV는 곱으로 늘어난다",{fs:14,b:true,c:C1});
+  txt(s,L+0.24,4.30,R-L-0.48,0.72,
+    "모델 가중치 140 GB는 상수다. KV는 컨텍스트 길이 × 동시 요청 수로 늘어난다.\n"+
+    "128K 요청 4건이면 KV만 160 GB — 가중치를 넘어선다. 컨텍스트가 길어지고 동시성이 높아질수록 KV 캐시가 시스템의 지배적 메모리 소비자가 된다.",
+    {fs:11,c:INK,ls:1.3});
+  txt(s,L,5.36,R-L,0.30,"→ 이 벽을 한 종류의 메모리로는 넘을 수 없다",{fs:12,b:true,c:INK});
+  s.addNotes("배경은 응용에서 시작한다. 여기서는 사실만 말하고 문제를 꺼내지 않는다.");
 }
 
-/* ---------- 4. 변화와 문제 ---------- */
+/* ---------- 4. 대응: 이기종 메모리 ---------- */
 {
-  const s=slide("DP1 · 1장 변화와 문제","6단 이기종 메모리가 들어오면 전제가 깨진다");
-  // 좌: 런타임 스택
-  txt(s,L,1.36,5.4,0.24,"문제가 발생하는 런타임 스택 위치",{fs:10,b:true,c:MUTED});
-  const layers=["API / Entrypoint","Engine · Scheduler","Executor / Worker","ModelRunner","Attention / Kernel","Memory · BlockPool","HW Abstraction"];
-  const lx=L, lw=4.05, lh=0.44, gap=0.11;
-  layers.forEach((t,i)=>{
-    const y=1.66+i*(lh+gap);
-    const hot=(i===1||i===5);
-    card(s,lx,y,lw,lh,hot?C1S:"FFFFFF",hot?C1:RULE);
-    txt(s,lx,y,lw,lh,t,{fs:9.5,b:hot,c:hot?C1:BODY,al:"center",va:"middle"});
-  });
-  // 경계 브래킷
-  const y1=1.66+1*(lh+gap)+lh, y2=1.66+5*(lh+gap);
-  s.addShape(pres.ShapeType.line,{x:lx+lw+0.12,y:y1,w:0,h:y2-y1,line:{color:WARN,width:2}});
-  txt(s,lx+lw+0.22,(y1+y2)/2-0.22,1.35,0.44,"할당 경계\n(문제 지점)",{fs:9,b:true,c:WARN,va:"middle",ls:1.1});
-  // 우
-  txt(s,6.15,1.36,6.65,0.24,"변화",{fs:10,b:true,c:MUTED});
-  bullets(s,6.15,1.64,6.65,0.86,[
-    "GPU HBM / CPU DRAM / CXL / Custom HBM / SSD / HBF — tier마다 대역폭·지연·용량이 자릿수 단위로 다르다",
-    "할당이 두 질문으로 쪼개진다: \"얼마나\"(스케줄러) 와 \"어디에\"(런타임)",
-  ],10.5);
-  card(s,6.15,2.62,6.65,0.90,"FDF6E7",WARN);
-  txt(s,6.33,2.62,6.3,0.90,
-    "문제 — 위치를 정할 기준을 담을 자리가 없어 tier 선택이 호출 지점의 조건문으로 흩어지고, 결정 근거가 어디에도 남지 않는다",
-    {fs:12,b:true,c:INK,va:"middle",ls:1.2});
-  txt(s,6.15,3.66,6.65,0.24,"QA 영향 (As-Is)",{fs:10,b:true,c:MUTED});
-  const qrows=[
-    ["QA1 배치 품질","구분 가능한 객체 등급 1종 — 상위 tier 점유가 도착 순서로 결정"],
-    ["QA2 정보 비용","관측 지표 1개(get_num_free_blocks) → 6-tier면 최소 24개, 갱신 주기 미정의"],
-    ["QA3 적응성","오배치 개념 자체가 없다 — 배치를 되돌리는 진입점이 없다"],
-    ["QA4 재현성","결정 근거 미기록 — 회귀 원인을 6^k 배치 조합에서 사후 추정해야 한다"],
+  const s=slide("DP1 · 1.2 대응","용량·대역폭·비용 조합이 다른 메모리가 등장하고, 시스템에 혼재한다",
+    "성격이 자릿수 단위로 다른 메모리가 한 노드 안에 함께 놓인다");
+  const data=[
+    ["GPU HBM","3,200 GB/s","40 GB","0.5 us","1.0"],
+    ["Custom HBM","1,600 GB/s","80 GB","0.8 us","1.2"],
+    ["CPU DRAM","200 GB/s","320 GB","1.2 us","1.8"],
+    ["CXL Memory","64 GB/s","640 GB","2.5 us","2.0"],
+    ["HBF","16 GB/s","2.5 TB","20 us","4.0"],
+    ["SSD","6 GB/s","10 TB","120 us","8.0"],
   ];
-  let y=3.94;
-  qrows.forEach(r=>{ card(s,6.15,y,6.65,0.62,"FFFFFF",RULE);
-    txt(s,6.31,y,1.55,0.62,r[0],{fs:9.5,b:true,c:INK,va:"middle"});
-    txt(s,7.90,y,4.75,0.62,r[1],{fs:9,c:BODY,va:"middle",ls:1.1}); y+=0.70;});
-  s.addNotes("레이어를 정확히 지목해야 설계 범위가 확정된다. Scheduler와 BlockPool 사이의 할당 경계.");
+  const rows=[[hdr("tier"),hdr("대역폭","center"),hdr("용량(예시)","center"),
+               hdr("지연","center"),hdr("이동비용","center")]];
+  data.forEach((d,i)=>rows.push([
+    {text:d[0],options:{bold:true,color:INK,fontSize:11}},
+    {text:d[1],options:{bold:true,color:i<2?C1:BODY,fontSize:11,align:"center"}},
+    {text:d[2],options:{color:BODY,fontSize:11,align:"center"}},
+    {text:d[3],options:{color:BODY,fontSize:11,align:"center"}},
+    {text:d[4],options:{color:MUTED,fontSize:11,align:"center"}},
+  ]));
+  table(s,rows,{y:1.62,colW:[3.10,2.40,2.30,2.20,2.30],
+    rowH:[0.36].concat(new Array(6).fill(0.46))});
+
+  const cards=[["533 배","양 끝 tier의 대역폭 차이 (3,200 → 6 GB/s)"],
+               ["256 배","양 끝 tier의 용량 차이 (40 GB → 10 TB)"],
+               ["240 배","양 끝 tier의 지연 차이 (0.5 → 120 us)"]];
+  const cw=(R-L-2*0.26)/3;
+  cards.forEach((c,i)=>{
+    const x=L+i*(cw+0.26);
+    card(s,x,4.66,cw,1.00,"FFFFFF",C1);
+    txt(s,x+0.18,4.76,cw-0.36,0.42,c[0],{fs:22,b:true,c:C1});
+    txt(s,x+0.18,5.22,cw-0.36,0.34,c[1],{fs:9.5,c:BODY,ls:1.15});
+  });
+  card(s,L,5.86,R-L,0.78,C1S,C1);
+  txt(s,L+0.24,5.86,R-L-0.48,0.78,
+    "같은 30 GB라도 어디에 놓느냐가 처리량을 좌우한다  →  런타임이 각 메모리의 성격에 맞게 데이터를 배치해야 한다",
+    {fs:12.5,b:true,c:C1,va:"middle"});
+  s.addNotes("여기까지가 '왜 배치가 필요한가'. 다음 장부터 SW 구조 문제.");
+}
+
+/* ---------- 5. SW 구조 문제: 계층 위반 ---------- */
+{
+  const s=slide("DP1 · 1.3 SW 구조 문제","자리 없이 확장하면 tier 지식이 스케줄러로 올라온다",
+    "오늘은 계층이 깨끗하다 — 단, 지킨 것이 아니라 메모리가 하나여서 지킬 필요가 없었다");
+
+  const LX=L, LW=6.55;
+  const layers=[
+    ["L1","Entrypoint / API","",0.52,false],
+    ["L2","Engine · Scheduler","if tier == HBM: ...   elif tier == CXL: ...\nmigration(HBM → CXL) ...",0.86,true],
+    ["L3","KVCacheManager","allocate_slots(req, n, tier)",0.58,true],
+    ["L4","BlockPool[tier]","get_new_blocks(n)",0.58,true],
+    ["L5","Memory","",0.86,true],
+  ];
+  let ly=1.70; const ys=[];
+  layers.forEach(([id,name,sub,h,hot])=>{
+    const top = !!sub || id === "L5";     // L5는 안에 tier 박스가 들어가므로 위쪽 정렬
+    card(s,LX,ly,LW,h,hot?"FDF6E7":"FFFFFF",hot?WARN:RULE);
+    txt(s,LX+0.14,ly+(top?0.08:0),0.42,top?0.24:h,id,
+      {fs:10,b:true,c:MUTED,va:top?"top":"middle"});
+    txt(s,LX+0.60,ly+(top?0.08:0),LW-0.75,top?0.24:h,name,
+      {fs:11.5,b:true,c:INK,va:top?"top":"middle"});
+    if(sub) txt(s,LX+0.60,ly+0.34,LW-0.75,h-0.40,sub,{fs:8.5,c:WARN,ls:1.2});
+    ys.push(ly+h/2);
+    ly+=h+0.10;
+  });
+  // L5 안의 tier 박스
+  const tw=(LW-0.30-5*0.07)/6; let tx=LX+0.15;
+  const y5=1.70+0.52+0.10+0.86+0.10+0.58+0.10+0.58+0.10;
+  ["HBM","cHBM","DRAM","CXL","HBF","SSD"].forEach(t=>{
+    box(s,tx,y5+0.36,tw,0.38,WARN,"FFFFFF",t,8);
+    tx+=tw+0.07;
+  });
+  // 계층 건너뛰는 의존
+  s.addShape(pres.ShapeType.line,{x:LX+LW+0.16,y:ys[1],w:0,h:ys[4]-ys[1],
+    line:{color:WARN,width:1.5,dashType:"dash"}});
+  arrow(s,LX+LW+0.16,ys[4],LX+LW,ys[4],WARN);
+  txt(s,LX+LW+0.20,ys[1]+0.04,0.62,0.50,"✖ 계층\n건너뜀",{fs:8.5,b:true,c:WARN,ls:1.15});
+  txt(s,LX,ly+0.02,LW,0.26,"✖ 상위 모듈(요청 수명주기)이 하위 세부(메모리 종류)에 직접 의존 = DIP 위반",
+    {fs:10,b:true,c:WARN});
+
+  const RX=7.95, RW=R-RX;
+  txt(s,RX,1.44,RW,0.24,"그 대가",{fs:10,b:true,c:MUTED,cs:1.2});
+  const costs=[
+    ["변경 파급","배치 경로 6개 + 이동 경로 6×5 = 30쌍\n→ 스케줄러 안의 분기 36개.\n메모리 구성이 바뀌면 스케줄러를 고쳐야 한다"],
+    ["임계 경로 팽창","스텝당 수십~수백 건의 배치·이동 판정이\nschedule() 안에서 일어난다 (이미 595줄)"],
+    ["책임 혼재","스케줄링 결정과 배치 결정이 한 모듈에 섞여\n회귀가 나도 어느 쪽 탓인지 분리할 수 없다"],
+  ];
+  let cy=1.72;
+  costs.forEach(c=>{
+    card(s,RX,cy,RW,1.18,"FFFFFF",RULE);
+    txt(s,RX+0.18,cy+0.12,RW-0.36,0.26,c[0],{fs:11.5,b:true,c:INK});
+    txt(s,RX+0.18,cy+0.42,RW-0.36,0.68,c[1],{fs:9.5,c:BODY,ls:1.2});
+    cy+=1.30;
+  });
+  card(s,L,5.86,R-L,0.78,INK,INK);
+  txt(s,L+0.24,5.86,R-L-0.48,0.78,
+    "새 메모리를 도입하는 비용이  →  스케줄러를 수정하는 비용이 된다",
+    {fs:14,b:true,c:"FFFFFF",al:"center",va:"middle"});
+  s.addNotes("이동은 이미 KVConnector로 분리되어 있으나 GPU↔외부 이분법 전제라 N-tier로 일반화되지 않는다. 배치에는 그런 자리조차 없다.");
+}
+
+/* ---------- 6. 필요한 것: 비어 있는 자리 ---------- */
+{
+  const s=slide("DP1 · 1.3 → 1.5","필요한 것 — 배치 결정을 담는 자리",
+    "이동에는 KVConnector라는 자리가 이미 있다. 배치에는 없다.");
+
+  const cx=R/2+L/2;
+  box(s,cx-1.85,1.60,3.70,0.72,INK,"F2F5F6","L2  Scheduler\n'얼마나'만 말한다",10.5);
+  arrow(s,cx,2.32,cx,2.76,MUTED);
+
+  s.addShape(pres.ShapeType.roundRect,{x:cx-3.30,y:2.76,w:6.60,h:1.06,rectRadius:0.06,
+    fill:{color:"FDF6E7"},line:{color:WARN,width:1.75,dashType:"dash"}});
+  txt(s,cx-3.30,2.86,6.60,0.36,"???   배치 결정을 담는 자리",{fs:16,b:true,c:WARN,al:"center"});
+  txt(s,cx-3.30,3.26,6.60,0.46,"이 DP의 설계 대상 — 무엇을 근거로 tier를 고를 것인가",
+    {fs:10.5,c:BODY,al:"center"});
+  arrow(s,cx,3.82,cx,4.26,MUTED);
+
+  const tw=1.55, gp=0.14, n=6;
+  let tx=cx-(n*tw+(n-1)*gp)/2;
+  ["HBM","cHBM","DRAM","CXL","HBF","SSD"].forEach(t=>{
+    box(s,tx,4.26,tw,0.56,C1,C1S,t,10);
+    tx+=tw+gp;
+  });
+  txt(s,L,4.94,R-L,0.26,"L5  Memory",{fs:10,c:MUTED,al:"center"});
+
+  card(s,L,5.36,R-L,1.26,PANEL,INK);
+  txt(s,L+0.24,5.48,R-L-0.48,0.26,"문제 한 문장",{fs:10,b:true,c:MUTED,cs:1.2});
+  txt(s,L+0.24,5.76,R-L-0.48,0.76,
+    "vLLM v1에는 배치 결정을 담는 자리가 없기 때문에, 6단 이기종 메모리로 확장하면 tier 지식이 스케줄러로 올라와 DIP가 깨지고, "+
+    "새 메모리를 도입하는 비용이 스케줄러를 수정하는 비용으로 전가된다.",
+    {fs:12.5,b:true,c:INK,ls:1.3});
+  s.addNotes("스케줄러가 tier를 지정하면 스케줄러가 메모리 토폴로지를 알아야 한다. '얼마나'만 말하고 런타임이 '어디에'를 정하는 분리는 전제이고, DP1은 그 안에서 무엇을 근거로 정하는가를 다룬다.");
 }
 
 /* ---------- 5. 관련 QA ---------- */
