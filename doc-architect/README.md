@@ -4,7 +4,7 @@
 
 | DP | 결정하는 것 | 핵심 질문 |
 |---|---|---|
-| **DP1** | KV Cache **배치** | 어느 Memory에 둘 것인가? |
+| **DP1** | KV Cache **배치** | 활성 실행에서 벗어난 KV를 어느 Memory에 둘 것인가? |
 | **DP2** | Prefill **실행 위치** | 어느 Compute Node에서 수행할 것인가? |
 | **DP3** | KV Cache **회수** | 용량이 부족할 때 무엇을 먼저 내릴 것인가? |
 
@@ -28,6 +28,8 @@
 DP1의 배치 결과가 DP2의 Data Movement Cost를 결정하고, DP1이 배치한 KV가 쌓여 생기는
 HBM Pressure를 DP3가 회수로 해소한다. 세 DP는 독립적인 최적화 문제가 아니다.
 
+DP1과 DP3는 둘 다 KV를 하위 계층으로 보내지만 같은 결정이 아니다 — **DP1은 수요 소멸(이 KV가 지금 안 쓰인다)이 트리거이고 재접근 시점이 기준**이며, **DP3는 공급 부족(HBM이 모자란다)이 트리거이고 Attention Importance가 기준**이다.
+
 ---
 
 ## 문서 목록
@@ -41,8 +43,10 @@ HBM Pressure를 DP3가 회수로 해소한다. 세 DP는 독립적인 최적화 
 
 **후보 구조**
 
-- **C1. Memory-centric** — Memory 특성(Capacity / BW / Compute Capability / Load / Endurance)이 배치 후보를 형성
-- **C2. Data-centric** — KV 특성(Access Pattern / Hotness / Lifetime / Operation / Write Intensity)이 후보를 형성하고, Memory State가 그 안에서 선택
+결정 시점은 **KV가 비활성으로 전환되는 순간**이다 — 턴 종료(Agent Tool 대기), Prefix 재사용분 보존, 선점, 세션 종료. 활성 Decode 중인 KV는 GPU-reachable 메모리에 있어야 하므로 대상이 아니다.
+
+- **C1. Memory-centric** — Memory 특성(Capacity / BW / Attention Compute Capability / Load / Write Endurance)이 배치 후보를 형성
+- **C2. Data-centric** — KV 특성(재접근 시점 / 재접근 확률 / 공유도 / 재활성 연산 / Write Intensity)이 후보를 형성하고, Memory State가 그 안에서 선택
 
 ### DP2. 이기종 메모리 환경의 Agent Prefill 실행 위치 결정 구조
 
