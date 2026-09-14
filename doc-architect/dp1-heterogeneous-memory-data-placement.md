@@ -417,6 +417,8 @@ SLO: TTFT ≤ T_ttft  AND  TPOT ≤ T_tpot
 
 **정규화:** As-Is(HBM 우선 할당) = 1.0.
 
+> **Scheduler가 이 지표에 개입한다.** Goodput은 배치 정책만의 함수가 아니며, Admission/Batching/Preemption 설정이 같은 배치 결과에서도 값을 바꾼다. 비교 조건은 **§9.6.1의 Scheduler 고정 규칙**을 따른다.
+
 #### M-P2. TTFT
 
 Request 도착부터 첫 Token 생성까지의 시간. **배치 결정이 직접 좌우한다.**
@@ -614,12 +616,35 @@ KV Cache는 Prefill write-once지만 **Offload/Restore 왕복과 선점 후 재�
 단일 수치 비교는 파라미터 선택에 취약하므로, **조건에 따른 곡선과 유효 범위**로 보고한다.
 
 - **정규화 지표 사용** — As-Is(HBM 우선 할당)를 1.0 기준선으로 삼는다. 절대 시간값의 스케일 의존성을 제거한다.
+- **Scheduler를 고정하고 병기한다** — M-P1(Goodput)은 배치 정책만의 함수가 아니다. Admission Control, Batching 구성 규칙, Preemption 방식, Chunked Prefill 설정이 **같은 배치 결과에서도** Goodput을 바꾼다. 아래 §9.6.1의 규칙을 따른다.
 - **Sweep 필수** — Classification 오차율, Profiling 표본율, 자원 상태 변동 주기, Context Length, Concurrency 등 후보의 우열이 바뀔 수 있는 파라미터를 범위로 훑고 **교차 지점의 위치**를 결과로 보고한다. 교차점은 단일 지점이 아니라 **Band**로 보고하며 Sweep 해상도 이상의 정밀도를 주장하지 않는다.
 - **통계적 판정 규칙을 사전 고정** — 동일 seed 쌍으로 반복하고 **신뢰구간이 0을 지나면 "차이 없음"** 으로 판정한다. 점 추정의 부호로 판정하지 않으며, 사후에 규칙을 바꾸지 않는다.
 - **Cost Model 민감도 명시** — 대역폭 혼잡 계수, Latency 가중치 등을 함께 훑어 **결론의 부호가 안정한 구간에서만** 주장한다.
 - **개수 편중 보정** — KV Block은 크기가 균일하지만 **트래픽 기여도가 Block마다 자릿수로 다르므로**, 모든 비율 지표를 **개수 기준과 바이트 기준 양쪽으로** 보고한다.
 - **Pool 구성 병기** — M-P7과 M-F1은 Memory Pool의 연산 커버리지에 의존하므로, Pool의 어느 Memory가 어느 연산을 지원하는지를 결과와 함께 명시하지 않으면 시나리오 간 비교가 성립하지 않는다.
 - **무결성 표시** — Rejection이나 Dropped Migration이 발생한 실행은 **비교 불가**로 표시한다. 목적함수에 페널티를 매기면 정책이 저자가 정한 환율로 "거부"와 "지연"을 맞바꿀 수 있게 된다.
+
+#### 9.6.1 Scheduler 고정 규칙
+
+Goodput을 주 지표로 쓰는 이상, **Scheduler가 결과에 개입한다.** 후보 간 차이보다 Scheduler 설정 차이가 더 클 수 있으므로 다음을 지킨다.
+
+**(1) 동일 Scheduler 구성 내에서만 비교한다.** As-Is 기준선을 포함한 모든 정책이 같은 구성을 쓴다. 정책마다 Scheduler를 조정하면 비교가 "누가 Scheduler를 더 잘 튜닝했는지"를 재게 된다 — §10이 C1/C2에 동일한 `TierScorer`를 강제하는 것과 같은 이유다.
+
+**(2) 구성을 결과와 함께 명시한다.** 최소한 다음을 적는다.
+
+| 항목 | 왜 기록해야 하는가 |
+|---|---|
+| 최대 동시 시퀀스 수 / Batch Token 예산 | Goodput의 상한을 직접 정한다 |
+| Preemption 방식 (Recompute / Swap) | **(4) 참조 — DP1과 직접 상호작용한다** |
+| Chunked Prefill on/off 및 chunk 크기 | Prefill KV Write가 한 번에 발생하는지 나뉘는지를 바꿔 M-P2와 §9.2.2의 발생 빈도를 바꾼다 |
+| Scheduling Policy (FCFS / Priority 등) | Request 혼합 순서를 바꿔 KV Lifetime 분포를 바꾼다 |
+| Prefix Caching on/off | M-P2의 경로 (2)와 Hotness의 의미 자체를 바꾼다 |
+
+**(3) Scheduler 설정 하나 이상을 Sweep 축에 넣는다.** 최소한 **동시성 한계(Batch 크기)** 는 훑는다. 배치 정책의 우열이 Scheduler 설정에 따라 뒤집힌다면 **그 사실 자체가 결과**이며, §11의 조건부 선정에 들어가야 한다. 단일 설정에서 얻은 결론을 일반화하지 않는다.
+
+**(4) Preemption 방식은 섞지 않는다.** Swap 기반 Preemption은 선점된 Request의 KV를 하위 Memory로 밀어내므로 **배치 정책과 같은 자원·대역폭을 놓고 경쟁**하고, M-P4(Staging/Migration Time)와 M-E1(Endurance)에 직접 기여한다. Recompute 기반은 KV를 버리고 다시 계산하므로 그 경로가 없는 대신 Prefill 부하로 나타난다. **두 방식은 DP1의 배치 결정과 전혀 다르게 상호작용하므로, 하나를 고정하고 다른 하나는 별도 조건으로 보고한다.** 한 표 안에 섞으면 Migration 관련 수치가 배치 정책의 산물인지 Preemption의 산물인지 분리되지 않는다.
+
+> **Scheduler를 고정해도 남는 한계:** 이 프로토타입 계열의 결론은 "선택한 Scheduler 구성 위에서" 성립한다. 실제 배치 환경의 Scheduler가 크게 다르면 Goodput 서열이 달라질 수 있으며, 이는 §12의 GPU 실측에서 확인할 항목이다.
 
 ---
 
@@ -663,6 +688,7 @@ KV Cache는 Prefill write-once지만 **Offload/Restore 왕복과 선점 후 재�
 | **Goodput / TTFT / TPOT 실측 (M-P1~M-P3)** | 실제 Attention Kernel, Scheduler, Batching 동작이 필요. 시뮬레이션은 배치 의존 성분만 대리 측정한다 |
 | **GPU Occupancy** | Memory-side compute가 GPU 연산 유닛을 비워주는 이득. **이 항이 없으면 Compute-capable Memory에 관한 모든 수치가 이득의 하한**이 된다 |
 | **Decision Latency 되먹임 (M-P5)** | Scheduler Critical Path의 실제 CPU 시간 측정이 필요 |
+| **Scheduler 구성 의존성** | §9.6.1로 Scheduler를 고정해도 결론은 그 구성 위에서만 성립한다. 실제 배치 환경의 Admission/Batching/Preemption이 다르면 Goodput 서열이 달라질 수 있다 |
 | **Energy** | Memory별 전력 특성 데이터 필요 |
 | **Endurance Pressure (M-E1)** | 장기 Offload/Restore 왕복이 누적되는 실워크로드 필요 |
 
