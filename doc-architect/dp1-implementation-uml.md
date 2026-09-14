@@ -384,7 +384,7 @@ sequenceDiagram
     KVM-->>Sched: KVCacheBlocks
 ```
 
-C2는 매 Placement마다 `profile` + `classify` + `candidates` 3회가 추가된다 — 이것이 **설계 문서 §9.2 M-P2(Placement Decision Latency)가 측정할 비용의 실체**다. 반대로 후보 집합이 데이터 특성으로 먼저 좁혀지므로 Prefix Block과 Cold Block이 **Memory State를 보기 전에** 갈라진다.
+C2는 매 Placement마다 `profile` + `classify` + `candidates` 3회가 추가된다 — 이것이 **설계 문서 §9.2 M-P5(Placement Decision Latency)가 측정할 비용의 실체**다. 반대로 후보 집합이 데이터 특성으로 먼저 좁혀지므로 Prefix Block과 Cold Block이 **Memory State를 보기 전에** 갈라진다.
 
 ### 3.3 Reactive 재배치 (직교 축, 두 후보 공통)
 
@@ -434,6 +434,6 @@ sequenceDiagram
 | 신규 Tier 등장 시 | Memory State 기준으로 보수적으로 편입 | Capability가 `CandidateTierMapper`에 즉시 반영 |
 | Reactive 전환 시 변경 지점 | 없음 (`MigrationPlanner` 공유) | 없음 + `KVProfiler.observe()` 활성화 |
 
-이 표는 설계 문서 §7·§8의 근거를 구현 레벨에서 재확인한 것이며, 설계 문서 §9의 각 Metric이 **구조의 어느 지점을 측정하는지**를 지정한다 — M-P2(Placement Decision Latency)는 "Placement당 호출 비용" 행을, M-P6(추정 오차 민감도)은 "추정 의존성" 행을, M-F1(지원 가능한 신규 Memory 수)은 "신규 Tier 등장 시" 행을 잰다.
+이 표는 설계 문서 §7·§8의 근거를 구현 레벨에서 재확인한 것이며, 설계 문서 §9의 각 Metric이 **구조의 어느 지점을 측정하는지**를 지정한다 — M-P5(Placement Decision Latency)는 "Placement당 호출 비용" 행을, M-P8(추정 오차 민감도)은 "추정 의존성" 행을, M-F1(지원 가능한 신규 Memory 수)은 "신규 Tier 등장 시" 행을 잰다.
 
 ---
