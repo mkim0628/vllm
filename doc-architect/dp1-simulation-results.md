@@ -528,8 +528,23 @@ C1의 `agent_swarm` 실패(As-Is의 0.83배)는 **점수 함수가 아니라 후
 ### 재현
 
 ```bash
+# 측정 환경: CPython 3.11.15. 의존성 없음 — 표준 라이브러리만 쓴다
+# (ast argparse dataclasses enum heapq json math pathlib random statistics).
 python3 -m dp1_sim.run_eval --seeds 24 --horizon 400   # → dp1_sim/results.json
 python3 -m dp1_sim.static_metrics                       # → dp1_sim/static_metrics.json
 ```
 
 실행 시간 약 1분. 난수 seed 1000~1023 고정.
+
+> **⚠️ Python 버전이 다르면 수치가 달라질 수 있다.** CPython은 `random.random()`의
+> 시퀀스(Mersenne Twister)만 버전 간 안정성을 보장하고, **그 위에 얹힌 분포 함수는
+> 보장하지 않는다** — "Most of the random module's algorithms and seeding functions
+> are subject to change across Python versions"([Python 문서, `random`](https://docs.python.org/3/library/random.html)).
+> 본 시뮬레이터는 `gauss()`(모든 lognormal 샘플), `expovariate()`(세션 도착 간격),
+> `choices()`(툴 선택) 셋에 의존하므로, 다른 버전에서는 같은 seed라도 **다른 trace가
+> 생성될 수 있다.**
+>
+> 다만 **결론은 유지될 것으로 본다.** 모든 판정을 24-seed paired 신뢰구간으로 하고
+> 있어(§3.3) trace가 바뀌면 소수점 자리가 움직일 뿐, §1의 별점과 §7.1의 선택 규칙이
+> 뒤집히려면 신뢰구간 폭을 넘는 이동이 필요하다. **비트 단위 재현이 필요하면
+> 인터프리터를 3.11로 고정해야 한다** — 가상환경을 쓰는 것으로는 해결되지 않는다.
