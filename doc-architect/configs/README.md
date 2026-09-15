@@ -8,6 +8,16 @@
 | `memories_default.json` | 생성물. `to_json.py`가 YAML에서 만든다. 직접 고치지 말 것 |
 | `to_json.py` | 변환기. `--check`로 stale 여부 검사 |
 
+파일은 세 블록으로 나뉜다.
+
+| 블록 | 내용 |
+|---|---|
+| `gpu:` | 기준 GPU의 대역폭·연산 성능. 시뮬레이션의 비교 기준 |
+| `model:` | 가정 모델의 형상. **`num_heads / num_kv_heads`가 Attention 연산 강도를 정하므로**(설계 문서 §4.2) 모델을 바꾸면 오프로드 가능 여부도 바뀐다 |
+| `memories:` | 6종 메모리 스펙 |
+
+**성능 수치는 이 저장소에 없다.** 이 파일은 시뮬레이션의 입력이며, 어떤 구성에서 무엇이 얼마나 나오는지는 시뮬레이션이 산출한다.
+
 ```bash
 python3 to_json.py           # JSON 재생성
 python3 to_json.py --check   # JSON이 YAML과 어긋나면 실패 (CI용)
