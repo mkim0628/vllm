@@ -4,20 +4,20 @@
     {
       "name": "hbm",
       "medium": "HBM",
-      "role": "GPU 주 메모리",
+      "role": "GPU 노드의 주 메모리 (on-package)",
       "capacity_bytes": 206158430208,
-      "ext_bw_bytes_per_s": 3000000000000.0,
-      "int_bw_bytes_per_s": 3000000000000.0,
+      "ext_bw_bytes_per_s": 8000000000000.0,
+      "int_bw_bytes_per_s": 8000000000000.0,
       "latency_s": 3e-07,
       "gpu_reachable": true,
       "supported_primitives": [],
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "SPEC: HBM4 2.0-3.3 TB/s per stack; capacity = 8-stack class",
+      "provenance": "PUBLIC: 8-stack aggregate HBM bandwidth; per-stack 2.0-3.3 TB/s is SPEC (HBM4)",
       "units": {
         "capacity": "192 GiB",
-        "ext_bw": "3.000 TB/s",
-        "int_bw": "3.000 TB/s",
+        "ext_bw": "8.000 TB/s",
+        "int_bw": "8.000 TB/s",
         "latency": "300 ns",
         "int_ext_asymmetry": "1.0x"
       }
@@ -25,11 +25,14 @@
     {
       "name": "custom_hbm",
       "medium": "CUSTOM_HBM",
-      "role": "연산 기능 내장 HBM (base die에 로직 탑재)",
-      "capacity_bytes": 103079215104,
-      "ext_bw_bytes_per_s": 3000000000000.0,
-      "int_bw_bytes_per_s": 4500000000000.0,
-      "latency_s": 3e-07,
+      "role": "GPU 노드 옆의 별도 메모리 노드. Custom HBM만으로 구성되며 GPU-HBM을 대체한다",
+      "capacity_bytes": 1099511627776,
+      "ext_bw_bytes_per_s": 900000000000.0,
+      "int_bw_bytes_per_s": 8000000000000.0,
+      "latency_s": 1e-06,
+      "hops": [
+        "gpu->dev:scaleup_fabric"
+      ],
       "gpu_reachable": true,
       "supported_primitives": [
         "QK_GEMM",
@@ -39,14 +42,14 @@
       ],
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "ext=SPEC HBM4; int=ASSUMED 1.5x ext (no public figure); UCIe die-to-die integration",
-      "note": "외부/내부 비대칭이 ~1.5배로 작다. 따라서 여기로 연산을 보내는 이득은 대역폭 절감이 아니라 GPU 연산 유닛을 비워주는 데서 나온다. 목적함수에 GPU Occupancy 항이 없는 한 이 이득은 측정되지 않는다.\n",
+      "provenance": "ext=SPEC NVLink 5 (900 GB/s per direction); capacity, int BW, latency = ASSUMED (separate memory node)",
+      "note": "별도 노드이므로 외부/내부 비대칭이 약 8.9배로 크다. GPU가 fabric으로 KV를 읽으면 로컬 HBM 대비 8.9배 느리지만, 노드 안에서 Attention을 수행하면 로컬 HBM과 대등한 처리량을 내면서 용량은 5배가 된다. 따라서 이 노드에서는 Attention 오프로드가 선택이 아니라 사실상 전제다 (설계 문서 4.4).\n",
       "units": {
-        "capacity": "96 GiB",
-        "ext_bw": "3.000 TB/s",
-        "int_bw": "4.500 TB/s",
-        "latency": "300 ns",
-        "int_ext_asymmetry": "1.5x"
+        "capacity": "1.00 TiB",
+        "ext_bw": "0.900 TB/s",
+        "int_bw": "8.000 TB/s",
+        "latency": "1 us",
+        "int_ext_asymmetry": "8.9x"
       }
     },
     {

@@ -45,13 +45,13 @@ JSON 쪽에서도 정보가 사라지지 않도록 `provenance`·`note`를 데�
 
 ## 현재 구성 요약
 
-| 메모리 | 용량 | 외부 BW | 내부 BW | 비대칭 | Attention 오프로드 |
-|---|---:|---:|---:|---:|:---:|
-| `hbm` | 192 GiB | 3.000 TB/s | 3.000 TB/s | 1.0x | — |
-| `custom_hbm` | 96 GiB | 3.000 TB/s | 4.500 TB/s | 1.5x | ✓ |
-| `cxl_pnm` | 512 GiB | 0.064 TB/s | 1.100 TB/s | **17.2x** | ✓ |
-| `dram` | 1.00 TiB | 0.064 TB/s | 0.400 TB/s | 6.2x | — |
-| `hbf` | 2.00 TiB | 1.000 TB/s | 1.000 TB/s | 1.0x | — |
-| `ssd_pim` | 16.00 TiB | 0.016 TB/s | 0.200 TB/s | 12.5x | — |
+| 메모리 | 위치 | 용량 | 외부 BW | 내부 BW | 비대칭 | Attention 오프로드 |
+|---|---|---:|---:|---:|---:|:---:|
+| `hbm` | GPU on-package | 192 GiB | 8.000 TB/s | 8.000 TB/s | 1.0x | — |
+| `custom_hbm` | **별도 노드 (fabric)** | 1.00 TiB | 0.900 TB/s | 8.000 TB/s | 8.9x | ✓ |
+| `cxl_pnm` | CPU 측 (CXL) | 512 GiB | 0.064 TB/s | 1.100 TB/s | 17.2x | ✓ |
+| `dram` | CPU 측 | 1.00 TiB | 0.064 TB/s | 0.400 TB/s | 6.2x | — |
+| `hbf` | GPU on-package | 2.00 TiB | 1.000 TB/s | 1.000 TB/s | 1.0x | — |
+| `ssd_pim` | CPU 측 (NVMe) | 16.00 TiB | 0.016 TB/s | 0.200 TB/s | 12.5x | — |
 
 `ssd_pim`은 `int_bw`가 높지만 `supported_primitives`에 `SOFTMAX`가 없어 **Attention 오프로드 대상이 아니다.** "GEMV 지원 ≠ Attention 지원"을 구성 수준에서 강제하는 지점이다.

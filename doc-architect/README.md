@@ -49,7 +49,9 @@ DP1과 DP3는 둘 다 KV를 하위 계층으로 보내지만 같은 결정이 �
 - **C1. 메모리 특성 중심** — Memory 특성(Capacity / BW / Compute Capability / Load)이 배치 후보를 형성
 - **C2. Data 특성 중심** — KV 캐시 특성(Next-access Time / Reuse Probability / Expected Remaining Lifetime / Agent Tool Info)이 후보를 형성하고, Memory State가 그 안에서 보정
 
-대상 메모리는 **HBM / Custom HBM / CXL-PNM / DRAM / HBF / SSD-PIM** 6종이며, 이 중 **CXL-PNM · Custom HBM · SSD-PIM**이 연산 가능하다. 설계 문서 §3에 각 메모리의 interconnect 탐색 결과와 시뮬레이션 Configuration(공개값/가정값 구분 포함)이, §4에 **Attention은 메모리에서, FFN은 GPU에서** 수행하는 분리 실행 구조가 있다.
+대상 메모리는 **HBM / Custom HBM / CXL-PNM / DRAM / HBF / SSD-PIM** 6종이며, 이 중 **Custom HBM · CXL-PNM**이 Attention을 in-place로 처리할 수 있다(SSD-PIM은 연산 기능은 있으나 `SOFTMAX` 미지원). Custom HBM은 **GPU 노드 옆의 별도 메모리 노드**로 scale-up fabric을 타며, 나머지는 on-package이거나 CPU를 경유한다 — 이 위치 차이가 도달 경로 대역폭을 자릿수로 바꾼다.
+
+설계 문서 §3에 노드 구성·interconnect 탐색·Configuration(공개값/가정값 구분)이, §4에 **Attention은 메모리에서 FFN은 GPU에서** 수행하는 분리 실행 구조와 경로별 정량 비교가 있다. 스펙은 [`configs/`](configs/)에 커밋되어 있다.
 
 ### DP2. 이기종 메모리 환경의 Agent Prefill 실행 위치 결정 구조
 

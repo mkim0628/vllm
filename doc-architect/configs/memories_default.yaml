@@ -33,38 +33,44 @@ memories:
   # ────────────────────────────────────────────────────────────────
   - name: hbm
     medium: HBM
-    role: GPU 주 메모리
+    role: GPU 노드의 주 메모리 (on-package)
     capacity_bytes:     206158430208   # 192 GiB
-    ext_bw_bytes_per_s:        3.0e+12  # 3.0 TB/s   src: SPEC   HBM4 스택당 2.0~3.3 TB/s (2048-bit, 32ch)
-    int_bw_bytes_per_s:        3.0e+12  # 3.0 TB/s   src: SPEC   연산 유닛 없음 — ext와 동일하게 둔다
-    latency_s:                 3.0e-7  # 300 ns     src: PUBLIC HBM 접근 지연 대표값
+    ext_bw_bytes_per_s:       8.0e+12  # 8.0 TB/s   src: PUBLIC 8-stack 집계 대역폭. 스택당 2.0~3.3 TB/s(HBM4 SPEC)
+                                       #                        [주의] 스택당이 아니라 GPU 한 장의 집계값이다.
+                                       #                        capacity도 8-stack 기준이므로 단위를 맞춘 것
+    int_bw_bytes_per_s:       8.0e+12  # 8.0 TB/s   src: PUBLIC 연산 유닛 없음 — ext와 동일하게 둔다
+    latency_s:                3.0e-07  # 300 ns     src: PUBLIC HBM 접근 지연 대표값
     gpu_reachable: true
     supported_primitives: []           # 연산 기능 없음
     write_amplification: 1.0
     endurance_budget_bytes: null       # DRAM — 실질적 무제한
-    provenance: "SPEC: HBM4 2.0-3.3 TB/s per stack; capacity = 8-stack class"
+    provenance: "PUBLIC: 8-stack aggregate HBM bandwidth; per-stack 2.0-3.3 TB/s is SPEC (HBM4)"
 
-  # ────────────────────────────────────────────────────────────────
   - name: custom_hbm
     medium: CUSTOM_HBM
-    role: 연산 기능 내장 HBM (base die에 로직 탑재)
-    capacity_bytes:     103079215104   # 96 GiB
-    ext_bw_bytes_per_s:        3.0e+12  # 3.0 TB/s   src: SPEC    HBM4 급. on-package UCIe die-to-die
-    int_bw_bytes_per_s:        4.5e+12  # 4.5 TB/s   src: ASSUMED ext의 1.5배. base die 연산 유닛은 PHY를
-                                       #                         우회하므로 외부보다 높다고 가정. 공개 정량값 없음.
-                                       #                         → 설계 문서 §11.6 Sweep 필수 축
-    latency_s:                 3.0e-7  # 300 ns     src: PUBLIC  on-package
-    gpu_reachable: true
+    role: GPU 노드 옆의 별도 메모리 노드. Custom HBM만으로 구성되며 GPU-HBM을 대체한다
+    capacity_bytes:    1099511627776   # 1.00 TiB   src: ASSUMED GPU HBM(192 GiB)의 약 5배.
+                                       #                         연산 다이가 면적을 다투지 않는 전용 메모리 노드이므로
+                                       #                         스택을 훨씬 많이 실을 수 있다는 전제
+    ext_bw_bytes_per_s:       9.0e+11  # 0.9 TB/s   src: SPEC   NVLink 5 방향당 900 GB/s (18 link x 100 GB/s 양방향 = 1.8 TB/s)
+                                       #                        별도 노드이므로 on-package가 아니라 scale-up fabric을 탄다.
+                                       #                        UALink 1.0은 lane당 200 Gbps이며 lane 수로 이 대역을 맞춘다
+    int_bw_bytes_per_s:       8.0e+12  # 8.0 TB/s   src: ASSUMED 노드 내부 HBM 스택 집계. 근접 연산 유닛이
+                                       #                         fabric을 거치지 않고 접근한다는 전제.
+                                       #                         공개 정량값 없음 -> 설계 문서 11.6 Sweep 필수 축
+    latency_s:                1.0e-06  # 1 us       src: ASSUMED scale-up fabric 한 홉. on-package(300 ns)보다 크다
+    hops: [gpu->dev:scaleup_fabric]    # 한 홉. CPU를 경유하지 않는다
+    gpu_reachable: true                # fabric이 memory semantics를 제공한다는 전제 (NVLink-C2C 방식)
     supported_primitives: [QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK]
     write_amplification: 1.0
     endurance_budget_bytes: null
-    provenance: "ext=SPEC HBM4; int=ASSUMED 1.5x ext (no public figure); UCIe die-to-die integration"
+    provenance: "ext=SPEC NVLink 5 (900 GB/s per direction); capacity, int BW, latency = ASSUMED (separate memory node)"
     note: >
-      외부/내부 비대칭이 ~1.5배로 작다. 따라서 여기로 연산을 보내는 이득은
-      대역폭 절감이 아니라 GPU 연산 유닛을 비워주는 데서 나온다.
-      목적함수에 GPU Occupancy 항이 없는 한 이 이득은 측정되지 않는다.
+      별도 노드이므로 외부/내부 비대칭이 약 8.9배로 크다. GPU가 fabric으로 KV를 읽으면
+      로컬 HBM 대비 8.9배 느리지만, 노드 안에서 Attention을 수행하면 로컬 HBM과 대등한
+      처리량을 내면서 용량은 5배가 된다. 따라서 이 노드에서는 Attention 오프로드가
+      선택이 아니라 사실상 전제다 (설계 문서 4.4).
 
-  # ────────────────────────────────────────────────────────────────
   - name: cxl_pnm
     medium: CXL_PNM
     role: 대용량 연산형 확장 메모리 (LPDDR5X 기반)
