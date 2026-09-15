@@ -718,7 +718,7 @@ sequenceDiagram
     participant Mgr as PlacementManager
     participant Reg as PlacementRegistry
     participant Plan as PrefillPathPlanner
-    participant Off as OffloadingManager
+    participant OffMgr as OffloadingManager
     participant GPU as GPU
     participant Led as ResourceLedger
 
@@ -734,15 +734,15 @@ sequenceDiagram
         Mgr->>GPU: Incremental Prefill
     else path == STREAM
         loop 각 계층 l = 1..L
-            Mgr->>Off: 계층 l의 KV 읽기
-            Off-->>Mgr: KV chunk
+            Mgr->>OffMgr: 계층 l의 KV 읽기
+            OffMgr-->>Mgr: KV chunk
             Mgr->>GPU: 계층 l Prefill 연산 후 chunk 폐기
         end
         Note over Mgr,GPU: 상위 계층 용량을 점유하지 않는다.<br/>전송이 연산 아래 숨으면 추가 비용이 0에 수렴
     else path == RESTORE
-        Mgr->>Off: prepare_load(keys, req_context)
-        Off-->>Mgr: LoadStoreSpec
-        Note over Mgr,Off: History 전량을 상위 계층으로 복원<br/>(all-or-nothing) → 용량을 점유한다
+        Mgr->>OffMgr: prepare_load(keys, req_context)
+        OffMgr-->>Mgr: LoadStoreSpec
+        Note over Mgr,OffMgr: History 전량을 상위 계층으로 복원<br/>(all-or-nothing) → 용량을 점유한다
         Mgr->>GPU: Incremental Prefill
     end
 
