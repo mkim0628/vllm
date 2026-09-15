@@ -802,6 +802,50 @@ Allocation Request
   HBM     DRAM    CXL-PNM   Custom HBM   HBF   SSD-PIM
 ```
 
+**렌더링:**
+
+```mermaid
+graph TB
+    Sched["Scheduler"]
+    Req["Allocation Request<br/>KV block size · KV metadata · op info ..."]
+    Sched --> Req
+    Req --> Col
+
+    subgraph PM["Placement Manager — C1. 메모리 특성 중심"]
+        direction TB
+        Col["Memory State Collector<br/>─────────────<br/>Available Capacity<br/>Bandwidth (ext / int)<br/>Compute Capability<br/>Current Load"]
+        Plan["Placement Planner<br/>─────────────<br/>Tier Scoring<br/>(capacity, BW, compute, load)"]
+        Sel["Best Tier Selection<br/>(arg max score)"]
+        Exec["Placement Executor<br/>할당 / 이동 수행"]
+        Col --> Plan --> Sel --> Exec
+    end
+
+    HBM["HBM"]
+    DRAM["DRAM"]
+    CXL["CXL-PNM"]
+    CHBM["Custom HBM"]
+    HBF["HBF"]
+    SSD["SSD-PIM"]
+    Exec --> HBM
+    Exec --> DRAM
+    Exec --> CXL
+    Exec --> CHBM
+    Exec --> HBF
+    Exec --> SSD
+
+    style PM fill:#eef3fb,stroke:#4472c4,stroke-width:2px
+    style Col fill:#dbe5f6,stroke:#4472c4
+    style Plan fill:#dbe5f6,stroke:#4472c4
+    style Sel fill:#dbe5f6,stroke:#4472c4
+    style Exec fill:#dbe5f6,stroke:#4472c4
+    style HBM fill:#fff2cc,stroke:#bf9000
+    style DRAM fill:#fff2cc,stroke:#bf9000
+    style CXL fill:#fff2cc,stroke:#bf9000
+    style CHBM fill:#fff2cc,stroke:#bf9000
+    style HBF fill:#fff2cc,stroke:#bf9000
+    style SSD fill:#fff2cc,stroke:#bf9000
+```
+
 ### 특징
 
 - 메모리의 현재 상태 및 Capability가 배치의 1차 의사결정 기준이다.
@@ -875,6 +919,52 @@ Allocation Request
   HBM     DRAM    CXL-PNM   Custom HBM   HBF   SSD-PIM
 ```
 
+**렌더링:**
+
+```mermaid
+graph TB
+    Sched["Scheduler"]
+    Req["Allocation Request<br/>KV block size · KV metadata · op info ..."]
+    Sched --> Req
+    Req --> Ana
+
+    subgraph PM["Placement Manager — C2. Data 특성 중심"]
+        direction TB
+        Ana["KV Characteristic Analyzer<br/>─────────────<br/>Next-access Time<br/>Reuse Probability<br/>Expected Remaining Lifetime<br/>Agent Tool Info"]
+        Cls["KV Classifier<br/>─────────────<br/>Hot and Compute-heavy<br/>Warm and Read-intensive<br/>Cold and Long-term"]
+        Pol["Placement Policy<br/>─────────────<br/>Hot → HBM, Custom HBM<br/>Warm → HBM, DRAM, CXL-PNM<br/>Cold → CXL-PNM, HBF, SSD-PIM"]
+        Ref["Memory State-aware Refiner<br/>─────────────<br/>Capacity / Load / BW / Endurance 보정"]
+        Exec["Placement Executor"]
+        Ana --> Cls --> Pol --> Ref --> Exec
+    end
+
+    HBM["HBM"]
+    DRAM["DRAM"]
+    CXL["CXL-PNM"]
+    CHBM["Custom HBM"]
+    HBF["HBF"]
+    SSD["SSD-PIM"]
+    Exec --> HBM
+    Exec --> DRAM
+    Exec --> CXL
+    Exec --> CHBM
+    Exec --> HBF
+    Exec --> SSD
+
+    style PM fill:#fdf2ea,stroke:#ed7d31,stroke-width:2px
+    style Ana fill:#fce4d6,stroke:#ed7d31
+    style Cls fill:#fce4d6,stroke:#ed7d31
+    style Pol fill:#fce4d6,stroke:#ed7d31
+    style Ref fill:#fce4d6,stroke:#ed7d31
+    style Exec fill:#fce4d6,stroke:#ed7d31
+    style HBM fill:#fff2cc,stroke:#bf9000
+    style DRAM fill:#fff2cc,stroke:#bf9000
+    style CXL fill:#fff2cc,stroke:#bf9000
+    style CHBM fill:#fff2cc,stroke:#bf9000
+    style HBF fill:#fff2cc,stroke:#bf9000
+    style SSD fill:#fff2cc,stroke:#bf9000
+```
+
 ### 분류 기준
 
 `KV Classifier`는 §5.1의 네 특성에서 Class를 유도한다.
@@ -908,6 +998,76 @@ HBM Pressure가 급변할 때, 후보 집합이 이미 데이터 특성으로 �
 
 ---
 ## 8. C1 vs C2 핵심 차이
+
+같은 입력(Allocation Request)에서 출발해 같은 6종 메모리로 귀결되지만, **그 사이의 Placement Manager 내부 구조 자체가 다르다.** 판단 절차만 세면 C1은 3단계(Collector → Scoring → Selection), C2는 4단계(Analyzer → Classifier → Policy → Refiner)이고(§11.2 M-P5) — 그 차이가 그대로 §6의 장단점(구조 단순성 vs 맞춤형 Placement, 낮은 Overhead vs 판단 비용)이다.
+
+```mermaid
+graph TB
+    Sched["Scheduler"]
+    Req["Allocation Request — KV block size · KV metadata · op info ..."]
+    Sched --> Req
+    Req --> C1_1
+    Req --> C2_1
+
+    subgraph C1PM["1안. Placement Manager — 메모리 특성 중심"]
+        direction TB
+        C1_1["Memory State Collector<br/>Capacity · BW · Compute · Load"]
+        C1_2["Placement Planner<br/>Tier Scoring (arg max)"]
+        C1_3["Placement Executor"]
+        C1_1 --> C1_2 --> C1_3
+    end
+
+    subgraph C2PM["2안. Placement Manager — Data 특성 중심"]
+        direction TB
+        C2_1["KV Characteristic Analyzer<br/>Next-access · Reuse · Lifetime · Tool Info"]
+        C2_2["KV Classifier<br/>Hot / Warm / Cold"]
+        C2_3["Placement Policy<br/>Class → Tier 매핑"]
+        C2_4["Memory State-aware Refiner<br/>Capacity · Load · BW 보정"]
+        C2_5["Placement Executor"]
+        C2_1 --> C2_2 --> C2_3 --> C2_4 --> C2_5
+    end
+
+    HBM["HBM"]
+    DRAM["DRAM"]
+    CXL["CXL-PNM"]
+    CHBM["Custom HBM"]
+    HBF["HBF"]
+    SSD["SSD-PIM"]
+
+    C1_3 --> HBM
+    C1_3 --> DRAM
+    C1_3 --> CXL
+    C1_3 --> CHBM
+    C1_3 --> HBF
+    C1_3 --> SSD
+    C2_5 --> HBM
+    C2_5 --> DRAM
+    C2_5 --> CXL
+    C2_5 --> CHBM
+    C2_5 --> HBF
+    C2_5 --> SSD
+
+    style C1PM fill:#eef3fb,stroke:#4472c4,stroke-width:2px
+    style C1_1 fill:#dbe5f6,stroke:#4472c4
+    style C1_2 fill:#dbe5f6,stroke:#4472c4
+    style C1_3 fill:#dbe5f6,stroke:#4472c4
+
+    style C2PM fill:#fdf2ea,stroke:#ed7d31,stroke-width:2px
+    style C2_1 fill:#fce4d6,stroke:#ed7d31
+    style C2_2 fill:#fce4d6,stroke:#ed7d31
+    style C2_3 fill:#fce4d6,stroke:#ed7d31
+    style C2_4 fill:#fce4d6,stroke:#ed7d31
+    style C2_5 fill:#fce4d6,stroke:#ed7d31
+
+    style HBM fill:#fff2cc,stroke:#bf9000
+    style DRAM fill:#fff2cc,stroke:#bf9000
+    style CXL fill:#fff2cc,stroke:#bf9000
+    style CHBM fill:#fff2cc,stroke:#bf9000
+    style HBF fill:#fff2cc,stroke:#bf9000
+    style SSD fill:#fff2cc,stroke:#bf9000
+```
+
+> **읽는 법.** 파이프라인 단계 수 차이(판단 절차 3 vs 4, Executor 포함 시 4 vs 5)가 곧 "판단 비용"의 시각적 표현이다 — C2가 한 단계 더 지날 때마다 M-P5(Decision Latency)에 항이 하나씩 더 붙는다. 반대로 C1의 짧은 경로가 §6 장점("낮은 의사결정 Overhead")의 구조적 근거다. **박스 개수의 차이 자체가 두 후보의 SW 구조가 다르다는 주장이지, 장식이 아니다.**
 
 ```text
               Same Allocation Request
