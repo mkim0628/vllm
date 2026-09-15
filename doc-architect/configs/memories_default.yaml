@@ -1,0 +1,145 @@
+# DP1 대상 메모리 구성 — 시뮬레이션 기본값
+#
+# 설계 문서: ../dp1-heterogeneous-memory-data-placement.md  (§3 대상 메모리 구성)
+#
+# [중요] 모든 수치는 공개 자료 기반 대표값이며 벤더 데이터가 아니다.
+#        각 항목의 `src:` 주석이 출처를 밝히며, 다음 세 등급으로 표기한다.
+#
+#          SPEC    규격서에 명시된 값 (PCIe, HBM4, OCP HBF 등)
+#          PUBLIC  벤더/논문이 공개한 플랫폼 수치
+#          ASSUMED 공개 정량값이 없어 본 구성에서 가정한 값
+#
+#        ASSUMED 항목은 결론을 뒤집을 수 있으므로 설계 문서 §11.6의
+#        Sweep 축에 반드시 포함한다.
+#
+# [대역폭 정의]
+#   ext_bw : GPU에서 이 메모리에 도달하는 경로(링크)의 대역폭.
+#            KV를 GPU로 끌어올 때 적용된다.
+#   int_bw : 메모리 내부 연산 유닛이 자기 DRAM/NAND에 접근하는 대역폭.
+#            Attention 오프로드(설계 문서 §4) 시 적용된다.
+#   두 값을 하나로 합치면 §3.3의 외부/내부 비대칭이 사라지고
+#   연산 오프로드가 왜 값을 하는지 모델에서 표현되지 않는다.
+#
+# [supported_primitives]
+#   "GEMV를 지원한다"와 "Attention을 처리할 수 있다"는 다르다.
+#   Attention을 그 메모리에서 끝내려면 QK_GEMM, SOFTMAX, AV_GEMM,
+#   CAUSAL_MASK를 모두 지원해야 한다. 하나라도 빠지면 오프로드 대상이
+#   아니다 (설계 문서 §4.5).
+
+schema_version: 1
+
+memories:
+
+  # ────────────────────────────────────────────────────────────────
+  - name: hbm
+    medium: HBM
+    role: GPU 주 메모리
+    capacity_bytes:     206158430208   # 192 GiB
+    ext_bw_bytes_per_s:        3.0e+12  # 3.0 TB/s   src: SPEC   HBM4 스택당 2.0~3.3 TB/s (2048-bit, 32ch)
+    int_bw_bytes_per_s:        3.0e+12  # 3.0 TB/s   src: SPEC   연산 유닛 없음 — ext와 동일하게 둔다
+    latency_s:                 3.0e-7  # 300 ns     src: PUBLIC HBM 접근 지연 대표값
+    gpu_reachable: true
+    supported_primitives: []           # 연산 기능 없음
+    write_amplification: 1.0
+    endurance_budget_bytes: null       # DRAM — 실질적 무제한
+    provenance: "SPEC: HBM4 2.0-3.3 TB/s per stack; capacity = 8-stack class"
+
+  # ────────────────────────────────────────────────────────────────
+  - name: custom_hbm
+    medium: CUSTOM_HBM
+    role: 연산 기능 내장 HBM (base die에 로직 탑재)
+    capacity_bytes:     103079215104   # 96 GiB
+    ext_bw_bytes_per_s:        3.0e+12  # 3.0 TB/s   src: SPEC    HBM4 급. on-package UCIe die-to-die
+    int_bw_bytes_per_s:        4.5e+12  # 4.5 TB/s   src: ASSUMED ext의 1.5배. base die 연산 유닛은 PHY를
+                                       #                         우회하므로 외부보다 높다고 가정. 공개 정량값 없음.
+                                       #                         → 설계 문서 §11.6 Sweep 필수 축
+    latency_s:                 3.0e-7  # 300 ns     src: PUBLIC  on-package
+    gpu_reachable: true
+    supported_primitives: [QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK]
+    write_amplification: 1.0
+    endurance_budget_bytes: null
+    provenance: "ext=SPEC HBM4; int=ASSUMED 1.5x ext (no public figure); UCIe die-to-die integration"
+    note: >
+      외부/내부 비대칭이 ~1.5배로 작다. 따라서 여기로 연산을 보내는 이득은
+      대역폭 절감이 아니라 GPU 연산 유닛을 비워주는 데서 나온다.
+      목적함수에 GPU Occupancy 항이 없는 한 이 이득은 측정되지 않는다.
+
+  # ────────────────────────────────────────────────────────────────
+  - name: cxl_pnm
+    medium: CXL_PNM
+    role: 대용량 연산형 확장 메모리 (LPDDR5X 기반)
+    capacity_bytes:     549755813888   # 512 GiB
+    ext_bw_bytes_per_s:        6.4e+10  # 64 GB/s    src: SPEC   PCIe 5.0 x16 방향당 64 GB/s
+                                       #                        (PCIe 6.0 x16 = 128, 7.0 x16 = 256 GB/s 목표)
+    int_bw_bytes_per_s:        1.1e+12  # 1.1 TB/s   src: PUBLIC LPDDR5X 기반 CXL-PNM 플랫폼 공개값
+    latency_s:                 2.5e-7  # 250 ns     src: PUBLIC CXL.mem load-to-use 170~250 ns 범위의 상단.
+                                       #                        CPU 홉을 거치므로 보수적으로 상단을 쓴다
+    hops: [gpu->cpu:pcie, cpu->dev:cxl]   # GPU에서 두 홉
+    gpu_reachable: false
+    supported_primitives: [QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK]
+    write_amplification: 1.0
+    endurance_budget_bytes: null
+    provenance: "ext=SPEC PCIe 5.0 x16; int/capacity=PUBLIC LPDDR5X CXL-PNM platform"
+    note: >
+      외부/내부 비대칭이 약 17배로 이 구성에서 가장 크다.
+      KV를 링크로 끌어내는 순간 1.1 TB/s짜리 메모리를 64 GB/s로 쓰게 되므로,
+      여기 둔 KV는 옮기지 말고 연산을 보내야 한다 (설계 문서 §4).
+
+  # ────────────────────────────────────────────────────────────────
+  - name: dram
+    medium: DRAM
+    role: CPU 측 주 메모리
+    capacity_bytes:    1099511627776   # 1 TiB
+    ext_bw_bytes_per_s:        6.4e+10  # 64 GB/s    src: SPEC   GPU에서는 PCIe 5.0 x16 경유가 병목
+    int_bw_bytes_per_s:        4.0e+11  # 400 GB/s   src: SPEC   DDR5-6400 채널당 51.2 GB/s × 8채널급.
+                                       #                        연산 기능은 없으므로 참고값
+    latency_s:                 2.0e-7  # 200 ns     src: PUBLIC 로컬 DRAM 80~100 ns + PCIe 경유분
+    hops: [gpu->cpu:pcie]
+    gpu_reachable: false
+    supported_primitives: []
+    write_amplification: 1.0
+    endurance_budget_bytes: null
+    provenance: "SPEC: DDR5-6400 51.2 GB/s per channel; ext limited by PCIe 5.0 x16"
+
+  # ────────────────────────────────────────────────────────────────
+  - name: hbf
+    medium: HBF
+    role: 고대역 플래시 (HBM과 SSD 사이 용량 계층)
+    capacity_bytes:    2199023255552   # 2 TiB      src: SPEC   OCP 규격 스택당 512 GB × 4 스택
+    ext_bw_bytes_per_s:        1.0e+12  # 1.0 TB/s   src: SPEC   OCP 규격 3개 등급 0.4~3.0 TB/s 중 중간 등급.
+                                       #                        UCIe로 프로세서에 연결
+    int_bw_bytes_per_s:        1.0e+12  # 1.0 TB/s   src: SPEC   연산 기능 없음 — ext와 동일하게 둔다
+    write_bw_bytes_per_s:      5.0e+10  # 50 GB/s    src: ASSUMED 읽기의 1/20. NAND의 read/write 비대칭을
+                                       #                         반영한 가정. OCP 규격에 쓰기 측 정량값 없음
+                                       #                         → 설계 문서 §11.6 Sweep 필수 축
+    latency_s:                 5.0e-6  # 5 us       src: ASSUMED NAND read 지연. DRAM보다 한 자릿수 이상 크다
+    gpu_reachable: true                # UCIe on-package
+    supported_primitives: []
+    write_amplification: 3.0           # src: ASSUMED NAND GC 포함
+    endurance_budget_bytes:    1.0e+17  # 100 PB     src: ASSUMED → §11.6 Sweep 필수 축
+    provenance: "capacity/read BW/UCIe = SPEC (OCP HBF technical specification, FMS 2026); write BW, latency, WA, endurance = ASSUMED"
+    note: >
+      읽기 대역폭은 HBM에 근접하지만 매체가 NAND이므로 쓰기가 비싸고 수명이 유한하다.
+      비활성 전환마다 쓰고 재활성마다 읽는 왕복이 반복되면 수명이 소모되므로,
+      왕복 빈도가 높을 KV를 여기 두면 안 된다 (설계 문서 §11.5 M-E1).
+
+  # ────────────────────────────────────────────────────────────────
+  - name: ssd_pim
+    medium: SSD_PIM
+    role: 연산 기능 내장 스토리지 (장기 보관)
+    capacity_bytes:   17592186044416   # 16 TiB
+    ext_bw_bytes_per_s:        1.6e+10  # 16 GB/s    src: SPEC    PCIe 5.0 x4
+    int_bw_bytes_per_s:        2.0e+11  # 200 GB/s   src: ASSUMED 내부 NAND 채널 집계. 호스트 링크보다
+                                       #                         높다는 것이 PIM의 존재 이유
+    latency_s:                 6.0e-5  # 60 us      src: PUBLIC  NVMe 읽기 지연 대표값
+    hops: [gpu->cpu:pcie, cpu->dev:nvme]
+    gpu_reachable: false
+    supported_primitives: [QK_GEMM, AV_GEMM]   # SOFTMAX 미지원 → Attention 오프로드 대상 아님
+    write_amplification: 4.0           # src: ASSUMED
+    endurance_budget_bytes:    1.0e+16  # 10 PB      src: ASSUMED
+    provenance: "ext=SPEC PCIe 5.0 x4; latency=PUBLIC NVMe; int BW, WA, endurance = ASSUMED"
+    note: >
+      supported_primitives에 SOFTMAX가 없으므로 reactivation_mode_for()가
+      ATTENTION_OFFLOAD를 반환하지 않는다. 이것이 "GEMV 지원 != Attention 지원"을
+      타입으로 강제하는 지점이다 (설계 문서 §4.5).
+      지연이 us 급이라 계층당 왕복 × 계층 수가 대화형 경로 예산을 넘는다 (§4.3).

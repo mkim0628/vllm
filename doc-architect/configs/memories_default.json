@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "memories": [
+    {
+      "name": "hbm",
+      "medium": "HBM",
+      "role": "GPU 주 메모리",
+      "capacity_bytes": 206158430208,
+      "ext_bw_bytes_per_s": 3000000000000.0,
+      "int_bw_bytes_per_s": 3000000000000.0,
+      "latency_s": 3e-07,
+      "gpu_reachable": true,
+      "supported_primitives": [],
+      "write_amplification": 1.0,
+      "endurance_budget_bytes": null,
+      "provenance": "SPEC: HBM4 2.0-3.3 TB/s per stack; capacity = 8-stack class",
+      "units": {
+        "capacity": "192 GiB",
+        "ext_bw": "3.000 TB/s",
+        "int_bw": "3.000 TB/s",
+        "latency": "300 ns",
+        "int_ext_asymmetry": "1.0x"
+      }
+    },
+    {
+      "name": "custom_hbm",
+      "medium": "CUSTOM_HBM",
+      "role": "연산 기능 내장 HBM (base die에 로직 탑재)",
+      "capacity_bytes": 103079215104,
+      "ext_bw_bytes_per_s": 3000000000000.0,
+      "int_bw_bytes_per_s": 4500000000000.0,
+      "latency_s": 3e-07,
+      "gpu_reachable": true,
+      "supported_primitives": [
+        "QK_GEMM",
+        "SOFTMAX",
+        "AV_GEMM",
+        "CAUSAL_MASK"
+      ],
+      "write_amplification": 1.0,
+      "endurance_budget_bytes": null,
+      "provenance": "ext=SPEC HBM4; int=ASSUMED 1.5x ext (no public figure); UCIe die-to-die integration",
+      "note": "외부/내부 비대칭이 ~1.5배로 작다. 따라서 여기로 연산을 보내는 이득은 대역폭 절감이 아니라 GPU 연산 유닛을 비워주는 데서 나온다. 목적함수에 GPU Occupancy 항이 없는 한 이 이득은 측정되지 않는다.\n",
+      "units": {
+        "capacity": "96 GiB",
+        "ext_bw": "3.000 TB/s",
+        "int_bw": "4.500 TB/s",
+        "latency": "300 ns",
+        "int_ext_asymmetry": "1.5x"
+      }
+    },
+    {
+      "name": "cxl_pnm",
+      "medium": "CXL_PNM",
+      "role": "대용량 연산형 확장 메모리 (LPDDR5X 기반)",
+      "capacity_bytes": 549755813888,
+      "ext_bw_bytes_per_s": 64000000000.0,
+      "int_bw_bytes_per_s": 1100000000000.0,
+      "latency_s": 2.5e-07,
+      "hops": [
+        "gpu->cpu:pcie",
+        "cpu->dev:cxl"
+      ],
+      "gpu_reachable": false,
+      "supported_primitives": [
+        "QK_GEMM",
+        "SOFTMAX",
+        "AV_GEMM",
+        "CAUSAL_MASK"
+      ],
+      "write_amplification": 1.0,
+      "endurance_budget_bytes": null,
+      "provenance": "ext=SPEC PCIe 5.0 x16; int/capacity=PUBLIC LPDDR5X CXL-PNM platform",
+      "note": "외부/내부 비대칭이 약 17배로 이 구성에서 가장 크다. KV를 링크로 끌어내는 순간 1.1 TB/s짜리 메모리를 64 GB/s로 쓰게 되므로, 여기 둔 KV는 옮기지 말고 연산을 보내야 한다 (설계 문서 §4).\n",
+      "units": {
+        "capacity": "512 GiB",
+        "ext_bw": "0.064 TB/s",
+        "int_bw": "1.100 TB/s",
+        "latency": "250 ns",
+        "int_ext_asymmetry": "17.2x"
+      }
+    },
+    {
+      "name": "dram",
+      "medium": "DRAM",
+      "role": "CPU 측 주 메모리",
+      "capacity_bytes": 1099511627776,
+      "ext_bw_bytes_per_s": 64000000000.0,
+      "int_bw_bytes_per_s": 400000000000.0,
+      "latency_s": 2e-07,
+      "hops": [
+        "gpu->cpu:pcie"
+      ],
+      "gpu_reachable": false,
+      "supported_primitives": [],
+      "write_amplification": 1.0,
+      "endurance_budget_bytes": null,
+      "provenance": "SPEC: DDR5-6400 51.2 GB/s per channel; ext limited by PCIe 5.0 x16",
+      "units": {
+        "capacity": "1.00 TiB",
+        "ext_bw": "0.064 TB/s",
+        "int_bw": "0.400 TB/s",
+        "latency": "200 ns",
+        "int_ext_asymmetry": "6.2x"
+      }
+    },
+    {
+      "name": "hbf",
+      "medium": "HBF",
+      "role": "고대역 플래시 (HBM과 SSD 사이 용량 계층)",
+      "capacity_bytes": 2199023255552,
+      "ext_bw_bytes_per_s": 1000000000000.0,
+      "int_bw_bytes_per_s": 1000000000000.0,
+      "write_bw_bytes_per_s": 50000000000.0,
+      "latency_s": 5e-06,
+      "gpu_reachable": true,
+      "supported_primitives": [],
+      "write_amplification": 3.0,
+      "endurance_budget_bytes": 1e+17,
+      "provenance": "capacity/read BW/UCIe = SPEC (OCP HBF technical specification, FMS 2026); write BW, latency, WA, endurance = ASSUMED",
+      "note": "읽기 대역폭은 HBM에 근접하지만 매체가 NAND이므로 쓰기가 비싸고 수명이 유한하다. 비활성 전환마다 쓰고 재활성마다 읽는 왕복이 반복되면 수명이 소모되므로, 왕복 빈도가 높을 KV를 여기 두면 안 된다 (설계 문서 §11.5 M-E1).\n",
+      "units": {
+        "capacity": "2.00 TiB",
+        "ext_bw": "1.000 TB/s",
+        "int_bw": "1.000 TB/s",
+        "latency": "5 us",
+        "int_ext_asymmetry": "1.0x",
+        "write_bw": "0.050 TB/s",
+        "endurance_budget": "100 PB"
+      }
+    },
+    {
+      "name": "ssd_pim",
+      "medium": "SSD_PIM",
+      "role": "연산 기능 내장 스토리지 (장기 보관)",
+      "capacity_bytes": 17592186044416,
+      "ext_bw_bytes_per_s": 16000000000.0,
+      "int_bw_bytes_per_s": 200000000000.0,
+      "latency_s": 6e-05,
+      "hops": [
+        "gpu->cpu:pcie",
+        "cpu->dev:nvme"
+      ],
+      "gpu_reachable": false,
+      "supported_primitives": [
+        "QK_GEMM",
+        "AV_GEMM"
+      ],
+      "write_amplification": 4.0,
+      "endurance_budget_bytes": 1e+16,
+      "provenance": "ext=SPEC PCIe 5.0 x4; latency=PUBLIC NVMe; int BW, WA, endurance = ASSUMED",
+      "note": "supported_primitives에 SOFTMAX가 없으므로 reactivation_mode_for()가 ATTENTION_OFFLOAD를 반환하지 않는다. 이것이 \"GEMV 지원 != Attention 지원\"을 타입으로 강제하는 지점이다 (설계 문서 §4.5). 지연이 us 급이라 계층당 왕복 × 계층 수가 대화형 경로 예산을 넘는다 (§4.3).\n",
+      "units": {
+        "capacity": "16.00 TiB",
+        "ext_bw": "0.016 TB/s",
+        "int_bw": "0.200 TB/s",
+        "latency": "60 us",
+        "int_ext_asymmetry": "12.5x",
+        "endurance_budget": "10 PB"
+      }
+    }
+  ],
+  "_generated_from": "memories_default.yaml",
+  "_note": "Generated file - edit memories_default.yaml and rerun to_json.py. See the yaml for per-field src: SPEC / PUBLIC / ASSUMED tags."
+}

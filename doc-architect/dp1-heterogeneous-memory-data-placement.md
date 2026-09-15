@@ -242,94 +242,36 @@ NVMe 경로이므로 호스트 링크가 가장 좁다.
 
 ### 3.4 시뮬레이션 Configuration
 
-`configs/memories_default.json` 형태로 고정한다. 코드 수정 없이 수치를 교체할 수 있어야 하며, 사내 스펙 시트로 갈아끼우는 경로가 된다.
+**실제 파일로 커밋되어 있다.**
 
-```json
-{
-  "memories": [
-    {
-      "name": "hbm", "medium": "HBM",
-      "capacity_bytes": 206158430208,
-      "ext_bw_bytes_per_s": 3.0e12,
-      "int_bw_bytes_per_s": 3.0e12,
-      "latency_s": 3.0e-7,
-      "gpu_reachable": true,
-      "supported_primitives": [],
-      "write_amplification": 1.0,
-      "endurance_budget_bytes": null,
-      "provenance": "HBM4 class, 2.0-3.3 TB/s per stack (public)"
-    },
-    {
-      "name": "custom_hbm", "medium": "CUSTOM_HBM",
-      "capacity_bytes": 103079215104,
-      "ext_bw_bytes_per_s": 3.0e12,
-      "int_bw_bytes_per_s": 4.5e12,
-      "latency_s": 3.0e-7,
-      "gpu_reachable": true,
-      "supported_primitives": ["QK_GEMM", "SOFTMAX", "AV_GEMM", "CAUSAL_MASK"],
-      "write_amplification": 1.0,
-      "endurance_budget_bytes": null,
-      "provenance": "ext=HBM4 public; int=ASSUMED 1.5x ext (no public figure)"
-    },
-    {
-      "name": "cxl_pnm", "medium": "CXL_PNM",
-      "capacity_bytes": 549755813888,
-      "ext_bw_bytes_per_s": 6.4e10,
-      "int_bw_bytes_per_s": 1.1e12,
-      "latency_s": 2.5e-7,
-      "hops": ["gpu->cpu:pcie", "cpu->dev:cxl"],
-      "gpu_reachable": false,
-      "supported_primitives": ["QK_GEMM", "SOFTMAX", "AV_GEMM", "CAUSAL_MASK"],
-      "write_amplification": 1.0,
-      "endurance_budget_bytes": null,
-      "provenance": "ext=PCIe 5.0 x16 spec; int/cap=LPDDR5X CXL-PNM public"
-    },
-    {
-      "name": "dram", "medium": "DRAM",
-      "capacity_bytes": 1099511627776,
-      "ext_bw_bytes_per_s": 6.4e10,
-      "int_bw_bytes_per_s": 4.0e11,
-      "latency_s": 2.0e-7,
-      "gpu_reachable": false,
-      "supported_primitives": [],
-      "write_amplification": 1.0,
-      "endurance_budget_bytes": null,
-      "provenance": "DDR5-6400 51.2 GB/s per channel (public); ext via PCIe"
-    },
-    {
-      "name": "hbf", "medium": "HBF",
-      "capacity_bytes": 2199023255552,
-      "ext_bw_bytes_per_s": 1.0e12,
-      "int_bw_bytes_per_s": 1.0e12,
-      "write_bw_bytes_per_s": 5.0e10,
-      "latency_s": 5.0e-6,
-      "gpu_reachable": true,
-      "supported_primitives": [],
-      "write_amplification": 3.0,
-      "endurance_budget_bytes": 1.0e17,
-      "provenance": "cap 512GB/stack, BW 0.4-3.0 TB/s, UCIe (OCP spec, FMS 2026); write BW/endurance ASSUMED"
-    },
-    {
-      "name": "ssd_pim", "medium": "SSD_PIM",
-      "capacity_bytes": 17592186044416,
-      "ext_bw_bytes_per_s": 1.6e10,
-      "int_bw_bytes_per_s": 2.0e11,
-      "latency_s": 6.0e-5,
-      "gpu_reachable": false,
-      "supported_primitives": ["QK_GEMM", "AV_GEMM"],
-      "write_amplification": 4.0,
-      "endurance_budget_bytes": 1.0e16,
-      "provenance": "ext=PCIe 5.0 x4 spec; int/endurance ASSUMED"
-    }
-  ]
-}
+| 파일 | 역할 |
+|---|---|
+| [`configs/memories_default.yaml`](configs/memories_default.yaml) | **원본.** 값마다 단위와 출처 등급이 주석으로 붙어 있다 |
+| [`configs/memories_default.json`](configs/memories_default.json) | 생성물. 기계 판독용. `units` 블록으로 크기를 읽을 수 있게 유지 |
+| [`configs/to_json.py`](configs/to_json.py) | 변환기 (`--check`로 stale 검사) |
+| [`configs/README.md`](configs/README.md) | 편집 규칙과 출처 등급 설명 |
+
+**원본을 YAML로 둔 이유는 엄격한 JSON에 주석 문법이 없기 때문이다.** 이 값들은 단위(`# 512 GiB`)와 출처(`src: SPEC / PUBLIC / ASSUMED`)가 값 옆에 보여야 편집 실수를 막을 수 있다. JSON 쪽에서도 `provenance`·`note`를 데이터 필드로 유지하고 `units` 블록을 덧붙여 정보가 사라지지 않게 한다. `pyyaml`은 vLLM 공통 의존성이므로 추가 설치가 필요 없다.
+
+항목 예시 (`cxl_pnm`):
+
+```yaml
+- name: cxl_pnm
+  medium: CXL_PNM
+  capacity_bytes:     549755813888   # 512 GiB
+  ext_bw_bytes_per_s:       6.4e+10  # 64 GB/s    src: SPEC   PCIe 5.0 x16 방향당 64 GB/s
+  int_bw_bytes_per_s:       1.1e+12  # 1.1 TB/s   src: PUBLIC LPDDR5X 기반 CXL-PNM 플랫폼 공개값
+  latency_s:                2.5e-07  # 250 ns     src: PUBLIC CXL.mem load-to-use 170~250 ns 범위 상단
+  hops: [gpu->cpu:pcie, cpu->dev:cxl]
+  gpu_reachable: false
+  supported_primitives: [QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK]
 ```
 
 세 가지가 이 스키마에 의도적으로 들어 있다.
 
 **`ext_bw`와 `int_bw`를 분리한다.** 하나로 합치면 §3.3의 비대칭이 표현되지 않고, **연산 오프로드가 왜 값을 하는지가 모델에서 사라진다.** 연산 가능 메모리는 `int_bw`를 반드시 선언해야 하며, 없으면 loader가 거부한다 — 기본값을 외부 속도로 두면 memory-side compute가 링크 속도로 도는 것으로 조용히 모델링되어 그 기능이 존재하는 이유가 없어진다.
 
-**`supported_primitives`가 연산 단위가 아니라 원시 연산 단위다.** "GEMV를 지원한다"와 "Attention을 처리할 수 있다"는 다르다. Softmax가 없으면 Attention을 그 메모리에서 끝낼 수 없으므로, `ssd_pim`처럼 `SOFTMAX`가 빠진 구성은 Attention 오프로드 대상이 되지 않는다. 연산을 `ATTENTION` 하나로 두면 이 구분이 사라지고 §11 M-P7이 과대평가된다.
+**`supported_primitives`가 연산 단위가 아니라 원시 연산 단위다.** "GEMV를 지원한다"와 "Attention을 처리할 수 있다"는 다르다. `ssd_pim`은 `SOFTMAX`가 없어 Attention 오프로드 대상이 되지 않는다. 연산을 `ATTENTION` 하나로 두면 이 구분이 사라지고 §11 M-P7이 과대평가된다.
 
 **`hops`가 경로를 명시한다.** CXL-PNM은 GPU에서 두 홉이므로 실효 대역폭과 지연이 단일 링크 값과 다르다.
 
@@ -450,6 +392,8 @@ TPOT 목표가 30 ms라면 0.7% 수준이다. 다만 **지연이 μs 급인 SSD-
 
 > **턴당 생성 길이가 약 27 토큰보다 짧으면 Attention 오프로드가 유리하고, 길면 복원이 유리하다.**
 >
+> **단, 이 계산은 연산형 메모리가 내부 대역폭을 온전히 쓴다고 가정한다.** 실제 PNM에서 Attention 커널이 1.1 TB/s를 얼마나 달성하는지는 구현에 달려 있고 공개 수치가 없다. 달성률이 50%면 오프로드 쪽 Step 비용이 두 배가 되어 손익분기가 크게 내려간다 — §5.4(4)와 §11.6의 Sweep 축 참조.
+>
 > Agent 워크로드는 이 경계의 **유리한 쪽**에 있는 경우가 많다 — Tool Call을 결정하는 턴의 출력은 대개 짧은 구조화 텍스트다. 반대로 최종 답변을 길게 생성하는 턴은 복원이 유리하다. **같은 세션 안에서도 턴마다 답이 달라진다**는 뜻이며, 이 판단을 하려면 §5의 Expected Remaining Lifetime과 Agent Tool Info가 필요하다.
 
 ### 4.5 성립 조건
@@ -470,39 +414,95 @@ C1/C2 모두 동일한 정보를 받는다. 차이는 정보의 차이가 아니
 
 ### 5.1 KV 캐시 특성 — 무엇을 분석하는가
 
-§2②에서 서술한 Locality·Hotness·Lifetime을 **배치 결정이 실제로 소비할 수 있는 네 개의 값**으로 구체화한다. 모호한 "뜨겁다/차갑다"가 아니라 **언제·얼마나 확실하게·얼마나 오래·무슨 연산으로** 다시 쓰이는가를 묻는다.
-
-| 특성 | 정의 | 무엇을 결정하는가 | 결정 시점에 |
-|---|---|---|---|
-| **Next-access Time** | 다음 접근까지 남은 시간. 턴 종료면 Tool 실행 시간, 선점이면 재개까지, Prefix 보존이면 다음 Hit까지 | **계층 깊이** — 곧 쓰일수록 얕게 | **추정 필요** |
-| **Reuse Probability** | 이 KV가 다시 쓰이긴 하는가. 세션 지속 확률, Prefix 재사용 확률 | **자리를 잡아둘 가치** — 특히 §4의 연산형 메모리 자리 배정 | **추정 필요** |
-| **Expected Remaining Lifetime** | 앞으로 남은 유효 기간. 남은 턴 수 × 턴당 길이, Prefix면 잔류 기대 시간 | **왕복 횟수** → 저내구성 매체 회피 (§11 M-E1), §4.4의 손익분기 | **추정 필요** |
-| **Agent Tool Info** | 호출된 Tool의 종류·예상 실행 시간·결과 크기 | **위 세 값의 가장 강한 관측 근거** | **선언 가능** |
-
-#### Agent Tool Info가 특별한 이유
-
-나머지 세 특성은 추정값이지만, **Agent Tool Info는 결정 시점에 이미 알려진 사실**이다. 어떤 Tool이 호출됐는지는 Decode가 만들어낸 출력이므로 Scheduler가 안다.
+§2②에서 서술한 Locality·Hotness·Lifetime을 **배치 결정이 실제로 소비할 수 있는 값**으로 구체화한다. 구조는 **추정 대상 3개 + 그 추정의 관측 근거 1개**다.
 
 ```text
-Tool 호출                     →  추정에 주는 정보
-──────────────────────────────────────────────────────────
-web_search                    →  Next-access Time ~ 수 초
-                                 Reuse Probability 높음 (턴 계속)
-code_execution (장기)         →  Next-access Time ~ 수십 초
-                                 → 더 깊은 계층이 유리
-db_query (단기)               →  Next-access Time ~ 수백 ms
-                                 → 계층을 내리면 손해
-final_answer / 종료 신호      →  Reuse Probability 낮음
-                                 → 회수 대상
+                 Agent Tool Info          ← 관측값 (결정 시점에 이미 알려져 있음)
+                        │
+        ┌───────────────┼───────────────┐
+        ▼               ▼               ▼
+  Next-access      Reuse         Expected Remaining
+     Time        Probability         Lifetime         ← 추정 대상
+        │               │               │
+        ▼               ▼               ▼
+   계층 깊이      자리를 잡아둘      앞으로 몇 번
+  (다음 한 번)        가치           왕복하는가
 ```
 
-**Tool 종류별 실행 시간 분포는 워크로드 통계로 직접 잡힌다.** 이것이 §5.2에서 다루듯 이 DP의 추정을 "원리적으로 불가능한 예측"이 아니라 "추정 품질의 문제"로 만드는 핵심 근거다.
+#### Next-access Time — 다음 접근까지 걸리는 시간
+
+**Decode 연산이 끝나고 Tool을 호출한 뒤, 이 KV에 다시 접근할 때까지의 시간**이다. Tool 실행 시간과 같지 않다는 점이 중요하다.
+
+```text
+Decode 종료 ─► Tool 호출 ─► Tool 실행 ─► 결과 반환 ─► Scheduler Queue ─► 다음 Prefill
+                            └── T_tool_exec ──┘      └ T_queue_wait ┘
+                                                              ▲
+                              Tool이 끝나도 바로 Prefill을 못 할 수 있다.
+                              대기 중인 요청이 많으면 여기서 더 기다린다.
+
+Next-access Time = T_tool_exec + T_result_return + T_queue_wait
+```
+
+**두 성분의 성질이 다르다.** `T_tool_exec`는 Tool 종류가 결정하는 **데이터 특성**이고, `T_queue_wait`은 대기 요청 수와 스케줄러 정책이 결정하는 **시스템 상태**다. 이 구분이 왜 중요한지는 §5.4에서 다룬다.
+
+이 값이 결정하는 것: **계층 깊이.** 300 ms 뒤 돌아올 KV를 SSD-PIM으로 내리면 복원 비용을 회수할 수 없다.
+
+#### Reuse Probability — 여러 요청이 이 KV를 얼마나 재사용할 것인가
+
+**단일 세션의 문제가 아니라 요청들 사이의 문제**다. 같은 Prefix를 참조하는 다른 요청이 얼마나 있을 것인가를 본다.
+
+```text
+        KV Block (예: 공통 System Prompt 구간)
+                  ▲   ▲   ▲   ▲
+                  │   │   │   │
+            Req A  Req B  Req C  Req D      ← 현재 참조 중 (refer count = 4)
+                  
+      "앞으로 이 block을 참조할 요청이 더 있을 것인가?"
+```
+
+- **관측 근거:** 현재 refer count. vLLM에는 `KVCacheBlock.ref_cnt`가 실재하고(`vllm/v1/core/kv_cache_utils.py`), Prefix Cache Hit 통계도 `PrefixCacheStats`로 이미 계측된다.
+- **추정 대상:** 미래 재사용. 과거 참조 빈도로 미래를 예측하는 것은 캐시 문헌에서 오래 검증된 가정이다.
+
+이 값이 결정하는 것: **자리를 잡아둘 가치.** 여러 요청이 공유하는 Block은 한 세션의 KV보다 얕은 계층을 점유할 근거가 강하다.
+
+#### Expected Remaining Lifetime — 앞으로 몇 번 왕복하는가
+
+**이 KV가 완전히 폐기될 때까지 남은 총 기간**이다. Next-access Time이 "다음 한 번"의 비용을 결정한다면, 이 값은 **"앞으로 몇 번"** 을 결정한다.
+
+```text
+왕복 횟수 ≈  Expected Remaining Lifetime
+            ─────────────────────────────────
+            Next-access Time + 활성 구간 길이
+
+   남은 턴 1회  →  왕복 1번    →  깊이 내려도 amortize 된다
+   남은 턴 20회 →  왕복 20번   →  얕게 두는 편이 낫다
+                                   + 저내구성 매체는 피해야 한다 (§11.5 M-E1)
+```
+
+이 값이 결정하는 것: **왕복 총량.** §4.4의 손익분기와 §11.5의 Endurance Pressure가 직접 이 값에 걸린다.
+
+#### Agent Tool Info — 위 셋의 예측 근거
+
+**결정 시점에 이미 알려진 사실**이다. 어떤 Tool이 호출됐는지는 Decode가 만들어낸 출력이므로 Scheduler가 안다. 위 세 추정값은 모두 이 정보를 1차 입력으로 삼는다.
+
+| 필드 | 무엇을 예측하는 데 쓰이는가 |
+|---|---|
+| Tool 이름 / 종류 | `T_tool_exec` 분포 → Next-access Time |
+| 예상 결과 크기 | 다음 Incremental Prefill의 ΔToken → §4.4 손익분기 |
+| 종료 신호 여부 (`final_answer` 등) | Expected Remaining Lifetime, Reuse Probability |
+
+```text
+web_search                →  T_tool_exec ~ 수 초
+code_execution (장기)     →  T_tool_exec ~ 수십 초   → 더 깊은 계층이 유리
+db_query (단기)           →  T_tool_exec ~ 수백 ms   → 계층을 내리면 손해
+final_answer / 종료 신호  →  Remaining Lifetime ~ 0  → 회수 대상
+```
+
+> **단, Tool Info의 설명력은 세 특성에서 동일하지 않다.** 특히 Reuse Probability는 "다른 요청들이 이 Prefix를 참조하는가"의 문제이므로 이 세션이 무슨 Tool을 불렀는지와 거의 무관하다 — §5.4에서 이 점을 정면으로 다룬다.
 
 #### 파생 특성
 
-위 네 값에서 다음이 따라 나오며, 별도로 관측되기도 한다.
-
-- **공유도 (Share Count)** — 이 Block을 Prefix로 참조하는 세션 수. 현재 값은 관측 가능, 미래는 Reuse Probability의 일부.
+- **공유도 (Share Count)** — Reuse Probability의 관측 성분. `ref_cnt`로 직접 얻는다.
 - **재활성 연산 (Next Operation)** — 재활성 시 받을 Attention의 원시 연산 집합. §3.4의 `supported_primitives`와 매칭되어 §4의 오프로드 가능 여부를 결정한다. **선언 가능.**
 
 ### 5.2 이 DP에서 중요한 세 가지 제약
@@ -537,6 +537,66 @@ KV Block은 `block_size × num_layers × num_kv_heads × head_dim × dtype`으�
 - **Compute Capability** — `supported_primitives` (§4.5의 오프로드 성립 조건)
 - Current Load
 - Write Cost (Write Amplification) / Endurance Headroom
+
+---
+
+### 5.4 추정 근거의 타당성 검토
+
+**네 특성의 근거 강도가 같지 않다.** 약한 항목을 강한 항목과 같은 표에 나란히 두면 C2 전체가 실제보다 튼튼해 보인다. 각각의 근거와 취약점을 명시한다.
+
+| 특성 | 근거 강도 | 실제 근거 | 가장 큰 취약점 |
+|---|:---:|---|---|
+| **Reuse Probability** | **강함** | `KVCacheBlock.ref_cnt`가 실재하는 관측값이고 `PrefixCacheStats`로 Hit Rate가 이미 계측된다. 참조 빈도로 미래 재사용을 예측하는 것은 캐시 문헌에서 오래 검증된 가정 | 현재 `ref_cnt`는 **관측**, 미래 재사용은 **추정**. 둘을 구분하지 않으면 C2가 실제보다 정확해 보인다. Hit Rate는 workload에 따라 크게 달라진다 |
+| **Next-access Time** | **중간** | Tool 종류별 실행 시간 분포는 서빙 로그에서 직접 측정된다 | ① **분산이 매우 크다** — `code_execution`은 자릿수로 흔들린다. ② **Queue 성분이 데이터 특성이 아니다** (아래) |
+| **Expected Remaining Lifetime** | **약함** | 세션당 턴 수 분포는 측정 가능 | **"앞으로 몇 턴 남았나"는 사실상 "이 작업이 언제 끝나나"이며, 출력 길이 예측만큼 어렵다.** 현재 턴에서 관측 가능한 신호가 빈약하다 |
+| **Agent Tool Info** | **강함 (관측값)** | Tool 이름은 Decode 출력이므로 결정 시점에 이미 알려져 있다 | **"세 값을 모두 Tool 기반으로 예측한다"는 주장이 과하다** (아래) |
+
+#### (1) Tool Info의 설명력은 특성마다 다르다
+
+| 대상 | Tool Info의 설명력 | 근거 |
+|---|:---:|---|
+| Next-access Time | **높음** | Tool 종류가 실행 시간의 1차 결정 변수 |
+| Expected Remaining Lifetime | **중간** | `final_answer` 같은 종료 신호는 강하지만 그 외에는 약하다 |
+| Reuse Probability | **낮음** | 재사용은 **다른 요청들이** 이 Prefix를 참조하는지에 달려 있고, 이는 **이 세션이 무슨 Tool을 불렀는지와 거의 무관**하다. 여기서는 `ref_cnt`가 지배적 신호다 |
+
+> **따라서 "Agent Tool Info가 세 값의 공통 근거"로 서술하면 안 된다.** Reuse Probability의 1차 근거는 `ref_cnt`이고 Tool Info는 보조다. §5.1의 그림은 이 강도 차이를 담지 못하므로 이 절과 함께 읽어야 한다.
+
+#### (2) Next-access Time의 Queue 성분 — 공정성 경계를 흐린다
+
+```text
+Next-access Time = T_tool_exec + T_result_return + T_queue_wait
+                   └─ Tool 특성 ─┘               └ 시스템 부하 함수 ┘
+                      C2의 고유 입력                 C1도 볼 수 있음
+```
+
+`T_queue_wait`은 대기 요청 수와 스케줄러 정책의 함수이므로 KV의 데이터 특성이 아니라 **시스템 상태**다. 이는 C1의 `MemoryStateCollector`가 보는 것과 같은 종류의 정보다. 따라서:
+
+- 이 항을 C2만 쓰게 하면 **"C2가 더 많은 정보를 봐서 이겼다"** 가 되어 §8의 공정성 경계가 깨진다.
+- **두 항을 분리해 모델링하고 `T_queue_wait`은 두 후보 모두에게 동일하게 제공한다.** C2의 고유 입력은 `T_tool_exec` 쪽이다.
+- 이 분리를 하지 않으면 M-P8의 민감도가 무엇에 대한 민감도인지 불명확해진다.
+
+#### (3) Expected Remaining Lifetime — 점 추정 대신 Hazard Rate로
+
+"남은 턴 수가 몇인가"를 맞히는 것은 어렵지만, **"지금까지 N턴 돌았을 때 다음 턴이 있을 확률"** 은 훨씬 다루기 쉽다. 후자는 생존 분석의 hazard rate이며 로그에서 직접 추정된다.
+
+```text
+점 추정    E[남은 턴 수] = 3.2턴              ← 분산이 커서 자주 틀린다
+Hazard     P(다음 턴 있음 | 현재까지 N턴) = 0.7  ← 측정 가능하고 배치 결정에 충분
+```
+
+배치 결정에 필요한 것은 "정확히 몇 턴"이 아니라 **"왕복을 몇 번 더 감당해야 하는가"의 기대값**이므로, hazard rate에서 기대 왕복 횟수를 유도하는 편이 방어 가능하다. §11.6의 Sweep은 점 추정이 아니라 이 형태를 전제로 훑는다.
+
+#### (4) §4.4 손익분기 계산 자체의 가정
+
+§4.4가 낸 N ≈ 27은 **연산형 메모리가 내부 대역폭을 온전히 쓴다는 가정** 위에 있다. 실제 PNM에서 Attention 커널이 1.1 TB/s를 얼마나 달성하는지는 구현에 달려 있으며 공개 수치가 없다. 달성률이 50%면 오프로드 쪽 Step 비용이 두 배가 되어 손익분기가 크게 내려간다.
+
+> **§11.6의 Sweep에 "연산형 메모리의 Attention 대역폭 달성률"을 축으로 넣는다.** 이 값을 고정값으로 두고 결론을 내면 안 된다.
+
+#### 이 절의 결론
+
+> **Reuse Probability는 관측에 가깝고, Expected Remaining Lifetime은 추정이라기보다 가정에 가깝다.**
+>
+> 그래서 §11의 M-P8은 오차 축을 특성별로 분리하며, **Expected Remaining Lifetime을 제거한 C2 변형**과 **Agent Tool Info를 제거한 C2 변형**을 함께 측정해 각 특성이 실제로 기여하는지 확인한다. 기여가 확인되지 않은 특성은 설계에서 빼는 것이 맞다.
 
 ---
 
@@ -994,7 +1054,14 @@ C2의 특성 추정(§5.1)에 **알려진 크기의 오차를 주입**하고 M-P
 | **Reuse Probability** | 연산형 메모리 자리 낭비 → 안 돌아올 세션이 CXL-PNM을 점유해 M-P7 분자는 늘지만 Goodput은 안 오름 |
 | **Expected Remaining Lifetime** | §4.4 손익분기 오판 + 저내구성 매체 선택 오판 → M-E1 폭증 |
 
-- **Agent Tool Info의 기여를 분리 측정한다.** Tool Info를 입력에서 제거한 C2 변형을 함께 돌리면, §5.1이 주장한 "Tool Info가 가장 강한 관측 근거"가 수치로 확인되거나 반증된다.
+- **특성별 Ablation 변형을 함께 돌린다.** §5.4가 지적했듯 네 특성의 근거 강도가 다르므로, 각 특성을 제거한 C2 변형의 Goodput을 비교해 **실제 기여를 확인한다.** 기여가 확인되지 않은 특성은 설계에서 빼는 것이 맞다.
+
+| 변형 | 확인하려는 것 |
+|---|---|
+| Tool Info 제거 | §5.1의 "Tool Info가 세 추정의 1차 근거"가 성립하는가 |
+| **Expected Remaining Lifetime 제거** | §5.4에서 가장 근거가 약한 특성이 실제로 기여하는가 |
+| Reuse Probability를 `ref_cnt` 관측값으로만 고정 (미래 추정 제거) | 추정 성분이 관측 성분 위에 무엇을 더하는가 |
+| `T_queue_wait`을 C1에도 제공 | §5.4(2)의 공정성 경계 — C2의 우위가 큐 정보 때문인가 |
 - 무작위 노이즈(ε)와 **계통 편향(bias)** 을 분리한다. 계통 편향은 평균해서 사라지지 않는다.
 - **계기별로 나눠 훑는다.** §5.2의 표대로 선점은 추정이 쉽고 Prefix 보존은 어렵다.
 
@@ -1090,6 +1157,9 @@ Endurance Pressure
 | **Custom HBM 내부/외부 대역폭 비율** | §3.5의 가정값. "Custom HBM에 연산을 보낼 값이 있는가"를 좌우 |
 | **HBF 쓰기 대역폭 / Endurance Budget** | §3.5의 가정값. "HBF를 왕복 매체로 쓸 수 있는가"를 좌우 |
 | **CXL 링크 세대 (PCIe 5.0 / 6.0 / 7.0)** | §3.2의 비대칭 비율이 17× → 4×로 줄면 Mode C의 이득이 달라진다 |
+| **연산형 메모리의 Attention 대역폭 달성률** | §5.4(4). §4.4의 손익분기가 이 값에 직접 걸려 있다. 고정값으로 두고 결론을 내면 안 된다 |
+| **Hazard Rate 추정 오차** | §5.4(3). Expected Remaining Lifetime은 점 추정이 아니라 hazard rate 형태로 훑는다 |
+| **Queue 대기 시간 분포** | §5.4(2). Next-access Time의 시스템 상태 성분. 두 후보에 동일하게 제공한 상태에서 훑는다 |
 | Context Length · Concurrency · Profiling 표본율 | 일반 축 |
 
 - **통계적 판정 규칙을 사전 고정** — 동일 seed 쌍으로 반복하고 **신뢰구간이 0을 지나면 "차이 없음"** 으로 판정한다. 점 추정의 부호로 판정하지 않으며 사후에 규칙을 바꾸지 않는다.

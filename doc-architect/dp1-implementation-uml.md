@@ -125,6 +125,10 @@ classDiagram
         +bool is_terminal
     }
 
+    class QueueStateView {
+        +expected_wait_seconds() float
+    }
+
     class SessionBlockSet {
         +str session_id
         +List~bytes~ block_hashes
@@ -330,16 +334,29 @@ classDiagram
 
     class KVCharacteristicAnalyzer {
         -float sample_rate
-        +analyze(request) KVCharacteristics
+        -ToolLatencyModel tool_model
+        -TurnHazardModel hazard_model
+        +analyze(request, queue_view) KVCharacteristics
         +observe(lifecycle_events) None
     }
 
+    class ToolLatencyModel {
+        +quantiles(tool_name) Dict~float, float~
+    }
+
+    class TurnHazardModel {
+        +hazard(turns_so_far) float
+    }
+
     class KVCharacteristics {
-        +float next_access_time_s
+        +float tool_exec_time_s
+        +float queue_wait_time_s
+        +next_access_time_s() float
         +float reuse_probability
-        +float expected_remaining_lifetime_s
+        +int observed_ref_cnt
+        +float turn_hazard_rate
+        +expected_roundtrips() float
         +AgentToolInfo tool_info
-        +int share_count
         +Set~AttentionPrimitive~ next_op_primitives
     }
 
@@ -370,6 +387,9 @@ classDiagram
     DataCentricPolicy --> PlacementPolicyTable
     DataCentricPolicy --> MemoryStateAwareRefiner
     KVCharacteristicAnalyzer --> KVCharacteristics
+    KVCharacteristicAnalyzer --> ToolLatencyModel
+    KVCharacteristicAnalyzer --> TurnHazardModel
+    KVCharacteristicAnalyzer ..> QueueStateView : reads
     KVClassifier --> KVCharacteristics
     KVClassifier --> KVClass
     PlacementPolicyTable --> KVClass
@@ -380,6 +400,17 @@ classDiagram
 ```
 
 C2의 `place()`는 4단계다: `analyzer.analyze()` → `classifier.classify()` → `policy_table.candidates()`(**KV Class + 재활성 연산만**) → `refiner.refine()`(Memory State로 보정).
+
+`KVCharacteristics`의 필드 구성이 설계 문서 §5.4의 타당성 검토를 반영한다.
+
+| 필드 | 왜 이 형태인가 |
+|---|---|
+| `tool_exec_time_s` / `queue_wait_time_s` 분리, `next_access_time_s()`는 파생 | §5.4(2) — 큐 성분은 데이터 특성이 아니라 시스템 상태다. 분리하지 않으면 C2가 C1보다 많은 정보를 보게 되어 공정성 경계가 깨진다. `QueueStateView`는 **두 후보 모두** 접근 가능하다 |
+| `observed_ref_cnt`(관측)와 `reuse_probability`(추정)를 **따로** 들고 있음 | §5.4 — 관측 성분과 추정 성분을 구분하지 않으면 C2가 실제보다 정확해 보인다. Ablation에서 추정 성분만 제거할 수 있어야 한다 |
+| `turn_hazard_rate` + `expected_roundtrips()` (남은 턴 수 점추정 아님) | §5.4(3) — "몇 턴 남았나"는 예측이 어렵지만 "다음 턴이 있을 확률"은 로그에서 추정된다. 배치에 필요한 것은 기대 왕복 횟수다 |
+| `ToolLatencyModel`이 점 추정이 아니라 `quantiles()`를 반환 | §5.4 — `code_execution`처럼 분산이 자릿수로 큰 Tool이 있어 평균으로 쓰면 자주 틀린다 |
+
+> **`TurnHazardModel`과 `ToolLatencyModel`은 `observe()`로만 갱신된다**(§3.4). 실제 유휴 시간과 다음 턴 발생 여부는 사후에만 관측되므로, 이 두 모델의 품질이 곧 M-P8의 증폭률이 된다.
 
 **`MemoryStateAwareRefiner`가 C1과 동일한 `TierScorer`를 쓰되 후보 집합이 이미 데이터 특성으로 좁혀져 있다는 것이 유일한 구조적 차이**다. 산술을 공유하지 않으면 설계 문서 §11의 비교가 Heuristic 품질 비교로 변질된다.
 
