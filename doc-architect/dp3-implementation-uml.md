@@ -304,6 +304,55 @@ classDiagram
 - **`ImportanceProfile.is_stale()`이 반드시 있어야 한다.** 워크로드가 바뀌면 Profile이 실제 분포를 대표하지 못하고, 그때 C1은 **틀린 채로 조용히 계속 동작한다.** Stale 판정 없이 측정하면 M-A3의 악화가 언제 시작됐는지 알 수 없다.
 - **`RepresentativeQuerySet.selection_method`와 `provenance()`를 값으로 들고 다닌다.** 설계 문서 §9.4 M-A3가 "선정 방법과 개수를 결과와 함께 명시하라"고 요구하므로, 결과에 자동으로 따라붙게 만든다.
 
+**구조로 보면:** 위 클래스 다이어그램의 포함 관계를 "언제 무엇이 실행되는가" 축으로 다시 그리면, C1의 모양은 **시간적으로 분리된 두 섬**이다 — Offline Phase와 Online Phase가 저장된 값(`ImportanceProfile`) 하나로만 이어진다.
+
+```mermaid
+graph TB
+    subgraph OFF["Offline Phase — Serving 이전, 워크로드 변경 시 재실행"]
+        direction TB
+        RQS["RepresentativeQuerySet<br/>─────────────<br/>workload_id · queries<br/>selection_method"]
+        Bld["ProfileBuilder<br/>offline_seconds()"]
+        RQS --> Bld
+    end
+
+    Prof[("ImportanceProfile<br/>ProfileKey · scores<br/>is_stale()")]
+    Bld ==생성 1회==> Prof
+
+    Trig(("ReclaimTrigger<br/>발화 시점마다"))
+    Elig(("eligible KVRange<br/>(공유 Block 제외됨)"))
+
+    subgraph ON["Online Phase — OfflineImportancePolicy"]
+        direction TB
+        PBV["ProfileBackedView<br/>score_of() ← 조회만<br/>is_available() ← is_stale() 검사"]
+        subgraph SEL["TopKSelector (C2와 동일 모듈 공유)"]
+            direction TB
+            Scorer["ImportanceScorer<br/>aggregate · normalize"]
+        end
+        PBV ==KVImportance==> SEL
+    end
+
+    Prof -.저장된 값을 나중에 조회.-> PBV
+    Trig -.-> ON
+    Elig -.-> ON
+
+    Dec[["DropDecision<br/>dropped · retained"]]
+    SEL --> Dec
+
+    style OFF fill:#eef3fb,stroke:#4472c4,stroke-width:2px
+    style RQS fill:#dbe5f6,stroke:#4472c4
+    style Bld fill:#dbe5f6,stroke:#4472c4
+    style ON fill:#dbe5f6,stroke:#4472c4,stroke-width:2px
+    style PBV fill:#c9d7f0,stroke:#4472c4
+    style SEL fill:#dbe5f6,stroke:#4472c4,stroke-width:1px
+    style Scorer fill:#c9d7f0,stroke:#4472c4
+    style Dec fill:#dbe5f6,stroke:#4472c4
+    style Prof fill:#f2f2f2,stroke:#888
+    style Trig fill:#f2f2f2,stroke:#888
+    style Elig fill:#f2f2f2,stroke:#888
+```
+
+**`ImportanceProfile`을 원통(저장소)으로 그린 것이 핵심이다.** Offline Phase와 Online Phase를 잇는 것은 함수 호출이 아니라 **저장되고 나중에 읽히는 값**이며, 그 사이를 점선("저장된 값을 나중에 조회")으로 표시한 것이 곧 §9.3 M-C3가 "Offline Phase 비용을 별도로 보고하라"고 요구하는 이유다 — 두 비용이 서로 다른 시점에, 서로 다른 예산 위에서 발생한다.
+
 ### 2.3 C2. Online Attention-based
 
 ```mermaid
@@ -343,6 +392,51 @@ classDiagram
 - **`AttentionScoreProbe.observe()`는 반환값이 없다.** Attention 결과를 읽기만 하고 되돌려주지 않으므로 모델 연산에 개입할 수 없다 — §1의 관찰 5를 시그니처로 굳힌 것이다.
 - **`is_available()`이 C2에서 거짓일 수 있다.** Actual Query의 Attention이 아직 수행되지 않은 KV에는 점수가 없다. **이 경우 정책은 그 KV를 Drop하지 않는다** — 판단 근거가 없는 것을 버리는 것은 C2의 정의(Actual Query 기반)를 벗어난다. 이것이 설계 문서 §5의 "C2는 선제적 축소가 어렵다"가 구현에서 나타나는 지점이다.
 - **`sample_stride`와 `overhead_seconds()`가 Probe에 있다.** 전 계층·전 헤드의 Attention Score를 모두 관측하면 비용이 크므로 표본화가 필요하고, **그 표본율이 M-A2(FNR)와 M-C3(판단 비용)를 동시에 움직인다.** 설계 문서 §9.6의 Sweep 축에 넣으려면 값으로 노출되어야 한다.
+
+**구조로 보면:** C2에는 저장소도, 시간적으로 분리된 두 번째 단계도 없다. Attention 실행 경로에서 시작해 `DropDecision`까지 **하나로 이어진 파이프라인**이다.
+
+```mermaid
+graph TB
+    Attn(("Attention Backend<br/>Actual Query 실행 중"))
+    Trig(("ReclaimTrigger<br/>주로 STEP_BOUNDARY"))
+    Elig(("eligible KVRange<br/>(공유 Block 제외됨)"))
+
+    subgraph ON["OnlineImportancePolicy — Offline Phase 없음"]
+        direction TB
+        Probe["AttentionScoreProbe<br/>─────────────<br/>observe(layer_id, scores)<br/>sample_stride · overhead_seconds()"]
+        Agg["ScoreAggregator<br/>across_layers · across_heads · decay"]
+        PV["ProbeBackedView<br/>score_of() ← 실시간 집계<br/>is_available() ← 관측 여부"]
+        subgraph SEL["TopKSelector (C1과 동일 모듈 공유)"]
+            direction TB
+            Scorer["ImportanceScorer<br/>aggregate · normalize"]
+        end
+        Probe --> Agg
+        Agg --> PV
+        PV ==KVImportance==> SEL
+    end
+
+    Attn ==매 layer마다 관측<br/>반환값 없음==> Probe
+    Trig -.-> ON
+    Elig -.-> ON
+
+    Dec[["DropDecision<br/>dropped · retained"]]
+    SEL --> Dec
+
+    style ON fill:#fdf2ea,stroke:#ed7d31,stroke-width:2px
+    style Probe fill:#f7cbaa,stroke:#ed7d31
+    style Agg fill:#fce4d6,stroke:#ed7d31
+    style PV fill:#f7cbaa,stroke:#ed7d31
+    style SEL fill:#fce4d6,stroke:#ed7d31,stroke-width:1px
+    style Scorer fill:#f7cbaa,stroke:#ed7d31
+    style Dec fill:#fce4d6,stroke:#ed7d31
+    style Attn fill:#f2f2f2,stroke:#888
+    style Trig fill:#f2f2f2,stroke:#888
+    style Elig fill:#f2f2f2,stroke:#888
+```
+
+**`Attention Backend`에서 `AttentionScoreProbe`로 가는 간선이 굵은 실선이고, 원(외부 계약)에서 사각형(정책 내부)으로 직접 들어간다.** C1에서 같은 자리에 있던 것은 원통(저장소)이었다 — **C1의 매개체는 데이터이고, C2의 매개체는 실행 그 자체**라는 것이 두 다이어그램을 나란히 놓았을 때 드러나는 차이다. `TopKSelector`는 C1과 같은 상자·같은 라벨로 등장한다(§0의 공유 원칙) — 두 후보가 다른 것은 그 앞 단계뿐이다.
+
+> §2.2·§2.3 두 다이어그램은 같은 문법(원 = 외부 계약, 실선 사각형 = 정책 내부 모듈, 원통 = 저장소, 굵은 실선 = 데이터·실행의 직접 전달, 점선 = 트리거·필터 같은 부수 입력)을 쓴다. **C1은 위쪽이 별도 상자로 떨어져 있고 점선(시간 지연)으로만 이어지며, C2는 위쪽부터 끊김 없이 이어진다** — 이 모양 차이가 설계 문서 §9.3 M-C3의 "C1의 Online 판단 비용은 0에 가깝고 C2는 Critical Path 위에 있다"는 문장의 구조적 근거다.
 
 ---
 
@@ -513,6 +607,8 @@ sequenceDiagram
 ---
 
 ## 4. C1 / C2 구현 구조 비교
+
+§2.2·§2.3의 구조도가 **시간적 분리(두 섬) vs 경로 결합(하나로 이어짐)** 이라는 모양 차이를 보였다. 아래 표는 그 차이를 항목별로 정리한 것이다.
 
 | | **C1. Offline** | **C2. Online** |
 |---|---|---|
