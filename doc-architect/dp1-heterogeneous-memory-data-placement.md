@@ -1374,11 +1374,13 @@ Goodput을 주 지표로 쓰는 이상 **Scheduler가 결과에 개입한다.** 
 해당 문서는 vLLM v1의 실제 통합 지점 — 비활성 전환 이벤트(`KVCacheManager.free()` / 선점 경로 / `BlockPool.cache_full_blocks()`), 재활성 경로(`get_computed_blocks()`), `kv_offload`의 `OffloadingManager`/`LoadStoreSpec` — 에 정착시켜 다음을 명세한다.
 
 - C1의 `Memory State Collector → Placement Planner → Placement Executor`와 C2의 `KV Characteristic Analyzer → KV Classifier → Placement Policy → Memory State-aware Refiner → Placement Executor`를 클래스로 1:1 대응
+- **§1의 두 결정점을 타입으로 구분** — `DecisionPoint`가 요청에 실리고 `FeasibilityFilter`가 그것으로 후보 범위를 정한다. 결정점 A는 `can_serve_decode_attention()`을 통과한 메모리만, 결정점 B는 전체
+- **§4.4의 네 조건을 `MemorySpec.can_serve_decode_attention()` 한 곳에 모음** — 오프로드 가능 여부를 정책이 아니라 메모리가 판정한다
+- **Prefill 경로에 오프로드 항목이 없음** — `PrefillPath`는 `LOCAL / RESTORE / STREAM` 셋뿐이며 모두 GPU가 연산한다. §4.2(1)이 모듈 경계로 강제된다
 - C1/C2가 **동일한 `TierScorer`와 `MemoryStateView`를 공유**하고, 다른 것은 후보 집합 형성 방식뿐임을 구조로 강제
 - **C1이 특성 분석 모듈에 의존 간선을 갖지 않음** — M-P8의 증폭률이 C1에서 0인 것이 구현 구조에서 보장된다
+- **`ResourceLedger`가 GPU 점유와 메모리 점유를 따로 기록하고 `turn_time()`이 `max`를 반환** — §4.6의 자원 병렬화가 목적함수에 들어가는 지점. `sum`으로 바꾸면 이 DP의 논거가 사라진다
 - **채점 모듈이 정책을 import하지 않음** — 정책이 자기 답을 채점하면 §11의 Metric이 의미를 잃는다
-- §4의 Attention/FFN 분리 실행 경로와 계층당 활성화 왕복
-- **결정이 활성 Decode의 Critical Path 밖에 있음** — C2의 분석 비용을 감당 가능하게 만드는 구조적 이유
 
 ---
 

@@ -2,18 +2,20 @@
 
 [`dp1-heterogeneous-memory-data-placement.md`](dp1-heterogeneous-memory-data-placement.md)에서 정의한 C1(메모리 특성 중심)/C2(Data 특성 중심) 두 후보를 실제로 구현하기 전에, 구현 구조를 UML로 먼저 명세한다. `dp2-implementation-uml.md`와 같은 형식을 따른다.
 
-본 문서에서 "설계 문서"는 위 DP1 설계 문서를 가리킨다.
+본 문서에서 "설계 문서"는 위 DP1 설계 문서를 가리킨다. **성능 수치는 담지 않는다** — 구조와 그 구조가 강제하는 제약만 명세하며, 어떤 구성에서 무엇이 얼마나 나오는지는 시뮬레이션이 답한다.
 
 ---
 
 ## 0. 설계 원칙
 
-- **결정은 비활성 전환 이벤트에서 일어난다.** 설계 문서 §1대로 활성 Decode 중인 KV는 대상이 아니므로, 정책 훅은 `allocate_slots` 같은 할당 경로가 아니라 **Deactivation 이벤트**(턴 종료 / Prefix 보존 / 선점 / 세션 종료)에 붙는다. DP2 UML과 가장 크게 다른 점이다.
+- **결정 시점이 두 곳이다.** 설계 문서 §1대로 **결정점 A(Prefill 종료)** 와 **결정점 B(비활성 전환)** 가 있고, 정책 훅은 두 이벤트 모두에 붙는다. 두 지점은 **후보 집합과 입력 특성이 다르므로** 타입 수준에서 구분한다.
+- **Prefill은 GPU에 고정된다.** 설계 문서 §4.2에 따라 Prefill Attention은 연산 강도가 높아 근접 연산 유닛으로 보낼 수 없다. **어떤 시퀀스에도 "메모리에서 Prefill을 수행하는" 경로가 없어야 한다** — 이것이 이 구조의 가장 중요한 불변식이다.
+- **Policy 추상화를 공유한다.** C1/C2는 같은 `PlacementPolicy` 인터페이스의 서로 다른 구현이며, `PlacementManager`는 어떤 정책이 꽂히든 동일하게 동작한다.
 - **설계 문서의 블록 다이어그램을 클래스에 1:1 대응시킨다.** C1의 `Memory State Collector → Placement Planner → Placement Executor`, C2의 `KV Characteristic Analyzer → KV Classifier → Placement Policy → Memory State-aware Refiner → Placement Executor`가 그대로 클래스 이름이 된다.
-- **Memory State를 읽는 창구를 하나로 제한한다.** 정책은 `MemoryStateView`를 통해서만 메모리 상태를 읽는다. 두 후보 모두 이 창구를 쓰며, 다른 것은 **언제·어떤 후보 집합에 대해 읽는가**다.
+- **Memory State를 읽는 창구를 하나로 제한한다.** 정책은 `MemoryStateView`를 통해서만 메모리 상태를 읽는다.
 - **Tier Scoring 산술을 공유한다.** C1의 `PlacementPlanner`와 C2의 `MemoryStateAwareRefiner`가 동일한 `TierScorer`를 쓴다. 각자 다른 점수 함수를 주면 비교가 "누가 Heuristic을 더 잘 썼는지"를 재게 된다.
-- **재활성 방식(Mode)은 메모리가 정하지 정책이 정하지 않는다.** `MemorySpec.reactivation_mode_for()`가 `gpu_reachable`과 `supported_primitives`에서 Mode를 유도한다. 정책은 메모리를 고를 뿐이고 Mode는 그 귀결이다 — 정책이 Mode를 직접 고르게 하면 설계 문서 §11.2.1의 인과가 뒤집힌다.
-- **외부/내부 대역폭을 분리해 모델링한다.** 설계 문서 §3.3의 비대칭이 타입에 없으면 §4의 Attention 오프로드가 왜 값을 하는지 모델에서 사라진다.
+- **Decode 오프로드 가능 여부는 메모리가 정하지 정책이 정하지 않는다.** `MemorySpec.can_serve_decode_attention()`이 설계 문서 §4.4의 네 조건(원시 연산·연산 성능·지연·용량)에서 판정한다. 정책이 직접 고르게 하면 §4의 인과가 뒤집힌다.
+- **GPU 점유와 메모리 점유를 별도 자원으로 기록한다.** 설계 문서 §4.6의 자원 병렬화가 목적함수에 나타나려면 두 자원을 `max`로 합쳐야 하며, 합산하면 이 DP의 논거가 사라진다.
 - **유휴 중 재조정은 직교 축이므로 별도 모듈로 분리한다** (설계 문서 §8).
 
 ---
@@ -24,22 +26,24 @@
 graph TB
     subgraph vllm_v1["vLLM v1 (기존)"]
         sched["sched/scheduler.py"]
-        kvm["core/kv_cache_manager.py<br/>free() · get_computed_blocks()"]
+        kvm["core/kv_cache_manager.py<br/>allocate_slots() · free() · get_computed_blocks()"]
         bp["core/block_pool.py<br/>cache_full_blocks() · BlockPool"]
         offbase["kv_offload/base.py<br/>OffloadingManager · LoadStoreSpec"]
     end
 
     subgraph dp1["dp1_kv_placement (신규)"]
-        lifecycle["lifecycle.py<br/>DeactivationEvent, ReactivationEvent, TriggerKind"]
+        lifecycle["lifecycle.py<br/>DecisionPoint, PrefillCompleteEvent,<br/>DeactivationEvent, ReactivationEvent"]
         request["kv_request.py<br/>AllocationRequest, SessionBlockSet,<br/>AttentionPrimitive, AgentToolInfo"]
-        memories["memories.py<br/>MemorySpec, MemoryState, MemoryStateView,<br/>Medium, ReactivationMode"]
+        memories["memories.py<br/>MemorySpec, MemoryState, MemoryStateView,<br/>Medium, ReactivationMode, ModelShape"]
         policy["policy.py<br/>PlacementPolicy, PlacementDecision,<br/>TierScorer, FeasibilityFilter, PlacementExecutor"]
         analyzer["analyzer.py<br/>KVCharacteristicAnalyzer, KVCharacteristics,<br/>KVClassifier, KVClass"]
-        offload["attention_offload.py<br/>AttentionOffloadPlanner, LayerPipeline"]
+        decode["decode_offload.py<br/>DecodeOffloadPlanner, LayerPipeline"]
+        prefill["prefill_path.py<br/>PrefillPathPlanner, PrefillPath"]
+        ledger["resource_ledger.py<br/>ResourceLedger"]
         rebalancer["rebalancer.py<br/>IdleRebalancer"]
         manager["manager.py<br/>PlacementManager, PlacementRegistry"]
         metrics["metrics.py<br/>QA Metric Collectors"]
-        configs["configs/memories_default.json"]
+        configs["configs/memories_default.yaml<br/>gpu · model · memories"]
         subgraph policies["policies/"]
             c1["c1_memory_centric.py<br/>MemoryStateCollector, PlacementPlanner"]
             c2["c2_data_centric.py<br/>PlacementPolicyTable, MemoryStateAwareRefiner"]
@@ -52,8 +56,10 @@ graph TB
     lifecycle --> manager
     manager --> policy
     manager --> memories
-    manager --> offload
+    manager --> decode
+    manager --> prefill
     manager --> rebalancer
+    manager --> ledger
     policy --> request
     policy --> memories
     c1 --> policy
@@ -61,19 +67,21 @@ graph TB
     c2 --> analyzer
     analyzer --> request
     rebalancer --> policy
-    offload --> offbase
+    decode --> offbase
+    prefill --> offbase
     configs -.->|로드| memories
     memories -.->|Medium 매핑| offbase
     metrics -.->|관측| manager
-    metrics -.->|관측| memories
+    metrics -.->|관측| ledger
 ```
 
-네 가지가 구조로 드러난다.
+다섯 가지가 구조로 드러난다.
 
-1. **정책 훅이 `lifecycle.py`를 통해서만 들어온다.** 할당 경로에 의존 간선이 없다 — 설계 문서 §1의 "활성 KV는 대상이 아니다"가 모듈 수준에서 강제된다. 덕분에 결정이 활성 Decode의 Critical Path 밖에 있고, 그래서 C2의 특성 분석 비용을 감당할 여지가 생긴다(설계 문서 §11.2 M-P5).
-2. **`c1_memory_centric`은 `analyzer.py`에 의존하지 않는다.** 의존 간선이 없으면 추정 오차가 도달할 경로도 없으므로, M-P8의 증폭률이 C1에서 정확히 0인 것이 구현 구조에서 보장된다.
-3. **`configs/memories_default.json`이 `memories.py`로만 들어온다.** 설계 문서 §3.4의 Configuration 교체가 코드 수정 없이 되어야 M-F1 실험이 성립한다.
-4. **`metrics.py`는 정책을 import하지 않는다.** 정책이 자기 답을 채점하면 설계 문서 §11의 Metric이 의미를 잃는다.
+1. **`prefill_path.py`와 `decode_offload.py`가 분리되어 있다.** 설계 문서 §4.2의 결론 — Prefill은 GPU, Decode Attention만 오프로드 — 이 **모듈 경계로 강제된다.** `prefill_path.py`에는 메모리로 연산을 보내는 경로가 아예 없고, 복원할지 스트리밍할지만 정한다.
+2. **정책 훅이 `lifecycle.py`를 통해서만 들어온다.** 결정점 A는 `allocate_slots` 이후 Prefill이 끝난 시점, 결정점 B는 `free()`/선점/`cache_full_blocks()` 시점이다.
+3. **`c1_memory_centric`은 `analyzer.py`에 의존하지 않는다.** 의존 간선이 없으면 추정 오차가 도달할 경로도 없으므로, M-P8의 증폭률이 C1에서 정확히 0인 것이 구현 구조에서 보장된다.
+4. **`configs/memories_default.yaml`이 `memories.py`로만 들어온다.** 설계 문서 §3.4의 Configuration 교체가 코드 수정 없이 되어야 M-F1 실험이 성립한다. `gpu`·`model` 블록도 같은 경로로 들어오며, `model`의 `num_heads/num_kv_heads`가 §4.2의 연산 강도를 정한다.
+5. **`metrics.py`는 정책을 import하지 않고 `resource_ledger`를 관측한다.** 정책이 자기 답을 채점하면 설계 문서 §11의 Metric이 의미를 잃는다.
 
 ---
 
@@ -83,6 +91,13 @@ graph TB
 
 ```mermaid
 classDiagram
+    class DecisionPoint {
+        <<enumeration>>
+        PREFILL_COMPLETE
+        DEACTIVATION
+        IDLE_REBALANCE
+    }
+
     class TriggerKind {
         <<enumeration>>
         TURN_END
@@ -118,6 +133,17 @@ classDiagram
         SSD_PIM
     }
 
+    class ModelShape {
+        +int num_layers
+        +int num_heads
+        +int num_kv_heads
+        +int head_dim
+        +int dtype_bytes
+        +gqa_ratio() float
+        +decode_intensity() float
+        +prefill_intensity(delta_tokens) float
+    }
+
     class AgentToolInfo {
         +str tool_name
         +float expected_exec_seconds
@@ -125,20 +151,17 @@ classDiagram
         +bool is_terminal
     }
 
-    class QueueStateView {
-        +expected_wait_seconds() float
-    }
-
     class SessionBlockSet {
         +str session_id
         +List~bytes~ block_hashes
         +int num_blocks
         +int total_bytes
-        +int observed_share_count
+        +int observed_ref_cnt
     }
 
     class AllocationRequest {
         +SessionBlockSet block_set
+        +DecisionPoint decision_point
         +TriggerKind trigger
         +AgentToolInfo tool_info
         +Set~AttentionPrimitive~ next_op_primitives
@@ -153,14 +176,18 @@ classDiagram
         +float int_bw_bytes_per_s
         +float write_bw_bytes_per_s
         +float latency_s
+        +float compute_tflops_fp16
+        +float attention_bw_efficiency
         +List~str~ hops
         +bool gpu_reachable
         +Set~AttentionPrimitive~ supported_primitives
         +float write_amplification
         +int endurance_budget_bytes
         +str provenance
-        +reactivation_mode_for(primitives) ReactivationMode
         +asymmetry_ratio() float
+        +balanced_tflops(model) float
+        +can_serve_decode_attention(model, req) bool
+        +reactivation_mode_for(model, req) ReactivationMode
     }
 
     class MemoryState {
@@ -177,8 +204,13 @@ classDiagram
         +supports(mem, primitives) bool
     }
 
+    class QueueStateView {
+        +expected_wait_seconds() float
+    }
+
     class FeasibilityFilter {
         +filter(memories, request, view) List~MemorySpec~
+        -scope_for(decision_point) Predicate
     }
 
     class TierScorer {
@@ -187,6 +219,7 @@ classDiagram
 
     class PlacementDecision {
         +str memory_name
+        +DecisionPoint decided_at
         +ReactivationMode mode
         +str reason
     }
@@ -206,28 +239,44 @@ classDiagram
         +lookup(session_id) PlacementDecision
     }
 
+    class ResourceLedger {
+        +charge_gpu(seconds) None
+        +charge_memory(mem_name, seconds) None
+        +turn_time() float
+        +occupancy_of(resource) float
+        +bottleneck() str
+    }
+
     class PlacementManager {
         -PlacementPolicy policy
         -MemoryStateView view
+        -QueueStateView queue_view
         -PlacementRegistry registry
         -PlacementExecutor executor
-        -AttentionOffloadPlanner offload_planner
+        -DecodeOffloadPlanner decode_planner
+        -PrefillPathPlanner prefill_planner
+        -ResourceLedger ledger
         -IdleRebalancer rebalancer
+        +on_prefill_complete(event) PlacementDecision
         +on_deactivation(event) PlacementDecision
-        +on_reactivation(event) ReactivationPlan
+        +on_reactivation(event) PrefillPath
         +on_idle_tick(step) None
     }
 
     AllocationRequest --> SessionBlockSet
+    AllocationRequest --> DecisionPoint
     AllocationRequest --> TriggerKind
     AllocationRequest --> AgentToolInfo
     AllocationRequest --> AttentionPrimitive
     MemorySpec --> Medium
     MemorySpec --> AttentionPrimitive
     MemorySpec --> ReactivationMode
+    MemorySpec ..> ModelShape : uses
     MemoryStateView --> MemorySpec
     MemoryStateView --> MemoryState
+    FeasibilityFilter ..> DecisionPoint : scopes by
     PlacementDecision --> ReactivationMode
+    PlacementDecision --> DecisionPoint
     PlacementPolicy --> PlacementDecision
     PlacementPolicy ..> MemoryStateView : reads
     PlacementPolicy ..> FeasibilityFilter : uses
@@ -235,27 +284,39 @@ classDiagram
     PlacementManager --> PlacementPolicy
     PlacementManager --> PlacementExecutor
     PlacementManager --> PlacementRegistry
+    PlacementManager --> ResourceLedger
 ```
 
-네 가지 설계 결정이 이 다이어그램에 들어 있다.
+여섯 가지 설계 결정이 이 다이어그램에 들어 있다.
 
-**`MemorySpec`이 `ext_bw`와 `int_bw`를 분리해 갖는다.** 설계 문서 §3.3의 외부/내부 비대칭이 타입 수준에 있어야 `asymmetry_ratio()`가 정의되고, 그 값이 Attention 오프로드의 가치를 판단하는 1차 근거가 된다. 하나로 합치면 CXL-PNM의 17배 비대칭이 모델에서 사라진다.
-
-**`AttentionPrimitive`가 연산 단위가 아니라 원시 연산 단위다.** 설계 문서 §4.5의 성립 조건("GEMV 지원 ≠ Attention 지원")을 타입으로 강제한다. `QK_GEMM`만 있고 `SOFTMAX`가 없는 메모리는 Attention을 그곳에서 끝낼 수 없으므로 `reactivation_mode_for()`가 `ATTENTION_OFFLOAD`를 반환하지 않는다 — §3.4 구성의 `ssd_pim`이 이 경우다.
-
-**`reactivation_mode_for()`가 `MemorySpec`에 있다.** Mode는 메모리 capability에서 유도되는 것이지 정책이 고르는 것이 아니다.
+**`DecisionPoint`가 요청에 실려 있고 `FeasibilityFilter`가 그것으로 후보 범위를 정한다.** 설계 문서 §1의 두 결정점은 **후보 집합이 다르다.**
 
 ```text
-supported_primitives ⊇ 요구 원시연산 집합  → ATTENTION_OFFLOAD
-gpu_reachable                              → RESIDENT
-그 외                                      → RESTORE
+PREFILL_COMPLETE → can_serve_decode_attention()== true 인 메모리만
+                   (설계 문서 §4.4의 네 조건을 통과한 것)
+DEACTIVATION     → 전체. 보관만 하면 되므로 연산 기능이 없어도 된다
 ```
 
-**`AgentToolInfo`가 요청에 실려 있다.** 설계 문서 §5.1에서 네 특성 중 유일하게 **선언 가능**한 값이며, 나머지 세 추정값의 가장 강한 관측 근거다. C1도 이 필드를 받지만 쓰지 않는다 — **같은 입력을 받고 무엇을 쓰는지만 다르다**는 공정성 경계가 타입으로 드러난다.
+정책이 후보 범위를 직접 정하게 하면 두 결정점의 차이가 정책 구현 안에 숨어 C1/C2 비교가 흐려진다.
 
-`MemoryStateView`가 정책이 메모리 상태를 읽는 **유일한 창구**이며, `load_of()`는 **완료된 Step까지만** 평균한다. `FeasibilityFilter`가 판정하는 것은 Capacity / Endurance Headroom / 원시 연산 지원이며 **Load는 포함하지 않는다** — Load는 비용이지 feasibility가 아니다.
+**`ModelShape`가 `MemorySpec`의 판정에 들어간다.** 설계 문서 §4.2의 연산 강도가 `num_heads / num_kv_heads`에서 나오므로, **오프로드 가능 여부는 메모리 단독이 아니라 (메모리 × 모델)의 함수**다. `balanced_tflops(model)`이 §4.2의 균형점(`내부 대역폭 × GQA 비율`)을 계산하고, `can_serve_decode_attention()`이 그것과 `compute_tflops_fp16`을 비교한다.
 
-`SessionBlockSet`이 배치 단위인 것은 설계 문서 §5.2(2)의 all-or-nothing 재접근 때문이다. 집합을 쪼개 여러 계층에 흩으면 재활성 비용이 가장 느린 계층에 지배되므로, 이 타입이 그 실수를 구조적으로 막는다.
+**`can_serve_decode_attention()`이 §4.4의 네 조건을 한 곳에 모은다.**
+
+```text
+supported_primitives ⊇ {QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK}   원시 연산
+compute_tflops_fp16 이 balanced_tflops(model)에 근접                연산 성능
+num_layers × latency_s 가 step 예산 이내                            지연
+capacity_headroom ≥ block_set.total_bytes                          용량
+```
+
+**`AttentionPrimitive`가 연산 단위가 아니라 원시 연산 단위다.** "GEMV를 지원한다"와 "Attention을 처리할 수 있다"는 다르다 — `SOFTMAX`가 없는 메모리는 첫 조건에서 탈락한다.
+
+**`ResourceLedger`가 GPU와 메모리 점유를 따로 기록하고 `turn_time()`이 `max`를 반환한다.** 설계 문서 §4.6의 자원 병렬화가 목적함수에 나타나는 유일한 경로이며, `sum`으로 바꾸면 이 DP의 논거가 측정되지 않는다. `bottleneck()`이 어느 자원이 한계인지 돌려주어 M-P7b가 이를 관측한다.
+
+**`QueueStateView`는 두 후보 모두 접근 가능하다.** 설계 문서 §5.4(2) — Next-access Time의 큐 성분은 데이터 특성이 아니라 시스템 상태이므로, C2만 쓰게 하면 공정성 경계가 깨진다.
+
+`MemoryStateView.load_of()`는 **완료된 Step까지만** 평균하고, `FeasibilityFilter`는 Capacity/Endurance/원시 연산만 판정하며 **Load는 포함하지 않는다** — Load는 비용이지 feasibility가 아니다. `SessionBlockSet`이 배치 단위인 것은 설계 문서 §5.2(2)의 all-or-nothing 재접근 때문이다.
 
 ### 2.2 C1. 메모리 특성 중심 배치 구조
 
@@ -309,10 +370,12 @@ classDiagram
     PlacementPlanner --> FeasibilityFilter
 
     note for PlacementPlanner "Tier Scoring 후 arg max score로 Best Tier Selection. Memory State가 점수 안에 있고 어느 메모리가 이기는지를 직접 결정한다"
-    note for MemoryCentricPolicy "analyzer 의존 없음 — AgentToolInfo를 받지만 사용하지 않는다"
+    note for MemoryCentricPolicy "analyzer 의존 없음 — AgentToolInfo와 QueueStateView를 받지만 사용하지 않는다"
 ```
 
-C1의 `place()`는 3단계다: `collector.collect()` → `planner.tier_scoring()` → `planner.best_tier_selection()` (arg max). `compute_term()`이 Compute Capability를 **가점으로만** 반영하므로, "이 KV가 곧 Attention을 받으니 연산형 메모리가 맞다"는 판단은 나오지 않는다 — 설계 문서 §7 C1 단점의 구현 레벨 근거다.
+C1의 `place()`는 3단계다: `collector.collect()` → `planner.tier_scoring()` → `planner.best_tier_selection()` (arg max).
+
+**`compute_term()`이 Compute Capability를 가점으로만 반영한다.** 그래서 결정점 A에서 "이 세션은 Decode가 길 것이니 연산형 메모리로 옮길 값이 있다"는 판단이 나오지 않는다 — 설계 문서 §7 C1 단점("Operation-Compute capability 간 적합성 판단에 한계")의 구현 레벨 근거다. 후보 범위 자체는 `FeasibilityFilter`가 `DecisionPoint`로 좁혀주므로 C1도 잘못된 메모리를 고르지는 않는다.
 
 ### 2.3 C2. Data 특성 중심 배치 구조
 
@@ -336,16 +399,9 @@ classDiagram
         -float sample_rate
         -ToolLatencyModel tool_model
         -TurnHazardModel hazard_model
+        -DecodeLengthModel decode_model
         +analyze(request, queue_view) KVCharacteristics
         +observe(lifecycle_events) None
-    }
-
-    class ToolLatencyModel {
-        +quantiles(tool_name) Dict~float, float~
-    }
-
-    class TurnHazardModel {
-        +hazard(turns_so_far) float
     }
 
     class KVCharacteristics {
@@ -356,8 +412,21 @@ classDiagram
         +int observed_ref_cnt
         +float turn_hazard_rate
         +expected_roundtrips() float
+        +int expected_decode_length
         +AgentToolInfo tool_info
         +Set~AttentionPrimitive~ next_op_primitives
+    }
+
+    class ToolLatencyModel {
+        +quantiles(tool_name) Dict~float, float~
+    }
+
+    class TurnHazardModel {
+        +hazard(turns_so_far) float
+    }
+
+    class DecodeLengthModel {
+        +quantiles(tool_info) Dict~float, float~
     }
 
     class KVClass {
@@ -368,7 +437,7 @@ classDiagram
     }
 
     class KVClassifier {
-        +classify(characteristics) KVClass
+        +classify(characteristics, decision_point) KVClass
     }
 
     class PlacementPolicyTable {
@@ -389,45 +458,55 @@ classDiagram
     KVCharacteristicAnalyzer --> KVCharacteristics
     KVCharacteristicAnalyzer --> ToolLatencyModel
     KVCharacteristicAnalyzer --> TurnHazardModel
+    KVCharacteristicAnalyzer --> DecodeLengthModel
     KVCharacteristicAnalyzer ..> QueueStateView : reads
     KVClassifier --> KVCharacteristics
     KVClassifier --> KVClass
     PlacementPolicyTable --> KVClass
     MemoryStateAwareRefiner --> TierScorer
     MemoryStateAwareRefiner --> FeasibilityFilter
-
-    note for PlacementPolicyTable "Hot -> HBM, Custom HBM / Warm -> HBM, DRAM, CXL-PNM / Cold -> CXL-PNM, HBF, SSD-PIM. Memory State를 보지 않는다 — C1과의 구조적 차이가 여기에 있다"
 ```
 
 C2의 `place()`는 4단계다: `analyzer.analyze()` → `classifier.classify()` → `policy_table.candidates()`(**KV Class + 재활성 연산만**) → `refiner.refine()`(Memory State로 보정).
+
+**`MemoryStateAwareRefiner`가 C1과 동일한 `TierScorer`를 쓰되 후보 집합이 이미 데이터 특성으로 좁혀져 있다는 것이 유일한 구조적 차이**다. 산술을 공유하지 않으면 설계 문서 §11의 비교가 Heuristic 품질 비교로 변질된다.
 
 `KVCharacteristics`의 필드 구성이 설계 문서 §5.4의 타당성 검토를 반영한다.
 
 | 필드 | 왜 이 형태인가 |
 |---|---|
-| `tool_exec_time_s` / `queue_wait_time_s` 분리, `next_access_time_s()`는 파생 | §5.4(2) — 큐 성분은 데이터 특성이 아니라 시스템 상태다. 분리하지 않으면 C2가 C1보다 많은 정보를 보게 되어 공정성 경계가 깨진다. `QueueStateView`는 **두 후보 모두** 접근 가능하다 |
+| `tool_exec_time_s` / `queue_wait_time_s` 분리, `next_access_time_s()`는 파생 | §5.4(2) — 큐 성분은 시스템 상태다. 분리하지 않으면 C2가 C1보다 많은 정보를 보게 되어 공정성 경계가 깨진다. `QueueStateView`는 **두 후보 모두** 접근 가능하다 |
 | `observed_ref_cnt`(관측)와 `reuse_probability`(추정)를 **따로** 들고 있음 | §5.4 — 관측 성분과 추정 성분을 구분하지 않으면 C2가 실제보다 정확해 보인다. Ablation에서 추정 성분만 제거할 수 있어야 한다 |
-| `turn_hazard_rate` + `expected_roundtrips()` (남은 턴 수 점추정 아님) | §5.4(3) — "몇 턴 남았나"는 예측이 어렵지만 "다음 턴이 있을 확률"은 로그에서 추정된다. 배치에 필요한 것은 기대 왕복 횟수다 |
-| `ToolLatencyModel`이 점 추정이 아니라 `quantiles()`를 반환 | §5.4 — `code_execution`처럼 분산이 자릿수로 큰 Tool이 있어 평균으로 쓰면 자주 틀린다 |
+| `turn_hazard_rate` + `expected_roundtrips()` (남은 턴 수 점추정 아님) | §5.4(3) — "몇 턴 남았나"는 예측이 어렵지만 "다음 턴이 있을 확률"은 로그에서 추정된다 |
+| **`expected_decode_length`** | **설계 문서 §5.1의 결정점 A용 특성.** 이번 턴의 Decode가 몇 step 이어지는지가 §4.6의 자원 병렬화 지속 구간을 정한다 |
+| 세 모델 모두 점 추정이 아니라 `quantiles()` / `hazard()` | §5.4 — `code_execution`처럼 분산이 자릿수로 큰 Tool이 있어 평균으로 쓰면 자주 틀린다 |
 
-> **`TurnHazardModel`과 `ToolLatencyModel`은 `observe()`로만 갱신된다**(§3.4). 실제 유휴 시간과 다음 턴 발생 여부는 사후에만 관측되므로, 이 두 모델의 품질이 곧 M-P8의 증폭률이 된다.
+**`KVClassifier.classify()`가 `decision_point`를 받는다.** 결정점 A는 `expected_decode_length`와 재활성 연산으로 분류하고, 결정점 B는 `next_access_time_s()`·`reuse_probability`로 분류한다 — 같은 특성 집합에서 **다른 축을 쓴다.**
 
-**`MemoryStateAwareRefiner`가 C1과 동일한 `TierScorer`를 쓰되 후보 집합이 이미 데이터 특성으로 좁혀져 있다는 것이 유일한 구조적 차이**다. 산술을 공유하지 않으면 설계 문서 §11의 비교가 Heuristic 품질 비교로 변질된다.
+> **`ToolLatencyModel`·`TurnHazardModel`·`DecodeLengthModel`은 `observe()`로만 갱신된다**(본 문서 §3.6 유휴 중 재조정). 실제 유휴 시간, 다음 턴 발생 여부, 실제 생성 길이는 사후에만 관측되므로, 이 세 모델의 품질이 곧 M-P8의 증폭률이 된다.
 
-`PlacementPolicyTable`이 `next_op_primitives`를 받는 것이 **Attention 오프로드 선택의 유일한 경로**다. C1의 `TierScorer.compute_term()`은 같은 정보를 가점으로만 쓰지 후보 형성에는 쓰지 못한다.
+### 2.4 실행 경로 — Prefill과 Decode를 분리하는 두 Planner
 
-`KVCharacteristicAnalyzer.sample_rate`는 추적 범위이며 설계 문서 §11.6의 Sweep 대상이다.
-
-### 2.4 Attention 오프로드 실행
-
-설계 문서 §4의 Attention/FFN 분리를 담당한다. **정책이 아니라 실행 경로**이므로 `PlacementPolicy` 계층 밖에 둔다.
+설계 문서 §4의 결론을 **모듈 분리로 강제한다.** `PrefillPathPlanner`에는 메모리로 연산을 보내는 경로가 없고, `DecodeOffloadPlanner`는 Decode에만 쓰인다.
 
 ```mermaid
 classDiagram
-    class AttentionOffloadPlanner {
+    class PrefillPathPlanner {
+        +plan(decision, block_set, model) PrefillPath
+        -can_stream(mem, model) bool
+    }
+
+    class PrefillPath {
+        <<enumeration>>
+        LOCAL
+        RESTORE
+        STREAM
+    }
+
+    class DecodeOffloadPlanner {
         -LayerPipeline pipeline
-        +plan(decision, block_set, model_cfg) ReactivationPlan
-        +is_offloadable(mem, primitives) bool
+        +plan(decision, block_set, model) DecodePlan
+        +is_offloadable(mem, model, req) bool
     }
 
     class LayerPipeline {
@@ -438,9 +517,8 @@ classDiagram
         -ffn_block(attn_out) Tensor
     }
 
-    class ReactivationPlan {
+    class DecodePlan {
         +ReactivationMode mode
-        +int restore_bytes
         +int link_bytes_per_token
         +int link_roundtrips_per_token
     }
@@ -451,26 +529,81 @@ classDiagram
         +amortized_per_request(batch_size) float
     }
 
-    AttentionOffloadPlanner --> LayerPipeline
-    AttentionOffloadPlanner --> ReactivationPlan
-    AttentionOffloadPlanner --> LinkCostModel
+    PrefillPathPlanner --> PrefillPath
+    DecodeOffloadPlanner --> LayerPipeline
+    DecodeOffloadPlanner --> DecodePlan
+    DecodeOffloadPlanner --> LinkCostModel
     LayerPipeline ..> LinkCostModel : charges
+    PrefillPathPlanner ..> LinkCostModel : charges
 
+    note for PrefillPathPlanner "Prefill 연산은 항상 GPU. 정하는 것은 KV를 어떻게 GPU 쪽으로 가져올지뿐이다 — LOCAL(이미 접근 가능) / RESTORE(옮겨서 상주) / STREAM(계층별로 읽고 버림)"
     note for LayerPipeline "계층당 GPU는 QKV projection, O projection, FFN을 수행하고 Attention만 메모리로 보낸다. KV는 링크를 건너지 않는다"
-    note for LinkCostModel "설계 문서 4.3: 계층당 왕복 비용은 배치 크기에 반비례하므로 amortized_per_request가 batch_size를 받는다"
 ```
 
-`ReactivationPlan`이 `link_bytes_per_token`과 `link_roundtrips_per_token`을 **분리해서** 들고 있는 것이 핵심이다. 설계 문서 §4.3에서 보였듯 오프로드의 비용은 바이트(전송 시간)와 왕복 횟수(지연)로 나뉘고, **후자만 배치 크기에 반비례**한다. 하나로 합치면 M-P3에서 배치 크기 Sweep의 효과가 사라진다.
+**`PrefillPath`에 오프로드 항목이 없는 것이 설계 문서 §4.2(1)의 구조적 표현이다.** 세 선택지는 모두 "GPU가 연산한다"를 전제로 하며, 다른 것은 KV를 어떻게 공급하느냐뿐이다.
+
+- **`LOCAL`** — KV가 이미 GPU가 읽을 수 있는 곳에 있다. 추가 비용 없음.
+- **`RESTORE`** — KV를 상위 계층으로 옮긴 뒤 연산한다. **옮긴 KV가 용량을 점유한다.**
+- **`STREAM`** — 계층별로 읽어 연산하고 버린다. **용량을 점유하지 않는다.** `can_stream()`이 그 메모리의 외부 대역폭으로 전송이 GPU 연산 아래에 숨는지 판정한다(설계 문서 §4.5).
+
+`DecodePlan`이 `link_bytes_per_token`과 `link_roundtrips_per_token`을 **분리해서** 들고 있는 것은 설계 문서 §4.3 때문이다 — 오프로드 비용은 바이트(전송)와 왕복 횟수(지연)로 나뉘고, **후자만 배치 크기에 반비례**한다. 하나로 합치면 배치 크기 Sweep의 효과가 사라진다.
 
 ---
 
 ## 3. Sequence Diagram
 
-### 3.1 C1. 비활성 전환 시 배치
+### 3.1 결정점 A — Prefill 종료 시 Decode 위치 결정
+
+설계 문서 §1의 결정점 A다. **Prefill은 이미 GPU에서 끝났고, 이번 턴의 Decode Attention을 어디서 돌릴지를 정한다.**
 
 ```mermaid
 sequenceDiagram
     participant Eng as Engine / Scheduler
+    participant LC as lifecycle
+    participant Mgr as PlacementManager
+    participant Pol as PlacementPolicy
+    participant Feas as FeasibilityFilter
+    participant Spec as MemorySpec
+    participant Dec as DecodeOffloadPlanner
+    participant Exec as PlacementExecutor
+    participant Led as ResourceLedger
+
+    Eng->>LC: Prefill 완료 (GPU에서 수행됨)
+    LC->>Mgr: on_prefill_complete(PrefillCompleteEvent)
+    Note over Mgr: DecisionPoint.PREFILL_COMPLETE로<br/>AllocationRequest 구성
+    Mgr->>Pol: place(request, view)
+
+    Pol->>Feas: filter(memories, request, view)
+    Note over Feas: decision_point == PREFILL_COMPLETE →<br/>후보를 Decode Attention 가능한 메모리로 한정
+    loop 각 memory m
+        Feas->>Spec: m.can_serve_decode_attention(model, request)
+        Note over Spec: 원시연산 ∧ 연산성능 ∧ 지연 ∧ 용량<br/>(설계 문서 §4.4)
+        Spec-->>Feas: bool
+    end
+    Feas-->>Pol: 후보 (HBM / Custom HBM 노드 / CXL-PNM 등)
+
+    Pol->>Pol: 후보 채점 → arg max
+    Pol->>Spec: reactivation_mode_for(model, request)
+    Spec-->>Pol: RESIDENT 또는 ATTENTION_OFFLOAD
+    Pol-->>Mgr: PlacementDecision(decided_at=PREFILL_COMPLETE)
+
+    alt mode == ATTENTION_OFFLOAD
+        Mgr->>Exec: execute — KV를 연산형 메모리로 이동
+        Mgr->>Dec: plan(decision, block_set, model)
+        Dec-->>Mgr: DecodePlan(link_bytes, roundtrips)
+    else mode == RESIDENT
+        Note over Mgr: 이동 없음. GPU가 Decode Attention 수행
+    end
+    Mgr->>Led: charge_gpu / charge_memory 등록
+    Mgr-->>Eng: PlacementDecision
+```
+
+**후보가 `can_serve_decode_attention()`으로 좁혀지는 것이 이 결정점의 핵심**이다. DRAM·HBF·SSD-PIM은 여기서 탈락하므로, "갓 만든 KV를 하위 계층에 두고 Decode 때 되가져오는" 경로가 **구조적으로 생길 수 없다.**
+
+### 3.2 결정점 B — C1 (메모리 특성 중심)
+
+```mermaid
+sequenceDiagram
     participant LC as lifecycle
     participant Mgr as PlacementManager
     participant Pol as MemoryCentricPolicy
@@ -480,9 +613,8 @@ sequenceDiagram
     participant Scorer as TierScorer
     participant Exec as PlacementExecutor
 
-    Eng->>LC: 턴 종료 / 선점 / Block 완성 / 세션 종료
     LC->>Mgr: on_deactivation(DeactivationEvent)
-    Note over Mgr: SessionBlockSet + TriggerKind + AgentToolInfo로<br/>AllocationRequest 구성
+    Note over Mgr: 턴 종료 / 선점 / Block 완성 / 세션 종료<br/>DecisionPoint.DEACTIVATION
     Mgr->>Pol: place(request, view)
 
     Pol->>Col: collect(view)
@@ -491,23 +623,20 @@ sequenceDiagram
     Col-->>Pol: snapshot
 
     Pol->>Plan: tier_scoring(snapshot, request)
+    Note over Plan: 후보는 전체 6종 (보관만 하면 되므로<br/>연산 기능이 없어도 된다)
     loop 각 feasible memory m
         Plan->>Scorer: score(m, request, demand)
         Scorer-->>Plan: score
     end
     Plan->>Plan: best_tier_selection — arg max score
-    Plan->>Plan: m.reactivation_mode_for(request.next_op_primitives)
     Plan-->>Pol: MemorySpec + ReactivationMode
-    Pol-->>Mgr: PlacementDecision
-
+    Pol-->>Mgr: PlacementDecision(decided_at=DEACTIVATION)
     Mgr->>Exec: execute(decision, block_set)
-    Exec-->>Mgr: 할당 / 이동 완료
-    Mgr-->>Eng: PlacementDecision
 ```
 
-C1은 `AgentToolInfo`를 **요청에 받아두지만 읽지 않는다.** 추정 경로를 전혀 타지 않으므로 추정 오차에 노출되지 않는다는 성질이 호출 흐름에서 드러난다.
+C1은 `AgentToolInfo`와 `QueueStateView`를 **요청에 받아두지만 읽지 않는다.** 추정 경로를 전혀 타지 않으므로 추정 오차에 노출되지 않는다는 성질이 호출 흐름에서 드러난다.
 
-### 3.2 C2. 비활성 전환 시 배치
+### 3.3 결정점 B — C2 (Data 특성 중심)
 
 ```mermaid
 sequenceDiagram
@@ -515,24 +644,26 @@ sequenceDiagram
     participant Mgr as PlacementManager
     participant Pol as DataCentricPolicy
     participant Ana as KVCharacteristicAnalyzer
+    participant Q as QueueStateView
     participant Cls as KVClassifier
     participant Tbl as PlacementPolicyTable
     participant Ref as MemoryStateAwareRefiner
     participant View as MemoryStateView
-    participant Exec as PlacementExecutor
 
     LC->>Mgr: on_deactivation(DeactivationEvent)
     Mgr->>Pol: place(request, view)
 
-    Pol->>Ana: analyze(request)
-    Note over Ana: Next-access Time / Reuse Probability /<br/>Expected Remaining Lifetime 추정<br/>AgentToolInfo가 가장 강한 근거
+    Pol->>Ana: analyze(request, queue_view)
+    Ana->>Q: expected_wait_seconds()
+    Q-->>Ana: 큐 대기 (시스템 상태 — C1도 접근 가능)
+    Note over Ana: tool_exec(quantiles) + queue_wait → Next-access Time<br/>ref_cnt(관측) → Reuse Probability<br/>hazard rate → expected_roundtrips
     Ana-->>Pol: KVCharacteristics
 
-    Pol->>Cls: classify(characteristics)
+    Pol->>Cls: classify(characteristics, DEACTIVATION)
     Cls-->>Pol: KVClass (Hot & Compute-heavy / Warm & Read-intensive / Cold & Long-term)
 
     Pol->>Tbl: candidates(kv_class, next_op_primitives, memories)
-    Note over Tbl: KV Class + 재활성 연산만으로 후보 형성<br/>Memory State 미참조<br/>연산형 메모리가 여기서 후보로 올라온다
+    Note over Tbl: KV Class + 재활성 연산만으로 후보 형성<br/>Memory State 미참조
     Tbl-->>Pol: Candidate Memories
 
     Pol->>Ref: refine(candidates, request, view)
@@ -540,69 +671,91 @@ sequenceDiagram
     View-->>Ref: 상태
     Ref->>Ref: feasibility 필터 + TierScorer arg max
     Ref-->>Pol: MemorySpec + ReactivationMode
-    Pol-->>Mgr: PlacementDecision
-    Mgr->>Exec: execute(decision, block_set)
+    Pol-->>Mgr: PlacementDecision(decided_at=DEACTIVATION)
 ```
 
-C2는 전환마다 `analyze` + `classify` + `candidates` 3회가 추가된다 — **설계 문서 §11.2 M-P5(Placement Decision Latency)가 측정할 비용의 실체**다. 이 경로는 활성 Decode의 Critical Path 밖에 있으므로 할당 시점 배치보다 여유가 있다.
+C2는 결정마다 `analyze` + `classify` + `candidates` 3회가 추가된다 — **설계 문서 §11.2 M-P5(Placement Decision Latency)가 측정할 비용의 실체**다.
 
-### 3.3 재활성 — Mode에 따라 갈리는 경로
+### 3.4 Decode 실행 — Attention 오프로드 계층 파이프라인
 
-설계 문서 §11.2.1의 세 Mode가 실제로 다른 비용을 만드는 지점이다.
+결정점 A에서 `ATTENTION_OFFLOAD`가 선택된 경우의 Decode step이다. 설계 문서 §4.1의 계층 분해가 실제 호출로 나타난다.
+
+```mermaid
+sequenceDiagram
+    participant Eng as Engine
+    participant Pipe as LayerPipeline
+    participant GPU as GPU
+    participant Mem as Compute-capable Memory
+    participant Led as ResourceLedger
+
+    Eng->>Pipe: decode_step(h_in)
+    loop 각 계층 l = 1..L
+        Pipe->>GPU: LayerNorm + QKV Projection
+        GPU-->>Pipe: Q, K_new, V_new
+        Pipe->>Mem: Q, K_new, V_new  (링크: 활성화 크기)
+        Note over Mem: KV cache append 후<br/>내부 대역폭으로 Attention 수행<br/>KV는 링크를 건너지 않는다
+        Mem-->>Pipe: attn_out  (링크: 활성화 크기)
+        Pipe->>GPU: O Projection + FFN
+        GPU-->>Pipe: h_out
+    end
+    Pipe->>Led: charge_gpu(projection + FFN 시간)
+    Pipe->>Led: charge_memory(mem, attention 시간)
+    Note over Led: 두 자원을 따로 기록한다.<br/>turn_time() = max(GPU, memory)  — 합이 아니다
+    Pipe-->>Eng: 출력 token
+```
+
+**`ResourceLedger`에 두 자원을 따로 charge하는 것이 설계 문서 §4.6의 자원 병렬화가 목적함수에 들어가는 지점**이다. 여기서 `sum`을 쓰면 오프로드는 언제나 손해로 계산되어 이 DP의 논거가 사라진다.
+
+계층 루프가 매번 링크를 두 번 건너는 것이 설계 문서 §4.3이 말한 왕복 비용이며, 배치 안의 여러 요청이 같은 계층을 함께 처리할 때 상쇄된다(`LinkCostModel.amortized_per_request`).
+
+### 3.5 재활성 — Prefill은 GPU, KV 공급 경로만 선택
+
+결정점 B에서 하위 계층으로 내려간 KV가 다시 필요해진 경우다. **설계 문서 §4.2(1)에 따라 Prefill 연산은 어느 경로에서도 GPU가 수행한다** — 정하는 것은 KV를 어떻게 공급하느냐뿐이다.
 
 ```mermaid
 sequenceDiagram
     participant Sched as Scheduler
     participant Mgr as PlacementManager
     participant Reg as PlacementRegistry
-    participant Plan as AttentionOffloadPlanner
-    participant Pipe as LayerPipeline
+    participant Plan as PrefillPathPlanner
     participant Off as OffloadingManager
     participant GPU as GPU
-    participant Mem as Compute-capable Memory
+    participant Led as ResourceLedger
 
     Sched->>Mgr: on_reactivation(ReactivationEvent)
     Mgr->>Reg: lookup(session_id)
     Reg-->>Mgr: PlacementDecision(memory, mode)
+    Mgr->>Plan: plan(decision, block_set, model)
+    Plan->>Plan: can_stream(mem, model) — 전송이 GPU 연산 아래 숨는가
+    Plan-->>Mgr: PrefillPath
 
-    alt mode == RESIDENT
-        Note over Mgr: 복원 없음
-        Mgr->>GPU: incremental prefill + decode
-    else mode == RESTORE
+    alt path == LOCAL
+        Note over Mgr: KV가 이미 GPU가 읽을 수 있는 곳에 있다
+        Mgr->>GPU: Incremental Prefill
+    else path == STREAM
+        loop 각 계층 l = 1..L
+            Mgr->>Off: 계층 l의 KV 읽기
+            Off-->>Mgr: KV chunk
+            Mgr->>GPU: 계층 l Prefill 연산 후 chunk 폐기
+        end
+        Note over Mgr,GPU: 상위 계층 용량을 점유하지 않는다.<br/>전송이 연산 아래 숨으면 추가 비용이 0에 수렴
+    else path == RESTORE
         Mgr->>Off: prepare_load(keys, req_context)
         Off-->>Mgr: LoadStoreSpec
-        Note over Mgr,Off: History 전량 복원 (all-or-nothing)<br/>→ 재활성 TTFT를 지배
-        Mgr->>GPU: incremental prefill + decode
-    else mode == ATTENTION_OFFLOAD
-        Mgr->>Plan: plan(decision, block_set, model_cfg)
-        Plan-->>Mgr: ReactivationPlan(link_bytes, roundtrips)
-        loop 각 계층 l = 1..L
-            Mgr->>Pipe: run_layer(l, h_in, mem)
-            Pipe->>GPU: LayerNorm + QKV projection
-            GPU-->>Pipe: Q, K_new, V_new
-            Pipe->>Mem: Q, K_new, V_new  (링크: 활성화 크기)
-            Note over Mem: KV cache append 후<br/>내부 대역폭으로 Attention 수행<br/>KV는 링크를 건너지 않는다
-            Mem-->>Pipe: attn_out  (링크: 활성화 크기)
-            Pipe->>GPU: O projection + FFN
-            GPU-->>Pipe: h_out
-        end
-        Pipe-->>Mgr: 최종 출력
+        Note over Mgr,Off: History 전량을 상위 계층으로 복원<br/>(all-or-nothing) → 용량을 점유한다
+        Mgr->>GPU: Incremental Prefill
     end
 
-    Mgr-->>Sched: ReactivationPlan
+    Mgr->>Led: charge_gpu(prefill 연산) / charge_memory(전송)
+    Note over Mgr: Prefill 완료 → 결정점 A(§3.1)로 이어진다
+    Mgr-->>Sched: PrefillPath
 ```
 
-세 경로가 실어 나르는 데이터가 다르다는 것이 요지다 (설계 문서 §4.2의 가정 모델 기준).
+**어느 분기에도 "메모리에서 Prefill을 수행하는" 경로가 없다.** 이것이 설계 문서 §4.2(1)의 구조적 표현이며, §0에서 선언한 불변식이다.
 
-| Mode | 재활성 시 링크를 건너는 데이터 | 지표 |
-|---|---|---|
-| RESIDENT | 없음 | — |
-| RESTORE | **History KV 전량** (~10 GiB) | M-P2, M-P4 |
-| ATTENTION_OFFLOAD | **활성화 텐서만** (~2.8 MiB / token, 계층당 왕복 L회) | M-P2, M-P3 |
+재활성이 끝나면 다시 **결정점 A**로 이어진다 — 이번 턴의 Decode를 어디서 돌릴지를 새로 정하므로, 세션의 KV 위치는 턴마다 바뀔 수 있다.
 
-`LayerPipeline`의 루프가 계층 수만큼 돌면서 매번 링크를 두 번 건너는 것이 설계 문서 §4.3이 말한 비용의 실체이며, 이 왕복은 배치 안의 여러 요청이 같은 계층을 함께 처리할 때 상쇄된다.
-
-### 3.4 유휴 중 재조정 (직교 축, 두 후보 공통)
+### 3.6 유휴 중 재조정 (직교 축, 두 후보 공통)
 
 ```mermaid
 sequenceDiagram
@@ -617,7 +770,7 @@ sequenceDiagram
     Eng->>Mgr: on_idle_tick(step)
     opt C2 구성일 때만
         Mgr->>Ana: observe(lifecycle_events)
-        Note over Ana: sample_rate에 따라 부분 관측<br/>실제 유휴 시간 / 재활성 여부를 회수<br/>→ Tool별 실행 시간 분포 갱신
+        Note over Ana: sample_rate에 따라 부분 관측<br/>실제 유휴 시간 / 재활성 여부 / 실제 생성 길이를 회수<br/>→ ToolLatency · TurnHazard · DecodeLength 모델 갱신
     end
     Mgr->>Reb: rebalance(view, policy, migration_budget)
     loop 재평가 대상 세션
@@ -633,7 +786,7 @@ sequenceDiagram
 
 - **`IdleRebalancer`는 `PlacementPolicy` 인터페이스만 알고 C1/C2를 구별하지 않는다.** 설계 문서 §8의 직교성이 구조로 보장된다.
 - **Migration 예산이 공유 상수다.** 두 후보에 다른 예산을 주면 비교가 성립하지 않는다.
-- **`KVCharacteristicAnalyzer.observe()`가 여기서 ground truth를 회수한다.** 실제 유휴 시간과 재활성 여부는 사후에만 알 수 있으므로, C2의 추정 품질 — 특히 **Tool별 실행 시간 분포** — 은 이 경로를 통해서만 개선된다. M-P8의 표본율 축이 걸리는 지점이다.
+- **`observe()`가 세 추정 모델의 유일한 갱신 경로다.** 실제 유휴 시간, 다음 턴 발생 여부, 실제 생성 길이는 사후에만 관측되므로 이 경로의 품질이 곧 M-P8의 증폭률이 된다.
 
 ---
 
@@ -642,12 +795,15 @@ sequenceDiagram
 | 구분 | C1 (MemoryCentricPolicy) | C2 (DataCentricPolicy) |
 |---|---|---|
 | 핵심 협력 객체 | `MemoryStateCollector`, `PlacementPlanner`, `TierScorer` | `KVCharacteristicAnalyzer`, `KVClassifier`, `PlacementPolicyTable`, `MemoryStateAwareRefiner`, `TierScorer` |
-| `MemoryStateView` 사용 범위 | 전체 메모리에 대해 Capacity/BW/Compute/Load 조회 | **KV Class로 좁혀진 후보 집합**에 대해서만 조회 |
+| `MemoryStateView` 사용 범위 | 후보 전체에 대해 Capacity/BW/Compute/Load 조회 | **KV Class로 좁혀진 후보**에 대해서만 조회 |
 | Decision 절차 | Collect → Tier Scoring → Best Tier Selection (arg max) | Analyze → Classify → Candidates → Refine (arg max) |
-| 전환당 호출 비용 | Collect 1회 + 메모리 수 × Score | **Analyze/Classify/Candidates 3회** + 후보 수 × Score |
+| 결정당 호출 비용 | Collect 1회 + 후보 수 × Score | **Analyze/Classify/Candidates 3회** + 후보 수 × Score |
+| **결정점 A 입력** | Memory State만 | **`expected_decode_length`** + 재활성 연산 — 옮길 값이 있는지 판단 |
+| **결정점 B 입력** | Memory State만 | Next-access Time / Reuse Probability / expected_roundtrips |
 | 추정 의존성 | 없음 (`analyzer` 모듈 의존 간선 없음) | 있음 — `KVCharacteristics`의 오차가 후보 집합에 직접 반영 |
-| `AgentToolInfo` 활용 | 받지만 사용 안 함 | `KVCharacteristicAnalyzer`의 1차 입력 |
-| 재활성 연산 활용 | `TierScorer.compute_term()`의 가점 | **`PlacementPolicyTable`의 후보 형성 입력** — Attention 오프로드 선택의 유일한 경로 |
+| `AgentToolInfo` 활용 | 받지만 사용 안 함 | 세 추정 모델의 1차 입력 |
+| `QueueStateView` 활용 | 접근 가능하나 사용 안 함 | Next-access Time의 큐 성분 |
+| 재활성 연산 활용 | `TierScorer.compute_term()`의 가점 | **`PlacementPolicyTable`의 후보 형성 입력** |
 | 자원 급변 대응 | 즉각적 — Load가 점수에 직접 들어감 | 간접적 — 후보 집합이 먼저 고정됨 |
 | 신규 메모리 등장 시 | Memory State 기준으로 보수적으로 편입 | 원시 연산 지원 여부가 `PlacementPolicyTable`에 즉시 반영 |
 | 유휴 재조정 전환 시 변경 지점 | 없음 (`IdleRebalancer` 공유) | 없음 + `KVCharacteristicAnalyzer.observe()` 활성화 |
@@ -656,9 +812,11 @@ sequenceDiagram
 
 | Metric | 이 문서에서 재는 지점 |
 |---|---|
-| M-P2 (재활성 TTFT) | §3.3의 Mode별 링크 통과량 |
+| M-P1 (Goodput) | §2.1 `ResourceLedger.turn_time()` — GPU/메모리 점유의 `max` |
+| M-P2 (재활성 TTFT) | §3.5의 `PrefillPath` 분기별 KV 공급 비용 |
 | M-P3 (TPOT) | §2.4 `LinkCostModel` — 바이트와 왕복을 분리 계상 |
-| M-P5 (Decision Latency) | §4 "전환당 호출 비용" |
-| M-P7 (오프로드 채택률) | §4 "재활성 연산 활용" |
-| M-P8 (추정 오차 민감도) | §4 "추정 의존성", `AgentToolInfo` 활용 |
-| M-F1 (지원 가능한 신규 Memory 수) | §1의 `configs/memories_default.json` → `memories.py` 단일 경로 |
+| M-P5 (Decision Latency) | §4 "결정당 호출 비용" |
+| M-P7 (오프로드 채택률) | §3.1에서 `ATTENTION_OFFLOAD`가 선택된 비율 |
+| M-P7b (GPU 점유율·자원 병렬도) | §2.1 `ResourceLedger.occupancy_of()` / `bottleneck()` |
+| M-P8 (추정 오차 민감도) | §4 "추정 의존성" — Ablation은 `KVCharacteristics`의 필드 단위로 수행 |
+| M-F1 (지원 가능한 신규 Memory 수) | §1의 `configs/memories_default.yaml` → `memories.py` 단일 경로 |
