@@ -4,11 +4,12 @@
 
 ## 0. 설계 원칙
 
-DP1 구현(`dp1_placement/`)과 동일한 패턴을 따른다.
+DP1 구현(`dp1_kv_placement/`)과 동일한 패턴을 따른다.
 
-- **Policy 추상화를 공유**한다. C1/C2는 같은 `PlacementPolicy` 인터페이스의 서로 다른 구현이며, `Engine`은 어떤 정책이 꽂히든 동일하게 동작한다. (`dp1_placement/policy.py`의 `PlacementPolicy` ↔ `PlacementEstimator` 분리 방식과 동일)
-- **Runtime State를 읽는 창구를 하나로 제한**한다. 정책은 `RuntimeStateView`를 통해서만 Node 상태를 읽으며, C1은 이 창구에서 Candidate 목록만 사용하고 C2는 Candidate 목록 + Load/Queue/BW Observation까지 사용한다. (`dp1_placement/tiers.py`의 `TierStateView`와 동일한 역할)
-- **DP1 결과에 의존**한다. `PrefillRequest.kv_location`은 DP1이 결정한 배치 결과(Memory Tier, Locality)를 그대로 입력으로 받는다. DP2는 DP1을 대체하지 않고 그 위에 얹힌다.
+- **Policy 추상화를 공유**한다. C1/C2는 같은 `PlacementPolicy` 인터페이스의 서로 다른 구현이며, `Engine`은 어떤 정책이 꽂히든 동일하게 동작한다. (`dp1_kv_placement/policy.py`의 `PlacementPolicy` ↔ `PlacementExecutor` 분리 방식과 동일)
+- **Runtime State를 읽는 창구를 하나로 제한**한다. 정책은 `RuntimeStateView`를 통해서만 Node 상태를 읽으며, C1은 이 창구에서 Candidate 목록만 사용하고 C2는 Candidate 목록 + Load/Queue/BW Observation까지 사용한다. (`dp1_kv_placement/memories.py`의 `MemoryStateView`와 동일한 역할)
+- **DP1 결과에 의존**한다. `PrefillRequest.kv_location`은 DP1이 결정한 배치 결과를 입력으로 받는다. DP2는 DP1을 대체하지 않고 그 위에 얹힌다.
+- **DP1의 타입을 그대로 쓰지 않고 좁은 투영만 갖는다.** DP2에 필요한 것은 "어느 계층에, GPU에서 얼마나 먼 곳에 있는가"뿐이므로 `MemoryTierKind`/`Locality`를 자체 정의하고, DP1의 `Medium`에서 매핑해 받는다. **결합 지점은 그 매핑 하나뿐이다.**
 
 ---
 
@@ -31,9 +32,8 @@ graph TB
         end
     end
 
-    subgraph dp1_placement
-        dp1_tiers["tiers.py<br/>MemoryTier"]
-        dp1_shim["vllm_shim.py<br/>Locality, Medium"]
+    subgraph dp1_kv_placement
+        dp1_mem["memories.py<br/>MemorySpec, Medium"]
     end
 
     policy --> request
@@ -52,11 +52,10 @@ graph TB
     engine --> runtime_state
     engine --> accounting
     engine --> policies
-    request -.->|KV Location 참조| dp1_tiers
-    request -.->|Locality/Medium 참조| dp1_shim
+    request -.->|Medium → MemoryTierKind 매핑| dp1_mem
 ```
 
-`policies/` 아래 C1, C2 구현만 교체하면 `Engine`/`request.py`/`nodes.py`/`runtime_state.py`는 그대로 재사용된다. DP1과의 결합은 `request.py`에서 `kv_location` 필드가 DP1의 `MemoryTier`/`Locality` 타입을 참조하는 한 지점으로 제한한다.
+`policies/` 아래 C1, C2 구현만 교체하면 `Engine`/`request.py`/`nodes.py`/`runtime_state.py`는 그대로 재사용된다. DP1과의 결합은 `request.py`에서 DP1의 `Medium`을 `MemoryTierKind`로 매핑하는 한 지점으로 제한한다.
 
 ---
 
@@ -76,6 +75,7 @@ classDiagram
     class MemoryTierKind {
         <<enumeration>>
         HBM
+        CUSTOM_HBM
         DRAM
         CXL
         HBF

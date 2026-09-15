@@ -28,7 +28,9 @@
 DP1의 배치 결과가 DP2의 Data Movement Cost를 결정하고, DP1이 배치한 KV가 쌓여 생기는
 HBM Pressure를 DP3가 회수로 해소한다. 세 DP는 독립적인 최적화 문제가 아니다.
 
-DP1과 DP3는 둘 다 KV를 하위 계층으로 보내지만 같은 결정이 아니다 — **DP1은 수요 소멸(이 KV가 지금 안 쓰인다)이 트리거이고 재접근 시점이 기준**이며, **DP3는 공급 부족(HBM이 모자란다)이 트리거이고 Attention Importance가 기준**이다.
+DP1과 DP3는 **같은 동작을 하지 않는다.** DP1은 KV를 하위 계층으로 **옮기고**(Demote) DP3는 **버린다**(Drop). 옮긴 KV는 내용이 남아 Attention 결과가 비트 단위로 동일하지만, 버린 KV는 되돌릴 수 없고 필요해지면 GPU에서 재계산해야 한다 — **Attention Importance가 Accuracy와 교환되는 것은 Drop에서만 성립한다**(DP3 §2.1).
+
+그래서 둘은 병렬 관계가 아니다. **DP1이 먼저 배치를 시도하고, 그 결과가 용량 제약을 만족하지 못할 때만 DP3가 개입한다** — DP3는 DP1의 실패 처리 경로다([ADR-005](adr/adr-005-dp1-before-dp3.md)). 순서를 반대로 두면 강등만으로 해결됐을 KV를 버리게 되고 그 손실은 되돌릴 수 없다.
 
 ---
 
@@ -72,12 +74,24 @@ DP1과 DP3는 둘 다 KV를 하위 계층으로 보내지만 같은 결정이 �
 
 | 문서 | 내용 |
 |---|---|
-| [`dp3-long-context-kv-cache-eviction.md`](dp3-long-context-kv-cache-eviction.md) | **설계 문서** — 문제 정의, 후보 구조 C1/C2, 평가 방향 |
+| [`dp3-long-context-kv-cache-eviction.md`](dp3-long-context-kv-cache-eviction.md) | **설계 문서** — 문제 정의, 회수 방식(Demote/Drop)과 결정 시점, 후보 구조 C1/C2, QA별 평가 Metric |
+| [`dp3-implementation-uml.md`](dp3-implementation-uml.md) | **구현 UML** — Module View, Class Diagram, Sequence Diagram |
 
 **후보 구조**
 
+두 후보가 다른 것은 **Importance를 언제 평가하는가**뿐이다. 회수를 **언제 실행하는가**(Watermark / Admission / Step 경계 / 비활성 전환)는 별도 축이며 두 후보에 공통으로 걸린다 — 고정하지 않고 비교하면 평가 방식의 차이와 실행 시점의 차이가 분리되지 않는다.
+
 - **C1. Offline Attention-based** — Representative Query로 사전에 KV Importance를 산출
 - **C2. Online Attention-based** — Actual Query의 Attention 결과로 Runtime에 판단
+
+---
+
+### 교차 검토
+
+| 문서 | 내용 |
+|---|---|
+| [`cross-dp-architecture-audit.md`](cross-dp-architecture-audit.md) | **Cross-DP 감사** — 세 DP를 하나의 설계로 보고 교차 검토한 결과. DP 경계에서 어긋나는 지점, 공통 누락 항목, 남은 설계 판단 |
+| [`adr/`](adr/) | **ADR** — 되돌리기 어려운 결정 7건과 기각한 대안, 재검토 트리거 |
 
 ---
 
@@ -91,6 +105,7 @@ DP1과 DP3는 둘 다 KV를 하위 계층으로 보내지만 같은 결정이 �
 | **구현 UML** | 후보를 구현할 때의 모듈·클래스·호출 구조 | 설계 문서의 주장을 구조 수준에서 재확인한 것 |
 | **시나리오 비교** | 조건을 바꿔가며 두 후보의 결정이 갈리는 지점을 서술 | 예시이며 측정이 아니다 |
 | **프로토타입 명세/결과** | 실제로 측정한 수치와 그 유효 범위 | **유효 범위와 한계 절을 반드시 함께 읽을 것** |
+| **[ADR](adr/)** | 되돌리기 어려운 결정과 기각한 대안, 재검토 트리거 | 설계 문서가 **전제로 깔고 있는 것**이 여기 있다. 가정값에 의존하는 결정은 그 사실이 표시되어 있다 |
 
 ---
 
