@@ -41,7 +41,7 @@ DP1과 DP3는 **같은 동작을 하지 않는다.** DP1은 KV를 하위 계층�
 | 문서 | 내용 |
 |---|---|
 | [`dp1-heterogeneous-memory-data-placement.md`](dp1-heterogeneous-memory-data-placement.md) | **설계 문서** — 문제 정의, 후보 구조 C1/C2, QA별 평가 Metric |
-| [`dp1-implementation-uml.md`](dp1-implementation-uml.md) | **구현 UML** — Module View, Class Diagram, Sequence Diagram |
+| [`dp1-implementation-uml.md`](dp1-implementation-uml.md) | **구현 UML** — Module View(통합 + **후보별 C1/C2**), Class Diagram, Sequence Diagram(결정점 × 후보 4종) |
 | [`configs/`](configs/) | **시뮬레이션 Configuration** — 6종 메모리 스펙 (값마다 단위·출처 등급 주석) |
 
 **후보 구조**
@@ -91,6 +91,7 @@ DP1과 DP3는 **같은 동작을 하지 않는다.** DP1은 KV를 하위 계층�
 | 문서 | 내용 |
 |---|---|
 | [`cross-dp-architecture-audit.md`](cross-dp-architecture-audit.md) | **Cross-DP 감사** — 세 DP를 하나의 설계로 보고 교차 검토한 결과. DP 경계에서 어긋나는 지점, 공통 누락 항목, 남은 설계 판단 |
+| [`dp1-implementation-uml-review.md`](dp1-implementation-uml-review.md) | **DP1 UML 검수** — 설계 문서의 주장이 구조로 강제되는지, 다이어그램끼리 일치하는지 |
 | [`adr/`](adr/) | **ADR** — 되돌리기 어려운 결정 7건과 기각한 대안, 재검토 트리거 |
 
 ---
