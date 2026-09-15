@@ -235,6 +235,46 @@ classDiagram
 
 `RuleChain.rules`의 순서가 R1→R5 우선순위 그대로이며, `select_p_node`(정적 매핑)는 `DefaultRemoteRule`/`LatencyTolerantSharedRule`이 P Node 여러 개 중 하나를 고를 때 내부적으로 호출한다.
 
+**구조로 보면:** 위 클래스 다이어그램의 상속 관계(`Rule <|-- LatencySensitiveRule` 등)를 "포함 — 참조" 관계로 다시 그리면, C1의 모양이 좁고 깊은 **체인**이라는 것이 드러난다.
+
+```mermaid
+graph TB
+    Req(("PrefillRequest<br/>ΔInput · History KV<br/>RequestType · KVLocation"))
+    RSV(("RuntimeStateView<br/>candidates_for() only"))
+
+    subgraph POL["WorkloadMemoryRulePolicy"]
+        direction TB
+        Cls["Classifiers «utility»<br/>─────────────<br/>classify_input_size()<br/>classify_history_kv()<br/>classify_request_type()<br/>classify_memory()"]
+
+        subgraph CHAIN["RuleChain — 우선순위 고정 목록"]
+            direction TB
+            R1["P1 · LatencySensitiveRule<br/>TypeClass = Latency-Sensitive → D Local"]
+            R2["P2 · LargeHistoryLocalRule<br/>HistoryClass = Large ∧ D-Local → D Local"]
+            R3["P3 · SmallInputLocalRule<br/>InputClass = Small ∧ D-Local/Shared → D Local"]
+            R4["P4 · LatencyTolerantSharedRule<br/>Tolerant ∧ Shared → P Remote"]
+            R5["P5 · DefaultRemoteRule<br/>(그 외) → P Remote"]
+            R1 --- R2 --- R3 --- R4 --- R5
+        end
+    end
+
+    Req -.읽음.-> Cls
+    Cls ==분류 결과 1회 계산, 5개 Rule이 재사용==> CHAIN
+    RSV -.candidate 목록만.-> POL
+
+    style POL fill:#eef3fb,stroke:#4472c4,stroke-width:2px
+    style CHAIN fill:#dbe5f6,stroke:#4472c4,stroke-width:1px
+    style Cls fill:#c9d7f0,stroke:#4472c4
+    style R1 fill:#dbe5f6,stroke:#4472c4
+    style R2 fill:#dbe5f6,stroke:#4472c4
+    style R3 fill:#dbe5f6,stroke:#4472c4
+    style R4 fill:#dbe5f6,stroke:#4472c4
+    style R5 fill:#dbe5f6,stroke:#4472c4
+    style Req fill:#f2f2f2,stroke:#888
+    style RSV fill:#f2f2f2,stroke:#888
+```
+
+**`RuntimeStateView`가 정책 바깥에 점선 하나로만 걸려 있고, 그나마 `candidates_for()`뿐이다.** Load/Queue/BW는 이 구조에 아예 들어올 자리가 없다 — Rule 자체가 그 값을 받는 파라미터를 갖지 않으므로, 반영하려면 Rule을 새로 써야 한다. **Runtime State 무관심이 서술이 아니라 이 구조의 성질이다.**
+
 #### 2.2.1 호출 관계 예시
 
 세 클래스의 역할은 분리되어 있다.
@@ -315,6 +355,53 @@ classDiagram
 ```
 
 `RuntimeCostAwarePolicy.place()`는 `filter.filter()`로 Candidate Subset을 줄인 뒤, Subset의 각 Node에 대해 `cost_model.total_cost()`를 계산하고 `argmin`을 반환한다. (8장의 Candidate Filtering → Cost Evaluation 2단계 구조)
+
+**구조로 보면:** `CostModel`이 4개의 독립 계산 메서드를 갖고 그 결과를 `CostBreakdown`으로 합산하는 것을 "포함 — 참조" 관계로 다시 그리면, C2의 모양은 C1과 반대로 **넓고 얕은 팬인(fan-in)**이다.
+
+```mermaid
+graph TB
+    Req(("PrefillRequest"))
+
+    subgraph PM["RuntimeCostAwarePolicy"]
+        direction TB
+        Filt["CandidateFilter"]
+        subgraph CM["CostModel — 4항 독립 계산 후 합산"]
+            direction LR
+            Cd["C_data<br/>KV Location · Tier<br/>BW · Transfer Path"]
+            Cq["C_queue<br/>Node Load<br/>Queue Length"]
+            Cp["C_prefill<br/>ΔToken<br/>Compute Capability"]
+            Ci["C_interference<br/>P/D Co-location<br/>Current Workload"]
+        end
+        Sum(("Σ<br/>CostBreakdown.total"))
+        Argmin["argmin over Candidates<br/>→ PlacementDecision"]
+        Filt --> CM
+        Cd --> Sum
+        Cq --> Sum
+        Cp --> Sum
+        Ci --> Sum
+        Sum --> Argmin
+    end
+
+    RSV(("RuntimeStateView<br/>+ NodeObservation<br/>Load · Queue · BW · Interference"))
+    Req -.읽음.-> Filt
+    RSV ==candidate + observation 전체==> CM
+
+    style PM fill:#fdf2ea,stroke:#ed7d31,stroke-width:2px
+    style CM fill:#fce4d6,stroke:#ed7d31,stroke-width:1px
+    style Filt fill:#f7cbaa,stroke:#ed7d31
+    style Cd fill:#fce4d6,stroke:#ed7d31
+    style Cq fill:#fce4d6,stroke:#ed7d31
+    style Cp fill:#fce4d6,stroke:#ed7d31
+    style Ci fill:#fce4d6,stroke:#ed7d31
+    style Sum fill:#f7cbaa,stroke:#ed7d31
+    style Argmin fill:#f7cbaa,stroke:#ed7d31
+    style Req fill:#f2f2f2,stroke:#888
+    style RSV fill:#f2f2f2,stroke:#888
+```
+
+**`RuntimeStateView`가 굵은 실선으로 `CostModel` 전체에 들어간다** — `NodeObservation`의 네 필드(Load·Queue·BW·Interference)가 각각 다른 항의 입력이 된다. **C1의 점선(candidate 목록만) vs C2의 굵은 실선(전체 관측)이 §2.2의 다이어그램과 나란히 놓고 보면 Runtime State 개입도의 차이 그 자체를 그림으로 만든다.**
+
+> §2.2·§2.3 두 다이어그램은 같은 문법(원 = 외부 계약, 실선 사각형 = 정책 내부 모듈, 실선 화살표 = 포함/합산, 점선 화살표 = 읽기 참조)을 쓴다. 나란히 놓았을 때 **체인 대 팬인**이라는 모양 차이가 곧 §6 표의 "Decision 절차" 행이 말하는 것이다.
 
 ---
 
@@ -430,6 +517,8 @@ C1에는 이 상태를 참조하는 Rule이 없다 — Node가 `DecodingAndPrefi
 ---
 
 ## 6. C1 / C2 구현 구조 비교
+
+아래 표는 §2.2·§2.3의 구조도가 그림으로 보인 것을 항목별로 정리한 것이다 — **체인(C1) vs 팬인(C2)** 이라는 모양 차이가 "Decision 절차"·"Request당 호출 비용" 두 행의 근거다.
 
 | 구분 | C1 (WorkloadMemoryRulePolicy) | C2 (RuntimeCostAwarePolicy) |
 |---|---|---|
