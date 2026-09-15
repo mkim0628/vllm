@@ -569,6 +569,58 @@ C1의 `place()`는 3단계다: `collector.collect()` → `planner.tier_scoring()
 
 **`compute_term()`이 Compute Capability를 가점으로만 반영한다.** 그래서 결정점 A에서 "이 세션은 Decode가 길 것이니 연산형 메모리로 옮길 값이 있다"는 판단이 나오지 않는다 — 설계 문서 §7 C1 단점("Operation-Compute capability 간 적합성 판단에 한계")의 구현 레벨 근거다. 후보 범위 자체는 `FeasibilityFilter`가 `DecisionPoint`로 좁혀주므로 C1도 잘못된 메모리를 고르지는 않는다.
 
+**구조로 보면:** 위 클래스 다이어그램의 포함 관계(`MemoryCentricPolicy --> MemoryStateCollector` 등)를 "무엇이 무엇을 담고, 몇 개의 메모리가 실제로 채점 대상에 오르는가" 관점으로 다시 그리면, C1의 모양은 **평면(flat)** 이다 — 후보를 좁히는 단계가 없다.
+
+```mermaid
+graph TB
+    Req(("AllocationRequest"))
+    MSV(("MemoryStateView<br/>6종 전체 상태"))
+
+    subgraph POL["MemoryCentricPolicy"]
+        direction TB
+        Col["MemoryStateCollector<br/>─────────────<br/>Available Capacity<br/>Bandwidth (ext/int)<br/>Compute Capability<br/>Current Load"]
+        subgraph PLAN["PlacementPlanner"]
+            direction TB
+            Scorer["TierScorer<br/>─────────────<br/>capacity_term<br/>bandwidth_term<br/>compute_term ← 가점뿐<br/>load_term"]
+            Sel["best_tier_selection<br/>(arg max score)"]
+            Scorer --> Sel
+        end
+        Col ==6종 전체 Snapshot==> PLAN
+    end
+
+    HBM["HBM"]
+    DRAM["DRAM"]
+    CXL["CXL-PNM"]
+    CHBM["Custom HBM"]
+    HBF["HBF"]
+    SSD["SSD-PIM"]
+    Sel -.채점 대상 6종 전체.-> HBM
+    Sel -.-> DRAM
+    Sel -.-> CXL
+    Sel -.-> CHBM
+    Sel -.-> HBF
+    Sel -.-> SSD
+
+    Req -.읽음.-> Col
+    MSV ==capacity·BW·compute·load 전체==> Col
+
+    style POL fill:#eef3fb,stroke:#4472c4,stroke-width:2px
+    style PLAN fill:#dbe5f6,stroke:#4472c4,stroke-width:1px
+    style Col fill:#c9d7f0,stroke:#4472c4
+    style Scorer fill:#dbe5f6,stroke:#4472c4
+    style Sel fill:#dbe5f6,stroke:#4472c4
+    style Req fill:#f2f2f2,stroke:#888
+    style MSV fill:#f2f2f2,stroke:#888
+    style HBM fill:#fff2cc,stroke:#bf9000
+    style DRAM fill:#fff2cc,stroke:#bf9000
+    style CXL fill:#fff2cc,stroke:#bf9000
+    style CHBM fill:#fff2cc,stroke:#bf9000
+    style HBF fill:#fff2cc,stroke:#bf9000
+    style SSD fill:#fff2cc,stroke:#bf9000
+```
+
+**`best_tier_selection`이 6종 전체에 점선으로 연결된다.** 데이터 특성으로 후보를 미리 줄이는 단계가 구조에 없으므로, 매 결정마다 `TierScorer`가 **가능한 모든 메모리**를 채점한다 — 이것이 C1의 "구조 단순성"과 "데이터 특성을 반영하지 못하는 한계"가 같은 그림에서 나오는 이유다.
+
 ### 2.3 C2. Data 특성 중심 배치 구조
 
 ```mermaid
@@ -676,6 +728,82 @@ C2의 `place()`는 4단계다: `analyzer.analyze()` → `classifier.classify()` 
 **`KVClassifier.classify()`가 `decision_point`를 받는다.** 결정점 A는 `expected_decode_length`와 재활성 연산으로 분류하고, 결정점 B는 `next_access_time_s()`·`reuse_probability`로 분류한다 — 같은 특성 집합에서 **다른 축을 쓴다.**
 
 > **`ToolLatencyModel`·`TurnHazardModel`·`DecodeLengthModel`은 `observe()`로만 갱신된다**(본 문서 §3.7 유휴 중 재조정). 실제 유휴 시간, 다음 턴 발생 여부, 실제 생성 길이는 사후에만 관측되므로, 이 세 모델의 품질이 곧 M-P8의 증폭률이 된다.
+
+**구조로 보면 (결정점 B):** `KVClassifier`와 `PlacementPolicyTable`을 "포함 — 참조" 관계로 다시 그리면, C2의 모양은 C1과 정반대로 **깔때기(funnel)** 다 — KV 특성으로 먼저 Class 하나를 정하고, 그 Class가 가리키는 2~3종만 채점 대상에 오른다.
+
+```mermaid
+graph TB
+    Req(("AllocationRequest"))
+    QSV(("QueueStateView<br/>(C1도 접근 가능)"))
+
+    subgraph POL["DataCentricPolicy"]
+        direction TB
+        subgraph ANA["KVCharacteristicAnalyzer"]
+            direction LR
+            TLM["ToolLatencyModel"]
+            THM["TurnHazardModel"]
+            DLM["DecodeLengthModel"]
+        end
+        Cls["KVClassifier<br/>next_access_time_s · reuse_probability"]
+        subgraph TBL["PlacementPolicyTable — 후보를 좁힌다"]
+            direction LR
+            Hot["Hot & Compute-heavy<br/>→ HBM, Custom HBM"]
+            Warm["Warm & Read-intensive<br/>→ HBM, DRAM, CXL-PNM"]
+            Cold["Cold & Long-term<br/>→ CXL-PNM, HBF, SSD-PIM"]
+        end
+        subgraph REF["MemoryStateAwareRefiner"]
+            direction TB
+            Scorer2["TierScorer<br/>(C1과 동일 모듈 공유)"]
+        end
+        ANA ==KVCharacteristics 1회==> Cls
+        Cls ==KVClass 하나==> TBL
+        TBL ==좁혀진 후보만==> REF
+    end
+
+    HBM["HBM"]
+    DRAM["DRAM"]
+    CXL["CXL-PNM"]
+    CHBM["Custom HBM"]
+    HBF["HBF"]
+    SSD["SSD-PIM"]
+
+    Hot -.-> HBM
+    Hot -.-> CHBM
+    Warm -.-> HBM
+    Warm -.-> DRAM
+    Warm -.-> CXL
+    Cold -.-> CXL
+    Cold -.-> HBF
+    Cold -.-> SSD
+
+    Req -.읽음.-> ANA
+    QSV -.시스템 상태, 두 후보 공통.-> ANA
+
+    style POL fill:#fdf2ea,stroke:#ed7d31,stroke-width:2px
+    style ANA fill:#fce4d6,stroke:#ed7d31,stroke-width:1px
+    style TLM fill:#f7cbaa,stroke:#ed7d31
+    style THM fill:#f7cbaa,stroke:#ed7d31
+    style DLM fill:#f7cbaa,stroke:#ed7d31
+    style Cls fill:#fce4d6,stroke:#ed7d31
+    style TBL fill:#fce4d6,stroke:#ed7d31,stroke-width:1px
+    style Hot fill:#f7cbaa,stroke:#ed7d31
+    style Warm fill:#f7cbaa,stroke:#ed7d31
+    style Cold fill:#f7cbaa,stroke:#ed7d31
+    style REF fill:#fce4d6,stroke:#ed7d31,stroke-width:1px
+    style Scorer2 fill:#f7cbaa,stroke:#ed7d31
+    style Req fill:#f2f2f2,stroke:#888
+    style QSV fill:#f2f2f2,stroke:#888
+    style HBM fill:#fff2cc,stroke:#bf9000
+    style DRAM fill:#fff2cc,stroke:#bf9000
+    style CXL fill:#fff2cc,stroke:#bf9000
+    style CHBM fill:#fff2cc,stroke:#bf9000
+    style HBF fill:#fff2cc,stroke:#bf9000
+    style SSD fill:#fff2cc,stroke:#bf9000
+```
+
+**`TierScorer`가 C1과 같은 상자·같은 라벨로 등장한다** — 실제로 같은 모듈이다(§0의 공유 원칙). §2.2의 다이어그램과 나란히 놓으면 **채점 대상 개수 자체가 다르다**는 것이 보인다 — C1은 항상 6종, C2는 Class당 2~3종. `MemoryStateAwareRefiner`가 "C1과 동일 산술을 쓰되 좁혀진 후보에만 적용한다"는 §2.3 본문의 문장이 여기서 도형의 크기 차이로 나타난다.
+
+> §2.2·§2.3 두 다이어그램은 같은 문법(원 = 외부 계약, 실선 사각형 = 정책 내부 모듈, 실선 화살표 = 포함/전달, 점선 화살표 = 읽기 참조 또는 채점 대상)을 쓴다. C1은 위에서 아래로 갈수록 **넓이가 그대로**이고(6종 → 6종), C2는 위에서 아래로 갈수록 **좁아졌다가 다시 펼쳐진다**(3개 모델 → 1개 Class → 2~3종) — 이 모양 차이가 설계 문서 §7의 "데이터별 Access/Lifetime 특성을 반영" vs "구조 단순, 낮은 Overhead"라는 장단점의 근거다.
 
 ### 2.4 실행 경로 — Prefill과 Decode를 분리하는 두 Planner
 
@@ -1053,7 +1181,7 @@ sequenceDiagram
 
 ## 4. C1 / C2 구현 구조 비교
 
-§1.4가 **모듈 수준**의 차이를, 아래 표가 **클래스·호출 수준**의 차이를 정리한다. 두 층에서 같은 결론이 나오는지가 이 문서의 내적 정합성이다.
+§1.4가 **모듈 수준**의 차이를, §2.2·§2.3의 구조도가 **채점 대상의 범위**(평면 vs 깔때기) 차이를, 아래 표가 **클래스·호출 수준**의 차이를 정리한다. 세 층에서 같은 결론이 나오는지가 이 문서의 내적 정합성이다.
 
 | 구분 | C1 (MemoryCentricPolicy) | C2 (DataCentricPolicy) |
 |---|---|---|
