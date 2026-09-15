@@ -45,8 +45,10 @@ DP1과 DP3는 둘 다 KV를 하위 계층으로 보내지만 같은 결정이 �
 
 결정 시점은 **KV가 비활성으로 전환되는 순간**이다 — 턴 종료(Agent Tool 대기), Prefix 재사용분 보존, 선점, 세션 종료. 활성 Decode 중인 KV는 GPU-reachable 메모리에 있어야 하므로 대상이 아니다.
 
-- **C1. Memory-centric** — Memory 특성(Capacity / BW / Attention Compute Capability / Load / Write Endurance)이 배치 후보를 형성
-- **C2. Data-centric** — KV 특성(재접근 시점 / 재접근 확률 / 공유도 / 재활성 연산 / Write Intensity)이 후보를 형성하고, Memory State가 그 안에서 선택
+- **C1. 메모리 특성 중심** — Memory 특성(Capacity / BW / Compute Capability / Load)이 배치 후보를 형성
+- **C2. Data 특성 중심** — KV 캐시 특성(Next-access Time / Reuse Probability / Expected Remaining Lifetime / Agent Tool Info)이 후보를 형성하고, Memory State가 그 안에서 보정
+
+대상 메모리는 **HBM / Custom HBM / CXL-PNM / DRAM / HBF / SSD-PIM** 6종이며, 이 중 **CXL-PNM · Custom HBM · SSD-PIM**이 연산 가능하다. 설계 문서 §3에 각 메모리의 interconnect 탐색 결과와 시뮬레이션 Configuration(공개값/가정값 구분 포함)이, §4에 **Attention은 메모리에서, FFN은 GPU에서** 수행하는 분리 실행 구조가 있다.
 
 ### DP2. 이기종 메모리 환경의 Agent Prefill 실행 위치 결정 구조
 
