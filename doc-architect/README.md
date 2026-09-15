@@ -43,6 +43,8 @@ DP1과 DP3는 **같은 동작을 하지 않는다.** DP1은 KV를 하위 계층�
 | [`dp1-heterogeneous-memory-data-placement.md`](dp1-heterogeneous-memory-data-placement.md) | **설계 문서** — 문제 정의, 후보 구조 C1/C2, QA별 평가 Metric |
 | [`dp1-implementation-uml.md`](dp1-implementation-uml.md) | **구현 UML** — Module View(통합 + **후보별 C1/C2**), Class Diagram, Sequence Diagram(결정점 × 후보 4종) |
 | [`configs/`](configs/) | **시뮬레이션 Configuration** — 6종 메모리 스펙 (값마다 단위·출처 등급 주석) |
+| [`dp1_sim/`](dp1_sim/) | **구현** — 구현 UML의 클래스 구조를 옮긴 이산 사건 시뮬레이터 (C1/C2/As-Is) |
+| [`dp1-simulation-results.md`](dp1-simulation-results.md) | **측정 결과** — QA별 3점 만점 별점, 임계값의 정량 근거, 조건부 선정 |
 
 **후보 구조**
 

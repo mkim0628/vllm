@@ -1,0 +1,93 @@
+{
+  "per_policy": {
+    "as-is": {
+      "files": [
+        "policies/as_is.py"
+      ],
+      "loc": 34,
+      "branches": 3,
+      "loops": 2,
+      "methods": 3,
+      "classes": 1,
+      "state_fields": 3,
+      "tuning_knobs": 1,
+      "tunable_names": [
+        "AsIsPolicy.SPILL_ORDER"
+      ],
+      "M_M1_decision_path_complexity": 11,
+      "M_M4_branch_coverage_cases": 4
+    },
+    "C1": {
+      "files": [
+        "policies/c1_memory_centric.py"
+      ],
+      "loc": 56,
+      "branches": 1,
+      "loops": 5,
+      "methods": 8,
+      "classes": 4,
+      "state_fields": 7,
+      "tuning_knobs": 0,
+      "tunable_names": [],
+      "M_M1_decision_path_complexity": 21,
+      "M_M4_branch_coverage_cases": 2
+    },
+    "C2": {
+      "files": [
+        "policies/c2_data_centric.py",
+        "analyzer.py"
+      ],
+      "loc": 205,
+      "branches": 29,
+      "loops": 4,
+      "methods": 20,
+      "classes": 11,
+      "state_fields": 23,
+      "tuning_knobs": 7,
+      "tunable_names": [
+        "KVClassifier.DECODE_LONG_STEPS",
+        "KVClassifier.NEXT_ACCESS_HOT_S",
+        "KVClassifier.NEXT_ACCESS_WARM_S",
+        "KVClassifier.REUSE_HOT",
+        "PlacementPolicyTable.BULK_CAPACITY",
+        "PlacementPolicyTable.FAST_PATH_BW",
+        "PlacementPolicyTable.WARM_PATH_BW"
+      ],
+      "M_M1_decision_path_complexity": 76,
+      "M_M4_branch_coverage_cases": 30
+    }
+  },
+  "M_M2": {
+    "as-is": {
+      "config_change_points": 1,
+      "code_change_points": 6,
+      "total": 7,
+      "hits": [
+        "policies/as_is.py:20 literal 'hbm'",
+        "policies/as_is.py:20 literal 'custom_hbm'",
+        "policies/as_is.py:20 literal 'hbf'",
+        "policies/as_is.py:20 literal 'dram'",
+        "policies/as_is.py:20 literal 'cxl_pnm'",
+        "policies/as_is.py:20 literal 'ssd_pim'"
+      ]
+    },
+    "C1": {
+      "config_change_points": 1,
+      "code_change_points": 0,
+      "total": 1,
+      "hits": []
+    },
+    "C2": {
+      "config_change_points": 1,
+      "code_change_points": 0,
+      "total": 1,
+      "hits": []
+    }
+  },
+  "shared_knobs": [
+    "TierScorer.W_BANDWIDTH",
+    "TierScorer.W_CAPACITY",
+    "TierScorer.W_COMPUTE",
+    "TierScorer.W_LOAD"
+  ]
+}
