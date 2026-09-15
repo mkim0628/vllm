@@ -28,6 +28,27 @@
 
 schema_version: 1
 
+# 4장의 정량 비교를 config에서 재현하기 위한 기준 GPU와 가정 모델.
+# calc_attention.py가 이 값들로 표를 생성한다.
+gpu:
+  name: reference_gpu
+  hbm_bw_bytes_per_s:       8.0e+12   # 8.0 TB/s   src: PUBLIC 8-stack 집계
+  compute_tflops_fp16:      2.0e+15   # 2000 TFLOPS src: PUBLIC 현세대 가속기 dense fp16 peak 급
+  attention_bw_efficiency:      0.9   # src: ASSUMED GPU attention 커널 대역폭 달성률
+  attention_flops_efficiency:   0.5   # src: ASSUMED attention은 dense GEMM보다 peak 달성률이 낮다
+
+model:
+  name: dense_70b_class            # 4장 가정 모델. 실제 모델로 교체 가능
+  num_layers: 80
+  hidden: 8192
+  num_heads: 64
+  num_kv_heads: 8                  # GQA 8:1 -> Decode attention의 연산 강도 = 8 FLOP/B
+  head_dim: 128
+  dtype_bytes: 2
+  context_tokens: 32768
+  incremental_prefill_tokens: 512  # Agent turn의 Tool Result 크기 대표값
+
+
 memories:
 
   # ────────────────────────────────────────────────────────────────
@@ -42,6 +63,8 @@ memories:
     latency_s:                3.0e-07  # 300 ns     src: PUBLIC HBM 접근 지연 대표값
     gpu_reachable: true
     supported_primitives: []           # 연산 기능 없음
+    compute_tflops_fp16:            null  # src: 연산 기능 없음
+    attention_bw_efficiency:        null  # src: ASSUMED Attention 커널이 int_bw 중 실제로 달성하는 비율
     write_amplification: 1.0
     endurance_budget_bytes: null       # DRAM — 실질적 무제한
     provenance: "PUBLIC: 8-stack aggregate HBM bandwidth; per-stack 2.0-3.3 TB/s is SPEC (HBM4)"
@@ -62,6 +85,8 @@ memories:
     hops: [gpu->dev:scaleup_fabric]    # 한 홉. CPU를 경유하지 않는다
     gpu_reachable: true                # fabric이 memory semantics를 제공한다는 전제 (NVLink-C2C 방식)
     supported_primitives: [QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK]
+    compute_tflops_fp16:         3.2e+13  # src: ASSUMED 32 TFLOPS fp16. 근접 연산 유닛 규모는 공개값 없음 -> HW 확인 항목 (3.6)
+    attention_bw_efficiency:         0.7  # src: ASSUMED Attention 커널이 int_bw 중 실제로 달성하는 비율
     write_amplification: 1.0
     endurance_budget_bytes: null
     provenance: "ext=SPEC NVLink 5 (900 GB/s per direction); capacity, int BW, latency = ASSUMED (separate memory node)"
@@ -83,6 +108,8 @@ memories:
     hops: [gpu->cpu:pcie, cpu->dev:cxl]   # GPU에서 두 홉
     gpu_reachable: false
     supported_primitives: [QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK]
+    compute_tflops_fp16:         1.6e+13  # src: ASSUMED 16 TFLOPS fp16. 공개값 없음 -> HW 확인 항목 (3.6)
+    attention_bw_efficiency:         0.7  # src: ASSUMED Attention 커널이 int_bw 중 실제로 달성하는 비율
     write_amplification: 1.0
     endurance_budget_bytes: null
     provenance: "ext=SPEC PCIe 5.0 x16; int/capacity=PUBLIC LPDDR5X CXL-PNM platform"
@@ -103,6 +130,8 @@ memories:
     hops: [gpu->cpu:pcie]
     gpu_reachable: false
     supported_primitives: []
+    compute_tflops_fp16:            null  # src: 연산 기능 없음
+    attention_bw_efficiency:        null  # src: ASSUMED Attention 커널이 int_bw 중 실제로 달성하는 비율
     write_amplification: 1.0
     endurance_budget_bytes: null
     provenance: "SPEC: DDR5-6400 51.2 GB/s per channel; ext limited by PCIe 5.0 x16"
@@ -121,6 +150,8 @@ memories:
     latency_s:                 5.0e-6  # 5 us       src: ASSUMED NAND read 지연. DRAM보다 한 자릿수 이상 크다
     gpu_reachable: true                # UCIe on-package
     supported_primitives: []
+    compute_tflops_fp16:            null  # src: 연산 기능 없음
+    attention_bw_efficiency:        null  # src: ASSUMED Attention 커널이 int_bw 중 실제로 달성하는 비율
     write_amplification: 3.0           # src: ASSUMED NAND GC 포함
     endurance_budget_bytes:    1.0e+17  # 100 PB     src: ASSUMED → §11.6 Sweep 필수 축
     provenance: "capacity/read BW/UCIe = SPEC (OCP HBF technical specification, FMS 2026); write BW, latency, WA, endurance = ASSUMED"
@@ -141,6 +172,8 @@ memories:
     hops: [gpu->cpu:pcie, cpu->dev:nvme]
     gpu_reachable: false
     supported_primitives: [QK_GEMM, AV_GEMM]   # SOFTMAX 미지원 → Attention 오프로드 대상 아님
+    compute_tflops_fp16:         2.0e+12  # src: ASSUMED 2 TFLOPS fp16. SOFTMAX 미지원이라 Attention 오프로드 대상은 아님
+    attention_bw_efficiency:         0.5  # src: ASSUMED Attention 커널이 int_bw 중 실제로 달성하는 비율
     write_amplification: 4.0           # src: ASSUMED
     endurance_budget_bytes:    1.0e+16  # 10 PB      src: ASSUMED
     provenance: "ext=SPEC PCIe 5.0 x4; latency=PUBLIC NVMe; int BW, WA, endurance = ASSUMED"

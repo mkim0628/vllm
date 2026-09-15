@@ -1,5 +1,23 @@
 {
   "schema_version": 1,
+  "gpu": {
+    "name": "reference_gpu",
+    "hbm_bw_bytes_per_s": 8000000000000.0,
+    "compute_tflops_fp16": 2000000000000000.0,
+    "attention_bw_efficiency": 0.9,
+    "attention_flops_efficiency": 0.5
+  },
+  "model": {
+    "name": "dense_70b_class",
+    "num_layers": 80,
+    "hidden": 8192,
+    "num_heads": 64,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "dtype_bytes": 2,
+    "context_tokens": 32768,
+    "incremental_prefill_tokens": 512
+  },
   "memories": [
     {
       "name": "hbm",
@@ -11,6 +29,8 @@
       "latency_s": 3e-07,
       "gpu_reachable": true,
       "supported_primitives": [],
+      "compute_tflops_fp16": null,
+      "attention_bw_efficiency": null,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
       "provenance": "PUBLIC: 8-stack aggregate HBM bandwidth; per-stack 2.0-3.3 TB/s is SPEC (HBM4)",
@@ -40,6 +60,8 @@
         "AV_GEMM",
         "CAUSAL_MASK"
       ],
+      "compute_tflops_fp16": 32000000000000.0,
+      "attention_bw_efficiency": 0.7,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
       "provenance": "ext=SPEC NVLink 5 (900 GB/s per direction); capacity, int BW, latency = ASSUMED (separate memory node)",
@@ -71,6 +93,8 @@
         "AV_GEMM",
         "CAUSAL_MASK"
       ],
+      "compute_tflops_fp16": 16000000000000.0,
+      "attention_bw_efficiency": 0.7,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
       "provenance": "ext=SPEC PCIe 5.0 x16; int/capacity=PUBLIC LPDDR5X CXL-PNM platform",
@@ -96,6 +120,8 @@
       ],
       "gpu_reachable": false,
       "supported_primitives": [],
+      "compute_tflops_fp16": null,
+      "attention_bw_efficiency": null,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
       "provenance": "SPEC: DDR5-6400 51.2 GB/s per channel; ext limited by PCIe 5.0 x16",
@@ -118,6 +144,8 @@
       "latency_s": 5e-06,
       "gpu_reachable": true,
       "supported_primitives": [],
+      "compute_tflops_fp16": null,
+      "attention_bw_efficiency": null,
       "write_amplification": 3.0,
       "endurance_budget_bytes": 1e+17,
       "provenance": "capacity/read BW/UCIe = SPEC (OCP HBF technical specification, FMS 2026); write BW, latency, WA, endurance = ASSUMED",
@@ -149,6 +177,8 @@
         "QK_GEMM",
         "AV_GEMM"
       ],
+      "compute_tflops_fp16": 2000000000000.0,
+      "attention_bw_efficiency": 0.5,
       "write_amplification": 4.0,
       "endurance_budget_bytes": 1e+16,
       "provenance": "ext=SPEC PCIe 5.0 x4; latency=PUBLIC NVMe; int BW, WA, endurance = ASSUMED",
