@@ -65,6 +65,7 @@ class Session:
     next_tool: ToolProfile | None = None
     tokens: int = 0
     spec: object = None
+    pending_stall_s: float = 0.0   # 이전 턴의 결정점 B 이동이 유휴로 못 숨긴 초과분
 
 
 @dataclass
@@ -254,7 +255,10 @@ class Engine:
             prefill_tokens = ts.result_tokens if s.turn_index > 0 else min(bs.context_tokens, 4096)
             prefill_s = self.gpu.prefill_seconds(
                 self.model, bs.context_tokens, max(1, prefill_tokens))
-            ttft = restore_s + prefill_s
+            # 이전 턴의 결정점 B 이동이 유휴 안에 숨지 못했으면, 그 초과분만큼
+            # 이번 턴은 KV가 아직 제자리에 없다 — 사용자 관점에서는 대기다.
+            ttft = s.pending_stall_s + restore_s + prefill_s
+            s.pending_stall_s = 0.0
 
             # ── 결정점 A
             req_a = AllocationRequest(
@@ -273,7 +277,8 @@ class Engine:
             mem_decode = step_mem * decode_steps
             tpot = max(step_gpu, step_mem)
 
-            gpu_total = gpu_restore + prefill_s + gpu_decode + move_a
+            # 결정점 A의 판단 시간과 이동은 Decode 시작을 막는다.
+            gpu_total = gpu_restore + prefill_s + dsec_a + move_a + gpu_decode
             mem_total = mem_restore + mem_decode
 
             gpu_start = max(now, gpu_free_at)
@@ -285,7 +290,7 @@ class Engine:
             self.queue_view.observe_wait(queue_wait)
             finish = max(gpu_free_at, mem_free_at[mname])
             # §4.6 — 두 자원은 병렬로 돈다. 합이 아니라 max.
-            turn_s = max(gpu_total, mem_total) + dsec_a
+            turn_s = max(gpu_total, mem_total)
 
             self.res.gpu_busy_s += gpu_total
             self.res.mem_busy_s += mem_total
@@ -332,6 +337,16 @@ class Engine:
                 self.analyzer.observe_turn(
                     tp.name, ts.idle_s, decode_steps, s.turn_index, continued=not terminal)
 
+            # 결정점 B는 턴 종료 직후 일어나고, 이동은 유휴 중 백그라운드로
+            # 진행될 수 있다. 유휴보다 길면 그 초과분이 다음 턴을 지연시킨다.
+            deact_s = dsec_b + move_b
+            migration_stall = max(0.0, deact_s - ts.idle_s)
+            s.pending_stall_s = migration_stall
+            # 이동은 대상 메모리의 대역폭도 점유한다
+            if move_b > 0 and bs.placed_at:
+                mem_free_at[bs.placed_at] = max(
+                    mem_free_at.get(bs.placed_at, 0.0), finish) + move_b
+
             s.turn_index += 1
             if terminal or s.turn_index >= len(spec.turns):
                 active.discard(s.sid)
@@ -341,7 +356,7 @@ class Engine:
                 bs.context_tokens += ts.result_tokens + decode_steps
                 bs.total_bytes = bs.context_tokens * self.model.kv_bytes_per_token()
                 bs.observed_ref_cnt += 1
-                heapq.heappush(events, (finish + ts.idle_s, seq, "turn", s))
+                heapq.heappush(events, (finish + ts.idle_s + migration_stall, seq, "turn", s))
                 seq += 1
 
         # 분모는 horizon으로 **고정**한다. 정책마다 마지막 이벤트 시각이
@@ -387,6 +402,11 @@ def summarize(res: EngineResult) -> dict:
         "tpot_p99_s": pct(tpots, 0.99),
         "restore_s_total": sum(r.restore_seconds for r in t),
         "move_s_total": sum(r.move_seconds for r in t),
+        # 턴당 이동/결정 비용 — Performance 시간 지표에 실제로 들어간 양
+        "move_s_per_turn": sum(r.move_seconds for r in t) / len(t),
+        "decision_s_per_turn": sum(r.decision_seconds for r in t) / len(t),
+        "overhead_share": (sum(r.move_seconds + r.decision_seconds for r in t)
+                           / max(1e-9, sum(r.turn_seconds for r in t))),
         "decision_us_per_decision": (res.decision_seconds / max(1, res.decisions)) * 1e6,
         "decision_ops_per_decision": res.decision_ops / max(1, res.decisions),
         "candidates_scored_avg": statistics.mean(res.candidates_scored) if res.candidates_scored else 0,

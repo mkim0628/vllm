@@ -84,6 +84,7 @@ _AGG_KEYS = [
     "decision_us_per_decision", "decision_ops_per_decision", "candidates_scored_avg",
     "offload_adoption", "hbm_kv_avg_gb", "hbm_idle_kv_avg_gb", "resource_parallelism",
     "gpu_busy_s", "mem_busy_s", "rejected", "turns",
+    "move_s_per_turn", "decision_s_per_turn", "overhead_share",
 ]
 
 
@@ -110,7 +111,8 @@ def agg(rs: list[dict]) -> dict:
 
 _CMP_METRICS = ["goodput_tok_s", "slo_attainment", "ttft_p99_s", "ttft_p50_s",
                 "hbm_idle_kv_avg_gb", "decision_us_per_decision",
-                "offload_adoption", "resource_parallelism", "restore_s_total"]
+                "offload_adoption", "resource_parallelism", "restore_s_total",
+                "move_s_per_turn", "overhead_share"]
 
 
 def _cell(scenario, seeds, horizon, **kw) -> dict:
@@ -224,11 +226,10 @@ def flexibility(seeds, horizon):
                           compute_tflops_fp16=2.0e12, attention_bw_efficiency=0.5,
                           write_amplification=4.0, endurance_budget_bytes=1.0e16),
                        "SOFTMAX까지 지원하는 SSD-PIM — Mode C 대상이 되는가"),
-        "hbf_endurance": (mk("hbf_endurance", medium=Medium.HBF, capacity_bytes=int(2e12),
-                             ext_bw_bytes_per_s=1.0e12, int_bw_bytes_per_s=1.0e12,
-                             latency_s=5.0e-6, gpu_reachable=True,
-                             write_amplification=1.5, endurance_budget_bytes=1.0e18),
-                          "Endurance가 한 자릿수 큰 HBF — 왕복 매체로 쓸 수 있는가"),
+        "nvm_fast": (mk("nvm_fast", medium=Medium.HBF, capacity_bytes=int(2e12),
+                        ext_bw_bytes_per_s=1.0e12, int_bw_bytes_per_s=1.0e12,
+                        latency_s=5.0e-6, gpu_reachable=True),
+                     "HBM의 1/4 대역폭 + GPU 직결, 연산 없음 — Mode A 상주 매체가 되는가"),
         "cxl_direct": (mk("cxl_direct", medium=Medium.CXL_PNM, capacity_bytes=int(1e12),
                           ext_bw_bytes_per_s=2.56e11, int_bw_bytes_per_s=1.1e12,
                           latency_s=1.5e-7, gpu_reachable=True,
