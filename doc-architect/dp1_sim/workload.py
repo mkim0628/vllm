@@ -135,8 +135,10 @@ class WorkloadGenerator:
     C2의 추정 모델은 이 값을 사후 관측으로만 볼 수 있다."""
 
     def __init__(self, scenario: Scenario, rng: random.Random, tool_latency_scale: float = 1.0,
-                 arrival_multiplier: float = 1.0, context_override: int = 0):
+                 arrival_multiplier: float = 1.0, context_override: int = 0,
+                 context_sigma: float = 0.25):
         self.context_override = context_override
+        self.context_sigma = context_sigma
         self.sc = scenario
         self.rng = rng
         self.tool_latency_scale = tool_latency_scale
@@ -164,8 +166,11 @@ class WorkloadGenerator:
 
     def sample_context_tokens(self) -> int:
         if self.context_override:
-            # 부하 격자에서 context를 고정한 경우 — 분산 없이 그 값을 쓴다.
-            return self.context_override
+            # 부하 격자의 context 레벨을 **중앙값**으로 lognormal 샘플링한다.
+            # 배치 안의 세션들이 실제로는 서로 다른 길이를 갖는 것을 반영한다.
+            # sigma를 작게 둬 격자 칸(16K/32K/128K/512K) 경계를 크게 넘지
+            # 않게 한다 (σ=0.25 -> 대략 절반이 [0.83x, 1.2x] 안에 든다).
+            return max(2048, int(self._lognormal(self.context_override, self.context_sigma)))
         return max(2048, int(self._lognormal(
             self.sc.context_tokens_median, self.sc.context_tokens_sigma)))
 
@@ -221,11 +226,12 @@ class SessionSpec:
 
 def build_trace(scenario: Scenario, seed: int, horizon_s: float,
                 tool_latency_scale: float = 1.0, arrival_multiplier: float = 1.0,
-                burst: bool = False, context_tokens: int = 0) -> list[SessionSpec]:
+                burst: bool = False, context_tokens: int = 0,
+                context_sigma: float = 0.25) -> list[SessionSpec]:
     """도착 시각과 모든 턴의 내용을 미리 확정한다."""
     rng = random.Random(seed)
     gen = WorkloadGenerator(scenario, rng, tool_latency_scale, arrival_multiplier,
-                            context_override=context_tokens)
+                            context_override=context_tokens, context_sigma=context_sigma)
     out: list[SessionSpec] = []
     now = 0.0
     idx = 0

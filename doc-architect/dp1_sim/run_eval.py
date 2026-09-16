@@ -35,7 +35,7 @@ LOADS = {"low": 1.0, "mid": 4.0, "high": 6.0}
 def run_one(scenario, kind, seed, *, horizon_s, memories_override=None,
             tool_latency_scale=1.0, burst=False, max_concurrent=128, batch_size=16,
             arrival_multiplier=1.0, gpu_tdp_watts=8000.0, context_tokens=0,
-            model_override=None, gpu_override=None):
+            context_sigma=0.25, model_override=None, gpu_override=None):
     gpu, model, memories = load_config(CONFIG)
     if model_override is not None:
         model = model_override
@@ -46,11 +46,11 @@ def run_one(scenario, kind, seed, *, horizon_s, memories_override=None,
 
     # 워크로드는 정책과 무관하게 먼저 확정한다 (paired 비교의 전제).
     trace = build_trace(scenario, seed, horizon_s, tool_latency_scale,
-                        arrival_multiplier, burst, context_tokens)
+                        arrival_multiplier, burst, context_tokens, context_sigma)
     rng = random.Random(seed ^ 0x5F5F)
     gen = WorkloadGenerator(scenario, rng, tool_latency_scale=tool_latency_scale,
                             arrival_multiplier=arrival_multiplier,
-                            context_override=context_tokens)
+                            context_override=context_tokens, context_sigma=context_sigma)
     max_ext = max(m.ext_bw_bytes_per_s for m in memories)
     scorer = TierScorer(model, max_ext, STEP_BUDGET_S)
 
