@@ -88,7 +88,7 @@
       "role": "대용량 연산형 확장 메모리 (LPDDR5X 기반)",
       "capacity_bytes": 549755813888,
       "ext_bw_bytes_per_s": 121000000000.0,
-      "int_bw_bytes_per_s": 1100000000000.0,
+      "int_bw_bytes_per_s": 400000000000.0,
       "latency_s": 3e-07,
       "hops": [
         "gpu->cpu:pcie",
@@ -105,14 +105,14 @@
       "attention_bw_efficiency": 0.7,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "연산 = 사용자 제공 FP32 1.64 TFLOPS -> FP16 3.28 TFLOPS (2배, ASSUMED). ext_bw = SPEC CXL over PCIe 6.0 x16 (121.0 GB/s). 용량/내부BW/지연 = ASSUMED (LPDDR5X 기반).",
+      "provenance": "연산 = 사용자 제공 FP32 1.64 TFLOPS -> FP16 3.28 TFLOPS (2배, ASSUMED). ext_bw = SPEC CXL 2.0 over PCIe 5.0 x16 (63.0 GB/s). 내부BW = DRAM과 동일 (CXL memory expander의 media가 DRAM이므로) SPEC DDR5-6400 51.2 GB/s/채널 x8채널 = 400 GB/s. 용량/지연 = ASSUMED.",
       "note": "FP16을 FP32의 2배로 가정했다. **1배라면 연산 성능이 균형점의 1.06배에 불과해 4.4의 연산 조건을 간신히 통과한다** — 내부 대역폭이 조금만 올라도 탈락한다. 이 가정이 결과를 바꾸는지 Sweep으로 확인해야 한다.",
       "units": {
         "capacity": "512 GiB",
         "ext_bw": "121.0 GB/s",
-        "int_bw": "1.1 TB/s",
+        "int_bw": "400 GB/s",
         "latency": "300 ns",
-        "int_ext_asymmetry": "9x",
+        "int_ext_asymmetry": "3.3x",
         "compute_fp16": "3.28 TFLOPS",
         "tdp": "150 W"
       },
