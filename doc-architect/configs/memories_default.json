@@ -33,7 +33,7 @@
       "attention_bw_efficiency": null,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "PUBLIC: 8-stack aggregate HBM bandwidth; per-stack 2.0-3.3 TB/s is SPEC (HBM4)",
+      "provenance": "SPEC: HBM3e, B200 온패키지. 8-stack aggregate 192GiB / 8 TB/s",
       "units": {
         "capacity": "192 GiB",
         "ext_bw": "8000.0 GB/s",
@@ -51,7 +51,7 @@
       "role": "GPU 노드 옆의 별도 메모리 노드. Custom HBM만으로 구성되며 GPU-HBM을 대체한다",
       "capacity_bytes": 768000000000,
       "ext_bw_bytes_per_s": 63000000000.0,
-      "int_bw_bytes_per_s": 6400000000000.0,
+      "int_bw_bytes_per_s": 16000000000000.0,
       "latency_s": 2e-06,
       "hops": [
         "gpu->host:pcie5_x16",
@@ -68,14 +68,14 @@
       "attention_bw_efficiency": 0.7,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "연산/용량/TDP = 사용자 제공 (Rubin 환산). ext_bw/latency = SPEC PCIe 5.0 x16 2홉 + host bounce. 내부BW = UCIe/UALink SPEC에서 유도, SIP 수·포트 수는 ASSUMED(실물 제품 없음): SIP 내부(칩렛 D2D, UCIe Advanced Package) 165 GB/s/mm SPEC x shoreline 32mm ASSUMED = 5.28 TB/s; SIP 간(UALink 200G 1.0) station(4레인) 100GB/s/방향 SPEC x 8 station ASSUMED = 1.6 TB/s/SIP; 병목은 UALink; SIP 4개(용량/192GB) ASSUMED x 1.6 TB/s = 6.4 TB/s.",
+      "provenance": "연산/용량/TDP = 사용자 제공 (Rubin 환산). ext_bw/latency = SPEC PCIe 5.0 x16 2홉 + host bounce. 내부BW = **붙어있는 GPU 자체 HBM 대역폭의 2배** (사용자 지정 규칙). 정적 기본값은 B200 페어링 기준 2x8TB/s=16TB/s. 클러스터 적용 시 apply_cluster()가 그 클러스터 GPU 기준으로 재계산한다 (Vera Rubin: 2x28TB/s=56TB/s).",
       "note": "**GPU가 직접 읽지 못한다 — Host를 2홉 경유한다.** 따라서 Mode A는 성립하지 않고 재활성 경로는 Mode C(Attention 오프로드)뿐이며, 오프로드가 불가하면 Mode B(전량 복원)로 떨어진다. 내부/외부 비대칭이 **889배**이므로 KV를 이 노드 밖으로 내보내는 순간 비용이 폭발한다 — 오프로드는 선택이 아니라 전제다 (설계 문서 4.4).",
       "units": {
         "capacity": "715 GiB",
         "ext_bw": "63.0 GB/s",
-        "int_bw": "6.4 TB/s",
+        "int_bw": "16.0 TB/s",
         "latency": "2.0 us",
-        "int_ext_asymmetry": "102x",
+        "int_ext_asymmetry": "254x",
         "compute_fp16": "1665.00 TFLOPS",
         "tdp": "767 W"
       },
@@ -213,6 +213,32 @@
       },
       "tdp_watts": 75.0,
       "tdp_provenance": "ASSUMED — 연산 유닛을 얹은 SSD"
+    },
+    {
+      "name": "hbm4",
+      "medium": "HBM",
+      "role": "GPU 노드의 주 메모리 (on-package)",
+      "capacity_bytes": 384000000000,
+      "ext_bw_bytes_per_s": 28000000000000.0,
+      "int_bw_bytes_per_s": 28000000000000.0,
+      "latency_s": 3e-07,
+      "gpu_reachable": true,
+      "supported_primitives": [],
+      "compute_tflops_fp16": null,
+      "attention_bw_efficiency": null,
+      "write_amplification": 1.0,
+      "endurance_budget_bytes": null,
+      "provenance": "사용자 제공: Vera Rubin 온패키지 HBM4. 384GB, 28 TB/s. 참조/문서용 — 실제 클러스터 적용은 clusters.json의 gpus.vera_rubin 값을 쓴다 (동일 수치).",
+      "units": {
+        "capacity": "384 GB",
+        "ext_bw": "28.0 TB/s",
+        "int_bw": "28.0 TB/s",
+        "latency": "300 ns",
+        "int_ext_asymmetry": "1x",
+        "tdp": "0 W"
+      },
+      "tdp_watts": 0.0,
+      "tdp_provenance": "GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다"
     }
   ],
   "_generated_from": "memories_default.yaml",

@@ -653,4 +653,8 @@ def apply_cluster(memories: list[MemorySpec], meta: dict, *,
                 tdp_watts=m.tdp_watts * n))
         else:
             out.append(m)
-    return out
+    # custom_hbm 내부BW = **붙어있는 GPU 자체 HBM 대역폭의 2배** (사용자 지정 규칙).
+    # 클러스터가 바뀌면 그 클러스터 GPU 기준으로 다시 계산한다.
+    hbm_bw = meta["hbm_bw_bytes_per_s"]
+    return [replace(m, int_bw_bytes_per_s=2.0 * hbm_bw) if m.name == "custom_hbm" else m
+            for m in out]

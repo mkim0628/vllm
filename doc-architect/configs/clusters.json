@@ -7,14 +7,16 @@
       "hbm_bw_bytes_per_s": 8000000000000.0,
       "dense_fp16_flops": 2250000000000000.0,
       "tdp_watts": 1000.0,
-      "provenance": "PUBLIC (확인 필요): HBM3e 192GB / 8 TB/s / FP16 dense ~2.25 PFLOPS / TDP 1000W(공랭)"
+      "provenance": "PUBLIC (확인 필요): HBM3e 192GB / 8 TB/s / FP16 dense ~2.25 PFLOPS / TDP 1000W(공랭)",
+      "hbm_medium": "HBM3e"
     },
     "vera_rubin": {
       "hbm_capacity_bytes": 384000000000,
       "hbm_bw_bytes_per_s": 28000000000000.0,
       "dense_fp16_flops": 8325000000000000.0,
       "tdp_watts": 2300.0,
-      "provenance": "사용자 제공: 용량 384GB, BW 28 TB/s, FP8 16,650 TFLOPS, TDP 2300W. FP16 = FP8의 1/2 = 8,325 TFLOPS (ASSUMED)"
+      "provenance": "사용자 제공: 용량 384GB, BW 28 TB/s, FP8 16,650 TFLOPS, TDP 2300W. FP16 = FP8의 1/2 = 8,325 TFLOPS (ASSUMED) HBM은 HBM4(384GB/28TB/s) — memories_default.json의 hbm4 항목과 동일.",
+      "hbm_medium": "HBM4"
     }
   },
   "clusters": {
