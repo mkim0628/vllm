@@ -1,0 +1,217 @@
+{
+  "cyclomatic": {
+    "as-is": 4,
+    "C1": 2,
+    "C2": 30
+  },
+  "chars_per_token": 3.6,
+  "own_code": {
+    "as-is": {
+      "chars": 1577,
+      "sloc": 34
+    },
+    "C1": {
+      "chars": 2447,
+      "sloc": 56
+    },
+    "C2": {
+      "chars": 8403,
+      "sloc": 205
+    }
+  },
+  "tasks": {
+    "T1_new_memory": {
+      "what": "신규 메모리 1종 추가",
+      "per_policy": {
+        "as-is": {
+          "why": "SPILL_ORDER에 이름을 넣어야 하고 순서를 다시 정해야 한다",
+          "DM": 30,
+          "CM": 25,
+          "IM": 40,
+          "SU": 20,
+          "AAF": 31.5,
+          "ESLOC": 18.9,
+          "person_months": 0.0373,
+          "read_tokens": 4155,
+          "write_tokens": 110,
+          "total_tokens": 4264
+        },
+        "C1": {
+          "why": "Configuration 한 곳. 코드 변경 0 (M-M2 측정으로 확인)",
+          "DM": 0,
+          "CM": 0,
+          "IM": 10,
+          "SU": 20,
+          "AAF": 3.0,
+          "ESLOC": 15.1,
+          "person_months": 0.0292,
+          "read_tokens": 4396,
+          "write_tokens": 0,
+          "total_tokens": 4396
+        },
+        "C2": {
+          "why": "Configuration 한 곳. 다만 7개 Threshold가 새 메모리에서 옳게 동작하는지 확인해야 하므로 통합 비용이 더 든다",
+          "DM": 0,
+          "CM": 0,
+          "IM": 20,
+          "SU": 40,
+          "AAF": 6.0,
+          "ESLOC": 102.5,
+          "person_months": 0.24,
+          "read_tokens": 6051,
+          "write_tokens": 0,
+          "total_tokens": 6051
+        }
+      }
+    },
+    "T2_step_budget_filter": {
+      "what": "후보 형성에 Decode step 예산 조건 추가 (Layer 0)",
+      "per_policy": {
+        "as-is": {
+          "why": "후보 형성 개념이 없다. 해당 없음",
+          "DM": 0,
+          "CM": 0,
+          "IM": 0,
+          "SU": 20,
+          "AAF": 0.0,
+          "ESLOC": 8.2,
+          "person_months": 0.0148,
+          "read_tokens": 5303,
+          "write_tokens": 0,
+          "total_tokens": 5303
+        },
+        "C1": {
+          "why": "FeasibilityFilter 분기 하나. 점수 함수는 그대로",
+          "DM": 5,
+          "CM": 5,
+          "IM": 20,
+          "SU": 20,
+          "AAF": 9.5,
+          "ESLOC": 18.8,
+          "person_months": 0.0371,
+          "read_tokens": 5544,
+          "write_tokens": 34,
+          "total_tokens": 5578
+        },
+        "C2": {
+          "why": "PlacementPolicyTable의 HOT/WARM/COLD 판정이 이미 대역폭 임계를 쓰므로 새 조건과 중복·충돌한다. 7개 Threshold를 함께 다시 봐야 한다",
+          "DM": 15,
+          "CM": 10,
+          "IM": 45,
+          "SU": 40,
+          "AAF": 22.5,
+          "ESLOC": 136.3,
+          "person_months": 0.3284,
+          "read_tokens": 7199,
+          "write_tokens": 233,
+          "total_tokens": 7432
+        }
+      }
+    },
+    "T3_migration_budget": {
+      "what": "결정점 B에 이동 예산 상한 추가",
+      "per_policy": {
+        "as-is": {
+          "why": "결정점 B가 고정 순서라 예산 개념을 새로 넣어야 한다",
+          "DM": 20,
+          "CM": 20,
+          "IM": 30,
+          "SU": 20,
+          "AAF": 23.0,
+          "ESLOC": 16.0,
+          "person_months": 0.0311,
+          "read_tokens": 5303,
+          "write_tokens": 88,
+          "total_tokens": 5390
+        },
+        "C1": {
+          "why": "Planner가 결정 직후 예산을 보고 제자리 유지로 되돌리면 된다",
+          "DM": 10,
+          "CM": 15,
+          "IM": 25,
+          "SU": 20,
+          "AAF": 16.0,
+          "ESLOC": 22.4,
+          "person_months": 0.045,
+          "read_tokens": 5544,
+          "write_tokens": 102,
+          "total_tokens": 5646
+        },
+        "C2": {
+          "why": "분류(Analyze→Classify→Refine) 세 단계 모두가 이동을 전제하므로 되돌림이 각 단계에 전파된다",
+          "DM": 25,
+          "CM": 25,
+          "IM": 50,
+          "SU": 40,
+          "AAF": 32.5,
+          "ESLOC": 156.8,
+          "person_months": 0.3831,
+          "read_tokens": 7199,
+          "write_tokens": 584,
+          "total_tokens": 7782
+        }
+      }
+    },
+    "T4_new_reactivation_mode": {
+      "what": "새 재활성 모드 1종 추가 (Mode D)",
+      "per_policy": {
+        "as-is": {
+          "why": "모드 선택 로직이 없어 새로 만들어야 한다",
+          "DM": 40,
+          "CM": 35,
+          "IM": 40,
+          "SU": 20,
+          "AAF": 38.5,
+          "ESLOC": 21.2,
+          "person_months": 0.0425,
+          "read_tokens": 5303,
+          "write_tokens": 153,
+          "total_tokens": 5456
+        },
+        "C1": {
+          "why": "argmax는 그대로 두고 모드 판정만 확장",
+          "DM": 20,
+          "CM": 20,
+          "IM": 30,
+          "SU": 20,
+          "AAF": 23.0,
+          "ESLOC": 26.3,
+          "person_months": 0.0538,
+          "read_tokens": 5544,
+          "write_tokens": 136,
+          "total_tokens": 5680
+        },
+        "C2": {
+          "why": "KVClass 3종 x 모드의 조합이 늘어난다. PlacementPolicyTable이 곱으로 커진다",
+          "DM": 40,
+          "CM": 35,
+          "IM": 60,
+          "SU": 40,
+          "AAF": 44.5,
+          "ESLOC": 181.4,
+          "person_months": 0.4497,
+          "read_tokens": 7199,
+          "write_tokens": 817,
+          "total_tokens": 8016
+        }
+      }
+    }
+  },
+  "totals": {
+    "as-is": {
+      "person_months": 0.1257,
+      "tokens": 20413,
+      "person_days": 2.39
+    },
+    "C1": {
+      "person_months": 0.1651,
+      "tokens": 21300,
+      "person_days": 3.14
+    },
+    "C2": {
+      "person_months": 1.4012,
+      "tokens": 29281,
+      "person_days": 26.62
+    }
+  }
+}

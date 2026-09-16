@@ -1,0 +1,203 @@
+{
+  "as-is": {
+    "M_F1_accuracy": 1.0,
+    "M_F1b_misuse_rate": 0.0,
+    "M_F1c_missed_rate": 0.0,
+    "confusion": {
+      "TP": 0,
+      "FN": 0,
+      "FP": 0,
+      "TN": 6
+    },
+    "detail": {
+      "lpddr_bulk": {
+        "why": "DRAM급 대역폭 + 대용량, 연산 없음",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 61.45,
+        "goodput_without": 61.45
+      },
+      "ssd_pim_v2": {
+        "why": "SOFTMAX 지원하나 내부 대역폭·지연이 나쁘다 — **써서는 안 되는 것**",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 61.45,
+        "goodput_without": 61.45
+      },
+      "nvm_fast": {
+        "why": "HBM의 1/8 대역폭 + GPU 직결, 연산 없음",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 61.45,
+        "goodput_without": 61.45
+      },
+      "cxl_direct": {
+        "why": "GPU 직결 CXL + 충분한 연산",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 61.45,
+        "goodput_without": 61.45
+      },
+      "tiny_fast": {
+        "why": "매우 빠르나 8 GB뿐 — 용량이 모자라 **쓸 수 없는 것**",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 61.45,
+        "goodput_without": 61.45
+      },
+      "big_slow": {
+        "why": "64 TB인데 4 GB/s — 용량만 큰 **함정**",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 61.45,
+        "goodput_without": 61.45
+      }
+    }
+  },
+  "C1": {
+    "M_F1_accuracy": 0.5,
+    "M_F1b_misuse_rate": 0.5,
+    "M_F1c_missed_rate": 0.0,
+    "confusion": {
+      "TP": 0,
+      "FN": 0,
+      "FP": 3,
+      "TN": 3
+    },
+    "detail": {
+      "lpddr_bulk": {
+        "why": "DRAM급 대역폭 + 대용량, 연산 없음",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 28.8,
+        "goodput_without": 28.8
+      },
+      "ssd_pim_v2": {
+        "why": "SOFTMAX 지원하나 내부 대역폭·지연이 나쁘다 — **써서는 안 되는 것**",
+        "gain": -0.7156,
+        "helpful": false,
+        "used": true,
+        "verdict": "오용",
+        "goodput_with": 8.19,
+        "goodput_without": 28.8
+      },
+      "nvm_fast": {
+        "why": "HBM의 1/8 대역폭 + GPU 직결, 연산 없음",
+        "gain": 0.002,
+        "helpful": false,
+        "used": true,
+        "verdict": "오용",
+        "goodput_with": 28.86,
+        "goodput_without": 28.8
+      },
+      "cxl_direct": {
+        "why": "GPU 직결 CXL + 충분한 연산",
+        "gain": -0.0472,
+        "helpful": false,
+        "used": true,
+        "verdict": "오용",
+        "goodput_with": 27.44,
+        "goodput_without": 28.8
+      },
+      "tiny_fast": {
+        "why": "매우 빠르나 8 GB뿐 — 용량이 모자라 **쓸 수 없는 것**",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 28.8,
+        "goodput_without": 28.8
+      },
+      "big_slow": {
+        "why": "64 TB인데 4 GB/s — 용량만 큰 **함정**",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 28.8,
+        "goodput_without": 28.8
+      }
+    }
+  },
+  "C2": {
+    "M_F1_accuracy": 0.16666666666666666,
+    "M_F1b_misuse_rate": 0.8333333333333334,
+    "M_F1c_missed_rate": 0.0,
+    "confusion": {
+      "TP": 0,
+      "FN": 0,
+      "FP": 5,
+      "TN": 1
+    },
+    "detail": {
+      "lpddr_bulk": {
+        "why": "DRAM급 대역폭 + 대용량, 연산 없음",
+        "gain": 0.0,
+        "helpful": false,
+        "used": true,
+        "verdict": "오용",
+        "goodput_with": 44.15,
+        "goodput_without": 44.15
+      },
+      "ssd_pim_v2": {
+        "why": "SOFTMAX 지원하나 내부 대역폭·지연이 나쁘다 — **써서는 안 되는 것**",
+        "gain": -0.9075,
+        "helpful": false,
+        "used": true,
+        "verdict": "오용",
+        "goodput_with": 4.08,
+        "goodput_without": 44.15
+      },
+      "nvm_fast": {
+        "why": "HBM의 1/8 대역폭 + GPU 직결, 연산 없음",
+        "gain": -0.1314,
+        "helpful": false,
+        "used": true,
+        "verdict": "오용",
+        "goodput_with": 38.35,
+        "goodput_without": 44.15
+      },
+      "cxl_direct": {
+        "why": "GPU 직결 CXL + 충분한 연산",
+        "gain": -0.0207,
+        "helpful": false,
+        "used": true,
+        "verdict": "오용",
+        "goodput_with": 43.23,
+        "goodput_without": 44.15
+      },
+      "tiny_fast": {
+        "why": "매우 빠르나 8 GB뿐 — 용량이 모자라 **쓸 수 없는 것**",
+        "gain": 0.0,
+        "helpful": false,
+        "used": false,
+        "verdict": "회피",
+        "goodput_with": 44.15,
+        "goodput_without": 44.15
+      },
+      "big_slow": {
+        "why": "64 TB인데 4 GB/s — 용량만 큰 **함정**",
+        "gain": 0.0,
+        "helpful": false,
+        "used": true,
+        "verdict": "오용",
+        "goodput_with": 44.15,
+        "goodput_without": 44.15
+      }
+    }
+  }
+}
