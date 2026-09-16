@@ -34,7 +34,7 @@ LOADS = {"low": 1.0, "mid": 4.0, "high": 6.0}
 
 def run_one(scenario, kind, seed, *, horizon_s, memories_override=None,
             tool_latency_scale=1.0, burst=False, max_concurrent=128, batch_size=16,
-            arrival_multiplier=1.0):
+            arrival_multiplier=1.0, gpu_tdp_watts=8000.0):
     gpu, model, memories = load_config(CONFIG)
     if memories_override is not None:
         memories = memories_override(memories)
@@ -61,7 +61,7 @@ def run_one(scenario, kind, seed, *, horizon_s, memories_override=None,
                  horizon_s=horizon_s, burst=burst, max_concurrent=max_concurrent,
                  batch_size=batch_size, step_budget_s=STEP_BUDGET_S)
     eng.queue_view = qv
-    return summarize(eng.run())
+    return summarize(eng.run(), memories, gpu_tdp_watts)
 
 
 def paired_ci(a: list[float], b: list[float]) -> dict:

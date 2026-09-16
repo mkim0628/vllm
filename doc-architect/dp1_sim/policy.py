@@ -147,14 +147,24 @@ class PlacementExecutor:
     def __init__(self, view: MemoryStateView, model: ModelShape):
         self.view = view
         self.model = model
+        self.last_move_bytes = 0
 
     def execute(self, decision: PlacementDecision, block_set, gpu) -> float:
-        """이동 시간(초)을 반환한다. 제자리면 0."""
+        """이동 시간(초)을 반환한다. 제자리면 0.
+
+        이동한 바이트는 `last_move_bytes`에 남긴다 — 에너지·자원 효율
+        지표(M-R1/M-R2)가 시간이 아니라 바이트를 필요로 한다.
+        """
+        self.last_move_bytes = 0
         src = block_set.placed_at
         dst = decision.memory_name
         if src == dst:
             block_set.mode = decision.mode
             return 0.0
+        # 최초 배치(src=None)는 **이동이 아니다** — Prefill이 어차피 그곳에
+        # KV를 쓴다. 링크를 건너는 재배치만 M-R1의 분자에 넣는다.
+        if src is not None:
+            self.last_move_bytes = block_set.total_bytes
 
         move_s = 0.0
         if src is not None:

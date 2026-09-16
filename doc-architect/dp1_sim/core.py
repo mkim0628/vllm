@@ -175,6 +175,9 @@ class MemorySpec:
     endurance_budget_bytes: float | None
     write_bw_bytes_per_s: float | None = None
     provenance: str = ""
+    #: 이 메모리 장치의 TDP [W]. 에너지 지표(M-R2)에 쓴다.
+    #: HBM은 GPU 패키지 안이므로 0으로 두고 GPU TDP에 포함시킨다.
+    tdp_watts: float = 0.0
 
     # ── §3.3 외부/내부 비대칭
 
@@ -369,6 +372,16 @@ class AllocationRequest:
 # ─────────────────────────────────────────────────────────── link cost
 
 
+#: 데이터 이동 에너지 [pJ/bit] — PUBLIC 실측/문헌값.
+#:   PCIe/SerDes  : 112G-LR SerDes 4.5~6 pJ/bit, 224G-LR 5 pJ/bit 가정치
+#:                  -> 5.0 pJ/bit 채택
+#:   HBM3e        : 3.44 pJ/bit
+#: 출처는 evaluation-criteria 문서에 적는다. 절대값이 아니라 **정책 간
+#: 상대 비교**에 쓴다 — 두 정책이 같은 링크를 쓰므로 계수는 약분된다.
+PJ_PER_BIT_LINK = 5.0
+PJ_PER_BIT_HBM = 3.44
+
+
 class LinkCostModel:
     """§4.3 — 오프로드 비용은 바이트(전송)와 왕복 횟수(지연)로 나뉜다.
 
@@ -435,6 +448,7 @@ def load_config(path: Path | str) -> tuple[GpuSpec, ModelShape, list[MemorySpec]
                 int_bw_bytes_per_s=float(e["int_bw_bytes_per_s"]),
                 latency_s=float(e["latency_s"]),
                 gpu_reachable=bool(e["gpu_reachable"]),
+                tdp_watts=float(e.get("tdp_watts", 0.0)),
                 supported_primitives=prims,
                 compute_tflops_fp16=(
                     float(e["compute_tflops_fp16"]) if e.get("compute_tflops_fp16") else None

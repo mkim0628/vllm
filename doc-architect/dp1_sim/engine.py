@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 from .analyzer import KVCharacteristicAnalyzer
 from .core import (
+    PJ_PER_BIT_LINK,
     AllocationRequest,
     DecisionPoint,
     GpuSpec,
@@ -48,6 +49,7 @@ class TurnRecord:
     restore_seconds: float
     offload_seconds: float
     move_seconds: float
+    move_bytes: float
     decision_seconds: float
     placed_at: str
     mode: str
@@ -80,6 +82,12 @@ class EngineResult:
     gpu_busy_s: float = 0.0
     mem_busy_s: float = 0.0
     hbm_capacity_bytes: float = 0.0
+    # ── M-R1 이동 바이트 / M-R2 에너지
+    move_bytes_total: float = 0.0        # 결정 A/B의 KV 이동 (읽기+쓰기 양쪽)
+    restore_bytes_total: float = 0.0     # Mode B 전량 복원
+    link_bytes_total: float = 0.0        # Mode C 활성화가 링크를 건넌 양
+    gpu_busy_for_energy_s: float = 0.0
+    mem_busy_s_by_name: dict = field(default_factory=dict)
     decision_ops: int = 0
     decision_seconds: float = 0.0
     decisions: int = 0
@@ -275,6 +283,7 @@ class Engine:
                 turns_so_far=s.turn_index, step_index=0)
             dec_a, dsec_a = self._decide(req_a)
             move_a = self.executor.execute(dec_a, bs, self.gpu)
+            move_bytes_a = self.executor.last_move_bytes
 
             # ── Decode
             decode_steps = ts.decode_len
@@ -300,6 +309,8 @@ class Engine:
 
             self.res.gpu_busy_s += gpu_total
             self.res.mem_busy_s += mem_total
+            self.res.mem_busy_s_by_name[mname] = (
+                self.res.mem_busy_s_by_name.get(mname, 0.0) + mem_total)
 
             is_reactivation = s.turn_index > 0
             met = (ttft + queue_wait) <= self.ttft_slo_s and tpot <= self.tpot_slo_s
@@ -321,6 +332,15 @@ class Engine:
                 turns_so_far=nxt_idx, step_index=decode_steps)
             dec_b, dsec_b = self._decide(req_b)
             move_b = self.executor.execute(dec_b, bs, self.gpu)
+            move_bytes_b = self.executor.last_move_bytes
+            self.res.move_bytes_total += move_bytes_a + move_bytes_b
+            if restore_s > 0:
+                self.res.restore_bytes_total += bs.total_bytes
+            if bs.mode is ReactivationMode.ATTENTION_OFFLOAD:
+                # 계층마다 Q와 attn_out이 왕복한다
+                self.res.link_bytes_total += (
+                    self.model.num_layers * self.model.activation_bytes_per_token()
+                    * decode_steps)
 
             self.res.placement_hist[bs.placed_at] = self.res.placement_hist.get(bs.placed_at, 0) + 1
             self.res.mode_hist[bs.mode.value] = self.res.mode_hist.get(bs.mode.value, 0) + 1
@@ -337,7 +357,8 @@ class Engine:
                 reactivation_ttft_s=ttft + queue_wait, tpot_s=tpot,
                 decode_steps=decode_steps, gpu_seconds=gpu_total, memory_seconds=mem_total,
                 turn_seconds=turn_s, restore_seconds=restore_s, offload_seconds=mem_decode,
-                move_seconds=move_a + move_b, decision_seconds=dsec_a + dsec_b,
+                move_seconds=move_a + move_b, move_bytes=move_bytes_a + move_bytes_b,
+                decision_seconds=dsec_a + dsec_b,
                 placed_at=bs.placed_at or "?", mode=bs.mode.value if bs.mode else "?",
                 idle_s=ts.idle_s, met_slo=met, is_reactivation=is_reactivation))
 
@@ -379,7 +400,37 @@ class Engine:
 # ─────────────────────────────────────────────────────── derived metrics
 
 
-def summarize(res: EngineResult) -> dict:
+def _energy(res: EngineResult, memories, gpu_tdp_watts: float) -> dict:
+    """M-R2 — 출력 토큰당 에너지 [J/tok].
+
+    1차 근사다. 세 항으로 나눈다:
+      정적(점유)  컴포넌트가 바쁜 동안 TDP를 소비한다고 본다. TDP는 첨두값이라
+                  절대값은 과대추정이지만, **정책 간 비교**에서는 같은 계수가
+                  걸리므로 방향은 유지된다.
+      이동        KV가 링크를 건넌 바이트 x PJ_PER_BIT_LINK
+      오프로드    활성화가 링크를 건넌 바이트 x PJ_PER_BIT_LINK
+    HBM 접근 에너지는 GPU TDP에 포함된 것으로 보고 따로 세지 않는다.
+    """
+    if not memories or not gpu_tdp_watts:
+        return {}
+    tdp = {m.name: m.tdp_watts for m in memories}
+    e_gpu = gpu_tdp_watts * res.gpu_busy_s
+    e_mem = sum(tdp.get(n, 0.0) * s for n, s in res.mem_busy_s_by_name.items())
+    pj = 1e-12
+    e_move = (res.move_bytes_total + res.restore_bytes_total) * 8 * PJ_PER_BIT_LINK * pj
+    e_link = res.link_bytes_total * 8 * PJ_PER_BIT_LINK * pj
+    total = e_gpu + e_mem + e_move + e_link
+    tok = max(1, res.slo_output_tokens)
+    return {
+        "joules_per_token": total / tok,
+        "energy_gpu_j": e_gpu, "energy_mem_j": e_mem,
+        "energy_move_j": e_move, "energy_link_j": e_link,
+        "energy_move_share": (e_move + e_link) / max(1e-9, total),
+    }
+
+
+def summarize(res: EngineResult, memories: list[MemorySpec] | None = None,
+              gpu_tdp_watts: float = 0.0) -> dict:
     t = res.turns
     if not t:
         return {"policy": res.policy, "scenario": res.scenario, "empty": True}
@@ -427,6 +478,15 @@ def summarize(res: EngineResult) -> dict:
         "resource_parallelism": par,
         # ── 부하의 두 축 (§부하 정의). 정책과 무관한 입력 특성이므로
         #    세 정책에서 거의 같은 값이 나와야 한다.
+        # ── M-R1 자원 효율: SLO 만족 토큰 1개를 내는 데 옮긴 바이트
+        "move_bytes_per_token": (
+            (res.move_bytes_total + res.restore_bytes_total)
+            / max(1, res.slo_output_tokens)),
+        "move_bytes_total_gb": res.move_bytes_total / 2**30,
+        "restore_bytes_total_gb": res.restore_bytes_total / 2**30,
+        "link_bytes_total_gb": res.link_bytes_total / 2**30,
+        # ── M-R2 에너지: 점유 전력 + 이동 에너지
+        **_energy(res, memories, gpu_tdp_watts),
         "kv_demand_avg_gb": kv_demand / 2**30,
         "kv_pressure": kv_demand / max(1.0, res.hbm_capacity_bytes),
         "gpu_pressure": res.gpu_busy_s / wall,

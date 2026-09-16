@@ -39,8 +39,11 @@
         "ext_bw": "8000.0 GB/s",
         "int_bw": "8.0 TB/s",
         "latency": "300 ns",
-        "int_ext_asymmetry": "1x"
-      }
+        "int_ext_asymmetry": "1x",
+        "tdp": "0 W"
+      },
+      "tdp_watts": 0.0,
+      "tdp_provenance": "GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다"
     },
     {
       "name": "custom_hbm",
@@ -76,7 +79,8 @@
         "compute_fp16": "1665.00 TFLOPS",
         "tdp": "767 W"
       },
-      "tdp_watts": 767.0
+      "tdp_watts": 767.0,
+      "tdp_provenance": "사용자 제공 (Rubin 2300W의 1/3)"
     },
     {
       "name": "cxl_pnm",
@@ -109,8 +113,11 @@
         "int_bw": "1.1 TB/s",
         "latency": "300 ns",
         "int_ext_asymmetry": "17x",
-        "compute_fp16": "3.28 TFLOPS"
-      }
+        "compute_fp16": "3.28 TFLOPS",
+        "tdp": "150 W"
+      },
+      "tdp_watts": 150.0,
+      "tdp_provenance": "ASSUMED — 연산 유닛을 얹은 CXL 메모리 모듈 등급"
     },
     {
       "name": "dram",
@@ -135,8 +142,11 @@
         "ext_bw": "64.0 GB/s",
         "int_bw": "400 GB/s",
         "latency": "200 ns",
-        "int_ext_asymmetry": "6x"
-      }
+        "int_ext_asymmetry": "6x",
+        "tdp": "50 W"
+      },
+      "tdp_watts": 50.0,
+      "tdp_provenance": "ASSUMED — 1 TiB급 메모리 확장 모듈"
     },
     {
       "name": "hbf",
@@ -162,8 +172,11 @@
         "latency": "5.0 us",
         "int_ext_asymmetry": "1x",
         "write_bw": "0.050 TB/s",
-        "endurance_budget": "100 PB"
-      }
+        "endurance_budget": "100 PB",
+        "tdp": "100 W"
+      },
+      "tdp_watts": 100.0,
+      "tdp_provenance": "ASSUMED — High Bandwidth Flash 모듈"
     },
     {
       "name": "ssd_pim",
@@ -195,8 +208,11 @@
         "latency": "60.0 us",
         "int_ext_asymmetry": "12x",
         "compute_fp16": "2.00 TFLOPS",
-        "endurance_budget": "10 PB"
-      }
+        "endurance_budget": "10 PB",
+        "tdp": "75 W"
+      },
+      "tdp_watts": 75.0,
+      "tdp_provenance": "ASSUMED — 연산 유닛을 얹은 SSD"
     }
   ],
   "_generated_from": "memories_default.yaml",
