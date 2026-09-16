@@ -252,3 +252,92 @@ def build_trace(scenario: Scenario, seed: int, horizon_s: float,
             sid=f"s{idx}", arrival_s=now,
             context_tokens=gen.sample_context_tokens(), turns=turns))
     return out
+
+
+# ─────────────────────────────────────── 부하의 물리량 정의 (offered load)
+#
+# 도착률 배수는 시나리오마다 기준이 달라 시나리오 간 비교가 성립하지 않는다.
+# 대신 **KV 수요량**을 부하의 축으로 쓴다 — DP1이 존재하는 이유가 곧
+# "HBM이 살아 있는 KV를 다 담지 못한다"이므로, 그 비율이 이 DP의 부하다.
+#
+#   KV 압력 = (살아 있는 세션 KV의 시간평균) / (HBM 용량)
+#
+# 정책이 개입하기 전의 **제공 부하(offered load)** 로 정의해야 정책 간
+# 비교가 성립한다. 에이전트 워크로드에서는 세션 수명이 유휴 시간에
+# 지배되고 유휴는 trace에 확정되어 있으므로, trace만으로 계산할 수 있다.
+
+
+def trace_kv_demand_bytes(trace: list["SessionSpec"], kv_bytes_per_token: int,
+                          horizon_s: float) -> float:
+    """trace에서 계산한 KV 수요의 시간평균 [bytes]. 정책과 무관하다.
+
+    세션이 살아 있는 동안 점유하는 KV를 시간으로 적분하고 horizon으로 나눈다.
+    턴 처리 시간은 유휴에 비해 작으므로 유휴 구간만으로 근사한다 — 따라서
+    이 값은 **하한**이고, 실측 `kv_pressure`는 이보다 조금 크게 나온다.
+    """
+    total = 0.0
+    for s in trace:
+        ctx = s.context_tokens
+        for t in s.turns:
+            total += ctx * kv_bytes_per_token * t.idle_s
+            ctx += t.result_tokens + t.decode_len
+    return total / max(horizon_s, 1e-9)
+
+
+def calibrate_arrival_by_gpu(scenario: Scenario, target_gpu_pressure: float,
+                             measure, seeds: list[int],
+                             lo: float = 0.05, hi: float = 64.0,
+                             tol: float = 0.03, max_iter: int = 18) -> float:
+    """목표 **GPU 압력**을 만드는 도착률 배수를 이분 탐색으로 찾는다.
+
+    GPU 압력을 축으로 쓰는 이유 (측정으로 확인):
+      - 모든 시나리오에서 **GPU가 KV보다 먼저 포화한다.** GPU 압력이 1에
+        닿을 때 KV 압력은 1.7~3.5이고, 그 전까지는 KV가 HBM에 거의 다 들어간다.
+        즉 배치 결정이 실재하는 구간은 GPU 포화 이후에 온다.
+      - 도착률에 단조증가하고 1차원이라 안정적으로 풀린다.
+      - 서빙 운영에서 실제로 보는 축이다.
+
+    `measure(scenario, mult, seed) -> gpu_pressure` 를 주입받는다. 순환
+    import을 피하려는 것이고, 대조군(as-is)으로 재는 것이 규약이다 —
+    정책이 GPU를 비우면 압력이 내려가므로 정책별로 재면 좌표가 흔들린다.
+    """
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2
+        got = sum(measure(scenario, mid, sd) for sd in seeds) / len(seeds)
+        if abs(got - target_gpu_pressure) / max(target_gpu_pressure, 1e-9) < tol:
+            return mid
+        if got < target_gpu_pressure:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def calibrate_arrival(scenario: Scenario, target_kv_pressure: float,
+                      hbm_capacity_bytes: int, kv_bytes_per_token: int,
+                      seeds: list[int], horizon_s: float,
+                      tool_latency_scale: float = 1.0, burst: bool = False,
+                      lo: float = 0.01, hi: float = 200.0, tol: float = 0.02,
+                      max_iter: int = 40) -> float:
+    """목표 KV 압력을 만드는 도착률 배수를 이분 탐색으로 찾는다.
+
+    KV 수요는 도착률에 단조증가하므로 이분 탐색이 성립한다.
+    """
+    target_bytes = target_kv_pressure * hbm_capacity_bytes
+
+    def demand(mult: float) -> float:
+        vals = [trace_kv_demand_bytes(
+            build_trace(scenario, sd, horizon_s, tool_latency_scale, mult, burst),
+            kv_bytes_per_token, horizon_s) for sd in seeds]
+        return sum(vals) / len(vals)
+
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2
+        d = demand(mid)
+        if abs(d - target_bytes) / max(target_bytes, 1e-9) < tol:
+            return mid
+        if d < target_bytes:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2

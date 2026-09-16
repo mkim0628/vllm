@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "_TODO": "GLM-5 / Kimi K2.5 / DeepSeek4.1 의 실제 아키텍처 파라미터를 확인해야 한다. 아래 값은 **직전 세대에서 유추한 자리표시자**이며 그대로 인용하면 안 된다. 특히 attention_kind(GQA vs MLA)가 KV 크기를 지배하므로 이것부터 확정해야 한다.",
+  "_why_attention_kind_matters": "GQA는 계층마다 num_kv_heads x head_dim 만큼의 K와 V를 캐시한다. MLA는 압축된 latent(kv_lora_rank) + rope 성분만 캐시하고 헤드 간 공유한다. 같은 계층 수에서 KV/token이 자릿수로 달라지므로, **DP1의 용량 압력 자체가 달라진다.**",
+  "models": {
+    "reference_dense_70b": {
+      "attention_kind": "GQA",
+      "num_layers": 80,
+      "hidden": 8192,
+      "num_heads": 64,
+      "num_kv_heads": 8,
+      "head_dim": 128,
+      "dtype_bytes": 2,
+      "provenance": "지금까지 측정에 쓴 기준 모델. 실제 제품이 아니라 70B급 dense 대표값"
+    },
+    "glm_5": {
+      "attention_kind": "GQA",
+      "num_layers": 92,
+      "hidden": 5120,
+      "num_heads": 96,
+      "num_kv_heads": 8,
+      "head_dim": 128,
+      "dtype_bytes": 2,
+      "moe": true,
+      "provenance": "TODO(확인 필요): GLM-4.5/4.6 계열에서 유추한 자리표시자. 실제 GLM-5 스펙 아님"
+    },
+    "kimi_k2_5": {
+      "attention_kind": "MLA",
+      "num_layers": 61,
+      "hidden": 7168,
+      "num_heads": 64,
+      "head_dim": 128,
+      "dtype_bytes": 2,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 64,
+      "moe": true,
+      "provenance": "TODO(확인 필요): Kimi K2(1T MoE, MLA) 에서 유추한 자리표시자"
+    },
+    "deepseek_4_1": {
+      "attention_kind": "MLA",
+      "num_layers": 61,
+      "hidden": 7168,
+      "num_heads": 128,
+      "head_dim": 128,
+      "dtype_bytes": 2,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 64,
+      "moe": true,
+      "provenance": "TODO(확인 필요): DeepSeek-V3(MLA) 에서 유추한 자리표시자"
+    }
+  },
+  "default": "reference_dense_70b"
+}

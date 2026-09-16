@@ -79,12 +79,16 @@ class EngineResult:
     first_turn_tokens: int = 0
     gpu_busy_s: float = 0.0
     mem_busy_s: float = 0.0
+    hbm_capacity_bytes: float = 0.0
     decision_ops: int = 0
     decision_seconds: float = 0.0
     decisions: int = 0
     offload_eligible: int = 0
     offload_adopted: int = 0
     hbm_kv_bytes_samples: list[float] = field(default_factory=list)
+    #: 살아 있는 모든 세션의 KV 총합 — **정책과 무관한 수요량**.
+    #: hbm_kv_bytes_samples는 정책이 HBM에 실제로 둔 양이라 다르다.
+    kv_demand_bytes_samples: list[float] = field(default_factory=list)
     hbm_idle_kv_bytes_samples: list[float] = field(default_factory=list)
     endurance_consumed: dict = field(default_factory=dict)
     placement_hist: dict = field(default_factory=dict)
@@ -142,6 +146,7 @@ class Engine:
         self.step_budget_s = step_budget_s
 
         self.res = EngineResult(policy=policy.name, scenario=gen.sc.name)
+        self.res.hbm_capacity_bytes = float(self.view.spec("hbm").capacity_bytes)
 
     # ── 도착률: burst 모드면 시간에 따라 3배까지 흔든다
     def _rate_multiplier(self, now: float) -> float:
@@ -228,6 +233,7 @@ class Engine:
         gpu_free_at = 0.0
         mem_free_at: dict[str, float] = {}
         now = 0.0
+        live_kv: dict[str, int] = {}   # sid -> 현재 KV 바이트 (수요량 측정용)
 
         while events:
             t, _, kind, sess = heapq.heappop(events)
@@ -319,6 +325,8 @@ class Engine:
             self.res.placement_hist[bs.placed_at] = self.res.placement_hist.get(bs.placed_at, 0) + 1
             self.res.mode_hist[bs.mode.value] = self.res.mode_hist.get(bs.mode.value, 0) + 1
 
+            live_kv[s.sid] = bs.total_bytes
+            self.res.kv_demand_bytes_samples.append(sum(live_kv.values()))
             hbm_used = self.view.state("hbm").used_bytes
             self.res.hbm_kv_bytes_samples.append(hbm_used)
             self.res.hbm_idle_kv_bytes_samples.append(
@@ -350,6 +358,7 @@ class Engine:
             s.turn_index += 1
             if terminal or s.turn_index >= len(spec.turns):
                 active.discard(s.sid)
+                live_kv.pop(s.sid, None)
                 if bs.placed_at:
                     self.view.release(bs.placed_at, bs.total_bytes)
             else:
@@ -386,6 +395,8 @@ def summarize(res: EngineResult) -> dict:
 
     wall = max(res.sim_seconds, 1e-9)
     hbm_avg = statistics.mean(res.hbm_kv_bytes_samples) if res.hbm_kv_bytes_samples else 0.0
+    kv_demand = (statistics.mean(res.kv_demand_bytes_samples)
+                 if res.kv_demand_bytes_samples else 0.0)
     hbm_idle = statistics.mean(res.hbm_idle_kv_bytes_samples) if res.hbm_idle_kv_bytes_samples else 0.0
     par = (res.gpu_busy_s + res.mem_busy_s) / max(res.gpu_busy_s, res.mem_busy_s, 1e-9)
 
@@ -414,6 +425,11 @@ def summarize(res: EngineResult) -> dict:
         "hbm_kv_avg_gb": hbm_avg / 2**30,
         "hbm_idle_kv_avg_gb": hbm_idle / 2**30,
         "resource_parallelism": par,
+        # ── 부하의 두 축 (§부하 정의). 정책과 무관한 입력 특성이므로
+        #    세 정책에서 거의 같은 값이 나와야 한다.
+        "kv_demand_avg_gb": kv_demand / 2**30,
+        "kv_pressure": kv_demand / max(1.0, res.hbm_capacity_bytes),
+        "gpu_pressure": res.gpu_busy_s / wall,
         "gpu_busy_s": res.gpu_busy_s,
         "mem_busy_s": res.mem_busy_s,
         "rejected": res.rejected,

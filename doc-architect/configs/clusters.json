@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "_note": "DP1의 단위는 scale-up 도메인 하나다. 도메인 간 배치는 DP2 범위이므로 여기서는 도메인 수만 기록하고 모델링하지 않는다. per_gpu 값은 도메인 안에서 합산된다 (TP 가정).",
+  "gpus": {
+    "b200": {
+      "hbm_capacity_bytes": 206158430208,
+      "hbm_bw_bytes_per_s": 8000000000000.0,
+      "dense_fp16_flops": 2250000000000000.0,
+      "tdp_watts": 1000.0,
+      "provenance": "PUBLIC (확인 필요): HBM3e 192GB / 8 TB/s / FP16 dense ~2.25 PFLOPS / TDP 1000W(공랭)"
+    },
+    "blackwell_nvl72": {
+      "hbm_capacity_bytes": 206158430208,
+      "hbm_bw_bytes_per_s": 8000000000000.0,
+      "dense_fp16_flops": 2250000000000000.0,
+      "tdp_watts": 1200.0,
+      "provenance": "PUBLIC (확인 필요): NVL72의 Blackwell 다이. 수랭이라 TDP가 높다"
+    },
+    "rubin": {
+      "hbm_capacity_bytes": 384000000000,
+      "hbm_bw_bytes_per_s": 28000000000000.0,
+      "dense_fp16_flops": 8325000000000000.0,
+      "tdp_watts": 2300.0,
+      "provenance": "사용자 제공: 용량 384GB, BW 28 TB/s, FP8 16,650 TFLOPS, TDP 2300W. FP16 = FP8의 1/2 = 8,325 TFLOPS (ASSUMED)"
+    }
+  },
+  "clusters": {
+    "b200_x16_2node": {
+      "gpu": "b200",
+      "gpus_per_scaleup_domain": 8,
+      "num_domains": 2,
+      "domain_interconnect": "nvlink5_within_node",
+      "cross_domain": "network (DP2 범위, 미모델링)",
+      "_why": "HGX B200 baseboard가 8-GPU이므로 16장 = 2노드. 도메인 = 노드."
+    },
+    "gb200_nvl72": {
+      "gpu": "blackwell_nvl72",
+      "gpus_per_scaleup_domain": 72,
+      "num_domains": 1,
+      "domain_interconnect": "nvlink5_rack_scale",
+      "cross_domain": "없음 (단일 도메인)",
+      "_why": "72 GPU가 하나의 NVLink 도메인. 노드(compute tray) 경계가 도메인 경계가 아니다."
+    },
+    "rubin_x16_2node": {
+      "gpu": "rubin",
+      "gpus_per_scaleup_domain": 8,
+      "num_domains": 2,
+      "domain_interconnect": "nvlink_within_node",
+      "cross_domain": "network (DP2 범위, 미모델링)",
+      "_why": "B200과 같은 8-GPU 노드 형태로 가정. **확인 필요**"
+    }
+  },
+  "default": "b200_x16_2node"
+}

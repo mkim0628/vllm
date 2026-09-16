@@ -79,24 +79,46 @@ class ModelShape:
     num_layers: int
     hidden: int
     num_heads: int
-    num_kv_heads: int
     head_dim: int
     dtype_bytes: int
+    #: GQA면 필수. MLA면 쓰지 않는다.
+    num_kv_heads: int = 0
+    #: "GQA" | "MLA" — KV 캐시의 **모양**을 정한다. 이것이 DP1의 용량 압력을 지배한다.
+    attention_kind: str = "GQA"
+    #: MLA 전용 — 압축 latent 차원과 rope 성분 차원.
+    kv_lora_rank: int = 0
+    qk_rope_head_dim: int = 0
 
     def gqa_ratio(self) -> float:
+        if self.attention_kind != "GQA":
+            raise ValueError("gqa_ratio는 GQA에서만 정의된다. decode_intensity()를 쓸 것")
         return self.num_heads / self.num_kv_heads
 
     def kv_bytes_per_token(self) -> int:
-        """K와 V 둘 다, 전 계층 합계."""
+        """전 계층 합계.
+
+        GQA — 계층마다 K와 V를 `num_kv_heads x head_dim` 만큼 캐시한다.
+        MLA — 계층마다 압축 latent(`kv_lora_rank`)와 rope 성분
+              (`qk_rope_head_dim`)만 캐시하고 **헤드 간 공유**한다.
+              따라서 헤드 수와 무관하고 GQA보다 자릿수로 작다.
+        """
+        if self.attention_kind == "MLA":
+            return self.num_layers * (self.kv_lora_rank + self.qk_rope_head_dim) * self.dtype_bytes
         return 2 * self.num_layers * self.num_kv_heads * self.head_dim * self.dtype_bytes
 
     def decode_intensity(self) -> float:
-        """Decode 1 token의 연산 강도 [FLOP/byte] = GQA 비율 (§4.2)."""
-        return self.gqa_ratio()
+        """Decode 1 token의 연산 강도 [FLOP/byte] (§4.2).
+
+        `읽은 바이트당 FLOPs`로 일반 정의한다. GQA에 넣으면 H/KVH로
+        환원되고(설계 문서 §4.2의 결과와 일치), MLA에서는 KV가 작으므로
+        강도가 크게 올라간다 — **오프로드 성립 조건의 연산 요구가 그만큼 높아진다.**
+        """
+        ctx = 1024  # 강도는 context에 무관하므로 임의의 값으로 약분된다
+        return self.attention_flops(ctx, 1) / (ctx * self.kv_bytes_per_token())
 
     def prefill_intensity(self, delta_tokens: int) -> float:
-        """Incremental Prefill의 연산 강도 = GQA 비율 x query token 수 (§4.2)."""
-        return self.gqa_ratio() * delta_tokens
+        """Incremental Prefill의 연산 강도 = Decode 강도 x query token 수 (§4.2)."""
+        return self.decode_intensity() * delta_tokens
 
     def attention_flops(self, context_tokens: int, query_tokens: int) -> float:
         """QK^T + AV 의 FLOPs, 전 계층 합계 (§4.2의 4·H·HD·S·q)."""
@@ -390,13 +412,16 @@ def load_config(path: Path | str) -> tuple[GpuSpec, ModelShape, list[MemorySpec]
     )
     m = raw["model"]
     model = ModelShape(
-        name=m["name"],
+        name=m.get("name", "model"),
         num_layers=int(m["num_layers"]),
         hidden=int(m["hidden"]),
         num_heads=int(m["num_heads"]),
-        num_kv_heads=int(m["num_kv_heads"]),
+        num_kv_heads=int(m.get("num_kv_heads", 0)),
         head_dim=int(m["head_dim"]),
         dtype_bytes=int(m["dtype_bytes"]),
+        attention_kind=m.get("attention_kind", "GQA"),
+        kv_lora_rank=int(m.get("kv_lora_rank", 0)),
+        qk_rope_head_dim=int(m.get("qk_rope_head_dim", 0)),
     )
     mems = []
     for e in raw["memories"]:
@@ -428,3 +453,60 @@ def load_config(path: Path | str) -> tuple[GpuSpec, ModelShape, list[MemorySpec]
             )
         )
     return gpu, model, mems
+
+
+# ───────────────────────────────────── 클러스터 / 모델 Configuration 조립
+#
+# DP1의 단위는 **scale-up 도메인 하나**다 (도메인 간 배치는 DP2 범위).
+# 도메인 안의 GPU는 TP로 묶여 하나의 연산·대역폭·용량 풀처럼 동작한다고 본다.
+
+
+def load_model(path: Path | str, name: str | None = None) -> ModelShape:
+    """configs/models.json 에서 모델 하나를 만든다."""
+    raw = json.loads(Path(path).read_text())
+    key = name or raw["default"]
+    m = raw["models"][key]
+    return ModelShape(
+        name=key, num_layers=int(m["num_layers"]), hidden=int(m["hidden"]),
+        num_heads=int(m["num_heads"]), num_kv_heads=int(m.get("num_kv_heads", 0)),
+        head_dim=int(m["head_dim"]), dtype_bytes=int(m["dtype_bytes"]),
+        attention_kind=m.get("attention_kind", "GQA"),
+        kv_lora_rank=int(m.get("kv_lora_rank", 0)),
+        qk_rope_head_dim=int(m.get("qk_rope_head_dim", 0)),
+    )
+
+
+def load_cluster(path: Path | str, name: str | None = None) -> tuple[GpuSpec, dict]:
+    """configs/clusters.json 에서 **도메인 하나**의 GPU 집계 스펙을 만든다.
+
+    반환값의 dict는 HBM 메모리 항목을 덮어쓸 값과 메타데이터를 담는다.
+    """
+    raw = json.loads(Path(path).read_text())
+    key = name or raw["default"]
+    cl = raw["clusters"][key]
+    g = raw["gpus"][cl["gpu"]]
+    n = int(cl["gpus_per_scaleup_domain"])
+    gpu = GpuSpec(
+        name=f"{key}(domain of {n}x {cl['gpu']})",
+        hbm_bw_bytes_per_s=float(g["hbm_bw_bytes_per_s"]) * n,
+        compute_tflops_fp16=float(g["dense_fp16_flops"]) * n,
+        attention_bw_efficiency=0.9,
+        attention_flops_efficiency=0.5,
+    )
+    meta = {
+        "cluster": key, "gpu_model": cl["gpu"], "gpus_per_domain": n,
+        "num_domains": int(cl["num_domains"]),
+        "hbm_capacity_bytes": int(g["hbm_capacity_bytes"]) * n,
+        "hbm_bw_bytes_per_s": float(g["hbm_bw_bytes_per_s"]) * n,
+        "tdp_watts": float(g["tdp_watts"]) * n,
+    }
+    return gpu, meta
+
+
+def apply_cluster(memories: list[MemorySpec], meta: dict) -> list[MemorySpec]:
+    """도메인 집계 HBM을 메모리 목록에 반영한다."""
+    from dataclasses import replace
+    return [replace(m, capacity_bytes=meta["hbm_capacity_bytes"],
+                    ext_bw_bytes_per_s=meta["hbm_bw_bytes_per_s"],
+                    int_bw_bytes_per_s=meta["hbm_bw_bytes_per_s"])
+            if m.name == "hbm" else m for m in memories]
