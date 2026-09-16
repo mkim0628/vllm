@@ -79,57 +79,112 @@ class ModelShape:
     num_layers: int
     hidden: int
     num_heads: int
-    head_dim: int
     dtype_bytes: int
+    head_dim: int = 0
     #: GQA면 필수. MLA면 쓰지 않는다.
     num_kv_heads: int = 0
-    #: "GQA" | "MLA" — KV 캐시의 **모양**을 정한다. 이것이 DP1의 용량 압력을 지배한다.
+    #: "GQA" | "MLA" | "MLA+DSA" | "KDA+GATED_MLA" | "CSA2"
     attention_kind: str = "GQA"
-    #: MLA 전용 — 압축 latent 차원과 rope 성분 차원.
+    # ── MLA 계열
     kv_lora_rank: int = 0
     qk_rope_head_dim: int = 0
+    # ── DSA / CSA2 의 sparse indexer
+    index_head_dim: int = 0
+    index_topk: int = 0
+    sparse_attention: bool = False
+    # ── KDA (선형/재귀 attention) 혼합
+    kda_layers: int = 0
+    mla_layers: int = 0
+    kda_num_heads: int = 0
+    kda_head_dim: int = 0
+    short_conv_kernel_size: int = 0
+    # ── CSA2 의 계층 간 KV 공유
+    kv_source_layer_ids: tuple = ()
+    index_source_layer_ids: tuple = ()
+    sliding_window: int = 0
 
     def gqa_ratio(self) -> float:
         if self.attention_kind != "GQA":
             raise ValueError("gqa_ratio는 GQA에서만 정의된다. decode_intensity()를 쓸 것")
         return self.num_heads / self.num_kv_heads
 
+    # ── KV 상태는 두 항으로 나뉜다: 토큰에 비례하는 항과 세션당 상수 항.
+    #    KDA 같은 재귀 attention은 후자만 있고 context에 비례하지 않는다.
+
     def kv_bytes_per_token(self) -> int:
-        """전 계층 합계.
+        """토큰 수에 **비례**하는 KV [bytes/token], 전 계층 합계."""
+        d = self.dtype_bytes
+        k = self.attention_kind
+        if k == "GQA":
+            return 2 * self.num_layers * self.num_kv_heads * self.head_dim * d
+        if k in ("MLA", "MLA+DSA"):
+            # MLA 잠재 + rope 성분을 계층마다, 헤드 간 공유
+            per = self.num_layers * (self.kv_lora_rank + self.qk_rope_head_dim) * d
+            if k == "MLA+DSA":
+                # DSA의 lightning indexer도 토큰마다 키를 캐시한다
+                per += self.num_layers * self.index_head_dim * d
+            return per
+        if k == "KDA+GATED_MLA":
+            # MLA 계층만 토큰에 비례한다. KDA 계층은 재귀 상태라 상수항이다.
+            return self.mla_layers * (self.kv_lora_rank + self.qk_rope_head_dim) * d
+        if k == "CSA2":
+            # KV를 **일부 계층에서만** 만들어 나머지 계층이 공유한다.
+            n_kv = len(self.kv_source_layer_ids) or self.num_layers
+            n_ix = len(self.index_source_layer_ids)
+            return n_kv * (self.head_dim + self.qk_rope_head_dim) * d + n_ix * self.index_head_dim * d
+        raise ValueError(f"모르는 attention_kind: {k}")
 
-        GQA — 계층마다 K와 V를 `num_kv_heads x head_dim` 만큼 캐시한다.
-        MLA — 계층마다 압축 latent(`kv_lora_rank`)와 rope 성분
-              (`qk_rope_head_dim`)만 캐시하고 **헤드 간 공유**한다.
-              따라서 헤드 수와 무관하고 GQA보다 자릿수로 작다.
+    def kv_bytes_constant(self) -> int:
+        """세션당 **상수** 상태 [bytes] — context 길이와 무관하다.
+
+        KDA 같은 선형/재귀 attention의 상태가 여기 들어간다.
+        헤드당 (head_dim x head_dim) 재귀 상태 + short conv 상태.
         """
-        if self.attention_kind == "MLA":
-            return self.num_layers * (self.kv_lora_rank + self.qk_rope_head_dim) * self.dtype_bytes
-        return 2 * self.num_layers * self.num_kv_heads * self.head_dim * self.dtype_bytes
+        if self.attention_kind != "KDA+GATED_MLA":
+            return 0
+        d = self.dtype_bytes
+        recur = self.kda_layers * self.kda_num_heads * self.kda_head_dim * self.kda_head_dim * d
+        conv = (self.kda_layers * self.kda_num_heads * self.kda_head_dim
+                * max(0, self.short_conv_kernel_size - 1) * d)
+        return recur + conv
 
-    def decode_intensity(self) -> float:
-        """Decode 1 token의 연산 강도 [FLOP/byte] (§4.2).
+    def kv_bytes_for(self, context_tokens: int) -> int:
+        return context_tokens * self.kv_bytes_per_token() + self.kv_bytes_constant()
 
-        `읽은 바이트당 FLOPs`로 일반 정의한다. GQA에 넣으면 H/KVH로
-        환원되고(설계 문서 §4.2의 결과와 일치), MLA에서는 KV가 작으므로
-        강도가 크게 올라간다 — **오프로드 성립 조건의 연산 요구가 그만큼 높아진다.**
+    def attended_tokens(self, context_tokens: int) -> int:
+        """Decode 한 step이 **실제로 읽는** 토큰 수.
+
+        sparse attention은 top-k만 읽으므로 context가 길어져도 상한이 있다.
+        이것이 DP1의 대역폭 요구를 좌우한다.
         """
-        ctx = 1024  # 강도는 context에 무관하므로 임의의 값으로 약분된다
-        return self.attention_flops(ctx, 1) / (ctx * self.kv_bytes_per_token())
+        if self.index_topk and self.sparse_attention:
+            return min(context_tokens, self.index_topk)
+        if self.attention_kind == "CSA2" and self.index_topk:
+            return min(context_tokens, self.index_topk)
+        return context_tokens
+
+    def decode_read_bytes(self, context_tokens: int) -> int:
+        """Decode 한 step이 읽는 KV 바이트. sparse면 top-k만."""
+        return (self.attended_tokens(context_tokens) * self.kv_bytes_per_token()
+                + self.kv_bytes_constant())
+
+    def decode_intensity(self, context_tokens: int = 4096) -> float:
+        """읽은 바이트당 FLOPs. GQA에 넣으면 H/KVH로 환원된다 (§4.2)."""
+        rb = self.decode_read_bytes(context_tokens)
+        return self.attention_flops(context_tokens, 1) / max(1, rb)
 
     def prefill_intensity(self, delta_tokens: int) -> float:
         """Incremental Prefill의 연산 강도 = Decode 강도 x query token 수 (§4.2)."""
         return self.decode_intensity() * delta_tokens
 
     def attention_flops(self, context_tokens: int, query_tokens: int) -> float:
-        """QK^T + AV 의 FLOPs, 전 계층 합계 (§4.2의 4·H·HD·S·q)."""
-        return (
-            4.0
-            * self.num_heads
-            * self.head_dim
-            * context_tokens
-            * query_tokens
-            * self.num_layers
-        )
+        """QK^T + AV 의 FLOPs, 전 계층 합계 (§4.2의 4·H·HD·S·q).
+
+        sparse attention은 top-k 토큰만 계산하므로 S를 그만큼 줄인다.
+        """
+        hd = self.head_dim or self.kv_lora_rank
+        s_eff = self.attended_tokens(context_tokens)
+        return 4.0 * self.num_heads * hd * s_eff * query_tokens * self.num_layers
 
     def activation_bytes_per_token(self) -> int:
         """계층당 링크를 건너는 활성화 크기 (Q + attn_out). KV보다 세 자릿수 작다 (§4.1)."""
@@ -481,12 +536,25 @@ def load_model(path: Path | str, name: str | None = None) -> ModelShape:
     key = name or raw["default"]
     m = raw["models"][key]
     return ModelShape(
-        name=key, num_layers=int(m["num_layers"]), hidden=int(m["hidden"]),
-        num_heads=int(m["num_heads"]), num_kv_heads=int(m.get("num_kv_heads", 0)),
-        head_dim=int(m["head_dim"]), dtype_bytes=int(m["dtype_bytes"]),
+        name=key,
+        num_layers=int(m["num_layers"]), hidden=int(m["hidden"]),
+        num_heads=int(m["num_heads"]), dtype_bytes=int(m["dtype_bytes"]),
+        head_dim=int(m.get("head_dim", 0)),
+        num_kv_heads=int(m.get("num_kv_heads", 0)),
         attention_kind=m.get("attention_kind", "GQA"),
         kv_lora_rank=int(m.get("kv_lora_rank", 0)),
         qk_rope_head_dim=int(m.get("qk_rope_head_dim", 0)),
+        index_head_dim=int(m.get("index_head_dim", 0)),
+        index_topk=int(m.get("index_topk", 0)),
+        sparse_attention=bool(m.get("sparse_attention", False)),
+        kda_layers=int(m.get("kda_layers", 0)),
+        mla_layers=int(m.get("mla_layers", 0)),
+        kda_num_heads=int(m.get("kda_num_heads", 0)),
+        kda_head_dim=int(m.get("kda_head_dim", 0)),
+        short_conv_kernel_size=int(m.get("short_conv_kernel_size", 0)),
+        kv_source_layer_ids=tuple(m.get("kv_source_layer_ids", ())),
+        index_source_layer_ids=tuple(m.get("index_source_layer_ids", ())),
+        sliding_window=int(m.get("sliding_window", 0)),
     )
 
 
