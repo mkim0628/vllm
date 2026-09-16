@@ -108,12 +108,12 @@ SCENARIOS: list[Scenario] = [
         context_tokens_median=24000, context_tokens_sigma=0.6,
         description="bash 지배. 같은 툴 이름 아래 실행 시간 분산이 가장 크다"),
     Scenario(
-        "agent_swarm",
+        "multi_agent",
         {"task": 0.45, "bash": 0.20, "read": 0.12, "webfetch": 0.10,
          "edit": 0.06, "grep": 0.04, "glob": 0.02, "write": 0.01},
         arrival_rate_per_s=0.04, turns_median=6,
         context_tokens_median=64000, context_tokens_sigma=0.5,
-        description="서브에이전트 위주. 유휴가 수십 초 — 가장 깊은 계층까지 성립"),
+        description="멀티 에이전트. 서브에이전트 위주라 유휴가 수십 초 — 가장 깊은 계층까지 성립"),
     Scenario(
         "mixed_uniform",
         {k: 0.125 for k in TOOLS},

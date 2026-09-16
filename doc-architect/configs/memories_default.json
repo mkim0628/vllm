@@ -51,9 +51,10 @@
       "int_bw_bytes_per_s": 8000000000000.0,
       "latency_s": 1e-06,
       "hops": [
-        "gpu->dev:scaleup_fabric"
+        "gpu->host:???",
+        "host->dev:???"
       ],
-      "gpu_reachable": true,
+      "gpu_reachable": false,
       "supported_primitives": [
         "QK_GEMM",
         "SOFTMAX",
@@ -64,8 +65,8 @@
       "attention_bw_efficiency": 0.7,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "ext=SPEC NVLink 5 (900 GB/s per direction); capacity, int BW, latency = ASSUMED (separate memory node)",
-      "note": "별도 노드이므로 외부/내부 비대칭이 약 8.9배로 크다. GPU가 fabric으로 KV를 읽으면 로컬 HBM 대비 8.9배 느리지만, 노드 안에서 Attention을 수행하면 로컬 HBM과 대등한 처리량을 내면서 용량은 5배가 된다. 따라서 이 노드에서는 Attention 오프로드가 선택이 아니라 사실상 전제다 (설계 문서 4.4).\n",
+      "provenance": "TODO(확정 필요): Host 경유 경로의 대역폭/지연이 미확정. 현재 값 ext=900GB/s, latency=1us 는 NVLink5 scale-up fabric 가정에서 온 것으로 **Host 경유라는 정정과 모순된다.** capacity, int BW = ASSUMED.",
+      "note": "별도 노드이므로 외부/내부 비대칭이 크다. **GPU가 직접 읽지 못하고 Host를 경유해야 하므로 Mode A(GPU 직접 읽기)는 성립하지 않는다** — 재활성 경로는 Mode C(Attention 오프로드)뿐이고, 오프로드가 성립하지 않으면 Mode B(전량 복원)로 떨어진다. 노드 안에서 Attention을 수행하면 로컬 HBM과 대등한 처리량을 내면서 용량은 5배가 된다. 따라서 이 노드에서는 Attention 오프로드가 선택이 아니라 사실상 전제다 (설계 문서 4.4).\n",
       "units": {
         "capacity": "1.00 TiB",
         "ext_bw": "0.900 TB/s",

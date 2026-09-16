@@ -1189,9 +1189,11 @@ data-first        C2-static          C2-reactive
 배치 비용을 시간 지표로 환산하려면, **선택한 메모리가 재활성 시 어떤 방식을 강제하는지**를 먼저 구분해야 한다. §3.4의 `gpu_reachable`과 `supported_primitives`에서 유도된다.
 
 ```text
-Mode A. Resident        GPU가 직접 읽는 메모리에 유지 (HBM, Custom HBM 노드, HBF)
+Mode A. Resident        GPU가 직접 읽는 메모리에 유지 (HBM, HBF)
                         → 재활성 시 복원 0. 단 Decode마다 그 메모리의 **외부 대역폭**으로
                           KV 전체를 읽으므로, 경로가 느리면 Mode A 자체가 비싸다
+                        → **Custom HBM은 여기 해당하지 않는다.** 별도 노드에 있고
+                          GPU가 직접 읽지 못하며 Host를 경유해야 한다
 
 Mode B. Restore         GPU가 직접 못 읽고 연산도 못 하는 메모리 (DRAM)
                         → 유휴 중 싸게 보관, 재활성 시 History 전량 복원 → TTFT 타격
@@ -1200,6 +1202,9 @@ Mode C. Attention 오프로드   연산 원시집합을 모두 지원하는 메�
                         → KV는 이동하지 않고 Attention을 그곳에서 수행,
                           GPU는 Projection·FFN 담당 (§4)
                         → 링크를 건너는 것은 활성화 텐서뿐
+                        → **Custom HBM에게는 이것이 유일한 재활성 경로다.**
+                          GPU 직접 읽기가 불가능하므로 Mode A로 대체할 수 없고,
+                          오프로드가 성립하지 않으면 Mode B(전량 복원)로 떨어진다
 ```
 
 세 방식의 선택은 §4.4의 손익분기로 갈리며, 그 부등식의 변수인 **턴당 생성 길이와 유휴 시간**이 §5.1의 추정 대상이다. **이것이 C1/C2 비교의 핵심 연결 고리**다.
