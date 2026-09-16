@@ -31,7 +31,9 @@
       "num_domains": 2,
       "domain_interconnect": "nvlink5_within_node",
       "cross_domain": "network (DP2 범위, 미모델링)",
-      "_why": "HGX B200 baseboard가 8-GPU이므로 16장 = 2노드. 도메인 = 노드."
+      "_why": "HGX B200 baseboard가 8-GPU이므로 16장 = 2노드. 도메인 = 노드.",
+      "custom_hbm_nodes_per_domain": 1,
+      "scale_attached": false
     },
     "gb200_nvl72": {
       "gpu": "blackwell_nvl72",
@@ -39,7 +41,9 @@
       "num_domains": 1,
       "domain_interconnect": "nvlink5_rack_scale",
       "cross_domain": "없음 (단일 도메인)",
-      "_why": "72 GPU가 하나의 NVLink 도메인. 노드(compute tray) 경계가 도메인 경계가 아니다."
+      "_why": "72 GPU가 하나의 NVLink 도메인. 노드(compute tray) 경계가 도메인 경계가 아니다.",
+      "custom_hbm_nodes_per_domain": 1,
+      "scale_attached": false
     },
     "rubin_x16_2node": {
       "gpu": "rubin",
@@ -47,8 +51,17 @@
       "num_domains": 2,
       "domain_interconnect": "nvlink_within_node",
       "cross_domain": "network (DP2 범위, 미모델링)",
-      "_why": "B200과 같은 8-GPU 노드 형태로 가정. **확인 필요**"
+      "_why": "B200과 같은 8-GPU 노드 형태로 가정. **확인 필요**",
+      "custom_hbm_nodes_per_domain": 1,
+      "scale_attached": false
     }
   },
-  "default": "b200_x16_2node"
+  "default": "b200_x16_2node",
+  "_topology": {
+    "custom_hbm": "GPU 8장당 1대. GPU가 직접 읽지 못하고 CPU를 경유한다.",
+    "path": "GPU -(PCIe5)- CPU -(PCIe5 x16)- cHBM",
+    "bottleneck": "cHBM<->CPU의 PCIe5 x16 한 가닥(63.0 GB/s)을 도메인 전체가 공유한다",
+    "implication": "도메인 HBM은 GPU 수만큼 합산되지만(8x B200 = 64 TB/s) cHBM은 1대(56 TB/s)다. 따라서 오프로드의 이득은 **대역폭이 아니라** (a) 용량 확장과 (b) GPU를 Attention에서 놓아주는 자원 병렬화에서 나온다.",
+    "scale_attached": false
+  }
 }

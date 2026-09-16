@@ -267,8 +267,9 @@ class Engine:
 
             # ── Incremental Prefill (GPU 고정)
             prefill_tokens = ts.result_tokens if s.turn_index > 0 else min(bs.context_tokens, 4096)
-            prefill_s = self.gpu.prefill_seconds(
+            prefill_s = (self.gpu.prefill_seconds(
                 self.model, bs.context_tokens, max(1, prefill_tokens))
+                + self.gpu.ffn_prefill_seconds(self.model, max(1, prefill_tokens)))
             # 이전 턴의 결정점 B 이동이 유휴 안에 숨지 못했으면, 그 초과분만큼
             # 이번 턴은 KV가 아직 제자리에 없다 — 사용자 관점에서는 대기다.
             ttft = s.pending_stall_s + restore_s + prefill_s
@@ -288,6 +289,9 @@ class Engine:
             # ── Decode
             decode_steps = ts.decode_len
             step_gpu, step_mem = self._decode_step_cost(bs)
+            # 가중치 읽기는 배치 전체가 공유하므로 세션 하나가 지는 몫은 1/배치다.
+            w = self.gpu.decode_weight_seconds(self.model) / max(1, self.batch_size)
+            step_gpu += w
             gpu_decode = step_gpu * decode_steps
             mem_decode = step_mem * decode_steps
             tpot = max(step_gpu, step_mem)

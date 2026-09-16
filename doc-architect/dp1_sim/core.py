@@ -102,6 +102,10 @@ class ModelShape:
     kv_source_layer_ids: tuple = ()
     index_source_layer_ids: tuple = ()
     sliding_window: int = 0
+    #: 토큰 1개를 만드는 데 실제로 쓰이는 파라미터 수 (MoE면 활성분만).
+    #: Decode의 가중치 읽기 시간을 정한다. None이면 그 항을 세지 않는다.
+    active_params: int = 0
+    total_params: int = 0
 
     def gqa_ratio(self) -> float:
         if self.attention_kind != "GQA":
@@ -186,6 +190,14 @@ class ModelShape:
         s_eff = self.attended_tokens(context_tokens)
         return 4.0 * self.num_heads * hd * s_eff * query_tokens * self.num_layers
 
+    def weight_bytes(self) -> int:
+        """Decode step마다 읽어야 하는 가중치 [bytes] (활성 파라미터분)."""
+        return self.active_params * self.dtype_bytes
+
+    def ffn_flops_per_token(self) -> float:
+        """Attention 외 연산의 FLOPs — 대략 2 x 활성 파라미터."""
+        return 2.0 * self.active_params
+
     def activation_bytes_per_token(self) -> int:
         """계층당 링크를 건너는 활성화 크기 (Q + attn_out). KV보다 세 자릿수 작다 (§4.1)."""
         return 2 * self.hidden * self.dtype_bytes
@@ -203,6 +215,24 @@ class GpuSpec:
         """Prefill은 연산 한계 (§4.2(1)) — GPU에 고정된다."""
         flops = model.attention_flops(context_tokens, query_tokens)
         return flops / (self.compute_tflops_fp16 * self.attention_flops_efficiency)
+
+    def decode_weight_seconds(self, model: ModelShape) -> float:
+        """Decode step 1회의 가중치 읽기 시간.
+
+        **배치 전체가 한 번만 읽으므로 배치로 나뉘지 않는다** — 세션마다
+        자기 KV를 읽는 Attention과 여기서 성질이 갈린다. 이 항이 없으면
+        GPU가 실제보다 한가해 보이고 오프로드의 이득이 과소평가된다.
+        """
+        if not model.active_params:
+            return 0.0
+        return model.weight_bytes() / (self.hbm_bw_bytes_per_s * self.attention_bw_efficiency)
+
+    def ffn_prefill_seconds(self, model: ModelShape, tokens: int) -> float:
+        """Prefill의 Attention 외 연산 시간 — 연산 한계."""
+        if not model.active_params:
+            return 0.0
+        return model.ffn_flops_per_token() * tokens / (
+            self.compute_tflops_fp16 * self.attention_flops_efficiency)
 
     def decode_attention_seconds(self, kv_bytes: int) -> float:
         """GPU가 HBM에서 KV 전체를 읽는 시간. Decode는 대역폭 한계 (§4.2)."""
@@ -552,6 +582,8 @@ def load_model(path: Path | str, name: str | None = None) -> ModelShape:
         kda_num_heads=int(m.get("kda_num_heads", 0)),
         kda_head_dim=int(m.get("kda_head_dim", 0)),
         short_conv_kernel_size=int(m.get("short_conv_kernel_size", 0)),
+        active_params=int(m.get("active_params") or 0),
+        total_params=int(m.get("total_params") or 0),
         kv_source_layer_ids=tuple(m.get("kv_source_layer_ids", ())),
         index_source_layer_ids=tuple(m.get("index_source_layer_ids", ())),
         sliding_window=int(m.get("sliding_window", 0)),
