@@ -47,12 +47,12 @@
       "medium": "CUSTOM_HBM",
       "role": "GPU 노드 옆의 별도 메모리 노드. Custom HBM만으로 구성되며 GPU-HBM을 대체한다",
       "capacity_bytes": 768000000000,
-      "ext_bw_bytes_per_s": 63000000000.0,
+      "ext_bw_bytes_per_s": 121000000000.0,
       "int_bw_bytes_per_s": 56000000000000.0,
       "latency_s": 2e-06,
       "hops": [
-        "gpu->host:pcie5_x16",
-        "host->dev:pcie5_x16"
+        "gpu->host:pcie6_x16",
+        "host->dev:pcie6_x16"
       ],
       "gpu_reachable": false,
       "supported_primitives": [
@@ -65,14 +65,14 @@
       "attention_bw_efficiency": 0.7,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "연산/용량/내부BW/TDP = 사용자 제공 (Rubin 스펙 대비 환산: FP8 16650 TFLOPS의 20%, 384GB의 2배, 28TB/s의 2배, 2300W의 1/3). ext_bw/latency = SPEC PCIe 5.0 x16 (63.0 GB/s 단방향) 2홉 + host bounce, 지연은 ASSUMED.",
+      "provenance": "연산/용량/내부BW/TDP = 사용자 제공 (Rubin 스펙 대비 환산: FP8 16650 TFLOPS의 20%, 384GB의 2배, 28TB/s의 2배, 2300W의 1/3). ext_bw/latency = SPEC PCIe 6.0 x16 (121.0 GB/s 단방향) 2홉 + host bounce, 지연은 ASSUMED.",
       "note": "**GPU가 직접 읽지 못한다 — Host를 2홉 경유한다.** 따라서 Mode A는 성립하지 않고 재활성 경로는 Mode C(Attention 오프로드)뿐이며, 오프로드가 불가하면 Mode B(전량 복원)로 떨어진다. 내부/외부 비대칭이 **889배**이므로 KV를 이 노드 밖으로 내보내는 순간 비용이 폭발한다 — 오프로드는 선택이 아니라 전제다 (설계 문서 4.4).",
       "units": {
         "capacity": "715 GiB",
-        "ext_bw": "63.0 GB/s",
+        "ext_bw": "121.0 GB/s",
         "int_bw": "56.0 TB/s",
         "latency": "2.0 us",
-        "int_ext_asymmetry": "889x",
+        "int_ext_asymmetry": "463x",
         "compute_fp16": "1665.00 TFLOPS",
         "tdp": "767 W"
       },
@@ -83,7 +83,7 @@
       "medium": "CXL_PNM",
       "role": "대용량 연산형 확장 메모리 (LPDDR5X 기반)",
       "capacity_bytes": 549755813888,
-      "ext_bw_bytes_per_s": 63000000000.0,
+      "ext_bw_bytes_per_s": 121000000000.0,
       "int_bw_bytes_per_s": 1100000000000.0,
       "latency_s": 3e-07,
       "hops": [
@@ -101,14 +101,14 @@
       "attention_bw_efficiency": 0.7,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "연산 = 사용자 제공 FP32 1.64 TFLOPS -> FP16 3.28 TFLOPS (2배, ASSUMED). ext_bw = SPEC CXL 2.0 over PCIe 5.0 x16 (63.0 GB/s). 용량/내부BW/지연 = ASSUMED (LPDDR5X 기반).",
+      "provenance": "연산 = 사용자 제공 FP32 1.64 TFLOPS -> FP16 3.28 TFLOPS (2배, ASSUMED). ext_bw = SPEC CXL over PCIe 6.0 x16 (121.0 GB/s). 용량/내부BW/지연 = ASSUMED (LPDDR5X 기반).",
       "note": "FP16을 FP32의 2배로 가정했다. **1배라면 연산 성능이 균형점의 1.06배에 불과해 4.4의 연산 조건을 간신히 통과한다** — 내부 대역폭이 조금만 올라도 탈락한다. 이 가정이 결과를 바꾸는지 Sweep으로 확인해야 한다.",
       "units": {
         "capacity": "512 GiB",
-        "ext_bw": "63.0 GB/s",
+        "ext_bw": "121.0 GB/s",
         "int_bw": "1.1 TB/s",
         "latency": "300 ns",
-        "int_ext_asymmetry": "17x",
+        "int_ext_asymmetry": "9x",
         "compute_fp16": "3.28 TFLOPS"
       }
     },
@@ -200,5 +200,6 @@
     }
   ],
   "_generated_from": "memories_default.yaml",
-  "_note": "Generated file - edit memories_default.yaml and rerun to_json.py. See the yaml for per-field src: SPEC / PUBLIC / ASSUMED tags."
+  "_note": "Generated file - edit memories_default.yaml and rerun to_json.py. See the yaml for per-field src: SPEC / PUBLIC / ASSUMED tags.",
+  "note": "PCIe 6.0 x16 변형 — 링크 세대가 결론을 바꾸는지 확인용."
 }
