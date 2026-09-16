@@ -22,7 +22,7 @@
     {
       "name": "hbm",
       "medium": "HBM",
-      "role": "GPU 노드의 주 메모리 (on-package)",
+      "role": "GPU 온패키지 HBM. 세대/수치는 클러스터가 정한다 (B200=HBM3e, Vera Rubin=HBM4)",
       "capacity_bytes": 206158430208,
       "ext_bw_bytes_per_s": 8000000000000.0,
       "int_bw_bytes_per_s": 8000000000000.0,
@@ -33,7 +33,7 @@
       "attention_bw_efficiency": null,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "SPEC: HBM3e, B200 온패키지. 8-stack aggregate 192GiB / 8 TB/s",
+      "provenance": "SPEC. 기본값은 HBM3e(B200) 192GiB / 8 TB/s. apply_cluster()가 클러스터의 GPU 스펙으로 용량/대역폭을 덮어쓴다.",
       "units": {
         "capacity": "192 GiB",
         "ext_bw": "8000.0 GB/s",
@@ -48,8 +48,8 @@
     {
       "name": "custom_hbm",
       "medium": "CUSTOM_HBM",
-      "role": "GPU 노드 옆의 별도 메모리 노드. Custom HBM만으로 구성되며 GPU-HBM을 대체한다",
-      "capacity_bytes": 768000000000,
+      "role": "GPU 노드 옆 별도 메모리 노드. 스펙은 페어링 GPU 상대값으로 정의한다",
+      "capacity_bytes": 412316860416,
       "ext_bw_bytes_per_s": 121000000000.0,
       "int_bw_bytes_per_s": 16000000000000.0,
       "latency_s": 2e-06,
@@ -64,22 +64,22 @@
         "AV_GEMM",
         "CAUSAL_MASK"
       ],
-      "compute_tflops_fp16": 1665000000000000.0,
+      "compute_tflops_fp16": 450000000000000.0,
       "attention_bw_efficiency": 0.7,
       "write_amplification": 1.0,
       "endurance_budget_bytes": null,
-      "provenance": "연산/용량/TDP = 사용자 제공 (Rubin 환산). ext_bw/latency = SPEC PCIe 5.0 x16 2홉 + host bounce. 내부BW = **붙어있는 GPU 자체 HBM 대역폭의 2배** (사용자 지정 규칙). 정적 기본값은 B200 페어링 기준 2x8TB/s=16TB/s. 클러스터 적용 시 apply_cluster()가 그 클러스터 GPU 기준으로 재계산한다 (Vera Rubin: 2x28TB/s=56TB/s).",
+      "provenance": "**페어링 GPU 상대 스펙** (사용자 규칙). apply_cluster()가 클러스터별로 재계산한다:\n  용량   = GPU HBM 용량 x 2\n  내부BW = GPU HBM 대역폭 x 2\n  연산   = GPU dense FP16 x 20%  (= FP8의 20%)\n  TDP    = GPU TDP / 3\n정적 기본값은 B200 페어링 기준. Vera Rubin 페어링 시 용량 768GB / 내부BW 56TB/s / 연산 1,665 TFLOPS / TDP 767W 가 된다.\next_bw/latency = SPEC PCIe 5.0 x16 (63.0 GB/s), CPU 2홉 경유. GPU 직접 읽기 불가.",
       "note": "**GPU가 직접 읽지 못한다 — Host를 2홉 경유한다.** 따라서 Mode A는 성립하지 않고 재활성 경로는 Mode C(Attention 오프로드)뿐이며, 오프로드가 불가하면 Mode B(전량 복원)로 떨어진다. 내부/외부 비대칭이 **889배**이므로 KV를 이 노드 밖으로 내보내는 순간 비용이 폭발한다 — 오프로드는 선택이 아니라 전제다 (설계 문서 4.4).",
       "units": {
-        "capacity": "715 GiB",
-        "ext_bw": "121.0 GB/s",
+        "capacity": "384 GiB",
+        "ext_bw": "63.0 GB/s",
         "int_bw": "16.0 TB/s",
         "latency": "2.0 us",
         "int_ext_asymmetry": "132x",
-        "compute_fp16": "1665.00 TFLOPS",
-        "tdp": "767 W"
+        "compute_fp16": "450.00 TFLOPS",
+        "tdp": "333 W"
       },
-      "tdp_watts": 767.0,
+      "tdp_watts": 333.3333333333333,
       "tdp_provenance": "사용자 제공 (Rubin 2300W의 1/3)"
     },
     {
@@ -213,35 +213,24 @@
       },
       "tdp_watts": 75.0,
       "tdp_provenance": "ASSUMED — 연산 유닛을 얹은 SSD"
-    },
-    {
-      "name": "hbm4",
-      "medium": "HBM",
-      "role": "GPU 노드의 주 메모리 (on-package)",
-      "capacity_bytes": 384000000000,
-      "ext_bw_bytes_per_s": 28000000000000.0,
-      "int_bw_bytes_per_s": 28000000000000.0,
-      "latency_s": 3e-07,
-      "gpu_reachable": true,
-      "supported_primitives": [],
-      "compute_tflops_fp16": null,
-      "attention_bw_efficiency": null,
-      "write_amplification": 1.0,
-      "endurance_budget_bytes": null,
-      "provenance": "사용자 제공: Vera Rubin 온패키지 HBM4. 384GB, 28 TB/s. 참조/문서용 — 실제 클러스터 적용은 clusters.json의 gpus.vera_rubin 값을 쓴다 (동일 수치).",
-      "units": {
-        "capacity": "384 GB",
-        "ext_bw": "28.0 TB/s",
-        "int_bw": "28.0 TB/s",
-        "latency": "300 ns",
-        "int_ext_asymmetry": "1x",
-        "tdp": "0 W"
-      },
-      "tdp_watts": 0.0,
-      "tdp_provenance": "GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다"
     }
   ],
   "_generated_from": "memories_default.yaml",
   "_note": "Generated file - edit memories_default.yaml and rerun to_json.py. See the yaml for per-field src: SPEC / PUBLIC / ASSUMED tags.",
-  "note": "PCIe 6.0 x16 변형 — 링크 세대가 결론을 바꾸는지 확인용."
+  "note": "PCIe 6.0 x16 변형 — 링크 세대가 결론을 바꾸는지 확인용.",
+  "_gpu_onpackage_hbm": {
+    "_note": "GPU 온패키지 HBM은 클러스터가 고르는 슬롯 하나다(메모리 이름 'hbm'). 아래는 세대별 스펙 참조이며, 실제 적용은 clusters.json의 gpus.*.hbm_* 값이다. 배치 후보 목록에 넣지 않는다 - 넣으면 한 도메인에 온패키지 HBM이 둘이 된다.",
+    "hbm3e": {
+      "pairs_with": "b200",
+      "capacity": "192 GiB",
+      "bandwidth": "8.0 TB/s",
+      "provenance": "SPEC: HBM3e, B200 온패키지"
+    },
+    "hbm4": {
+      "pairs_with": "vera_rubin",
+      "capacity": "384 GB",
+      "bandwidth": "28.0 TB/s",
+      "provenance": "사용자 제공: HBM4, Vera Rubin 온패키지"
+    }
+  }
 }

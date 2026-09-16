@@ -614,9 +614,14 @@ def load_cluster(path: Path | str, name: str | None = None) -> tuple[GpuSpec, di
     meta = {
         "cluster": key, "gpu_model": cl["gpu"], "gpus_per_domain": n,
         "num_domains": int(cl["num_domains"]),
-        "hbm_capacity_bytes": int(g["hbm_capacity_bytes"]) * n,
-        "hbm_bw_bytes_per_s": float(g["hbm_bw_bytes_per_s"]),
-        "tdp_watts": float(g["tdp_watts"]) * n,
+        "hbm_capacity_bytes": int(g["hbm_capacity_bytes"]) * n,   # 도메인 합산
+        "hbm_bw_bytes_per_s": float(g["hbm_bw_bytes_per_s"]),      # GPU 1장 링크 속도
+        "tdp_watts": float(g["tdp_watts"]) * n,                    # 도메인 합산
+        # ── custom_hbm을 상대 스펙으로 유도하기 위한 GPU 1장 기준값
+        "gpu_hbm_capacity_bytes": int(g["hbm_capacity_bytes"]),
+        "gpu_dense_fp16_flops": float(g["dense_fp16_flops"]),
+        "gpu_tdp_watts_each": float(g["tdp_watts"]),
+        "hbm_medium": g.get("hbm_medium", "HBM"),
     }
     return gpu, meta
 
@@ -653,8 +658,14 @@ def apply_cluster(memories: list[MemorySpec], meta: dict, *,
                 tdp_watts=m.tdp_watts * n))
         else:
             out.append(m)
-    # custom_hbm 내부BW = **붙어있는 GPU 자체 HBM 대역폭의 2배** (사용자 지정 규칙).
-    # 클러스터가 바뀌면 그 클러스터 GPU 기준으로 다시 계산한다.
-    hbm_bw = meta["hbm_bw_bytes_per_s"]
-    return [replace(m, int_bw_bytes_per_s=2.0 * hbm_bw) if m.name == "custom_hbm" else m
+    # custom_hbm은 **페어링 GPU 상대 스펙**이다 (사용자 규칙).
+    #   용량 = GPU HBM x2,  내부BW = GPU HBM BW x2,
+    #   연산 = GPU dense FP16 x20%,  TDP = GPU TDP / 3
+    # 클러스터가 바뀌면 그 GPU 기준으로 전부 다시 계산한다.
+    return [replace(m,
+                    capacity_bytes=int(2 * meta["gpu_hbm_capacity_bytes"]),
+                    int_bw_bytes_per_s=2.0 * meta["hbm_bw_bytes_per_s"],
+                    compute_tflops_fp16=0.20 * meta["gpu_dense_fp16_flops"],
+                    tdp_watts=meta["gpu_tdp_watts_each"] / 3.0)
+            if m.name == "custom_hbm" else m
             for m in out]
