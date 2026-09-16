@@ -600,9 +600,13 @@ def load_cluster(path: Path | str, name: str | None = None) -> tuple[GpuSpec, di
     cl = raw["clusters"][key]
     g = raw["gpus"][cl["gpu"]]
     n = int(cl["gpus_per_scaleup_domain"])
+    # GPU-HBM 대역폭은 GPU 1장의 자기 HBM 링크 대역폭이다. GPU가 N장이어도
+    # 각자 자기 HBM에 그 대역폭으로 붙을 뿐 도메인 전체로 합산되지 않는다
+    # (세션 하나의 Decode는 한 GPU/TP샤드 몫만 읽는다). 용량·연산·TDP는
+    # GPU가 병렬로 일하므로 N배가 맞다.
     gpu = GpuSpec(
         name=f"{key}(domain of {n}x {cl['gpu']})",
-        hbm_bw_bytes_per_s=float(g["hbm_bw_bytes_per_s"]) * n,
+        hbm_bw_bytes_per_s=float(g["hbm_bw_bytes_per_s"]),
         compute_tflops_fp16=float(g["dense_fp16_flops"]) * n,
         attention_bw_efficiency=0.9,
         attention_flops_efficiency=0.5,
@@ -611,7 +615,7 @@ def load_cluster(path: Path | str, name: str | None = None) -> tuple[GpuSpec, di
         "cluster": key, "gpu_model": cl["gpu"], "gpus_per_domain": n,
         "num_domains": int(cl["num_domains"]),
         "hbm_capacity_bytes": int(g["hbm_capacity_bytes"]) * n,
-        "hbm_bw_bytes_per_s": float(g["hbm_bw_bytes_per_s"]) * n,
+        "hbm_bw_bytes_per_s": float(g["hbm_bw_bytes_per_s"]),
         "tdp_watts": float(g["tdp_watts"]) * n,
     }
     return gpu, meta

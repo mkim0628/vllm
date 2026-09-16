@@ -22,7 +22,7 @@ MEMCFG = HERE / "configs" / "memories_default.json"
 CLCFG = HERE / "configs" / "clusters.json"
 MDCFG = HERE / "configs" / "models.json"
 
-CLUSTERS = ["b200_x16_2node", "gb200_nvl72", "rubin_x16_2node"]
+CLUSTERS = ["b200_8gpu", "vera_rubin_8gpu"]
 MODELS = ["llama_3_1_70b", "llama_4_maverick", "glm_5"]
 KINDS = ["as-is", "C1", "C2"]
 #: 배치를 채우기 위한 도착률 배수. 좌표가 아니라 포화 수단이다.
