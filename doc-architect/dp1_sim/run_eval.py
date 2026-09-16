@@ -34,8 +34,13 @@ LOADS = {"low": 1.0, "mid": 4.0, "high": 6.0}
 
 def run_one(scenario, kind, seed, *, horizon_s, memories_override=None,
             tool_latency_scale=1.0, burst=False, max_concurrent=128, batch_size=16,
-            arrival_multiplier=1.0, gpu_tdp_watts=8000.0, context_tokens=0):
+            arrival_multiplier=1.0, gpu_tdp_watts=8000.0, context_tokens=0,
+            model_override=None, gpu_override=None):
     gpu, model, memories = load_config(CONFIG)
+    if model_override is not None:
+        model = model_override
+    if gpu_override is not None:
+        gpu = gpu_override
     if memories_override is not None:
         memories = memories_override(memories)
 

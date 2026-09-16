@@ -585,10 +585,36 @@ def load_cluster(path: Path | str, name: str | None = None) -> tuple[GpuSpec, di
     return gpu, meta
 
 
-def apply_cluster(memories: list[MemorySpec], meta: dict) -> list[MemorySpec]:
-    """도메인 집계 HBM을 메모리 목록에 반영한다."""
+def apply_cluster(memories: list[MemorySpec], meta: dict, *,
+                  scale_attached: bool = False) -> list[MemorySpec]:
+    """도메인 집계를 메모리 목록에 반영한다.
+
+    HBM은 항상 도메인(= GPU N장) 합산이다.
+
+    `scale_attached` — Host에 붙는 메모리(custom_hbm, cxl_pnm)를 어떻게 셀
+    것인가. **이 선택이 결과를 지배하므로 기본값을 두지 않고 명시한다.**
+      False : 장치 1대가 도메인 전체를 담당하고 PCIe 한 가닥을 공유한다
+              (보수적. custom_hbm 56 TB/s vs 도메인 HBM 64 TB/s 라
+               오프로드 이득이 사라진다)
+      True  : GPU마다 장치 1대와 자기 PCIe x16을 가진다
+              (용량·내부BW·연산·외부BW·TDP를 모두 N배)
+    """
     from dataclasses import replace
-    return [replace(m, capacity_bytes=meta["hbm_capacity_bytes"],
-                    ext_bw_bytes_per_s=meta["hbm_bw_bytes_per_s"],
-                    int_bw_bytes_per_s=meta["hbm_bw_bytes_per_s"])
-            if m.name == "hbm" else m for m in memories]
+    n = meta["gpus_per_domain"]
+    out = []
+    for m in memories:
+        if m.name == "hbm":
+            out.append(replace(m, capacity_bytes=meta["hbm_capacity_bytes"],
+                               ext_bw_bytes_per_s=meta["hbm_bw_bytes_per_s"],
+                               int_bw_bytes_per_s=meta["hbm_bw_bytes_per_s"]))
+        elif scale_attached and not m.gpu_reachable:
+            out.append(replace(
+                m, capacity_bytes=m.capacity_bytes * n,
+                ext_bw_bytes_per_s=m.ext_bw_bytes_per_s * n,
+                int_bw_bytes_per_s=m.int_bw_bytes_per_s * n,
+                compute_tflops_fp16=(m.compute_tflops_fp16 * n
+                                     if m.compute_tflops_fp16 else None),
+                tdp_watts=m.tdp_watts * n))
+        else:
+            out.append(m)
+    return out
