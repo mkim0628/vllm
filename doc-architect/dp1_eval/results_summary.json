@@ -1,0 +1,95 @@
+{
+  "meta": {
+    "cluster": "b200_8gpu",
+    "model": "llama_3_1_70b",
+    "seeds": [11, 23, 37, 51, 71],
+    "scenario_count": 18,
+    "runs_per_candidate": 90,
+    "config_files": ["configs/memories_default.json", "configs/clusters.json", "configs/models.json"],
+    "migration_critical_path_fraction": 0.2
+  },
+  "star_thresholds": {
+    "performance_throughput": {"3": "reference-envelope normalized req/token composite >= 0.85", "2": "0.50 <= index < 0.85", "1": "index < 0.50"},
+    "performance_latency": {"3": "TTFT p99<=2000ms, TPOT p99<=25ms, SLO attainment>=95%", "2": "TTFT p99<=4000ms, TPOT p99<=50ms, SLO attainment>=80%", "1": "otherwise"},
+    "resource_utilization": {"3": "composite >= 0.82", "2": "0.65 <= composite < 0.82", "1": "< 0.65"},
+    "modifiability": {"3": "avg files<=1, propagation<=1, effort proxy<=0.04 MM", "2": "avg files<=2, propagation<=2, effort proxy<=0.08 MM", "1": "otherwise"}
+  },
+  "aggregate": {
+    "C1-memory-centric": {
+      "throughput_index": 0.9286991641433061,
+      "request_throughput_mean": 76.80232489716475,
+      "token_throughput_mean": 5699.3479592027925,
+      "ttft_p99_mean_ms": 447.33049162997156,
+      "tpot_p99_mean_ms": 33.88821238267331,
+      "e2e_p99_mean_ms": 2964.120023934571,
+      "slo_attainment": 0.9909724033013199,
+      "resource_index": 0.7888928924649711,
+      "hbm_hotness_precision": 0.6978064010282129,
+      "hbm_capacity_avg": 0.27350835103642385,
+      "hbm_capacity_peak_mean": 0.4793150509827893,
+      "bw_saturation_rate": 0.4213573915796138,
+      "restore_mb_per_request": 0.0,
+      "cpu_util_avg": 0.017834830222807102,
+      "gpu_util_avg": 0.9952134943638127,
+      "migrations_mean": 482.6111111111111,
+      "decision_us_avg": 12.200000000000202,
+      "stars": {"performance_throughput": 3, "performance_latency": 2, "resource_utilization": 2, "modifiability": 3}
+    },
+    "C2-data-centric": {
+      "throughput_index": 0.9895105642972434,
+      "request_throughput_mean": 81.9496268945569,
+      "token_throughput_mean": 6038.570511136922,
+      "ttft_p99_mean_ms": 457.92644090042876,
+      "tpot_p99_mean_ms": 17.448117092933774,
+      "e2e_p99_mean_ms": 1762.874369445488,
+      "slo_attainment": 0.9929429074634626,
+      "resource_index": 0.8135525308371916,
+      "hbm_hotness_precision": 0.71296601158866,
+      "hbm_capacity_avg": 0.2764095989809365,
+      "hbm_capacity_peak_mean": 0.4998635388171954,
+      "bw_saturation_rate": 0.2876767964545742,
+      "restore_mb_per_request": 0.3319214378712971,
+      "cpu_util_avg": 0.01571405792514383,
+      "gpu_util_avg": 0.9980282570284646,
+      "migrations_mean": 457.5888888888889,
+      "decision_us_avg": 34.000000000001975,
+      "stars": {"performance_throughput": 3, "performance_latency": 3, "resource_utilization": 2, "modifiability": 2}
+    }
+  },
+  "modifiability": {
+    "C1-memory-centric": {
+      "cases": [
+        {"case": "new_data_type", "code_files": 0, "config_files": 1, "modules": 0, "loc": 8, "files": 1, "man_month_proxy": 0.02125, "ai_token_consumption": "N/A (usage telemetry unavailable)"},
+        {"case": "new_memory_type", "code_files": 0, "config_files": 1, "modules": 1, "loc": 14, "files": 1, "man_month_proxy": 0.035625, "ai_token_consumption": "N/A (usage telemetry unavailable)"}
+      ],
+      "files_avg": 1.0, "propagation_avg": 0.5, "man_month_proxy_avg": 0.0284375, "stars": 3
+    },
+    "C2-data-centric": {
+      "cases": [
+        {"case": "new_data_type", "code_files": 1, "config_files": 1, "modules": 2, "loc": 18, "files": 2, "man_month_proxy": 0.068125, "ai_token_consumption": "N/A (usage telemetry unavailable)"},
+        {"case": "new_memory_type", "code_files": 0, "config_files": 1, "modules": 1, "loc": 14, "files": 1, "man_month_proxy": 0.035625, "ai_token_consumption": "N/A (usage telemetry unavailable)"}
+      ],
+      "files_avg": 1.5, "propagation_avg": 1.5, "man_month_proxy_avg": 0.051875, "stars": 2
+    }
+  },
+  "scenario_summary": [
+    {"scenario":"steady_hot_kv","c1_token_throughput":4720.176,"c2_token_throughput":4897.308,"delta_pct":3.791,"ci95":[0.313,7.269],"c1_resource_index":0.794,"c2_resource_index":0.833,"verdict":"C2 higher throughput"},
+    {"scenario":"mixed_hot_cold","c1_token_throughput":4939.008,"c2_token_throughput":5481.245,"delta_pct":11.121,"ci95":[6.086,16.156],"c1_resource_index":0.782,"c2_resource_index":0.832,"verdict":"C2 higher throughput"},
+    {"scenario":"cold_growth","c1_token_throughput":4118.255,"c2_token_throughput":4782.047,"delta_pct":16.280,"ci95":[11.049,21.512],"c1_resource_index":0.789,"c2_resource_index":0.854,"verdict":"C2 higher throughput"},
+    {"scenario":"hbm_pressure_ramp","c1_token_throughput":4941.795,"c2_token_throughput":5416.275,"delta_pct":9.601,"ci95":[6.788,12.413],"c1_resource_index":0.794,"c2_resource_index":0.812,"verdict":"C2 higher throughput"},
+    {"scenario":"hbm_bw_spike","c1_token_throughput":5279.894,"c2_token_throughput":5602.877,"delta_pct":6.153,"ci95":[3.768,8.539],"c1_resource_index":0.795,"c2_resource_index":0.844,"verdict":"C2 higher throughput"},
+    {"scenario":"arrival_burst","c1_token_throughput":7878.907,"c2_token_throughput":8180.992,"delta_pct":3.837,"ci95":[2.132,5.541],"c1_resource_index":0.774,"c2_resource_index":0.791,"verdict":"C2 higher throughput"},
+    {"scenario":"hotness_flip","c1_token_throughput":10690.641,"c2_token_throughput":11544.427,"delta_pct":7.883,"ci95":[4.873,10.893],"c1_resource_index":0.854,"c2_resource_index":0.907,"verdict":"C2 higher throughput"},
+    {"scenario":"reuse_bimodal","c1_token_throughput":8044.140,"c2_token_throughput":8002.556,"delta_pct":-0.375,"ci95":[-3.769,3.018],"c1_resource_index":0.735,"c2_resource_index":0.836,"verdict":"no clear throughput difference"},
+    {"scenario":"behavior_noise","c1_token_throughput":4918.387,"c2_token_throughput":5499.016,"delta_pct":12.357,"ci95":[3.307,21.408],"c1_resource_index":0.797,"c2_resource_index":0.827,"verdict":"C2 higher throughput"},
+    {"scenario":"latency_critical_short","c1_token_throughput":4287.714,"c2_token_throughput":4504.074,"delta_pct":5.029,"ci95":[2.878,7.181],"c1_resource_index":0.787,"c2_resource_index":0.810,"verdict":"C2 higher throughput"},
+    {"scenario":"capacity_crunch","c1_token_throughput":5758.792,"c2_token_throughput":5904.439,"delta_pct":2.473,"ci95":[-0.581,5.528],"c1_resource_index":0.752,"c2_resource_index":0.570,"verdict":"no clear throughput difference"},
+    {"scenario":"write_heavy_logs","c1_token_throughput":4001.143,"c2_token_throughput":4512.106,"delta_pct":12.769,"ci95":[9.068,16.471],"c1_resource_index":0.791,"c2_resource_index":0.836,"verdict":"C2 higher throughput"},
+    {"scenario":"host_path_pressure","c1_token_throughput":5907.926,"c2_token_throughput":6395.912,"delta_pct":8.345,"ci95":[4.744,11.945],"c1_resource_index":0.789,"c2_resource_index":0.834,"verdict":"C2 higher throughput"},
+    {"scenario":"resource_oscillation","c1_token_throughput":4516.750,"c2_token_throughput":4822.352,"delta_pct":6.898,"ci95":[2.467,11.329],"c1_resource_index":0.776,"c2_resource_index":0.819,"verdict":"C2 higher throughput"},
+    {"scenario":"long_context","c1_token_throughput":3525.509,"c2_token_throughput":3688.807,"delta_pct":4.654,"ci95":[2.078,7.229],"c1_resource_index":0.776,"c2_resource_index":0.796,"verdict":"C2 higher throughput"},
+    {"scenario":"data_mix_shift","c1_token_throughput":6359.725,"c2_token_throughput":7283.969,"delta_pct":14.601,"ci95":[10.607,18.595],"c1_resource_index":0.806,"c2_resource_index":0.864,"verdict":"C2 higher throughput"},
+    {"scenario":"classifier_error","c1_token_throughput":5724.228,"c2_token_throughput":5292.423,"delta_pct":-7.551,"ci95":[-9.541,-5.561],"c1_resource_index":0.774,"c2_resource_index":0.747,"verdict":"C1 higher throughput"},
+    {"scenario":"hbm_bw_shock","c1_token_throughput":6975.272,"c2_token_throughput":6883.445,"delta_pct":-1.262,"ci95":[-5.312,2.788],"c1_resource_index":0.834,"c2_resource_index":0.833,"verdict":"no clear throughput difference"}
+  ]
+}
