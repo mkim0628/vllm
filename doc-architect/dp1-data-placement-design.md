@@ -557,9 +557,6 @@ Telemetry Collector ─────▶ Memory Tier Selector
 
 - Data Characterization / Runtime state 관리 overhead 증가
 - 추정 오류 시 mis-placement 가능
-- 신규 Data Type Adapter 설계 비용
-
-여기서 신규 Data Type 지원 비용은 구현에 따라 별도 Adapter 추가뿐 아니라 Data Classifier와 Data Characteristic rule/model 확장 비용을 포함할 수 있다. 또한 초기 History 부족에 따른 prior/default profile 사용 문제는 Runtime State Monitor의 cold-start 처리로 남겨두되, PPT의 공식 장단점 항목에는 별도 항목으로 추가하지 않는다.
 
 ---
 
