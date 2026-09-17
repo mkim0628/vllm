@@ -278,15 +278,15 @@ Memory Registry ────────┐
 
 ### 장점
 
-- Resource 상태 변화에 즉시 대응 가능
-- Data characterization 없이 decision overhead가 낮음
-- Memory pressure / BW contention 기반의 빠른 load balancing에 적합
+- Resource 상태 변화에 즉시 반응
+- Data characterization 없이 낮은 decision overhead
 
-### 한계
+### 단점
 
-- Data별 접근 특성을 깊게 반영하지 않음
-- Long-lived cold data가 상대적으로 고가 Resource를 오래 점유할 수 있음
-- 동일 Resource 상태에서 서로 다른 Data class를 구분하는 능력이 제한적
+- Data별 접근 특성 반영 한계
+- Long-lived cold data가 고속 자원을 점유할 수 있음
+
+위 장단점은 PPT의 C1 평가 항목과 동일하게 유지한다. Resource pressure/BW contention에 대한 빠른 대응은 첫 번째 장점의 구체적 효과이며, 서로 다른 Data class를 세밀하게 구분하기 어렵다는 점은 첫 번째 단점에 포함된다.
 
 ---
 
@@ -550,16 +550,16 @@ Telemetry Collector ─────▶ Memory Tier Selector
 
 ### 장점
 
-- KV / RAG / Agent / Log 등 Data 특성 기반 fine-grained 배치 가능
-- Long-lived cold data를 저비용 Tier로 보내 고속 Memory 점유 감소 가능
-- Runtime History가 축적될수록 Data-specific placement 정밀도 향상 가능
+- KV / RAG / Agent 등 Data 특성 기반 fine-grained 배치
+- 불필요한 고속 메모리 점유 감소 가능
 
-### 한계
+### 단점
 
-- Data characterization / runtime state 관리 overhead 증가
-- 초기 History 부족 시 prior 기반 추정 필요
-- 잘못된 characterization 또는 prediction이 mis-placement로 이어질 수 있음
-- 신규 Data Type 추가 시 Classifier / Characteristic Rule 또는 Model 확장 필요
+- Data Characterization / Runtime state 관리 overhead 증가
+- 추정 오류 시 mis-placement 가능
+- 신규 Data Type Adapter 설계 비용
+
+여기서 신규 Data Type 지원 비용은 구현에 따라 별도 Adapter 추가뿐 아니라 Data Classifier와 Data Characteristic rule/model 확장 비용을 포함할 수 있다. 또한 초기 History 부족에 따른 prior/default profile 사용 문제는 Runtime State Monitor의 cold-start 처리로 남겨두되, PPT의 공식 장단점 항목에는 별도 항목으로 추가하지 않는다.
 
 ---
 
