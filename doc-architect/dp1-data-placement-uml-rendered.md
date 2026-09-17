@@ -2,131 +2,120 @@
 
 > **문서 유형:** UML / Implementation Design
 >
-> 본 문서는 `dp1-data-placement-design.md`의 C1/C2 Data Placement 구조를 구현 관점에서 정의한 UML 문서이다. GitHub에서 **Mermaid로 실제 도형/선/시퀀스가 렌더링**되도록 작성한다.
+> 본 문서는 `dp1-data-placement-design.md`의 C1/C2 구조를 UML 관점에서 표현한다.
 >
-> 대상:
-> - Common Module View
-> - C1 Memory-centric Placement: Module / Class / Sequence
-> - C2 Data-centric Placement: Module / Class / Sequence
+> - **C1:** Resource State 기반 Memory-centric Placement
+> - **C2:** Data Characteristic 기반 Data-centric Placement
 
-## 1. UML 설계 원칙
+---
 
-C1과 C2는 동일한 DP1 공통 경계를 사용하지만, Placement Manager 내부의 **Primary Object / Registry / Runtime State / Planner** 구조를 다르게 구성한다.
+# 1. Design Principle
 
-- **C1:** Memory Resource 중심 → Resource Registry / Resource State / Resource Planner
-- **C2:** Data Object 중심 → Data Registry / Data Characterizer / Data Planner
-- Candidate Filtering / Cost Evaluation / Placement Execution은 공통 서비스로 유지한다.
+C1과 C2의 차이는 Monitor 이름만 다른 것이 아니라 **무엇을 관찰하고 무엇을 예측하여 Placement의 1차 기준으로 삼는가**에 있다.
 
-## 2. Common Module View
+```text
+C1
+Telemetry → Resource State Monitor
+          → Resource trend / prediction
+          → Memory State View
+          → Resource-aware Placement
+
+C2
+Data Descriptor → Data Classifier
+Runtime History → Runtime State Monitor
+               → Data Characteristic Interpreter
+               → Tier Affinity
+Telemetry ─────→ Memory Tier Selector
+```
+
+---
+
+# 2. Common External Components
 
 ```mermaid
 flowchart LR
-    RT[AI Runtime / Scheduler]
+    SCH[Scheduler / Request Manager]
+    DDA[Data Descriptor Adapter]
+    TC[Telemetry Collector]
+    MR[Memory Registry]
+    EX[Placement Executor]
 
-    subgraph DP1[DP1 Placement]
-        PM[Placement Manager]
-        CF[Candidate Memory Filter]
-        CE[Cost / Utility Evaluator]
-        EX[Placement Executor]
-    end
-
-    subgraph MA[Memory Resource Abstraction]
-        RR[Memory Resource Registry]
-        MD[Memory Descriptor]
-        AD[Memory Adapter]
-    end
-
-    subgraph MEM[Memory Resources]
-        HBM[HBM]
-        DRAM[DRAM]
-        CXL[CXL Memory]
-        PIM[PIM / PNM]
-    end
-
-    RT -->|placement request / event| PM
-    PM --> CF
-    CF --> RR
-    RR --> MD
-    CF --> CE
-    MD --> CE
-    CE -->|scores / feasible set| PM
-    PM --> EX
-    EX --> AD
-    AD --> HBM
-    AD --> DRAM
-    AD --> CXL
-    AD --> PIM
+    SCH -->|Allocation Request| DDA
+    TC -->|real-time HW state| C1[C1 Memory-centric]
+    TC -->|real-time HW state| C2[C2 Data-centric]
+    MR -->|static memory capability| C1
+    MR -->|static memory capability| C2
+    DDA --> C1
+    DDA --> C2
+    C1 --> EX
+    C2 --> EX
 ```
 
-### Common 책임
+### Common Component Responsibility
 
-| Module | 책임 |
+| Component | Responsibility |
 |---|---|
-| Scheduler / Request Manager | Data 생성/유입, request lifecycle, placement trigger 제공 |
-| Placement Manager | Placement decision 진입점 및 lifecycle 관리 |
-| Candidate Memory Filter | Capacity, operation, reachability, QoS, constraint 기반 후보 제거 |
-| Cost / Utility Evaluator | Access / Capacity / Migration / Operation / Constraint 비용 계산 |
-| Placement Executor | 결정된 placement의 실제 allocation / release / placement action 수행 |
-| Memory Resource Registry | Memory Resource 등록 및 조회 |
-| Memory Descriptor | Capacity/BW/Latency/Compute Capability/Load 등 resource 상태 표현 |
-| Memory Adapter | 실제 Memory backend와 공통 runtime interface 연결 |
+| Scheduler / Request Manager | Placement 요청 발생 |
+| Data Descriptor Adapter | Data-specific 정보를 공통 Descriptor로 변환 |
+| Telemetry Collector | Memory/HW의 실시간 상태 수집 |
+| Memory Registry | Capacity, BW, latency, operation support 등 정적/준정적 정보 보관 |
+| Placement Executor | 결정된 destination tier에 실제 allocation/place 수행 |
 
-> Migration 자체의 알고리즘은 DP4의 책임이다. DP1은 `PlacementDecision`을 생성하고 destination을 전달한다.
+---
 
-# 3. C1 Memory-centric Placement
+# 3. C1 — Memory-centric Placement
 
-## 3.1 C1 Module View
-
-C1은 **Memory Resource를 primary state owner**로 둔다. 즉, Resource별 상태와 수용 가능량을 중심으로 Data allocation을 결정한다.
+## 3.1 Module View
 
 ```mermaid
 flowchart LR
-    RT[AI Runtime / Scheduler]
+    SCH[Scheduler]
+    DDA[Data Descriptor Adapter]
+    TC[Telemetry Collector]
+    MR[Memory Registry]
 
-    subgraph C1[C1 Memory-centric Placement]
-        MRM[Memory Resource Manager]
-        RR[Resource Registry]
+    subgraph MRM[Memory Resource Manager]
         RSM[Resource State Monitor]
-        RPP[Resource-aware Placement Planner]
-        RAC[Resource Allocation Controller]
+        CB[Candidate Builder]
     end
 
-    subgraph COMMON[Common Placement Services]
-        CF[Candidate Memory Filter]
-        CE[Cost / Utility Evaluator]
-        EX[Placement Executor]
-    end
+    MSV[Memory State View]
+    RPP[Resource-aware Placement Planner]
+    MTS[Memory Tier Selector]
+    EX[Placement Executor]
 
-    subgraph ADAPT[Memory Resource Adapters]
-        HBM[HBM Adapter]
-        DRAM[DRAM Adapter]
-        CXL[CXL Adapter]
-        PIM[PIM / PNM Adapter]
-    end
+    SCH -->|Allocation Request| DDA
+    DDA -->|Data Descriptor / constraints| RPP
 
-    RT -->|AllocationRequest| MRM
-    MRM --> RR
-    RR --> RSM
-    RSM -->|capacity / BW / load / capability| RPP
-    RPP -->|candidate resources| CF
-    CF -->|feasible resources| CE
-    CE -->|resource scores| RPP
-    RPP -->|selected resource| RAC
-    RAC --> EX
-    EX --> HBM
-    EX --> DRAM
-    EX --> CXL
-    EX --> PIM
+    TC -->|capacity / BW util / load / pressure / latency| RSM
+    RSM -->|current state + trend + predicted state| CB
+    MR -->|static Memory Descriptor| CB
 
-    RSM -. monitor .-> HBM
-    RSM -. monitor .-> DRAM
-    RSM -. monitor .-> CXL
-    RSM -. monitor .-> PIM
+    CB -->|candidate resources| MSV
+    MSV --> RPP
+    RPP -->|ranked resource candidates| MTS
+    MTS -->|selected tier| EX
 ```
 
-### C1 핵심 구조
+### 핵심 구조
 
-**Resource Registry → Resource State Monitor → Resource-aware Planner → Allocation Controller → Placement Executor**
+```text
+Telemetry Collector
+      ↓
+Resource State Monitor
+      ↓
+Current / Trend / Predicted Resource State
+      +
+Memory Registry
+      ↓
+Candidate Builder
+      ↓
+Memory State View
+      ↓
+Resource-aware Placement Planner
+      ↓
+Memory Tier Selector
+```
 
 ## 3.2 C1 Class Diagram
 
@@ -134,134 +123,124 @@ flowchart LR
 classDiagram
     class MemoryResourceManager {
         +allocate(request: AllocationRequest) PlacementDecision
-        +reevaluate(resourceId: ResourceId) PlacementDecision[]
-        +registerResource(resource: MemoryResource)
-    }
-
-    class ResourceRegistry {
-        +register(resource: MemoryResource)
-        +get(resourceId: ResourceId) MemoryResource
-        +listCandidates() MemoryResource[]
+        +reevaluate(trigger: ResourceEvent) PlacementDecision[]
     }
 
     class ResourceStateMonitor {
-        +getState(resourceId: ResourceId) ResourceState
-        +refresh(resourceId: ResourceId) ResourceState
+        +observe(sample: TelemetrySample)
+        +getCurrentState(resourceId: ResourceId) ResourceState
+        +getTrend(resourceId: ResourceId) ResourceTrend
+        +predict(resourceId: ResourceId, horizon: Duration) PredictedResourceState
+    }
+
+    class CandidateBuilder {
+        +build(registry: MemoryRegistry, states: ResourceState[]) MemoryStateView
+    }
+
+    class MemoryRegistry {
+        +get(resourceId: ResourceId) MemoryDescriptor
+        +list() MemoryDescriptor[]
+    }
+
+    class MemoryStateView {
+        +candidates: MemoryCandidate[]
+        +timestamp: Timestamp
+        +validUntil: Timestamp
+    }
+
+    class MemoryCandidate {
+        +resourceId: ResourceId
+        +descriptor: MemoryDescriptor
+        +currentState: ResourceState
+        +predictedState: PredictedResourceState
+        +available: bool
     }
 
     class ResourceAwarePlacementPlanner {
-        +plan(request: AllocationRequest, resources: MemoryResource[]) PlacementDecision
-        +rank(resources: MemoryResource[], request: AllocationRequest) MemoryResource[]
+        +plan(request: AllocationRequest, view: MemoryStateView) PlacementPlan
+        +rank(view: MemoryStateView, constraints: PlacementConstraint) MemoryCandidate[]
     }
 
-    class ResourceAllocationController {
-        +allocate(data: DataObject, resource: MemoryResource) AllocationHandle
-        +release(handle: AllocationHandle)
-    }
-
-    class CandidateMemoryFilter {
-        +filter(data: DataDescriptor, resources: MemoryResource[]) MemoryResource[]
-    }
-
-    class CostUtilityEvaluator {
-        +evaluate(data: DataDescriptor, resource: MemoryResource, state: SystemState) PlacementScore
+    class MemoryTierSelector {
+        +select(plan: PlacementPlan) ResourceId
     }
 
     class PlacementExecutor {
         +execute(decision: PlacementDecision) ExecutionResult
     }
 
-    class MemoryResource {
-        <<interface>>
-        +descriptor() MemoryDescriptor
-        +state() ResourceState
-        +allocate(sizeBytes: long) AllocationHandle
-        +release(handle: AllocationHandle)
+    class TelemetryCollector {
+        +collect() TelemetrySample[]
+    }
+
+    class TelemetrySample {
+        +resourceId: ResourceId
+        +availableCapacity: long
+        +bandwidthUtilization: float
+        +load: float
+        +pressure: float
+        +latency: Duration
+        +timestamp: Timestamp
+    }
+
+    class ResourceState {
+        +availableCapacity: long
+        +bandwidthUtilization: float
+        +load: float
+        +pressure: float
+        +contention: float
+    }
+
+    class ResourceTrend {
+        +capacitySlope: float
+        +bandwidthSlope: float
+        +pressureSlope: float
+    }
+
+    class PredictedResourceState {
+        +predictedPressure: float
+        +predictedBandwidthUtilization: float
+        +predictedAvailableCapacity: long
+        +confidence: float
     }
 
     class MemoryDescriptor {
         +memoryId: ResourceId
         +memoryType: MemoryType
         +capacityBytes: long
-        +availableBytes: long
         +externalBandwidth: Bandwidth
         +internalBandwidth: Bandwidth
         +latency: Duration
-        +computeCapability: ComputeCapability
-        +accessPath: AccessPath
-    }
-
-    class ResourceState {
-        +currentLoad: float
-        +bandwidthUtilization: float
-        +memoryPressure: float
-        +qosState: QoSState
-    }
-
-    class ComputeCapability {
         +supportedOperations: Operation[]
-        +computeThroughput: Throughput
-        +computeEfficiency: float
+        +computeCapability: ComputeCapability
     }
 
-    class AllocationRequest {
-        +data: DataDescriptor
-        +requiredOperations: Operation[]
-        +qos: QoSRequirement
-    }
-
-    class DataDescriptor {
-        +objectId: ObjectId
-        +dataType: DataType
-        +sizeBytes: long
-        +currentTier: ResourceId
-        +hotness: float
-        +reuse: float
-        +lifetime: Duration
-        +locality: Locality
-        +accessPattern: AccessPattern
-    }
-
-    class PlacementDecision {
-        +objectId: ObjectId
-        +sourceTier: ResourceId
-        +destinationTier: ResourceId
-        +decisionReason: String
-        +estimatedCost: Cost
-        +confidence: float
-    }
-
-    class DataObject
-    class SystemState
-    class PlacementScore
-    class AllocationHandle
+    class AllocationRequest
+    class PlacementConstraint
+    class PlacementPlan
+    class PlacementDecision
     class ExecutionResult
-    class QoSRequirement
-    class QoSState
-    class AccessPath
 
-    MemoryResourceManager --> ResourceRegistry : owns
-    MemoryResourceManager --> ResourceStateMonitor : reads
+    MemoryResourceManager --> ResourceStateMonitor : owns
+    MemoryResourceManager --> CandidateBuilder : owns
     MemoryResourceManager --> ResourceAwarePlacementPlanner : invokes
-    MemoryResourceManager --> ResourceAllocationController : invokes
+    MemoryResourceManager --> MemoryTierSelector : invokes
 
-    ResourceAwarePlacementPlanner --> CandidateMemoryFilter : filters
-    ResourceAwarePlacementPlanner --> CostUtilityEvaluator : scores
-    ResourceAwarePlacementPlanner --> PlacementDecision : creates
+    TelemetryCollector --> ResourceStateMonitor : feeds samples
+    ResourceStateMonitor --> ResourceState : produces
+    ResourceStateMonitor --> ResourceTrend : derives
+    ResourceStateMonitor --> PredictedResourceState : predicts
 
-    ResourceRegistry o-- "1..*" MemoryResource : manages
-    MemoryResource --> MemoryDescriptor : exposes
-    MemoryResource --> ResourceState : reports
-    MemoryDescriptor --> ComputeCapability : contains
+    CandidateBuilder --> MemoryRegistry : reads static capability
+    CandidateBuilder --> ResourceState : reads current state
+    CandidateBuilder --> PredictedResourceState : reads prediction
+    CandidateBuilder --> MemoryStateView : creates
+    MemoryStateView o-- "1..*" MemoryCandidate
 
-    AllocationRequest --> DataDescriptor : carries
-    CandidateMemoryFilter --> DataDescriptor : evaluates
-    CandidateMemoryFilter --> MemoryResource : filters
-    CostUtilityEvaluator --> DataDescriptor : evaluates
-    CostUtilityEvaluator --> MemoryResource : evaluates
-    CostUtilityEvaluator --> SystemState : reads
-
-    ResourceAllocationController --> PlacementExecutor : delegates
+    ResourceAwarePlacementPlanner --> MemoryStateView : evaluates
+    ResourceAwarePlacementPlanner --> PlacementPlan : creates
+    MemoryTierSelector --> PlacementPlan : selects from
+    MemoryTierSelector --> PlacementDecision : creates
     PlacementExecutor --> PlacementDecision : executes
 ```
 
@@ -270,484 +249,463 @@ classDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant RT as AI Runtime
+    participant SCH as Scheduler
+    participant DDA as DataDescriptorAdapter
     participant MRM as MemoryResourceManager
-    participant RR as ResourceRegistry
+    participant TC as TelemetryCollector
     participant RSM as ResourceStateMonitor
+    participant MR as MemoryRegistry
+    participant CB as CandidateBuilder
     participant RPP as ResourceAwarePlanner
-    participant CF as CandidateMemoryFilter
-    participant CE as CostUtilityEvaluator
+    participant MTS as MemoryTierSelector
     participant EX as PlacementExecutor
-    participant MEM as MemoryResource
 
-    RT->>MRM: allocate(data, requirements)
-    MRM->>RR: listCandidates()
-    RR-->>MRM: resources
-    MRM->>RSM: getState(resources)
-    RSM-->>MRM: resource states
-    MRM->>RPP: plan(request, resources, states)
-    RPP->>CF: filter(dataDescriptor, resources)
-    CF-->>RPP: feasible resources
-    RPP->>CE: evaluate(data, resource, state)
-    CE-->>RPP: score(resource)
-    RPP-->>MRM: PlacementDecision
-    MRM->>EX: execute(decision)
-    EX->>MEM: allocate(size)
-    MEM-->>EX: AllocationHandle
-    EX-->>MRM: ExecutionResult
-    MRM-->>RT: PlacementResult
+    SCH->>DDA: allocationRequest(data)
+    DDA-->>MRM: DataDescriptor + constraints
+
+    MRM->>TC: request latest telemetry
+    TC-->>RSM: resource samples
+    RSM->>RSM: update current state
+    RSM->>RSM: analyze trend
+    RSM->>RSM: predict near-future resource state
+
+    MRM->>MR: list memory descriptors
+    MR-->>CB: static memory capability
+    RSM-->>CB: current + predicted resource state
+    CB->>CB: build candidate resources
+    CB-->>RPP: MemoryStateView
+
+    MRM->>RPP: plan(request, MemoryStateView)
+    RPP->>RPP: evaluate capacity / BW / latency / pressure / capability
+    RPP-->>MTS: ranked resource candidates
+    MTS-->>MRM: selected Memory Tier
+
+    MRM->>EX: execute PlacementDecision
+    EX-->>SCH: PlacementResult
 ```
 
-## 3.4 C1 Sequence — Re-placement Trigger
+## 3.4 C1 Sequence — Resource State Change / Re-placement
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant MON as Runtime Monitor
-    participant MRM as MemoryResourceManager
+    participant TC as TelemetryCollector
     participant RSM as ResourceStateMonitor
+    participant MRM as MemoryResourceManager
+    participant CB as CandidateBuilder
     participant RPP as ResourceAwarePlanner
     participant EX as PlacementExecutor
     participant DP4 as DP4 Migration Service
 
-    MON->>MRM: resource pressure / BW contention event
-    MRM->>RSM: refresh(resource)
-    RSM-->>MRM: updated ResourceState
-    MRM->>RPP: reevaluate(affected data/resources)
-    RPP-->>MRM: PlacementDecision
+    TC-->>RSM: new telemetry sample
+    RSM->>RSM: update state / trend / prediction
 
-    alt destination differs from current tier
-        MRM->>EX: execute(decision)
-        EX->>DP4: migrate(source, destination, object)
-        DP4-->>EX: migration result
-    else keep current placement
-        MRM-->>MON: no action
+    alt significant pressure or predicted saturation
+        RSM-->>MRM: ResourceStateChange event
+        MRM->>CB: rebuild MemoryStateView
+        CB-->>RPP: updated MemoryStateView
+        RPP-->>MRM: new PlacementDecision
+
+        alt destination tier changed
+            MRM->>EX: execute(decision)
+            EX->>DP4: migrate(object, source, destination)
+            DP4-->>EX: migration result
+        else current tier remains valid
+            MRM->>MRM: keep placement
+        end
     end
 ```
 
-# 4. C2 Data-centric Placement
+---
 
-## 4.1 C2 Module View
+# 4. C2 — Data-centric Placement
 
-C2는 **Data Object를 primary state owner**로 둔다. Data별 lifecycle과 runtime characterization이 Tier 선택을 주도한다.
+## 4.1 Module View
 
 ```mermaid
 flowchart LR
-    RT[AI Runtime / Scheduler]
+    SCH[Scheduler]
+    DDA[Data Descriptor Adapter]
+    TC[Telemetry Collector]
+    MR[Memory Registry]
 
-    subgraph C2[C2 Data-centric Placement]
-        DPM[Data Placement Manager]
-        DR[Data Object Registry]
-        DC[Data Characterizer]
-        DSM[Data Runtime State Monitor]
-        DPP[Data-aware Placement Planner]
-        PLC[Placement Lifecycle Controller]
+    subgraph DPM[Data Placement Manager]
+        DC[Data Classifier]
+        RSM[Runtime State Monitor]
+        DCI[Data Characteristic Interpreter]
     end
 
-    subgraph COMMON[Common Placement Services]
-        CF[Candidate Memory Filter]
-        CE[Cost / Utility Evaluator]
-        EX[Placement Executor]
-    end
+    DPP[Data-aware Placement Planner]
+    MAE[Memory Tier Affinity Evaluator]
+    MTS[Memory Tier Selector]
+    EX[Placement Executor]
 
-    subgraph MA[Memory Resource Abstraction]
-        MR[Memory Resource Registry]
-        MD[Memory Descriptor / State]
-    end
+    SCH -->|Allocation Request| DDA
+    DDA -->|Data Descriptor| DC
+    DDA -->|object/class identity| RSM
 
-    subgraph ADAPT[Memory Resource Adapters]
-        HBM[HBM Adapter]
-        DRAM[DRAM Adapter]
-        CXL[CXL Adapter]
-        PIM[PIM / PNM Adapter]
-    end
+    DC -->|Data Class| DCI
+    RSM -->|runtime stats / history / trend| DCI
+    DCI -->|Data Characteristics| DPP
 
-    RT -->|DataObjectEvent| DPM
-    DPM --> DR
-    DR --> DC
-    DC --> DSM
-    DSM -->|hotness / reuse / lifetime / locality| DPP
-    DPP --> MR
-    MR --> MD
-    DPP --> CF
-    CF --> CE
-    CE -->|data × memory score| DPP
-    DPP --> PLC
-    PLC --> EX
-    EX --> HBM
-    EX --> DRAM
-    EX --> CXL
-    EX --> PIM
+    DPP --> MAE
+    MR -->|static memory capability| MAE
+    MAE -->|Affinity Tier Set| MTS
+    TC -->|real-time resource state| MTS
+    MR -->|tier metadata| MTS
+
+    MTS -->|Best Tier| EX
 ```
 
-### C2 핵심 구조
+### 핵심 구조
 
-**Data Object Registry → Data Characterizer → Data Runtime State → Data-aware Planner → Lifecycle Controller → Placement Executor**
+```text
+Data Descriptor
+      ↓
+Data Classifier ───────────────┐
+                               │
+Runtime State Monitor ─────────┤
+                               ▼
+                 Data Characteristic Interpreter
+                               ↓
+                  Predicted Data Characteristics
+                               ↓
+                   Memory Tier Affinity Evaluator
+                               ↓
+                        Affinity Tier Set
+                               +
+                    Real-time Telemetry
+                               ↓
+                     Memory Tier Selector
+                               ↓
+                           Best Tier
+```
 
 ## 4.2 C2 Class Diagram
 
 ```mermaid
 classDiagram
     class DataPlacementManager {
-        +onDataEvent(event: DataObjectEvent) PlacementDecision
+        +place(request: AllocationRequest) PlacementDecision
+        +observe(event: DataRuntimeEvent)
         +reevaluate(objectId: ObjectId) PlacementDecision
     }
 
-    class DataObjectRegistry {
-        +register(data: DataObject)
-        +get(objectId: ObjectId) DataObject
-        +listActiveObjects() DataObject[]
+    class DataClassifier {
+        +classify(descriptor: DataDescriptor) DataClass
     }
 
-    class DataCharacterizer {
-        +characterize(data: DataObject) DataDescriptor
-        +update(objectId: ObjectId, observation: AccessObservation)
+    class RuntimeStateMonitor {
+        +observe(event: DataRuntimeEvent)
+        +getStats(key: DataClassKey) DataRuntimeStats
+        +getHistory(key: DataClassKey) DataRuntimeHistory
     }
 
-    class DataRuntimeStateMonitor {
-        +observe(objectId: ObjectId, access: AccessObservation)
-        +getState(objectId: ObjectId) DataRuntimeState
+    class DataCharacteristicInterpreter {
+        +interpret(dataClass: DataClass, stats: DataRuntimeStats) DataCharacteristics
+        +predict(dataClass: DataClass, stats: DataRuntimeStats) DataCharacteristics
     }
 
     class DataAwarePlacementPlanner {
-        +plan(data: DataDescriptor, memories: MemoryResource[], state: SystemState) PlacementDecision
-        +rank(data: DataDescriptor, memories: MemoryResource[]) PlacementScore[]
+        +plan(characteristics: DataCharacteristics) PlacementPlan
     }
 
-    class PlacementLifecycleController {
-        +handle(decision: PlacementDecision)
-        +shouldReevaluate(state: DataRuntimeState) bool
+    class MemoryTierAffinityEvaluator {
+        +evaluate(data: DataCharacteristics, memories: MemoryDescriptor[]) TierAffinity[]
     }
 
-    class CandidateMemoryFilter {
-        +filter(data: DataDescriptor, resources: MemoryResource[]) MemoryResource[]
-    }
-
-    class CostUtilityEvaluator {
-        +evaluate(data: DataDescriptor, resource: MemoryResource, state: SystemState) PlacementScore
-    }
-
-    class PlacementExecutor {
-        +execute(decision: PlacementDecision) ExecutionResult
-    }
-
-    class DataObject {
-        +objectId: ObjectId
-        +dataType: DataType
-        +sizeBytes: long
-        +currentTier: ResourceId
-        +lifecycle: LifecycleState
+    class MemoryTierSelector {
+        +select(affinity: TierAffinity[], telemetry: ResourceTelemetry[]) ResourceId
     }
 
     class DataDescriptor {
         +objectId: ObjectId
-        +dataType: DataType
+        +typeHint: DataTypeHint
         +sizeBytes: long
-        +hotness: float
-        +locality: Locality
-        +lifetime: Duration
-        +reuse: float
-        +accessPattern: AccessPattern
-        +readWriteIntensity: float
-        +sharing: SharingMode
+        +owner: OwnerId
+        +currentTier: ResourceId
         +requiredOperations: Operation[]
     }
 
-    class DataRuntimeState {
-        +hotness: float
-        +recentAccessRate: float
-        +reuseRate: float
-        +estimatedLifetime: Duration
-        +lastAccess: Timestamp
-        +currentTier: ResourceId
+    class DataClass {
+        <<enumeration>>
+        KV_CACHE
+        RAG_DATA
+        AGENT_MEMORY
+        TOOL_RESULT
+        LOG_DATA
+        LORA_ADAPTER
+        MOE_EXPERT
     }
 
-    class DataObjectEvent {
-        +type: EventType
+    class DataRuntimeEvent {
         +objectId: ObjectId
-        +timestamp: Timestamp
-    }
-
-    class AccessObservation {
-        +timestamp: Timestamp
-        +bytes: long
+        +dataClass: DataClass
         +operation: Operation
-        +latency: Duration
+        +bytes: long
+        +timestamp: Timestamp
     }
 
-    class MemoryResource {
-        <<interface>>
-        +descriptor() MemoryDescriptor
-        +state() ResourceState
-        +allocate(sizeBytes: long) AllocationHandle
-        +release(handle: AllocationHandle)
+    class DataRuntimeStats {
+        +accessFrequency: float
+        +reuseInterval: Duration
+        +readWriteRatio: float
+        +lifetimeEstimate: Duration
+        +localityScore: float
+        +sharingDegree: float
+    }
+
+    class DataRuntimeHistory {
+        +samples: RuntimeSample[]
+        +observationWindow: Duration
+    }
+
+    class DataCharacteristics {
+        +predictedHotness: float
+        +predictedLifetime: Duration
+        +predictedReuse: float
+        +locality: float
+        +accessPattern: AccessPattern
+        +readWriteIntensity: float
+        +sharing: float
+        +requiredOperations: Operation[]
+    }
+
+    class TierAffinity {
+        +resourceId: ResourceId
+        +affinityScore: float
+        +eligible: bool
+        +reason: String
+    }
+
+    class MemoryRegistry {
+        +list() MemoryDescriptor[]
     }
 
     class MemoryDescriptor {
         +memoryId: ResourceId
         +memoryType: MemoryType
         +capacityBytes: long
-        +availableBytes: long
-        +externalBandwidth: Bandwidth
-        +internalBandwidth: Bandwidth
+        +bandwidth: Bandwidth
         +latency: Duration
+        +supportedOperations: Operation[]
         +computeCapability: ComputeCapability
-        +accessPath: AccessPath
     }
 
-    class SystemState
+    class TelemetryCollector {
+        +collect() ResourceTelemetry[]
+    }
+
+    class ResourceTelemetry {
+        +resourceId: ResourceId
+        +availableCapacity: long
+        +bandwidthUtilization: float
+        +pressure: float
+        +contention: float
+        +latencyState: Duration
+    }
+
+    class PlacementPlan
     class PlacementDecision
-    class PlacementScore
-    class ExecutionResult
+    class PlacementExecutor
+    class AllocationRequest
 
-    DataPlacementManager --> DataObjectRegistry : owns
-    DataPlacementManager --> DataCharacterizer : invokes
-    DataPlacementManager --> DataRuntimeStateMonitor : reads
+    DataPlacementManager --> DataClassifier : invokes
+    DataPlacementManager --> RuntimeStateMonitor : reads / updates
+    DataPlacementManager --> DataCharacteristicInterpreter : invokes
     DataPlacementManager --> DataAwarePlacementPlanner : invokes
-    DataPlacementManager --> PlacementLifecycleController : manages
 
-    DataObjectRegistry o-- "1..*" DataObject : manages
-    DataCharacterizer --> DataObject : observes
-    DataCharacterizer --> DataDescriptor : produces
-    DataRuntimeStateMonitor --> DataRuntimeState : updates
-    DataRuntimeState --> DataObject : describes
+    DataClassifier --> DataDescriptor : consumes
+    DataClassifier --> DataClass : produces
 
-    DataAwarePlacementPlanner --> CandidateMemoryFilter : filters
-    DataAwarePlacementPlanner --> CostUtilityEvaluator : scores
-    DataAwarePlacementPlanner --> PlacementDecision : creates
-    CostUtilityEvaluator --> DataDescriptor : evaluates
-    CostUtilityEvaluator --> MemoryResource : evaluates
-    CostUtilityEvaluator --> SystemState : reads
+    RuntimeStateMonitor --> DataRuntimeEvent : observes
+    RuntimeStateMonitor --> DataRuntimeStats : accumulates
+    RuntimeStateMonitor --> DataRuntimeHistory : maintains
 
-    PlacementLifecycleController --> PlacementDecision : handles
-    PlacementLifecycleController --> DataRuntimeState : monitors
+    DataCharacteristicInterpreter --> DataClass : reads
+    DataCharacteristicInterpreter --> DataRuntimeStats : reads
+    DataCharacteristicInterpreter --> DataCharacteristics : produces
+
+    DataAwarePlacementPlanner --> MemoryTierAffinityEvaluator : invokes
+    MemoryTierAffinityEvaluator --> MemoryRegistry : reads
+    MemoryTierAffinityEvaluator --> DataCharacteristics : evaluates
+    MemoryTierAffinityEvaluator --> TierAffinity : produces
+
+    MemoryTierSelector --> TierAffinity : selects from
+    TelemetryCollector --> MemoryTierSelector : feeds realtime state
+    MemoryTierSelector --> PlacementDecision : creates
     PlacementExecutor --> PlacementDecision : executes
-
-    MemoryResource --> MemoryDescriptor : exposes
 ```
 
 ## 4.3 C2 Sequence — Initial Placement
+
+초기 배치에서는 충분한 Runtime History가 없을 수 있으므로 **Data Class prior/default profile**을 사용한다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SCH as Scheduler
+    participant DDA as DataDescriptorAdapter
+    participant DPM as DataPlacementManager
+    participant DC as DataClassifier
+    participant RSM as RuntimeStateMonitor
+    participant DCI as DataCharacteristicInterpreter
+    participant MR as MemoryRegistry
+    participant MAE as TierAffinityEvaluator
+    participant TC as TelemetryCollector
+    participant MTS as MemoryTierSelector
+    participant EX as PlacementExecutor
+
+    SCH->>DDA: allocationRequest(data)
+    DDA-->>DPM: DataDescriptor
+
+    DPM->>DC: classify(DataDescriptor)
+    DC-->>DPM: DataClass
+
+    DPM->>RSM: getStats(DataClass / ObjectGroup)
+
+    alt sufficient runtime history exists
+        RSM-->>DPM: observed runtime statistics
+    else cold-start / first placement
+        RSM-->>DPM: insufficient history
+        DPM->>DCI: use DataClass prior/default profile
+    end
+
+    DPM->>DCI: interpret(DataClass, runtime stats)
+    DCI->>DCI: predict hotness / lifetime / reuse / locality
+    DCI-->>DPM: DataCharacteristics
+
+    DPM->>MR: list memory descriptors
+    MR-->>MAE: static Memory Tier capability
+    DPM->>MAE: evaluate(DataCharacteristics)
+    MAE->>MAE: calculate tier affinity
+    MAE-->>MTS: Affinity Tier Set
+
+    MTS->>TC: request latest resource state
+    TC-->>MTS: real-time Memory telemetry
+    MTS->>MTS: combine affinity + resource availability
+    MTS-->>DPM: Best Tier
+
+    DPM->>EX: execute PlacementDecision
+    EX-->>SCH: PlacementResult
+```
+
+## 4.4 C2 Sequence — Runtime Learning / Re-placement
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant RT as AI Runtime
     participant DPM as DataPlacementManager
-    participant DR as DataObjectRegistry
-    participant DC as DataCharacterizer
-    participant DSM as DataRuntimeStateMonitor
-    participant DPP as DataAwarePlanner
-    participant CF as CandidateMemoryFilter
-    participant CE as CostUtilityEvaluator
-    participant PLC as LifecycleController
-    participant EX as PlacementExecutor
-
-    RT->>DPM: onDataEvent(Create / Admit)
-    DPM->>DR: get(objectId)
-    DR-->>DPM: DataObject
-    DPM->>DC: characterize(DataObject)
-    DC-->>DPM: DataDescriptor
-    DPM->>DSM: getState(objectId)
-    DSM-->>DPM: DataRuntimeState
-    DPM->>DPP: plan(descriptor, memories, state)
-    DPP->>CF: filter(descriptor, memories)
-    CF-->>DPP: feasible memories
-    DPP->>CE: evaluate(data, memory, systemState)
-    CE-->>DPP: score(memory)
-    DPP-->>DPM: PlacementDecision
-    DPM->>PLC: handle(decision)
-    PLC->>EX: execute(decision)
-    EX-->>PLC: ExecutionResult
-```
-
-## 4.4 C2 Sequence — Runtime Re-evaluation
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant DATA as Runtime Data Access
-    participant DSM as DataRuntimeStateMonitor
-    participant PLC as PlacementLifecycleController
-    participant DPP as DataAwarePlanner
-    participant CE as CostUtilityEvaluator
+    participant RSM as RuntimeStateMonitor
+    participant DCI as DataCharacteristicInterpreter
+    participant MAE as TierAffinityEvaluator
+    participant TC as TelemetryCollector
+    participant MTS as MemoryTierSelector
     participant EX as PlacementExecutor
     participant DP4 as DP4 Migration Service
 
-    DATA->>DSM: access observation
-    DSM->>DSM: update hotness / reuse / lifetime
-    DSM->>PLC: state changed
-    PLC->>PLC: shouldReevaluate(state)
+    RT-->>RSM: DataRuntimeEvent(access / reuse / idle / release)
+    RSM->>RSM: accumulate class/object behavior stats
 
-    alt re-evaluation required
-        PLC->>DPP: reevaluate(data, state)
-        DPP->>CE: recompute data × memory cost
-        CE-->>DPP: updated scores
-        DPP-->>PLC: PlacementDecision
+    alt characteristic change exceeds threshold
+        RSM-->>DPM: reevaluation trigger
+        DPM->>DCI: recompute characteristics
+        DCI-->>DPM: updated hotness / lifetime / reuse / locality
 
-        alt destination differs
-            PLC->>EX: execute(decision)
-            EX->>DP4: migrate(source, destination, object)
+        DPM->>MAE: reevaluate tier affinity
+        MAE-->>MTS: updated Affinity Tier Set
+
+        MTS->>TC: get current resource telemetry
+        TC-->>MTS: pressure / BW / capacity / contention
+        MTS-->>DPM: Best Tier
+
+        alt Best Tier differs from current tier
+            DPM->>EX: execute PlacementDecision
+            EX->>DP4: migrate(object, source, destination)
             DP4-->>EX: migration result
-        else keep current tier
-            PLC-->>DATA: keep placement
+        else keep current placement
+            DPM->>DPM: no migration
         end
-    else threshold not crossed
-        PLC-->>DATA: keep placement
     end
 ```
 
-# 5. C1 vs C2 Structural View
+---
+
+# 5. C1 vs C2 Monitor Difference
 
 ```mermaid
 flowchart TB
+    subgraph C1[C1 Resource-centric Monitoring]
+        TC1[Telemetry Collector]
+        RSM1[Resource State Monitor]
+        P1[Resource State Prediction]
+        V1[Memory State View]
+
+        TC1 --> RSM1 --> P1 --> V1
+    end
+
+    subgraph C2[C2 Data-centric Monitoring]
+        DC2[Data Classifier]
+        RSM2[Runtime State Monitor]
+        DCI2[Data Characteristic Interpreter]
+        CH2[Predicted Data Characteristics]
+
+        DC2 --> DCI2
+        RSM2 --> DCI2 --> CH2
+    end
+```
+
+| 항목 | C1 Resource State Monitor | C2 Runtime State Monitor |
+|---|---|---|
+| 관찰 대상 | Memory/HW Resource | Data Class / Object behavior |
+| 원천 정보 | Telemetry Collector | Runtime access/history event |
+| 축적 정보 | Capacity, BW, load, pressure, contention | Access frequency, reuse, lifetime, locality, R/W pattern |
+| Prediction | Resource가 앞으로 얼마나 바빠질지 | Data가 앞으로 얼마나 hot/long-lived/reused될지 |
+| 출력 사용처 | Candidate Builder / Memory State View | Data Characteristic Interpreter |
+| Placement에서의 의미 | Resource 자체의 적합성 판단 | Data의 요구 특성 생성 |
+
+---
+
+# 6. C1 vs C2 Final Decision Flow
+
+```mermaid
+flowchart LR
     subgraph C1[C1 Memory-centric]
-        C1R[Memory Resource]
-        C1RR[Resource Registry]
-        C1S[Resource State]
-        C1P[Resource-aware Planner]
-        C1D[Data Allocation]
-        C1R --> C1RR --> C1S --> C1P --> C1D
+        T1[Telemetry]
+        R1[Resource State Monitor]
+        B1[Candidate Builder]
+        V1[Memory State View]
+        P1[Resource-aware Planner]
+        S1[Best Tier]
+
+        T1 --> R1 --> B1 --> V1 --> P1 --> S1
     end
 
     subgraph C2[C2 Data-centric]
-        C2D[Data Object]
-        C2RR[Data Registry]
-        C2C[Data Characterization]
-        C2S[Data Runtime State]
-        C2P[Data-aware Planner]
-        C2T[Tier Selection]
-        C2D --> C2RR --> C2C --> C2S --> C2P --> C2T
+        D2[Data Descriptor]
+        C2C[Data Classifier]
+        R2[Runtime State Monitor]
+        I2[Data Characteristic Interpreter]
+        A2[Tier Affinity Evaluator]
+        T2[Telemetry]
+        S2[Memory Tier Selector]
+        B2[Best Tier]
+
+        D2 --> C2C --> I2
+        R2 --> I2
+        I2 --> A2 --> S2 --> B2
+        T2 --> S2
     end
-
-    C1D --- COMMON[Common Services: Feasibility / Cost / Executor]
-    C2T --- COMMON
 ```
 
-| 항목 | C1 Memory-centric | C2 Data-centric |
-|---|---|---|
-| Primary Object | Memory Resource | Data Object |
-| Primary Registry | Resource Registry | Data Object Registry |
-| Runtime State Owner | Resource State | Data Runtime State |
-| Characterization | Minimal / support info | Hotness / Reuse / Lifetime / Locality |
-| Core Planner | Resource-aware Planner | Data-aware Planner |
-| Decision Granularity | Resource 중심 | Data Object 중심 |
-| Extension Axis | New Memory Type | New Data Type / Characterizer |
+---
 
-# 6. Data Type Characterization Extension
+# 7. DP Boundary
 
-```mermaid
-flowchart LR
-    subgraph DT[AI Runtime Data Types]
-        KV[KV Cache]
-        RAG[RAG Data]
-        AM[Agent Memory / State]
-        TR[Tool Result]
-        LORA[LoRA Adapter]
-        MOE[MoE Expert]
-    end
+- **DP1:** Data Placement 결정
+- **DP2:** Prefill / Compute Placement
+- **DP3:** Data Eviction 결정
+- **DP4:** 실제 Data Migration 수행
 
-    subgraph CHAR[Data Characterization]
-        KVC[KV Characterizer]
-        RAGC[RAG Characterizer]
-        AMC[Agent Memory Characterizer]
-        TRC[Tool Result Characterizer]
-        LC[LoRA Characterizer]
-        MOEC[MoE Characterizer]
-    end
-
-    DESC[Common DataDescriptor]
-
-    KV --> KVC
-    RAG --> RAGC
-    AM --> AMC
-    TR --> TRC
-    LORA --> LC
-    MOE --> MOEC
-
-    KVC --> DESC
-    RAGC --> DESC
-    AMC --> DESC
-    TRC --> DESC
-    LC --> DESC
-    MOEC --> DESC
-```
-
-| Logical Data Type | Physical Representation 예 | Placement Unit |
-|---|---|---|
-| KV Cache | KV Block | Block / Session Block Set |
-| RAG Data | Document / Chunk / Embedding / Index Partition | Chunk / Index Partition |
-| Agent Memory | Serialized Record / Structured State / KV Record | Memory Entry / Session Group |
-| Tool Result | Serialized Result / Object / KV Record | Result Object / Session State |
-| LoRA Adapter | Adapter Weight Object | Adapter |
-| MoE Expert | Expert Weight Object | Expert |
-
-# 7. Common Placement Interface
-
-```mermaid
-classDiagram
-    class PlacementPolicy {
-        <<interface>>
-        +plan(input: PlacementInput) PlacementDecision
-    }
-
-    class C1ResourceAwarePolicy {
-        +plan(input: PlacementInput) PlacementDecision
-    }
-
-    class C2DataAwarePolicy {
-        +plan(input: PlacementInput) PlacementDecision
-    }
-
-    class PlacementInput {
-        +data: DataDescriptor
-        +memories: MemoryResource[]
-        +systemState: SystemState
-    }
-
-    class PlacementDecision {
-        +sourceTier: ResourceId
-        +destinationTier: ResourceId
-        +estimatedCost: Cost
-        +reason: String
-    }
-
-    PlacementPolicy <|.. C1ResourceAwarePolicy
-    PlacementPolicy <|.. C2DataAwarePolicy
-    C1ResourceAwarePolicy --> PlacementInput
-    C2DataAwarePolicy --> PlacementInput
-    C1ResourceAwarePolicy --> PlacementDecision
-    C2DataAwarePolicy --> PlacementDecision
-```
-
-# 8. DP Boundary
-
-```mermaid
-flowchart LR
-    DP1[DP1
-AI Data Placement]
-    DP2[DP2
-Prefill Compute Placement]
-    DP3[DP3
-Data Eviction]
-    DP4[DP4
-Data Migration]
-
-    DP1 -->|Which Memory Tier?| DP3
-    DP1 -->|PlacementDecision / destination| DP4
-    DP2 -->|Compute location independent decision| DP1
-```
-
-> **Boundary:** DP1 answers **Data → Memory Tier**, DP2 answers **Prefill → Compute Resource**, DP3 answers **What Data should be removed?**, DP4 answers **How should Data be moved?**
-
-# 9. UML → Architecture 재구성 포인트
-
-UML에서 Architecture 문서로 다시 그릴 때는 단순 module list가 아니라 다음 구조가 보이도록 한다.
-
-- C1: `Memory Resource Manager`가 중심에 있고 `Resource Registry / State Monitor / Resource-aware Planner`가 그 내부 핵심으로 배치된다.
-- C2: `Data Placement Manager`가 중심에 있고 `Data Registry / Characterizer / Data Runtime State / Data-aware Planner`가 그 내부 핵심으로 배치된다.
-- 두 후보 모두 아래 공통 계층을 공유한다.
-  - Candidate Memory Filtering
-  - Cost / Utility Evaluation
-  - Memory Resource Abstraction
-  - Placement Executor
-- `Compute Capability`는 DP1의 Memory Descriptor/Feasibility 입력으로 표현하되, Prefill의 Compute Placement는 DP2로 분리한다.
+DP1은 destination Memory Tier를 결정하고, 기존 위치와 destination이 다를 경우 실제 Data 이동은 DP4 Migration Service에 위임한다.
