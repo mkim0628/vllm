@@ -2,10 +2,10 @@
 
 > **문서 유형:** Design Specification
 >
-> 본 문서는 DP1의 **Data Placement 설계 구조만 구체화**한다. 기존 `dp1-heterogeneous-memory-data-placement.md`는 Design Point의 배경, 대상 Memory Configuration, 평가 방법, 시뮬레이션 및 검증 결과를 포함하며, 해당 문서의 내용을 반복하지 않는다.
+> 본 문서는 DP1의 **이기종 메모리 기반 AI Data Placement 구조**를 구체화한다. 핵심 비교 대상은 다음 두 구조이다.
 >
-> - 상위 DP 정의 / 배경 / Memory Configuration / Evaluation: `dp1-heterogeneous-memory-data-placement.md`
-> - 본 문서: **Data Placement Architecture / Data Abstraction / Candidate 구조 / Decision Flow / Interface / DP 경계**
+> - **C1. Memory-centric Placement**: Memory Resource State를 1차 기준으로 배치
+> - **C2. Data-centric Placement**: AI Data 특성을 1차 기준으로 적합한 Memory Tier를 선택
 
 ---
 
@@ -13,24 +13,20 @@
 
 ### 1.1 목적
 
-이기종 메모리 환경에서 AI Runtime이 관리하는 Data Object를 어떤 Memory Tier에 배치할 것인지 결정하는 **Data Placement 구조**를 정의한다.
+HBM, DRAM, CXL Memory, SSD, PIM/PNM 등 서로 다른 특성을 가진 Memory Tier가 공존하는 환경에서 AI Runtime Data를 어떤 Memory Tier에 배치할지 결정하는 구조를 정의한다.
 
-본 DP의 Placement 대상은 Runtime 동안 생성·관리되며 workload 또는 system state에 따라 위치를 변경할 실질적인 가치가 있는 **AI Runtime Data**이다.
+대표 Placement 대상은 다음과 같다.
 
-대표 대상:
+- KV Cache
+- RAG Data / Embedding / Retrieval Index
+- Agent Memory / State
+- Tool Result / Runtime Log
+- LoRA Adapter
+- MoE Expert
 
-- **KV Cache**
-- **RAG Data**: Document / Chunk / Embedding / Retrieval Index
-- **Agent Memory / State**
-- **Tool Result / Agent State**
-- **LoRA Adapter**
-- **MoE Expert**
+### 1.2 핵심 질문
 
-일반적인 Dense Model Weight 및 일반적인 short-lived Activation은 기본 대상에서 제외한다.
-
-### 1.2 DP1의 핵심 질문
-
-> **Memory Resource를 중심으로 Data를 배치할 것인가, Data Object의 특성을 중심으로 Memory Tier를 선택할 것인가?**
+> **Memory Resource의 현재/예측 상태를 기준으로 Data를 배치할 것인가, Data 자체의 특성과 Runtime 동향을 기준으로 적합한 Memory Tier를 선택할 것인가?**
 
 ```text
                      DP1
@@ -45,245 +41,60 @@
 
 ---
 
-## 2. Terminology
+## 2. Common Input / Output
 
-### 2.1 AI Runtime Data
+### 2.1 Data Descriptor
 
-AI Runtime Data는 **Runtime에 의해 생성·관리되며, workload 및 system state에 따라 Memory Placement를 동적으로 결정하거나 재평가할 수 있는 Data Object**를 의미한다.
-
-### 2.2 Data Object
-
-Placement의 최소 논리 단위이다. Data Type마다 실제 물리적 구조는 다를 수 있으나 Placement Controller에는 공통 Descriptor를 제공한다.
-
-```text
-Data Object
-├── Identity
-├── Type
-├── Size
-├── Current Placement
-├── Data Characteristics
-├── Access Requirements
-└── Lifecycle State
-```
-
-### 2.3 Memory Tier
-
-Data Object를 저장하거나, 지원되는 경우 해당 Data를 대상으로 일부 연산을 수행할 수 있는 Memory Resource이다.
-
-```text
-Memory Tier
-├── Identity
-├── Capacity
-├── Access Bandwidth
-├── Latency
-├── Compute Capability
-├── Access Path
-├── Current Utilization
-└── Cost / Constraint
-```
-
----
-
-## 3. AI Data Abstraction
-
-### 3.1 Logical Data Type과 Physical Representation의 분리
-
-| Logical Data Type | Physical Representation 예 | Placement Unit |
-|---|---|---|
-| **KV Cache** | KV Block | Block / Session Block Set |
-| **RAG Data** | Document / Chunk / Embedding / Index Partition | Chunk / Index Partition |
-| **Agent Memory** | Serialized Record / Structured State / KV Record | Memory Entry / Session Group |
-| **Tool Result** | Serialized Result / Object / KV Record | Result Object / Session State |
-| **LoRA Adapter** | Adapter Weight Object | Adapter |
-| **MoE Expert** | Expert Weight Object | Expert |
-
-> Physical Representation은 Data Type에 따라 달라질 수 있지만, Placement Policy가 직접 Data-specific 자료구조를 해석하지 않도록 **공통 Data Descriptor 계층으로 추상화**한다.
-
-### 3.2 Agent Memory
-
-Agent Memory는 하나의 고정 자료구조가 아니라 Agent가 이후 Step/Turn에서 재사용하기 위해 보존하는 **Persistent State/Data의 논리적 범주**이다.
-
-### 3.3 Common Data Descriptor
+Scheduler가 Placement 요청을 전달할 때 Data-specific 정보를 공통 형태로 전달한다.
 
 ```text
 DataDescriptor
 ├── object_id
-├── data_type
+├── data_type_hint
 ├── size_bytes
 ├── owner / session
 ├── current_tier
-├── hotness
-├── locality
-├── lifetime
-├── reuse
-├── access_pattern
-├── read_write_intensity
-├── sharing
+├── lifecycle_hint
+├── access_requirement
 └── required_operations
 ```
 
-Data-specific 정보는 **Adapter / Characterizer**가 공통 Descriptor로 변환한다.
+C1에서는 Data Descriptor를 최소한의 allocation constraint로 사용한다. C2에서는 Data Classifier의 입력으로 사용한다.
 
----
+### 2.2 Memory Registry
 
-## 4. Memory Abstraction
-
-### 4.1 Memory Descriptor
+Memory Registry는 Memory Tier의 정적/준정적 특성을 관리한다.
 
 ```text
-MemoryDescriptor
-├── memory_id
-├── memory_type
-├── capacity_bytes
-├── available_bytes
+MemoryRegistry
+├── memory_id / memory_type
+├── capacity
 ├── external_bandwidth
 ├── internal_bandwidth
 ├── latency
+├── supported_operations
 ├── compute_capability
-│   ├── supported_operations
-│   ├── compute_throughput
-│   └── compute_efficiency
 ├── access_path
-├── current_load
-├── bandwidth_utilization
-└── write_cost / endurance
+└── endurance / write_cost
 ```
 
-`Compute Capability`는 PIM/PNM 등 **Memory 자체에서 수행할 수 있는 연산 능력**을 표현한다. 특정 reduction, vector operation, search/filter 등의 지원 여부와 처리 성능을 나타낼 수 있다.
+Memory Registry는 **정적인 Memory Capability 정보**를 제공하며, 실시간 utilization / pressure / contention은 Telemetry Collector를 통해 별도로 수집한다.
 
-> Memory Compute Capability를 Placement 입력으로 사용하는 것은 **어느 Memory에 Data를 둘 것인가**를 판단하기 위한 것이다. 어떤 Compute Resource에서 Prefill을 수행할 것인가는 DP2에서 결정한다.
+### 2.3 Telemetry Collector
 
-### 4.2 System State
+Telemetry Collector는 Placement Manager 외부에 위치하며, Memory 및 System의 실시간 상태를 수집하여 C1/C2에 제공한다.
 
-```text
-SystemState
-├── memory_pressure
-├── tier_utilization
-├── bandwidth_utilization
-├── request_load
-├── access_contention
-├── active_data_population
-├── QoS / latency state
-└── runtime_policy_state
-```
+대표 Telemetry:
 
-### 4.3 Access Path
+- available capacity
+- bandwidth utilization
+- queue/load
+- memory pressure
+- access contention
+- latency variation
+- request load
 
-```text
-Data → Access Path → Effective Access Cost
-              ├── Hop count
-              ├── Link bandwidth
-              ├── Link latency
-              └── Contention
-```
-
----
-
-## 5. Placement Decision Model
-
-### 5.1 전체 Decision Pipeline
-
-Placement Decision은 **Data 특성, Memory Resource 특성, Runtime System State**를 통합하여 Placement Policy를 적용하고, 후보 Memory를 필터링한 뒤 비용/효용을 비교하여 최종 Tier를 선택한다.
-
-```text
-┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
-│ Data Descriptor │      │ Memory Descriptor│      │  System State  │
-└────────┬────────┘      └────────┬─────────┘      └────────┬────────┘
-         └────────────────────────┼─────────────────────────┘
-                                  ▼
-                         ┌─────────────────┐
-                         │ Placement Policy│
-                         │     C1 / C2    │
-                         └────────┬────────┘
-                                  ▼
-                         ┌─────────────────┐
-                         │Candidate Memory │
-                         │    Filtering    │
-                         └────────┬────────┘
-                                  ▼
-                    ┌─────────────┼─────────────┐
-                    ▼             ▼             ▼
-                 Capacity      Operation   Reachability
-                   Check         Check        Check
-                    └─────────────┼─────────────┘
-                                  ▼
-                         ┌─────────────────┐
-                         │Candidate Memory │
-                         │       Set       │
-                         └────────┬────────┘
-                                  ▼
-                         ┌─────────────────┐
-                         │ Cost / Utility  │
-                         │   Evaluation    │
-                         └────────┬────────┘
-                                  ▼
-                         ┌─────────────────┐
-                         │  Tier Selection │
-                         └────────┬────────┘
-                                  ▼
-                         ┌─────────────────┐
-                         │PlacementDecision│
-                         └────────┬────────┘
-                                  ▼
-                         ┌─────────────────┐
-                         │PlacementExecutor│
-                         └─────────────────┘
-```
-
-**C1/C2의 핵심 차이는 전체 Pipeline이 아니라 `Placement Policy` 내부의 소프트웨어 구조와 1차 Decision State가 무엇인가에 있다.** Candidate Filtering, Cost Model, Executor는 공통 Infrastructure로 유지한다.
-
-### 5.2 Candidate Memory Filtering
-
-```text
-All Memory Tiers
-       │
-       ▼
-┌─────────────────────────┐
-│    Feasibility Filter   │
-├─────────────────────────┤
-│ Capacity                │
-│ Supported Operation     │
-│ Reachability            │
-│ QoS / Latency           │
-│ Endurance / Constraint  │
-└────────────┬────────────┘
-             ▼
-      Candidate Memory Set
-```
-
-특히 **Memory Compute Capability는 Operation Feasibility의 핵심 입력**이다.
-
-```text
-Data.required_operations = {search, reduction}
-                  │
-                  ▼
-      Memory Compute Capability
-                  │
-        ┌─────────┴─────────┐
-        ▼                   ▼
-   PNM: supported       DRAM: unsupported
-        │                   │
-        ▼                   ▼
-    Candidate             Filtered out
-```
-
-### 5.3 Cost / Utility Calculation
-
-Feasible Memory에 대해서만 Placement Cost 또는 Utility를 계산한다.
-
-\[
-Cost(d,m,s)=C_{access}+C_{capacity}+C_{migration}+C_{operation}+C_{constraint}
-\]
-
-- `C_access`: BW / latency / contention 비용
-- `C_capacity`: 제한된 Memory Capacity 사용 비용
-- `C_migration`: 향후 Placement 변경 시 예상 이동 비용
-- `C_operation`: Memory Compute Capability를 사용했을 때의 연산 비용/효율
-- `C_constraint`: QoS, Write Cost 등의 제약 비용
-
-> Compute Placement 자체는 본 DP의 결정 대상이 아니다. Prefill Compute Location은 DP2에서 결정한다.
-
-### 5.4 Placement Output
+### 2.4 Placement Output
 
 ```text
 PlacementDecision
@@ -291,513 +102,550 @@ PlacementDecision
 ├── source_tier
 ├── destination_tier
 ├── decision_reason
-├── estimated_cost
-├── selected_operation_capability (optional)
-└── confidence / validity
+├── confidence
+└── validity / reevaluation_hint
 ```
 
 ---
 
-## 6. Candidate Structures
+# 3. C1 — Memory-centric Placement
 
-## C1. Memory-centric Placement
+## 3.1 Definition
 
-### 6.1 Definition
+> **Memory Resource State를 1차 기준으로 배치한다.**
 
-> **Memory Resource의 Capacity / Bandwidth / Load / Capability를 중심으로 Data를 배치한다.**
+C1은 Data를 세밀하게 characterization하기보다, 현재 Memory Resource가 얼마나 사용 가능하고 앞으로 어떤 상태가 될지를 중심으로 Placement를 결정한다.
 
-Placement의 1차 의사결정 주체가 **Memory Resource**이다.
-
-### 6.2 Architecture — Resource-driven Software Structure
-
-C1은 **Memory Resource를 중심으로 Runtime 상태를 관리하고, Resource별 Allocation/Admission 상태를 유지하는 구조**이다. Data는 Memory Resource Manager에 들어오는 Allocation 대상이며, 각 Memory Resource의 상태가 Placement Decision을 주도한다.
+핵심 구조는 다음과 같다.
 
 ```text
-                         ┌─────────────────────────────┐
-                         │      AI Runtime / Scheduler │
-                         └──────────────┬──────────────┘
-                                        │ Allocation Request
-                                        ▼
-┌──────────────────────────────────────────────────────────────────┐
-│              C1 Memory-centric Placement                         │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │              Memory Resource Manager                       │  │
-│  │                                                            │  │
-│  │  ┌──────────────┐     ┌───────────────────────────────┐  │  │
-│  │  │Resource      │────▶│ Resource State / Monitor      │  │  │
-│  │  │Registry      │     │ Capacity / BW / Load /       │  │  │
-│  │  └──────────────┘     │ Capability / Pressure        │  │  │
-│  │                       └───────────────┬───────────────┘  │  │
-│  │                                       ▼                  │  │
-│  │                       ┌───────────────────────────────┐  │  │
-│  │                       │ Resource-aware Placement     │  │  │
-│  │                       │ Planner                      │  │  │
-│  │                       └───────────────┬───────────────┘  │  │
-│  └─────────────────────────────────────┼───────────────────┘  │
-└────────────────────────────────────────┼──────────────────────┘
-                                         │
-                    ┌────────────────────┼────────────────────┐
-                    ▼                    ▼                    ▼
-              ┌───────────┐        ┌───────────┐        ┌───────────┐
-              │HBM Resource│        │DRAM Resource│      │CXL Resource│
-              │ Adapter    │        │ Adapter     │      │ Adapter    │
-              └───────────┘        └───────────┘        └───────────┘
+Scheduler / Allocation Request
+          │
+          ▼
+Data Descriptor Adapter
+          │
+          ▼
+┌────────────────────────────────────────────┐
+│         Memory Resource Manager            │
+│                                            │
+│   ┌──────────────────────────────┐         │
+│   │ Resource State Monitor       │◀────────┼── Telemetry Collector
+│   │ - current resource state     │         │
+│   │ - trend monitoring           │         │
+│   │ - near-future prediction     │         │
+│   └──────────────┬───────────────┘         │
+│                  │                         │
+│                  │                         │
+│   ┌──────────────▼───────────────┐         │
+│   │ Candidate Builder            │◀────────┼── Memory Registry
+│   │ - static capability          │         │
+│   │ - monitored/predicted state  │         │
+│   └──────────────┬───────────────┘         │
+└──────────────────┼─────────────────────────┘
+                   │
+                   ▼
+             Memory State View
+                   │
+                   ▼
+      Resource-aware Placement Planner
+                   │
+                   ▼
+             Memory Tier Selector
+                   │
+                   ▼
+            Placement Executor
 ```
 
-**구조적 특징**
+## 3.2 Resource State Monitor
 
-- `Memory Resource Registry`가 상위 1차 객체이다.
-- Resource별 상태와 Allocation 가능량을 관리한다.
-- `Resource-aware Placement Planner`가 Memory Resource 상태를 비교하여 Data를 어느 Resource에 할당할지 결정한다.
-- Data Characterization은 최소한의 Feasibility / Constraint 정보만 전달하는 보조 계층이다.
-- 신규 Memory Type은 **새 Resource Adapter/Manager를 추가**하는 방향으로 확장한다.
+Resource State Monitor는 단순 Telemetry forwarding 계층이 아니다.
 
-### 6.3 Decision Flow
+### 역할
+
+1. **Telemetry Collector로부터 실시간 Resource 상태 수집**
+2. 시간에 따른 Resource 상태 변화 추적
+3. Memory Resource 관점에서 단기 상태 예측
+4. Placement에 사용할 정규화된 Resource State 생성
+
+예:
 
 ```text
-Memory Resource State
-        ↓
-Resource별 Available Capacity / BW / Load / Capability 구성
-        ↓
-Data Allocation Request 수용 가능 Resource 확인
-        ↓
-Resource Cost / Pressure 비교
-        ↓
-Memory Tier 선택
-        ↓
-Data 배치
+ResourceState
+├── available_capacity
+├── bandwidth_utilization
+├── current_load
+├── memory_pressure
+├── contention
+├── latency_state
+├── trend
+└── predicted_state
 ```
 
----
-
-## C2. Data-centric Placement
-
-### 6.4 Definition
-
-> **Data Object의 Runtime 특성을 중심으로 적합한 Memory Tier를 선택한다.**
-
-Placement의 1차 의사결정 주체가 **Data Object**이다.
-
-### 6.5 Architecture — Object-driven Software Structure
-
-C2는 **Data Object를 중심으로 Data Lifecycle과 Runtime Characterization을 관리하고, 각 Data Object에 대해 적합한 Memory Tier를 계산하는 구조**이다. Memory는 공통 Resource Registry로 추상화되고, Data별 Policy Evaluation이 Placement Decision을 주도한다.
+예측 대상은 복잡한 장기 forecasting이 아니라 Placement decision window에서 필요한 near-future 상태이다.
 
 ```text
-                         ┌─────────────────────────────┐
-                         │      AI Runtime / Scheduler │
-                         └──────────────┬──────────────┘
-                                        │ Data Object Event
-                                        ▼
-┌──────────────────────────────────────────────────────────────────┐
-│               C2 Data-centric Placement                          │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │              Data Placement Manager                        │  │
-│  │                                                            │  │
-│  │  ┌──────────────┐    ┌───────────────────────────────┐   │  │
-│  │  │Data Object   │───▶│ Data Characterizer            │   │  │
-│  │  │Registry      │    │ Hotness / Reuse / Lifetime / │   │  │
-│  │  └──────────────┘    │ Locality / Access Pattern    │   │  │
-│  │                      └──────────────┬────────────────┘   │  │
-│  │                                     ▼                    │  │
-│  │                      ┌───────────────────────────────┐   │  │
-│  │                      │ Data-aware Placement Planner │   │  │
-│  │                      │ Data × Memory Cost / Utility │   │  │
-│  │                      └──────────────┬────────────────┘   │  │
-│  └────────────────────────────────────┼────────────────────┘  │
-│                                       │                       │
-│                       ┌───────────────▼───────────────┐       │
-│                       │ Common Memory Resource        │       │
-│                       │ Registry / Descriptor         │       │
-│                       └───────────────┬───────────────┘       │
-└───────────────────────────────────────┼───────────────────────┘
-                                        │
-                         ┌──────────────┼──────────────┐
-                         ▼              ▼              ▼
-                    ┌────────┐     ┌────────┐     ┌────────┐
-                    │  HBM   │     │  DRAM  │     │  CXL   │
-                    └────────┘     └────────┘     └────────┘
+현재 HBM 사용률 82%
+  ↓
+최근 증가율 +5% / interval
+  ↓
+request load 증가 중
+  ↓
+near-term pressure 상승 예상
+  ↓
+HBM candidate priority 감소
 ```
 
-**구조적 특징**
+## 3.3 Candidate Builder
 
-- `Data Object Registry`가 상위 1차 객체이다.
-- Data별 Descriptor와 Lifecycle / Access History를 관리한다.
-- `Data Characterizer`가 Runtime 관측값을 Data Descriptor로 변환한다.
-- `Data-aware Placement Planner`가 하나의 Data Object에 대해 여러 Memory Tier의 Cost/Utility를 비교한다.
-- 신규 Data Type은 **새 Data Adapter/Characterizer를 추가**하는 방향으로 확장한다.
-
-### 6.6 C1 / C2 Software Structure의 핵심 차이
+Candidate Builder는 다음 두 입력을 결합한다.
 
 ```text
-C1. Memory-centric                     C2. Data-centric
-────────────────────                   ────────────────────
-Memory Resource가 중심                Data Object가 중심
-        │                                      │
-        ▼                                      ▼
-Memory Resource Manager               Data Placement Manager
-        │                                      │
-        ├─ Resource Registry                  ├─ Data Registry
-        ├─ Resource Monitor                   ├─ Data Characterizer
-        └─ Resource Planner                   ├─ Data Descriptor
-                                               └─ Data-aware Planner
-        │                                      │
-        ▼                                      ▼
-"어느 Resource가 여유/적합한가?"       "이 Data에 어느 Tier가 적합한가?"
-        │                                      │
-        └───────────────┬──────────────────────┘
+Memory Registry
+  - capacity
+  - BW
+  - latency
+  - supported operation
+  - compute capability
+        +
+Resource State Monitor
+  - current utilization
+  - pressure
+  - contention
+  - predicted state
+        ↓
+Candidate Builder
+        ↓
+Memory State View
+```
+
+즉, `Memory State View`는 단순 Memory 목록이 아니라 **현재/예측 Resource 상태를 반영한 Placement 후보 집합**이다.
+
+```text
+MemoryStateView
+├── Candidate[HBM]
+│   ├── capability
+│   ├── current_state
+│   ├── predicted_state
+│   └── availability
+├── Candidate[DRAM]
+├── Candidate[CXL]
+└── Candidate[SSD]
+```
+
+## 3.4 Resource-aware Placement Planner
+
+Resource-aware Placement Planner는 `Memory State View`를 입력으로 받아 Resource 관점에서 최적 Tier를 선택한다.
+
+주요 판단 요소:
+
+- capacity headroom
+- current / predicted pressure
+- effective bandwidth
+- latency
+- contention
+- supported operation
+- resource cost
+
+Data Descriptor는 size, required operation, QoS와 같은 **최소 constraint**만 제공한다.
+
+## 3.5 C1 Decision Flow
+
+```text
+Allocation Request
+      ↓
+Data Descriptor Adapter
+      ↓
+Telemetry Collector → Resource State Monitor
+                         ↓
+                 Current State + Trend
+                         ↓
+                  State Prediction
+                         ↓
+Memory Registry ────────┐
                         ▼
-               Common Memory Interface
-                        │
-             Feasibility / Cost Model
-                        │
-                 Placement Executor
+                Candidate Builder
+                        ↓
+                 Memory State View
+                        ↓
+         Resource-aware Placement Planner
+                        ↓
+                 Best Memory Tier
+                        ↓
+                Placement Executor
 ```
 
-따라서 C1과 C2는 단순히 동일한 순서도에서 **Policy 이름만 바뀌는 구조가 아니다.**
+## 3.6 C1 특징
 
-- C1은 **Resource-centric State Management → Resource Planner → Data Allocation**의 소프트웨어 구조를 가진다.
-- C2는 **Data Registry → Characterization → Data-aware Planner → Tier Selection**의 소프트웨어 구조를 가진다.
-- 두 구조는 하위의 `Memory Descriptor`, `Feasibility Filter`, `Cost Model`, `Placement Executor`를 공유할 수 있다.
+### 장점
 
-### 6.7 공통 / 차별화 모듈
+- Resource 상태 변화에 즉시 대응 가능
+- Data characterization 없이 decision overhead가 낮음
+- Memory pressure / BW contention 기반의 빠른 load balancing에 적합
 
-| Software Layer | C1 Memory-centric | C2 Data-centric |
-|---|---|---|
-| Primary Registry | **Memory Resource Registry** | **Data Object Registry** |
-| Runtime State Owner | **Resource State** | **Data Runtime State** |
-| Characterization | 최소 / 보조 | **Data Characterizer** |
-| Core Planner | **Resource-aware Planner** | **Data-aware Planner** |
-| Decision Granularity | Resource 중심 | Data Object 중심 |
-| Extension 축 | **New Memory Type** | **New Data Type** |
-| Common Layer | Memory Descriptor / Feasibility / Cost / Executor | 동일 |
+### 한계
+
+- Data별 접근 특성을 깊게 반영하지 않음
+- Long-lived cold data가 상대적으로 고가 Resource를 오래 점유할 수 있음
+- 동일 Resource 상태에서 서로 다른 Data class를 구분하는 능력이 제한적
 
 ---
 
-## 7. Data-centric Placement의 Data Type 적용
+# 4. C2 — Data-centric Placement
 
-### 7.1 KV Cache
+## 4.1 Definition
+
+> **AI Data의 Class와 Runtime Behavior를 먼저 분석하고, 해당 Data에 적합한 Memory Tier를 선택한다.**
+
+C2의 핵심은 Data Object Registry를 유지하는 것이 아니라, **Data Classifier + Runtime State Monitor + Data Characteristic Interpreter**를 통해 Data 특성을 만들어내는 것이다.
 
 ```text
-KV Block
-├─ Size
-├─ Hotness
-├─ Next Access / Reuse
-├─ Session Lifetime
-└─ Attention Access Pattern
-        │
-        ▼
-   HBM / DRAM / CXL / SSD
+Scheduler / Allocation Request
+          │
+          ▼
+Data Descriptor Adapter
+          │
+          ▼
+┌────────────────────────────────────────────────────────┐
+│               Data Placement Manager                  │
+│                                                       │
+│   ┌──────────────────┐     ┌───────────────────────┐  │
+│   │ Data Classifier  │     │ Runtime State Monitor │  │
+│   │ KV / RAG / Agent │     │ class behavior/history│  │
+│   │ Log / Adapter... │     │ trend / statistics    │  │
+│   └────────┬─────────┘     └──────────┬────────────┘  │
+│            └──────────────┬───────────┘               │
+│                           ▼                           │
+│              Data Characteristic Interpreter         │
+│              - hotness                               │
+│              - lifetime                              │
+│              - reuse                                 │
+│              - locality                              │
+│              - access pattern                        │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+                Data-aware Placement Planner
+                            │
+             ┌──────────────┴──────────────┐
+             ▼                             ▼
+  Memory Tier Affinity Evaluator      Memory Registry
+             │
+             ▼
+      Affinity Tier Set
+             │
+             ▼
+      Memory Tier Selector ◀──────── Telemetry Collector
+             │
+             ▼
+          Best Tier
+             │
+             ▼
+      Placement Executor
 ```
 
-### 7.2 RAG Data
+## 4.2 Data Classifier
+
+Data Classifier는 Data Descriptor의 정보를 이용해 Data를 논리적 Class로 분류한다.
+
+예:
 
 ```text
-Document / Chunk / Index Partition
-├─ Retrieval Frequency
-├─ Query Locality
-├─ Size
-├─ Sharing
-└─ Read Intensity
-        │
-        ▼
-   HBM / DRAM / CXL / SSD
+DataClass
+├── KV_CACHE
+├── RAG_DATA
+├── AGENT_MEMORY
+├── TOOL_RESULT
+├── LOG_DATA
+├── LORA_ADAPTER
+└── MOE_EXPERT
 ```
 
-### 7.3 Agent Memory / State
+Classifier의 목적은 단순 label 생성이 아니라, 이후 Runtime State와 결합하여 **Data class별 behavior model**을 적용할 수 있게 하는 것이다.
+
+예:
 
 ```text
-Agent Memory Object
-├─ Session Locality
-├─ Lifetime
-├─ Hotness
-├─ Reuse
-└─ Size
-        │
-        ▼
-   HBM / DRAM / CXL / SSD
+DataDescriptor
+  size=128MB
+  owner=session-42
+  type_hint=KV
+      ↓
+Data Classifier
+      ↓
+DataClass = KV_CACHE
 ```
 
-### 7.4 LoRA Adapter
+## 4.3 Runtime State Monitor
+
+Runtime State Monitor는 C1의 Resource State Monitor와 역할이 다르다.
+
+- C1 Resource State Monitor: **Memory Resource가 어떻게 변하는지 관찰/예측**
+- C2 Runtime State Monitor: **Data Class가 Runtime에서 어떤 동작/흐름을 보이는지 축적/관찰**
+
+Runtime State Monitor는 Data Class별 혹은 Object Group별 Runtime 통계를 축적한다.
 
 ```text
-Adapter
-├─ Request Frequency
-├─ Sharing
-├─ Size
-└─ Reuse
-        │
-        ▼
-   HBM / DRAM / CXL / SSD
+DataRuntimeStats
+├── access_frequency
+├── reuse_interval
+├── read_write_ratio
+├── lifetime_distribution
+├── sequentiality / locality
+├── sharing_degree
+├── active / idle duration
+└── transition_history
 ```
 
-### 7.5 MoE Expert
+초기 배치 시에는 충분한 History가 없을 수 있으므로 Data Class의 prior/default profile을 사용하고, Runtime이 진행되면서 실제 관찰값으로 갱신한다.
 
 ```text
-Expert
-├─ Routing Frequency
-├─ Size
-├─ Sharing
-└─ Access Pattern
-        │
-        ▼
-   HBM / DRAM / CXL / SSD
-```
-
----
-
-## 8. Placement Lifecycle
-
-```text
-Data 생성 / 유입
-       ↓
 Initial Placement
+  Data Class prior
+      ↓
+Runtime observations accumulate
+      ↓
+Runtime State Monitor
+      ↓
+class/object behavior statistics updated
+```
+
+## 4.4 Data Characteristic Interpreter
+
+Data Characteristic Interpreter는 다음 두 정보를 결합한다.
+
+```text
+Data Classifier Output
+       +
+Runtime State Monitor Output
        ↓
-Runtime Monitoring
+Data Characteristic Interpreter
        ↓
-상태 변화 감지
+Predicted Data Characteristics
+```
+
+출력 예:
+
+```text
+DataCharacteristics
+├── predicted_hotness
+├── predicted_lifetime
+├── predicted_reuse
+├── locality
+├── access_pattern
+├── read_write_intensity
+├── sharing
+└── operation_requirement
+```
+
+예:
+
+```text
+KV_CACHE
+ + 최근 access interval 짧음
+ + active session
+ + read-dominant
+      ↓
+Hotness = High
+Lifetime = Medium
+Reuse = High
+      ↓
+HBM / DRAM affinity 상승
+```
+
+```text
+AGENT_MEMORY
+ + long idle interval
+ + sparse reuse
+ + long retention
+      ↓
+Hotness = Low
+Lifetime = Long
+      ↓
+CXL / SSD affinity 상승
+```
+
+## 4.5 Memory Tier Affinity Evaluator
+
+Affinity Evaluator는 Data Characteristics와 Memory Registry의 정적 Capability를 비교하여 **Data에 적합한 Tier 집합**을 만든다.
+
+예:
+
+```text
+Data Characteristics
+  hotness=high
+  latency_sensitivity=high
+  lifetime=short
        ↓
-Placement Re-evaluation
-       ├── 유지
-       └── 재배치 → Promotion / Demotion
+Memory Tier Affinity Evaluator
+       ↓
+HBM: High Affinity
+DRAM: Medium Affinity
+CXL: Low Affinity
+SSD: Reject
 ```
 
-Re-evaluation Trigger:
+Affinity는 현재 Memory의 순간적인 load를 의미하지 않는다.
 
-- Hotness 변화
-- Access Pattern 변화
-- Lifetime 변화
-- Memory Pressure 증가
-- Memory Bandwidth Contention 증가
-- QoS / Latency Requirement 변화
-- Data Type-specific state 변화
+> **Affinity Evaluator = Data와 Memory Tier 특성 간의 본질적 적합성 평가**
+
+## 4.6 Memory Tier Selector
+
+Memory Tier Selector는 Affinity Evaluator가 만든 후보 중에서 **현재 실제 Resource 상태를 고려해 Best Tier를 선택**한다.
+
+입력:
+
+- Affinity Tier Set
+- Memory Registry
+- Telemetry Collector의 실시간 Memory Resource 상태
+
+예:
+
+```text
+Affinity Result
+  HBM = 0.95
+  DRAM = 0.75
+  CXL = 0.40
+       +
+Telemetry
+  HBM pressure = 95%
+  DRAM pressure = 45%
+       ↓
+Memory Tier Selector
+       ↓
+DRAM 선택
+```
+
+따라서 C2는 Data-aware이지만 Resource 상태를 무시하지 않는다.
+
+- **1차:** Data 특성으로 적합한 Tier를 좁힘
+- **2차:** 실시간 Resource 상태로 실제 Best Tier를 결정
+
+## 4.7 C2 Decision Flow
+
+```text
+Allocation Request
+      ↓
+Data Descriptor
+      ↓
+Data Classifier ───────────────┐
+                               │
+Runtime State Monitor ─────────┤
+                               ▼
+                 Data Characteristic Interpreter
+                               ↓
+                  Predicted Data Characteristics
+                               ↓
+                   Memory Tier Affinity Evaluator
+                               ↓
+                        Affinity Tier Set
+                               ↓
+Telemetry Collector ─────▶ Memory Tier Selector
+                               ↓
+                           Best Tier
+                               ↓
+                      Placement Executor
+```
+
+## 4.8 C2 특징
+
+### 장점
+
+- KV / RAG / Agent / Log 등 Data 특성 기반 fine-grained 배치 가능
+- Long-lived cold data를 저비용 Tier로 보내 고속 Memory 점유 감소 가능
+- Runtime History가 축적될수록 Data-specific placement 정밀도 향상 가능
+
+### 한계
+
+- Data characterization / runtime state 관리 overhead 증가
+- 초기 History 부족 시 prior 기반 추정 필요
+- 잘못된 characterization 또는 prediction이 mis-placement로 이어질 수 있음
+- 신규 Data Type 추가 시 Classifier / Characteristic Rule 또는 Model 확장 필요
 
 ---
 
-## 9. Initial Placement vs Re-placement
+# 5. C1 vs C2 핵심 차이
 
-### 9.1 Initial Placement
-
-```text
-New Data → Descriptor 생성 → Candidate Filtering → Placement Selection
-```
-
-### 9.2 Re-placement
-
-```text
-Current Placement → Cost Monitoring → Re-evaluation → New Placement
-```
-
-실제 재배치는 다음 조건을 만족하는 경우 수행한다.
-
-\[
-Expected\ Benefit > Re\text{-}placement\ Cost
-\]
-
-실제 Data 이동은 DP4의 Migration Mechanism에 의해 수행된다.
-
----
-
-## 10. Placement Manager Architecture
-
-두 후보가 공통으로 사용하는 하위 계층과 후보별 핵심 모듈을 분리한다.
-
-```text
-                         Placement Manager
-                                │
-             ┌──────────────────┼──────────────────┐
-             │                  │                  │
-             ▼                  ▼                  ▼
-        Data Descriptor    Memory State       Access Cost
-             │                  │                  │
-             └──────────────────┼──────────────────┘
-                                │
-                    ┌───────────┴───────────┐
-                    ▼                       ▼
-              C1 Resource              C2 Data
-              Planner                  Planner
-                    │                       │
-                    └───────────┬───────────┘
-                                ▼
-                        Feasibility Filter
-                                ▼
-                         Cost / Utility Model
-                                ▼
-                       Placement Decision
-                                ▼
-                       Placement Executor
-```
-
-### 10.1 공통 모듈
-
-- `MemoryStateCollector`
-- `MemoryDescriptor`
-- `AccessCostModel`
-- `FeasibilityFilter`
-- `PlacementExecutor`
-
-### 10.2 C1 핵심 모듈
-
-- `MemoryResourceRegistry`
-- `ResourceStateEvaluator`
-- `MemoryCentricPlanner`
-
-### 10.3 C2 핵심 모듈
-
-- `DataObjectRegistry`
-- `DataCharacterizer`
-- `DataDescriptorBuilder`
-- `DataCentricPlanner`
-
----
-
-## 11. Decision Interface
-
-### 11.1 Placement Request
-
-```text
-PlacementRequest
-├── data_descriptor
-├── current_tier
-├── candidate_memories
-├── system_state
-└── trigger
-```
-
-### 11.2 Placement Policy Interface
-
-```python
-class PlacementPolicy:
-    def select_tier(
-        self,
-        request: PlacementRequest,
-        memories: list[MemoryDescriptor],
-        state: SystemState,
-    ) -> PlacementDecision:
-        ...
-```
-
-### 11.3 C1
-
-```python
-class MemoryCentricPolicy(PlacementPolicy):
-    def select_tier(...):
-        # Memory Resource state를 중심으로 Tier 선택
-        ...
-```
-
-### 11.4 C2
-
-```python
-class DataCentricPolicy(PlacementPolicy):
-    def select_tier(...):
-        # Data Descriptor를 중심으로 Tier 선택
-        ...
-```
-
----
-
-## 12. DP2 / DP3 / DP4와의 경계
-
-### DP1. Data Placement
-
-> **Data를 어느 Memory Tier에 둘 것인가?**
-
-```text
-Data → Memory Tier
-```
-
-### DP2. Prefill Compute Placement
-
-> **Prefill Compute를 어느 Compute Resource에서 수행할 것인가?**
-
-```text
-Prefill → Compute Resource
-```
-
-DP1에서 Memory의 Compute Capability를 고려할 수 있지만, **Compute Resource의 위치 자체를 결정하지 않는다.**
-
-### DP3. Data Eviction
-
-> **Capacity가 부족할 때 어떤 Data를 제거할 것인가?**
-
-```text
-Memory Pressure → Data Selection for Eviction
-```
-
-### DP4. Data Migration
-
-> **결정된 Data Placement를 실제로 어떻게 이동시킬 것인가?**
-
-```text
-Source Tier → Migration Mechanism → Destination Tier
-```
-
----
-
-## 13. Candidate Comparison Summary
-
-| 항목 | C1. Memory-centric | C2. Data-centric |
+| 구분 | C1 Memory-centric | C2 Data-centric |
 |---|---|---|
-| 1차 Decision 주체 | **Memory Resource** | **Data Object** |
-| Primary Registry | Memory Resource | Data Object |
-| Core Planner | Resource-aware Planner | Data-aware Planner |
-| 핵심 질문 | 이 Resource를 누구에게 할당할 것인가? | 이 Data를 어디에 둘 것인가? |
-| 주요 입력 | Capacity / BW / Load / Capability | Hotness / Lifetime / Locality / Reuse / Access Pattern |
-| Memory State | 핵심 입력 | 공통 입력 |
-| Access Cost | 공통 입력 | 공통 입력 |
-| Data Characterization | 최소 | 핵심 |
-| Placement Granularity | Resource 중심 | Data Object 중심 |
-| 확장 축 | **New Memory Type** | **New Data Type** |
+| 1차 기준 | Memory Resource State | AI Data Characteristics |
+| 핵심 Monitor | Resource State Monitor | Runtime State Monitor |
+| Monitor 대상 | Memory Resource의 상태 변화 | Data Class의 동작/흐름/History |
+| Prediction 대상 | Resource pressure/load/BW 변화 | Hotness/Lifetime/Reuse 등 Data 특성 |
+| 정적 정보 | Memory Registry | Memory Registry + Data Class |
+| 중간 결과 | Memory State View | Data Characteristics / Tier Affinity |
+| 후보 생성 | Resource Candidate Builder | Memory Tier Affinity Evaluator |
+| 최종 선택 | Resource-aware Planner | Memory Tier Selector |
+| 실시간 Telemetry 사용 | Resource State 생성의 핵심 입력 | Affinity 후보 중 Best Tier 선택 시 사용 |
+| Data Characterization | 최소화 | 핵심 기능 |
 
-> **두 후보의 차이는 Access Cost의 사용 여부가 아니다.** 두 후보 모두 동일한 Access Cost Model과 Memory State를 사용할 수 있다. 차이는 **어떤 객체가 Placement Decision을 주도하는가**와 그에 따라 **어떤 Registry / Planner / Characterizer가 중심이 되는가**에 있다.
+가장 중요한 차이는 다음과 같다.
 
----
+```text
+C1
+Telemetry → Resource 변화 분석/예측
+         → Memory State View
+         → Resource 기준 Placement
 
-## 14. Design Decision Points
-
-### DD1. Data Descriptor 범위
-서로 다른 Data Type을 어느 수준까지 공통 Descriptor로 표현할 수 있는가?
-
-### DD2. Placement Granularity
-Data Object / Block / Session Group / Index Partition 중 어느 단위를 기본 Placement Unit으로 사용할 것인가?
-
-### DD3. Re-placement Frequency
-상태 변화를 얼마나 자주 감지하고 Placement를 재평가할 것인가?
-
-### DD4. Cost Model
-Access / Capacity / Migration / Operation / Constraint 비용을 어떤 형태로 결합할 것인가?
-
-### DD5. C1 / C2 Decision Boundary
-Memory State를 중심으로 결정하는 C1과 Data Characteristics를 중심으로 결정하는 C2의 실제 차이가 어느 workload/system condition에서 나타나는가?
-
-### DD6. Data Type Extension
-신규 Data Type이 추가되었을 때 기존 Placement Policy를 유지하면서 Descriptor Adapter만 추가할 수 있는가?
-
-### DD7. Memory Type Extension
-신규 Memory Type이 추가되었을 때 기존 Placement Policy를 수정하지 않고 Memory Descriptor / Resource Adapter만 추가하여 지원할 수 있는가?
+C2
+Data Class + Runtime History
+         → Data 특성 분석/예측
+         → Tier Affinity
+         + 실시간 Resource Telemetry
+         → Best Tier 선택
+```
 
 ---
 
-## 15. Design Principles
+# 6. Component Responsibility Boundary
 
-1. **Data Placement와 Compute Placement를 분리한다.**
-2. **Data Type과 Physical Representation을 분리한다.**
-3. **Memory raw specification과 Effective Access Cost를 분리한다.**
-4. **C1/C2의 공통 Runtime Infrastructure를 최대한 공유한다.**
-5. **Placement Decision과 Migration Execution을 분리한다.**
-6. **모든 Data를 무조건 dynamic placement 대상으로 취급하지 않는다.**
-7. **신규 Data Type / Memory Type 확장을 공통 Interface를 통해 수용한다.**
-8. **C1/C2의 차이는 Policy 명칭이 아니라 소프트웨어 구조와 1차 State Ownership에서 명확히 드러나야 한다.**
+## C1
+
+### Memory Resource Manager
+- Allocation Request 진입점
+- Resource State Monitor / Candidate Builder orchestration
+
+### Resource State Monitor
+- Telemetry 수집 결과 해석
+- Resource 상태 변화 추적
+- near-future Resource 상태 예측
+
+### Candidate Builder
+- Memory Registry + Resource State 결합
+- Candidate Resource 생성
+- `Memory State View` 생성
+
+### Resource-aware Placement Planner
+- Memory State View 기반 Tier 결정
+
+## C2
+
+### Data Placement Manager
+- Data-centric Placement pipeline orchestration
+
+### Data Classifier
+- Data Descriptor 기반 Data Class 분류
+
+### Runtime State Monitor
+- Data Class/Object의 Runtime behavior와 History 축적
+
+### Data Characteristic Interpreter
+- Data Class + Runtime statistics 기반 Data 특성 분석/예측
+
+### Memory Tier Affinity Evaluator
+- Data Characteristics와 Memory Capability를 비교하여 적합 Tier 후보 생성
+
+### Memory Tier Selector
+- Affinity + Telemetry 기반 실제 Best Tier 선택
 
 ---
 
-## 16. 관련 문서
+# 7. DP Boundary
 
-- `dp1-heterogeneous-memory-data-placement.md` — DP1 전체 Design Point / Background / Memory Configuration / Evaluation
-- `dp1-implementation-uml.md` — 구현 구조 및 UML
-- `dp1-simulation-results.md` — 후보 구조 정량 평가 및 시뮬레이션 결과
-- DP2 — Prefill Compute Placement
+DP1은 **어느 Memory Tier에 Data를 배치할 것인가**를 결정한다.
+
+- DP1 — Data Placement
+- DP2 — Prefill / Compute Placement
 - DP3 — Data Eviction
 - DP4 — Data Migration
+
+Placement 결과로 destination tier가 바뀌고 실제 Data 이동이 필요해지는 경우, 실제 Migration 수행은 DP4에 위임한다.
