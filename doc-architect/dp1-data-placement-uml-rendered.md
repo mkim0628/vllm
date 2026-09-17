@@ -701,7 +701,21 @@ flowchart LR
 
 ---
 
-# 7. DP Boundary
+# 7. C1 vs C2 장단점 — PPT 기준
+
+| 구분 | C1 Memory-centric | C2 Data-centric |
+|---|---|---|
+| 장점 | Resource 상태 변화에 즉시 반응 | KV / RAG / Agent 등 Data 특성 기반 fine-grained 배치 |
+| 장점 | Data characterization 없이 낮은 decision overhead | 불필요한 고속 메모리 점유 감소 가능 |
+| 단점 | Data별 접근 특성 반영 한계 | Data Characterization / Runtime state 관리 overhead 증가 |
+| 단점 | Long-lived cold data가 고속 자원을 점유할 수 있음 | 추정 오류 시 mis-placement 가능 |
+| 단점 | — | 신규 Data Type Adapter 설계 비용 |
+
+C2의 `신규 Data Type Adapter 설계 비용`은 구현에 따라 별도 Adapter 추가뿐 아니라 Data Classifier 및 Data Characteristic rule/model 확장 비용을 포함할 수 있다.
+
+---
+
+# 8. DP Boundary
 
 - **DP1:** Data Placement 결정
 - **DP2:** Prefill / Compute Placement
