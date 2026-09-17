@@ -185,14 +185,36 @@ MemoryDescriptor
 ├── internal_bandwidth
 ├── latency
 ├── compute_capability
-├── supported_operations
+│   ├── supported_operations
+│   ├── compute_throughput
+│   └── compute_efficiency
 ├── access_path
 ├── current_load
 ├── bandwidth_utilization
 └── write_cost / endurance
 ```
 
-### 4.2 Access Path
+`Compute Capability`는 PIM/PNM 등 **Memory 자체에서 수행할 수 있는 연산 능력**을 표현한다. 예를 들어 특정 reduction, vector operation, search/filter 등의 지원 여부와 처리 성능을 나타낼 수 있다.
+
+> Memory Compute Capability를 Placement 입력으로 사용하는 것은 **어느 Memory에 Data를 둘 것인가**를 판단하기 위한 것이다. 어떤 Compute Resource에서 Prefill을 수행할 것인가는 DP2에서 결정한다.
+
+### 4.2 System State
+
+Memory Descriptor가 정적인 Resource 특성을 표현한다면, System State는 Runtime 시점의 동적인 상태를 표현한다.
+
+```text
+SystemState
+├── memory_pressure
+├── tier_utilization
+├── bandwidth_utilization
+├── request_load
+├── access_contention
+├── active_data_population
+├── QoS / latency state
+└── runtime_policy_state
+```
+
+### 4.3 Access Path
 
 Memory의 raw bandwidth와 실제 Data access cost를 구분한다.
 
@@ -226,75 +248,184 @@ Effective Cost
 
 ## 5. Placement Decision Model
 
-### 5.1 입력
+### 5.1 전체 Decision Pipeline
 
-Placement Decision은 다음 세 가지 정보 집합을 입력으로 사용한다.
+Placement Decision은 **Data 특성, Memory Resource 특성, Runtime System State**를 통합하여 Placement Policy를 적용하고, 그 결과로 후보 Memory를 필터링한 뒤 비용/효용을 비교하여 최종 Tier를 선택한다.
 
 ```text
-        Data Descriptor
-              +
-       Memory Descriptor
-              +
-         System State
-              │
-              ▼
-       Placement Policy
+┌─────────────────┐
+│ Data Descriptor │
+└────────┬────────┘
+         │
+         │
+┌────────▼────────┐       ┌─────────────────┐
+│ Memory Descriptor│       │   System State  │
+└────────┬────────┘       └────────┬────────┘
+         │                         │
+         └────────────┬────────────┘
+                      ▼
+             ┌──────────────────┐
+             │  Placement Policy│
+             │     Selection    │
+             │                  │
+             │ C1 Memory-centric│
+             │ C2 Data-centric  │
+             └────────┬─────────┘
+                      │
+                      ▼
+             ┌──────────────────┐
+             │ Candidate Memory │
+             │    Filtering     │
+             └────────┬─────────┘
+                      │
+          ┌───────────┼───────────┐
+          ▼           ▼           ▼
+      Capacity     Operation   Reachability
+       Check         Check        Check
+          │           │           │
+          └───────────┼───────────┘
+                      ▼
+             ┌──────────────────┐
+             │ Candidate Memory │
+             │       Set        │
+             └────────┬─────────┘
+                      ▼
+             ┌──────────────────┐
+             │ Cost / Utility   │
+             │    Evaluation    │
+             └────────┬─────────┘
+                      ▼
+             ┌──────────────────┐
+             │   Tier Selection │
+             └────────┬─────────┘
+                      ▼
+             ┌──────────────────┐
+             │Placement Decision│
+             └────────┬─────────┘
+                      ▼
+             ┌──────────────────┐
+             │Placement Executor│
+             └──────────────────┘
 ```
 
-### 5.2 후보 Memory Filtering
+이 구조에서 **C1/C2는 전체 Pipeline을 대체하는 별도 시스템이 아니라 `Placement Policy`의 1차 Decision Logic을 구성하는 후보 구조**이다. Candidate Filtering, Cost Model, Executor는 원칙적으로 공통 Infrastructure로 유지한다.
 
-모든 Memory가 모든 Data의 후보가 될 수 있는 것은 아니다.
+### 5.2 Placement Policy
 
-먼저 **Feasibility Filter**를 적용한다.
+Placement Policy는 입력된 Data Descriptor, Memory Descriptor, System State를 바탕으로 **현재 Placement Decision에 적용할 의사결정 전략과 파라미터를 결정하는 계층**이다.
 
 ```text
-                 All Memory Tiers
-                        │
-                        ▼
-                Feasibility Filter
-                        │
-          ┌─────────────┼─────────────┐
-          ▼             ▼             ▼
-      Capacity       Operation      Reachability
-       Check           Check          Check
-          │             │             │
-          └─────────────┼─────────────┘
-                        ▼
-                Candidate Memories
+Data Descriptor
+      +
+Memory Descriptor
+      +
+System State
+      │
+      ▼
+Placement Policy
+      │
+      ├── C1: Memory-centric
+      └── C2: Data-centric
+```
+
+실제 구현에서는 C1/C2 중 하나를 고정된 Policy로 사용할 수도 있고, 실험 목적에 따라 동일 입력에 대해 두 Policy를 교체하여 비교할 수 있다.
+
+### 5.3 Candidate Memory Filtering
+
+Policy 적용 후 모든 Memory Tier를 대상으로 **실제로 배치 가능한 후보 집합**을 구성한다.
+
+```text
+All Memory Tiers
+       │
+       ▼
+┌─────────────────────┐
+│ Feasibility Filter  │
+├─────────────────────┤
+│ Capacity            │
+│ Supported Operation │
+│ Reachability        │
+│ QoS / Latency       │
+│ Endurance / Constraint│
+└──────────┬──────────┘
+           ▼
+Candidate Memory Set
 ```
 
 Feasibility 조건 예:
 
 - Data Size가 Memory의 Available Capacity 이하인가?
-- Required Operation을 해당 Memory가 지원하는가?
+- `required_operations`를 해당 Memory가 지원하는가?
 - Access Path가 Runtime에서 허용되는가?
 - 해당 Data의 QoS / latency requirement를 만족할 수 있는가?
 - Write Endurance 등 Memory-specific constraint를 위반하지 않는가?
 
-### 5.3 Cost / Utility Calculation
+특히 **Memory Compute Capability는 Operation Feasibility의 핵심 입력**이다.
 
-Feasible Memory에 대해 Placement Cost를 계산한다.
+예:
+
+```text
+Data.required_operations = {search, reduction}
+                  │
+                  ▼
+      Memory Compute Capability
+                  │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+   PNM: supported       DRAM: unsupported
+        │                   │
+        ▼                   ▼
+    Candidate             Filtered out
+```
+
+### 5.4 Cost / Utility Calculation
+
+Feasible Memory에 대해서만 Placement Cost 또는 Utility를 계산한다.
 
 \[
-Cost(d,m)
+Cost(d,m,s)
 =
-C_{access}(d,m)
+C_{access}(d,m,s)
 +
-C_{capacity}(d,m)
+C_{capacity}(d,m,s)
 +
-C_{migration}(d,m)
+C_{migration}(d,m,s)
 +
-C_{constraint}(d,m)
+C_{operation}(d,m,s)
++
+C_{constraint}(d,m,s)
 \]
 
 - `C_access`: Data Access에 발생하는 BW / latency / contention 비용
 - `C_capacity`: 제한된 Memory Capacity 사용 비용
 - `C_migration`: 향후 Placement 변경 시 예상 이동 비용
-- `C_constraint`: Compute Capability, Write Cost, QoS 등의 제약 비용
+- `C_operation`: Memory Compute Capability를 사용하거나 사용하지 않음으로써 발생하는 Operation 비용
+- `C_constraint`: QoS, Write Cost 등의 제약 비용
 
-> **Compute Placement 자체는 본 식의 결정 대상이 아니다.** 해당 Data를 특정 Memory에 배치했을 때 발생하는 Access/Operation Cost 및 Feasibility만 고려한다. Prefill의 Compute Location은 DP2에서 결정한다.
+`C_operation`은 **Memory에서 수행 가능한 연산의 적합성/효율성**을 반영하며, Compute Placement 자체를 결정하지 않는다.
 
-### 5.4 Placement Output
+### 5.5 Tier Selection
+
+후보 Memory 집합에서 Cost가 최소이거나 Utility가 최대인 Tier를 선택한다.
+
+```text
+Candidate Memory Set
+        │
+        ▼
+Cost / Utility Evaluation
+        │
+        ├── HBM : Cost = ...
+        ├── DRAM: Cost = ...
+        ├── CXL : Cost = ...
+        └── PNM : Cost = ...
+        │
+        ▼
+     Argmin / Argmax
+        │
+        ▼
+Selected Memory Tier
+```
+
+### 5.6 Placement Output
 
 ```text
 PlacementDecision
@@ -303,10 +434,13 @@ PlacementDecision
 ├── destination_tier
 ├── decision_reason
 ├── estimated_cost
+├── selected_operation_capability (optional)
 └── confidence / validity
 ```
 
 Placement Executor는 `PlacementDecision`을 받아 실제 Allocation 또는 Migration을 수행한다. Migration의 구체적인 mechanism은 DP4에서 정의한다.
+
+> **Compute Placement 자체는 본 식의 결정 대상이 아니다.** 해당 Data를 특정 Memory에 배치했을 때 발생하는 Access/Operation Cost 및 Feasibility만 고려한다. Prefill의 Compute Location은 DP2에서 결정한다.
 
 ---
 
@@ -331,21 +465,23 @@ Placement의 1차 의사결정 주체가 **Memory Resource**이다.
                  ┌──────────────────────────┐
                  │    Placement Manager     │
                  │                          │
-                 │  Memory State Collector  │
-                 │   ├─ Capacity            │
-                 │   ├─ Bandwidth           │
-                 │   ├─ Current Load        │
-                 │   ├─ Access Cost         │
-                 │   └─ Capability          │
+                 │  Data / Memory / State   │
+                 │       Descriptors        │
                  │            │             │
                  │            ▼             │
-                 │  Resource-aware Planner  │
+                 │  Memory-centric Policy   │
+                 │            │             │
+                 │            ▼             │
+                 │  Candidate Memory Filter │
+                 │            │             │
+                 │            ▼             │
+                 │  Cost / Utility Model    │
                  │            │             │
                  │            ▼             │
                  │  Tier Selection          │
                  │            │             │
                  │            ▼             │
-                 │  Placement Executor     │
+                 │  Placement Executor      │
                  └────────────┬─────────────┘
                               │
              ┌────────────────┼────────────────┐
@@ -356,20 +492,20 @@ Placement의 1차 의사결정 주체가 **Memory Resource**이다.
 ### 6.3 Decision Flow
 
 ```text
-Memory State
-     ↓
-Available Resource 확인
-     ↓
-Candidate Memory 구성
-     ↓
-Resource Cost 계산
-     ↓
+Memory Resource State
+        ↓
+Resource-aware Policy
+        ↓
+Candidate Memory Filtering
+        ↓
+Resource / Access Cost 계산
+        ↓
 Best Tier 선택
-     ↓
+        ↓
 Data 배치
 ```
 
-Data Characteristics는 최소한의 Feasibility 정보로만 사용하거나, 필요하면 Cost 계산의 보조 입력으로 사용한다.
+Memory Compute Capability는 `Capability`의 일부로 취급하며, Data의 `required_operations`와 매칭하여 후보 Memory를 제한하거나 Operation Cost를 계산한다.
 
 ### 6.4 주요 특성
 
@@ -418,24 +554,24 @@ Placement의 1차 의사결정 주체가 **Data Object**이다.
                  │    Placement Manager     │
                  │                          │
                  │  Data Characterizer      │
-                 │   ├─ Type                │
-                 │   ├─ Hotness             │
-                 │   ├─ Lifetime             │
-                 │   ├─ Locality            │
-                 │   ├─ Reuse               │
-                 │   └─ Access Pattern      │
                  │            │             │
                  │            ▼             │
                  │  Data Descriptor         │
                  │            │             │
                  │            ▼             │
-                 │  Feasibility Filter      │
+                 │  Data-centric Policy     │
                  │            │             │
                  │            ▼             │
-                 │  Tier Cost / Utility     │
+                 │  Candidate Memory Filter │
                  │            │             │
                  │            ▼             │
-                 │  Placement Executor     │
+                 │  Cost / Utility Model    │
+                 │            │             │
+                 │            ▼             │
+                 │  Tier Selection          │
+                 │            │             │
+                 │            ▼             │
+                 │  Placement Executor      │
                  └────────────┬─────────────┘
                               │
              ┌────────────────┼────────────────┐
@@ -452,7 +588,9 @@ Data Characterization
      ↓
 Common Data Descriptor
      ↓
-Feasibility Filter
+Data-centric Policy
+     ↓
+Feasibility / Candidate Memory Filtering
      ↓
 Data × Memory Cost 계산
      ↓
@@ -463,9 +601,9 @@ Data 배치
 
 ### 6.9 Data-centric Placement의 핵심
 
-Data-centric 구조에서도 **Memory State와 Access Cost는 반드시 고려**한다.
+Data-centric 구조에서도 **Memory State, Memory Descriptor, Access Cost, Compute Capability는 반드시 고려**한다.
 
-차이는 Access Cost의 존재 여부가 아니라 **Placement Decision의 중심이 Data Object에 있다는 것**이다.
+차이는 Access Cost나 Memory Capability의 존재 여부가 아니라 **Placement Decision의 중심이 Data Object에 있다는 것**이다.
 
 ```text
              Data Object
@@ -476,10 +614,11 @@ Data-centric 구조에서도 **Memory State와 Access Cost는 반드시 고려**
      │            │            │
      └────────────┼────────────┘
                   ▼
-         Memory Candidates
+          Policy / Candidate
                   │
                   ▼
-       Access / Capacity Cost
+         Memory Capability
+          + Access Cost
                   │
                   ▼
             Tier Selection
@@ -518,7 +657,8 @@ KV Block
 ├─ Hotness
 ├─ Next Access / Reuse
 ├─ Session Lifetime
-└─ Attention Access Pattern
+├─ Attention Access Pattern
+└─ Required Operations
         │
         ▼
    HBM / DRAM / CXL / SSD
@@ -534,10 +674,11 @@ Document / Chunk / Index Partition
 ├─ Query Locality
 ├─ Size
 ├─ Sharing
-└─ Read Intensity
+├─ Read Intensity
+└─ Required Operations
         │
         ▼
-   HBM / DRAM / CXL / SSD
+   HBM / DRAM / CXL / SSD / PNM
 ```
 
 예:
@@ -546,6 +687,7 @@ Document / Chunk / Index Partition
 Frequently Retrieved Chunk → HBM
 Moderately Retrieved Data  → DRAM / CXL
 Rarely Retrieved Data      → SSD
+Search-heavy Index         → PNM candidate
 ```
 
 ### 7.3 Agent Memory / State
@@ -582,7 +724,8 @@ Expert
 ├─ Routing Frequency
 ├─ Size
 ├─ Sharing
-└─ Access Pattern
+├─ Access Pattern
+└─ Required Operations
         │
         ▼
    HBM / DRAM / CXL / SSD
@@ -626,6 +769,7 @@ Placement는 한 번 결정하고 끝나는 것이 아니라 Data Lifecycle에 �
 - Memory Bandwidth Contention 증가
 - QoS / Latency Requirement 변화
 - Data Type-specific state 변화
+- Memory Compute Capability 또는 Operation Requirement 변화
 
 ---
 
@@ -640,7 +784,11 @@ New Data
    ↓
 Descriptor 생성
    ↓
+Placement Policy 적용
+   ↓
 Memory Candidate Filtering
+   ↓
+Cost / Utility Evaluation
    ↓
 Placement Selection
 ```
@@ -656,10 +804,12 @@ Current Cost Monitoring
        ↓
 Re-evaluation
        ↓
+Policy + Candidate Filtering
+       ↓
 New Placement
 ```
 
-단, 다음 조건을 만족하는 경우에만 실제 재배치를 수행한다.
+다음 조건을 만족하는 경우에만 실제 재배치를 수행한다.
 
 \[
 Expected\ Benefit > Re\text{-}placement\ Cost
@@ -679,11 +829,11 @@ Expected\ Benefit > Re\text{-}placement\ Cost
              ┌──────────────────┼──────────────────┐
              │                  │                  │
              ▼                  ▼                  ▼
-        Data Descriptor    Memory State       Access Cost
+        Data Descriptor    Memory Descriptor    System State
              │                  │                  │
              └──────────────────┼──────────────────┘
-                                │
-                         Candidate Policy
+                                ▼
+                        Placement Policy
                            ┌────┴────┐
                            ▼         ▼
                           C1        C2
@@ -691,6 +841,12 @@ Expected\ Benefit > Re\text{-}placement\ Cost
                        centric    centric
                            │         │
                            └────┬────┘
+                                ▼
+                    Candidate Memory Filtering
+                                │
+                                ▼
+                        Cost / Utility Model
+                                │
                                 ▼
                         Placement Decision
                                 │
@@ -700,10 +856,13 @@ Expected\ Benefit > Re\text{-}placement\ Cost
 
 ### 10.1 공통 모듈
 
+- `DataDescriptorBuilder`
 - `MemoryStateCollector`
 - `MemoryDescriptor`
-- `AccessCostModel`
+- `SystemStateCollector`
 - `FeasibilityFilter`
+- `AccessCostModel`
+- `OperationCostModel`
 - `PlacementExecutor`
 
 ### 10.2 C1 전용 핵심 모듈
@@ -717,7 +876,7 @@ Expected\ Benefit > Re\text{-}placement\ Cost
 - `DataDescriptorBuilder`
 - `DataCentricPlanner`
 
-> **C1과 C2의 공정한 비교를 위해 공통 Memory State / Access Cost / Feasibility / Executor 계층은 동일하게 유지하고, 1차 Decision Logic만 변경한다.**
+> **C1과 C2의 공정한 비교를 위해 공통 Memory State / Access Cost / Operation Feasibility / Executor 계층은 동일하게 유지하고, 1차 Decision Logic만 변경한다.**
 
 ---
 
@@ -728,8 +887,8 @@ Expected\ Benefit > Re\text{-}placement\ Cost
 ```text
 PlacementRequest
 ├── data_descriptor
+├── memory_descriptors
 ├── current_tier
-├── candidate_memories
 ├── system_state
 └── trigger
 ```
@@ -749,12 +908,31 @@ class PlacementPolicy:
         ...
 ```
 
+실제 내부 흐름은 다음과 같다.
+
+```text
+PlacementRequest
+      │
+      ▼
+Policy-specific Evaluation
+      │
+      ▼
+Candidate Memory Filtering
+      │
+      ▼
+Cost / Utility Evaluation
+      │
+      ▼
+PlacementDecision
+```
+
 ### 11.3 C1
 
 ```python
 class MemoryCentricPolicy(PlacementPolicy):
     def select_tier(...):
-        # Memory Resource state를 중심으로 Tier 선택
+        # Memory Resource state를 1차 기준으로 Tier 선택
+        # Data requirement는 feasibility / cost 보조 입력
         ...
 ```
 
@@ -763,7 +941,8 @@ class MemoryCentricPolicy(PlacementPolicy):
 ```python
 class DataCentricPolicy(PlacementPolicy):
     def select_tier(...):
-        # Data Descriptor를 중심으로 Tier 선택
+        # Data Descriptor를 1차 기준으로 Tier 선택
+        # Memory state / capability는 feasibility / cost 입력
         ...
 ```
 
@@ -774,6 +953,7 @@ PlacementDecision
 ├── destination_tier
 ├── estimated_cost
 ├── decision_reason
+├── selected_operation_capability (optional)
 └── confidence
 ```
 
@@ -788,6 +968,8 @@ PlacementDecision
 ```text
 Data → Memory Tier
 ```
+
+Memory Compute Capability는 **Placement의 Feasibility 및 Cost 판단에 입력으로 사용**한다.
 
 ### DP2. Prefill Compute Placement
 
@@ -836,13 +1018,14 @@ DP1의 `Placement Decision`은 DP4의 실행 대상과 Destination을 제공할 
 | 주요 입력 | Capacity / BW / Load / Capability | Hotness / Lifetime / Locality / Reuse / Access Pattern |
 | Memory State | 핵심 입력 | 공통 입력 |
 | Access Cost | 공통 입력 | 공통 입력 |
+| Compute Capability | 공통 입력 / Operation Feasibility | 공통 입력 / Operation Feasibility |
 | Data Characterization | 최소 | 핵심 |
 | Placement Granularity | Resource 중심 | Data Object 중심 |
 | 강점 | 단순성 / Resource Utilization | Fine-grained Data-aware Placement |
 | 주요 비용 | Data 특성 활용 제한 | Characterization / Prediction |
 | 주요 확장 축 | **New Memory Type** | **New Data Type** |
 
-> **두 후보의 차이는 Access Cost의 사용 여부가 아니다.** 두 후보 모두 동일한 Access Cost Model과 Memory State를 사용할 수 있다. 차이는 **어떤 객체가 Placement Decision을 주도하는가**에 있다.
+> **두 후보의 차이는 Access Cost 또는 Compute Capability의 사용 여부가 아니다.** 두 후보 모두 동일한 Memory State, Access Cost, Memory Compute Capability를 사용할 수 있다. 차이는 **어떤 객체가 Placement Decision을 주도하는가**에 있다.
 
 ---
 
@@ -864,19 +1047,27 @@ Data Object / Block / Session Group / Index Partition 중 어느 단위를 기�
 
 ### DD4. Cost Model
 
-Access / Capacity / Migration / Constraint 비용을 어떤 형태로 결합할 것인가?
+Access / Capacity / Migration / Operation / Constraint 비용을 어떤 형태로 결합할 것인가?
 
-### DD5. C1 / C2 Decision Boundary
+### DD5. Candidate Filtering
+
+Capacity / Operation / Reachability / QoS / Endurance 등의 조건을 어느 단계에서 적용할 것인가?
+
+### DD6. C1 / C2 Decision Boundary
 
 Memory State를 중심으로 결정하는 C1과 Data Characteristics를 중심으로 결정하는 C2의 실제 차이가 어느 workload/system condition에서 나타나는가?
 
-### DD6. Data Type Extension
+### DD7. Data Type Extension
 
 신규 Data Type이 추가되었을 때 기존 Placement Policy를 유지하면서 Descriptor Adapter만 추가할 수 있는가?
 
-### DD7. Memory Type Extension
+### DD8. Memory Type Extension
 
-신규 Memory Type이 추가되었을 때 기존 Placement Policy를 수정하지 않고 Memory Descriptor만 추가하여 지원할 수 있는가?
+신규 Memory Type이 추가되었을 때 기존 Placement Policy를 수정하지 않고 Memory Descriptor와 Capability만 추가하여 지원할 수 있는가?
+
+### DD9. Memory Compute Capability
+
+Memory가 제공하는 Operation을 어떤 granularity로 Descriptor화하고, Placement Cost/Utility에 어떻게 반영할 것인가?
 
 ---
 
@@ -885,10 +1076,12 @@ Memory State를 중심으로 결정하는 C1과 Data Characteristics를 중심�
 1. **Data Placement와 Compute Placement를 분리한다.**
 2. **Data Type과 Physical Representation을 분리한다.**
 3. **Memory raw specification과 Effective Access Cost를 분리한다.**
-4. **C1/C2의 공통 Runtime Infrastructure를 최대한 공유한다.**
-5. **Placement Decision과 Migration Execution을 분리한다.**
-6. **모든 Data를 무조건 dynamic placement 대상으로 취급하지 않는다.**
-7. **신규 Data Type / Memory Type 확장을 공통 Interface를 통해 수용한다.**
+4. **Memory Compute Capability를 Placement Feasibility 및 Cost의 입력으로 취급한다.**
+5. **C1/C2의 공통 Runtime Infrastructure를 최대한 공유한다.**
+6. **Placement Policy → Candidate Filtering → Cost/Utility → Tier Selection의 명시적인 Decision Pipeline을 유지한다.**
+7. **Placement Decision과 Migration Execution을 분리한다.**
+8. **모든 Data를 무조건 dynamic placement 대상으로 취급하지 않는다.**
+9. **신규 Data Type / Memory Type 확장을 공통 Interface를 통해 수용한다.**
 
 ---
 
