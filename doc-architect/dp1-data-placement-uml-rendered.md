@@ -709,9 +709,6 @@ flowchart LR
 | 장점 | Data characterization 없이 낮은 decision overhead | 불필요한 고속 메모리 점유 감소 가능 |
 | 단점 | Data별 접근 특성 반영 한계 | Data Characterization / Runtime state 관리 overhead 증가 |
 | 단점 | Long-lived cold data가 고속 자원을 점유할 수 있음 | 추정 오류 시 mis-placement 가능 |
-| 단점 | — | 신규 Data Type Adapter 설계 비용 |
-
-C2의 `신규 Data Type Adapter 설계 비용`은 구현에 따라 별도 Adapter 추가뿐 아니라 Data Classifier 및 Data Characteristic rule/model 확장 비용을 포함할 수 있다.
 
 ---
 
