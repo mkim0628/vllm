@@ -11,6 +11,7 @@ from pathlib import Path
 from model import load_system
 from scenarios import scenarios
 from simulator import run_sim
+from qa_utils import best_sustainable_rows, p99_slo_feasible
 from modifiability import measure as measure_modifiability
 
 SEEDS=[11,23,37,51,71]
@@ -58,14 +59,7 @@ def normal_score_names():
     return {s.name for s in scenarios() if s.name not in ROBUSTNESS}
 
 def best_goodput_rows(rows,candidate,names):
-    best={}
-    for r in rows:
-        if r["candidate"]!=candidate or r["scenario"] not in names:
-            continue
-        k=(r["scenario"],r["seed"])
-        if k not in best or r["slo_goodput"]>best[k]["slo_goodput"]:
-            best[k]=r
-    return best
+    return best_sustainable_rows(rows,candidate,names)
 
 def paired_goodput_ratios(rows,candidate,names):
     base=best_goodput_rows(rows,"As-Is-HBM-first",names)
