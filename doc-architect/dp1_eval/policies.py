@@ -1006,11 +1006,10 @@ class C1MemoryCentricR2(C1MemoryCentric):
 
 
 class C2DataCentricR2:
-    """C2-R2: deterministic data type + path-cost comparison + degraded placement.
+    """C2-R2: deterministic data type + relative path-cost comparison.
 
-    There is no classifier-confidence fallback.  A placement path always exists
-    as long as at least one memory tier has physical capacity; a path may simply
-    be unable to satisfy the requested SLO, in which case it is marked degraded.
+    Performance selection is SLO-independent.  Serving SLO belongs to the upper
+    serving layer; DP1 compares candidate paths against the current/HBM baseline.
     """
     name="C2-R2-path-aware"
 
@@ -1106,24 +1105,26 @@ class C2DataCentricR2:
             mode="resident" if m.name=="hbm" else "remote_access"
             transfer=0.0 if m.name=="hbm" else (
                 min(obj.size_bytes,obj.access_bytes*obj.batch_size)/max(1.0,m.ext_bw))
-            tpot=hbm_tpot
             ttft=prefill+transfer+migration
-            service=max(hbm_service,transfer/max(1,obj.output_tokens))
+            if cls in ("LORA_ADAPTER","MOE_EXPERT") and m.name!="hbm":
+                remote_per_token=transfer/max(1,obj.output_tokens)
+                tpot=hbm_tpot+remote_per_token
+                service=max(hbm_service,tpot)
+            else:
+                tpot=hbm_tpot
+                service=max(hbm_service,transfer/max(1,obj.output_tokens))
 
-        # Resource pressure is part of end-to-end path cost.
+        # Resource pressure is part of end-to-end path cost. No absolute SLO
+        # threshold is embedded in the policy.
         pressure=max(telemetry[m.name].capacity_util,telemetry[m.name].bw_util)
         pressure_mult=1.0+max(0.0,pressure-.75)*2.0
         ttft_eff=ttft*pressure_mult
         service_eff=service*pressure_mult
+        tpot_eff=tpot*pressure_mult
 
-        slo=(ttft_eff<=2.0 and tpot<=.050)
-        perf=max(ttft_eff/2.0,tpot/.050,service_eff/.050)
-
-        # Data characteristics break close performance ties; performance remains primary.
-        affinity=self.aff.affinity(cls,ch,obj,m)
-        perf=max(0.0,perf-.08*affinity)
         self.decision_ops+=1
-        return PlacementPath(m.name,mode,service_eff,ttft_eff,tpot,slo,perf)
+        return PlacementPath(
+            m.name,mode,service_eff,ttft_eff,tpot_eff,True,service_eff)
 
     def _baseline_path(self,paths):
         by={p.tier:p for p in paths}
@@ -1132,13 +1133,20 @@ class C2DataCentricR2:
                 return by[name]
         return min(paths,key=lambda p:p.perf_cost)
 
+    def _relative_cost(self,cand,base):
+        return max(
+            cand.service_s/max(1e-9,base.service_s),
+            cand.ttft_s/max(1e-9,base.ttft_s),
+            cand.tpot_s/max(1e-9,base.tpot_s),
+        )
+
     def _candidate_beats_baseline(self,cand,base):
         if cand.tier==base.tier and cand.mode==base.mode:
             return True
         throughput_win=cand.service_s <= base.service_s*(1-self.performance_margin)
         ttft_win=cand.ttft_s <= base.ttft_s*(1-self.performance_margin)
-        # Never buy a large decode-latency regression for a small throughput gain.
-        latency_safe=cand.tpot_s <= max(.050,base.tpot_s*1.10)
+        # Relative no-regret bound; no serving SLO is embedded.
+        latency_safe=cand.tpot_s <= base.tpot_s*1.10
         return latency_safe and (throughput_win or ttft_win)
 
     def _commit(self,obj,path):
@@ -1185,52 +1193,55 @@ class C2DataCentricR2:
             self.current_mode[obj.oid]="oom_best_effort"
             return best.name
 
-        feasible=[p for p in paths if p.slo_feasible]
         baseline=self._baseline_path(paths)
 
-        if feasible:
-            best=min(feasible,key=lambda p:p.perf_cost)
+        # Performance is primary; data affinity only breaks close cost ties.
+        def ranked_cost(p):
+            rel=self._relative_cost(p,baseline)
+            affinity=self.aff.affinity(
+                cls,ch,obj,self.system.memories[p.tier])
+            return rel-.03*affinity
 
-            # No-regret guard: if a non-baseline path cannot beat the As-Is path,
-            # use the baseline path rather than exercising a tier just because it exists.
-            if baseline.slo_feasible and not self._candidate_beats_baseline(best,baseline):
-                if best.tier!=baseline.tier or best.mode!=baseline.mode:
-                    self.performance_bypass_count+=1
-                best=baseline
+        best=min(paths,key=ranked_cost)
 
-            # Under high HBM pressure, an SLO-feasible non-HBM path may be chosen
-            # even if its point estimate is close, because it relieves the bottleneck.
-            hp=max(telemetry["hbm"].capacity_util,telemetry["hbm"].bw_util)
-            if hp>=.90 and best.tier=="hbm":
-                off=[p for p in feasible if p.tier!="hbm" and p.tpot_s<=.050]
-                if off:
-                    alt=min(off,key=lambda p:p.perf_cost)
-                    if alt.perf_cost<=best.perf_cost*1.10:
-                        best=alt
+        # No-regret guard: a specialized path is used only when it improves
+        # service/TTFT without buying a >10% TPOT regression.
+        if not self._candidate_beats_baseline(best,baseline):
+            if best.tier!=baseline.tier or best.mode!=baseline.mode:
+                self.performance_bypass_count+=1
+            best=baseline
 
-            return self._commit(obj,best)
+        # Resource pressure may justify a near-equal offload path, but never an
+        # unbounded latency sacrifice.
+        hp=max(
+            telemetry["hbm"].capacity_util,
+            telemetry["hbm"].bw_util)
+        if hp>=.90 and best.tier=="hbm":
+            off=[
+                p for p in paths
+                if p.tier!="hbm" and self._relative_cost(p,baseline)<=1.10
+            ]
+            if off:
+                best=min(off,key=ranked_cost)
 
-        # No path can satisfy TTFT+TPOT simultaneously: choose best effort.
-        # This is a degraded placement, not a post-hoc fallback.
-        self.degraded_count+=1
-
-        # A temporary DRAM stage is useful only when predicted HBM relief occurs
-        # before the next reuse.  next_reuse is not a fallback criterion in general.
-        if cls=="KV_CACHE":
+        # Lifecycle-aware temporary staging remains a C2-only capability. It is
+        # allowed only when HBM relief is predicted before the next reuse.
+        if cls=="KV_CACHE" and best.tier=="hbm" and hp>=.90:
             dram=next((p for p in paths if p.tier=="dram"),None)
             relief=self.hbm_relief.seconds_to_relief()
             next_reuse=float(ch.get("next_reuse_s",float("inf")))
             if dram is not None and math.isfinite(relief) and relief<=30.0:
                 promote_s=obj.size_bytes/max(
-                    1.0,min(self.system.memories["dram"].ext_bw,self.system.gpu_hbm_bw))
+                    1.0,min(
+                        self.system.memories["dram"].ext_bw,
+                        self.system.gpu_hbm_bw))
                 if next_reuse>relief+promote_s+.05:
                     dram=PlacementPath(
                         dram.tier,"dram_stage_wait",dram.service_s,
-                        dram.ttft_s,dram.tpot_s,False,dram.perf_cost)
+                        dram.ttft_s,dram.tpot_s,True,dram.perf_cost)
                     if obj.oid not in self.deferred_hbm:
                         self.deferred_stage_count+=1
                     self.deferred_hbm.add(obj.oid)
                     return self._commit(obj,dram)
 
-        best=min(paths,key=lambda p:p.perf_cost)
         return self._commit(obj,best)
