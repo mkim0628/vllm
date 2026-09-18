@@ -791,16 +791,27 @@ class DataTypeResolver:
 
 
 class C1MemoryCentricR2(C1MemoryCentric):
-    """C1-R2: resource utility already includes movement cost; emergency changes objective."""
+    """C1-R2: resource-centric placement + relative performance guard.
+
+    C1 remains resource-centric: it does not use runtime hotness/reuse/lifetime.
+    Required operation capability and static execution-cost estimates are allowed
+    as hard/resource cost information.  Emergency pressure relief cannot bypass
+    the performance guard.
+    """
     name="C1-R2-emergency-resource"
 
-    def __init__(self,system:SystemSpec,emergency_high=.90,relief_target=.85):
+    def __init__(self,system:SystemSpec,emergency_high=.90,relief_target=.85,
+                 performance_margin=.02,max_perf_regression=.10):
         super().__init__(system)
         self.current_tier={}
         self.emergency_high=emergency_high
         self.relief_target=relief_target
+        self.performance_margin=performance_margin
+        self.max_perf_regression=max_perf_regression
         self.emergency_count=0
         self.emergency_migrations=0
+        self.performance_bypass_count=0
+        self.emergency_blocked_by_perf=0
 
     def _utility(self,obj,m,st,current):
         if obj.data_class=="KV_CACHE" and m.attention_capable:
@@ -818,55 +829,171 @@ class C1MemoryCentricR2(C1MemoryCentric):
         sizecap=min(1,math.log2(max(2,m.capacity_bytes/obj.size_bytes))/8)
         utility=.30*cap+.24*bw+.32*speed+.09*latency+.05*sizecap
 
-        # Stability is part of utility, not a separate policy stage.
+        # Movement/stability cost is part of resource utility.
         if current and current!=m.name:
             src=self.system.memories[current]
             transfer_s=obj.size_bytes/max(1.0,min(src.ext_bw,m.ext_bw))
             utility-=min(.22,.08+transfer_s*.04)
         return utility
 
+    def _migration_proxy(self,obj,current,target):
+        if not current or current==target:
+            return 0.0
+        a=self.system.memories[current]
+        b=self.system.memories[target]
+        return .20*obj.size_bytes/max(1.0,min(a.ext_bw,b.ext_bw))
+
+    def _performance_path(self,obj,m,telemetry,current):
+        """Static end-to-end path estimate; no runtime data behavior is used."""
+        q=min(2048,obj.context_tokens)
+        prefill=self.system.prefill_s(obj.context_tokens,q)
+        non_attn=self.system.gpu_non_attention_decode_s(obj.batch_size)
+        hbm_attn=self.system.hbm_attention_s(obj.context_tokens,obj.batch_size)
+        hbm_tpot=non_attn+hbm_attn
+        hbm_service=max(non_attn,hbm_attn)
+        migration=self._migration_proxy(obj,current,m.name)
+
+        if obj.data_class=="KV_CACHE":
+            if m.name=="hbm":
+                ttft=prefill+migration
+                tpot=hbm_tpot
+                service=hbm_service
+            elif m.attention_capable:
+                attn=self.system.offloaded_attention_s(
+                    m,obj.context_tokens,obj.batch_size)
+                ttft=prefill+migration
+                tpot=non_attn+attn
+                service=max(non_attn,attn)
+            else:
+                restore=obj.size_bytes/max(1.0,m.ext_bw)
+                ttft=prefill+restore+migration
+                tpot=hbm_tpot
+                service=max(hbm_service,restore)
+        elif obj.data_class=="RAG_DATA":
+            retrieval=self.system.rag_retrieval_s(
+                obj.size_bytes,obj.batch_size,m.name,obj.retrieval_dim)
+            ttft=prefill+retrieval+migration
+            tpot=hbm_tpot
+            service=max(hbm_service,retrieval/max(1,obj.output_tokens))
+        else:
+            transfer=0.0 if m.name=="hbm" else (
+                min(obj.size_bytes,obj.access_bytes*obj.batch_size)/
+                max(1.0,m.ext_bw))
+            ttft=prefill+transfer+migration
+            tpot=hbm_tpot
+            service=max(hbm_service,transfer/max(1,obj.output_tokens))
+
+        # Current resource pressure affects effective service cost, but no SLO is used.
+        pressure=max(
+            telemetry[m.name].capacity_util,
+            telemetry[m.name].bw_util)
+        pressure_mult=1.0+max(0.0,pressure-.75)*2.0
+        return {
+            "tier":m.name,
+            "service_s":service*pressure_mult,
+            "ttft_s":ttft*pressure_mult,
+            "tpot_s":tpot,
+        }
+
+    def _relative_cost(self,path,base):
+        return max(
+            path["service_s"]/max(1e-9,base["service_s"]),
+            path["ttft_s"]/max(1e-9,base["ttft_s"]),
+            path["tpot_s"]/max(1e-9,base["tpot_s"]),
+        )
+
+    def _candidate_beats_baseline(self,cand,base):
+        if cand["tier"]==base["tier"]:
+            return True
+        service_win=(
+            cand["service_s"] <=
+            base["service_s"]*(1-self.performance_margin))
+        ttft_win=(
+            cand["ttft_s"] <=
+            base["ttft_s"]*(1-self.performance_margin))
+        tpot_safe=(
+            cand["tpot_s"] <=
+            base["tpot_s"]*(1+self.max_perf_regression))
+        return tpot_safe and (service_win or ttft_win)
+
     def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
         states={n:self.monitor.state(n,t) for n,t in telemetry.items()}
         current=self.current_tier.get(obj.oid)
         cands=self.builder.build(self.system,states,obj,cap_mult)
 
-        # The current placement remains a valid "keep" option even when there is
-        # no additional free headroom for another copy.
+        # Current placement remains a legal keep option.
         if current and current not in {m.name for m,_ in cands}:
             m=self.system.memories[current]
-            if not (obj.data_class=="KV_CACHE" and current!="hbm" and not m.attention_capable):
+            if not (obj.data_class=="KV_CACHE" and
+                    current!="hbm" and not m.attention_capable):
                 cands.append((m,states[current]))
 
         if not cands:
             return current or "hbm"
 
         scored=[]
+        paths={}
         for m,st in cands:
             scored.append((self._utility(obj,m,st,current),m.name))
+            paths[m.name]=self._performance_path(obj,m,telemetry,current)
             self.decision_ops+=1
-        best=max(scored)[1]
+
+        resource_best=max(scored)[1]
+
+        # C1 baseline is current placement when one exists; otherwise HBM if available.
+        if current in paths:
+            baseline=paths[current]
+        elif "hbm" in paths:
+            baseline=paths["hbm"]
+        else:
+            baseline=min(paths.values(),key=lambda p:p["service_s"])
+
+        chosen=resource_best
+        cand=paths[chosen]
+
+        # Same no-regret idea as C2-R2, but without C2 runtime data semantics.
+        if (chosen!=baseline["tier"] and
+                not self._candidate_beats_baseline(cand,baseline)):
+            self.performance_bypass_count+=1
+            chosen=baseline["tier"]
 
         h=states["hbm"]
-        hbm_now=max(telemetry["hbm"].capacity_util,telemetry["hbm"].bw_util)
+        hbm_now=max(
+            telemetry["hbm"].capacity_util,
+            telemetry["hbm"].bw_util)
         hbm_pred=max(h.predicted_pressure,h.predicted_bw)
-        emergency=(hbm_now>=self.emergency_high or
-                   (hbm_now>=self.relief_target and hbm_pred>=self.emergency_high))
+        emergency=(
+            hbm_now>=self.emergency_high or
+            (hbm_now>=self.relief_target and
+             hbm_pred>=self.emergency_high))
 
-        # Emergency policy only applies to data currently occupying HBM.  The
-        # objective changes from max utility to minimum-cost pressure relief.
+        # Emergency changes the objective to pressure relief, but only among
+        # candidates that remain performance-safe relative to the current/HBM path.
         if current=="hbm" and emergency and hbm_now>self.relief_target:
-            off=[(score,name) for score,name in scored if name!="hbm"]
-            if off:
-                self.emergency_count+=1
-                # Utility already contains transfer cost; choosing its maximum
-                # approximates highest pressure-relief benefit per movement cost.
-                target=max(off)[1]
+            self.emergency_count+=1
+            safe=[]
+            for score,name in scored:
+                if name=="hbm":
+                    continue
+                p=paths[name]
+                rel=self._relative_cost(p,baseline)
+                if (self._candidate_beats_baseline(p,baseline) or
+                        rel<=1+self.max_perf_regression):
+                    safe.append((score-rel*.05,name))
+
+            if safe:
+                target=max(safe)[1]
                 self.current_tier[obj.oid]=target
                 self.emergency_migrations+=1
                 return target
 
-        self.current_tier[obj.oid]=best
-        return best
+            self.emergency_blocked_by_perf+=1
+            self.performance_bypass_count+=1
+            self.current_tier[obj.oid]=baseline["tier"]
+            return baseline["tier"]
+
+        self.current_tier[obj.oid]=chosen
+        return chosen
 
 
 class C2DataCentricR2:
