@@ -128,28 +128,32 @@ Throughput QA는 analytical physical reference 대비 비율로 매기지 않는
 주 지표는 다음 두 개를 함께 기록한다.
 
 - Raw Token Throughput [tok/s]
-- **SLO-constrained Goodput [tok/s]** — First-response latency와 TPOT SLO를 모두 만족한 요청/토큰만 분자에 포함
+- **Max Sustainable SLO Goodput [tok/s]** — 동일 workload cell에서 offered load를 sweep하고, First-response와 TPOT SLO를 만족하면서 얻은 최대 Goodput
 
-공통 score는 heavy-load cell의 Goodput ratio를 사용한다.
-
-```
-Goodput Ratio = Candidate SLO-constrained Goodput / As-Is SLO-constrained Goodput
-```
-
-기본 heavy-load grid:
+각 `(batch, context, workload)` cell에서 다음 load sweep을 수행한다.
 
 ```
-BATCH   = [64, 256]
-CONTEXT = [128K, 512K]
+OFFERED_LOAD_SCALE = [0.25, 0.50, 0.75, 1.00, 1.25]
+Max Sustainable SLO Goodput = max(goodput at each load)
 ```
+
+공통 score는 **SLO-feasible heavy cell**에서 As-Is 대비 ratio를 사용한다.
+
+```
+Goodput Ratio =
+  Candidate Max Sustainable SLO Goodput
+  / As-Is Max Sustainable SLO Goodput
+```
+
+기본 heavy/stress 축은 large batch와 long context를 모두 포함하지만, As-Is와 모든 후보의 Max Sustainable SLO Goodput이 0인 cell은 **SLO-infeasible stress cell**로 표시하고 Throughput 별점 분모에서는 제외한다. 예를 들어 512K context가 물리적으로 TPOT SLO를 넘는다면 그 cell은 Latency/Stress 분석에는 남기되 throughput ratio를 0/0으로 만들지 않는다.
 
 | 별점 | 공통 정량 기준 | 의미 |
 |---|---|---|
-| ★☆☆ | geometric-mean ratio < 0.90 **and** paired 95% CI upper < 1.0 | baseline보다 유의하게 악화 |
+| ★☆☆ | feasible-cell geometric-mean ratio < 0.90 **and** paired 95% CI upper < 1.0 | baseline보다 유의하게 악화 |
 | ★★☆ | 0.90 ~ 1.10 또는 paired CI가 1.0을 포함 | baseline과 유사 / trade-off 구간 |
 | ★★★ | ratio ≥ 1.10 **and** paired 95% CI lower ≥ 1.0 | heavy load에서 10% 이상 유의한 goodput 개선 |
 
-> 1.10/0.90은 “이론 peak의 몇 %”가 아니라 **같은 시스템의 As-Is 대비 최소 의미 있는 개선/회귀 폭 10%**를 나타낸다. 후보 간 비교는 별점과 별개로 paired C1-C2 차이와 95% CI를 함께 보고한다.
+> 1.10/0.90은 “이론 peak의 몇 %”가 아니라 **같은 시스템의 As-Is 대비 최소 의미 있는 개선/회귀 폭 10%**다. Large-batch/Long-context stress 결과는 ratio 별점과 별개로 raw throughput, TTFT, TPOT을 반드시 같이 보고한다.
 
 ### 3.2 Performance — First-response Latency p99 (TTFB / TTFT)
 
