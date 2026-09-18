@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ATTN_OPS=frozenset({"QK_GEMM","SOFTMAX","AV_GEMM","CAUSAL_MASK"})
-RETRIEVAL_DOT_OP="QK_GEMM"
+RETRIEVAL_DOT_OP="GEMV"
 GIB=1024**3
 TIB=1024**4
 
@@ -109,25 +109,36 @@ class SystemSpec:
         return non_attn+attn
 
     def rag_retrieval_s(self,index_bytes:float,batch:int,tier:str,embedding_dim:int=1024):
-        """Vector-index scan cost. SSD-PIM uses only primitives present in the registry.
+        """Vector-DB retrieval cost with SSD-PIM GEMV used only for similarity.
 
-        Current SSD-PIM has QK_GEMM but no TOPK. Therefore local dot-product is allowed,
-        while all scores must still cross the external link for host/GPU top-k.
+        Baseline path:
+          SSD/Memory -> transfer full vectors -> GPU/host similarity GEMV -> ranking/top-k
+
+        SSD-PIM path:
+          vectors stay in SSD -> local GEMV similarity -> return similarity scores ->
+          controller/host ranking/top-k.
+
+        Ranking/top-k compute itself is treated as a small post-process; the main modeled
+        benefit is avoiding full-vector transfer and accelerating the similarity GEMV.
         """
         m=self.memories[tier]
         vec_bytes=embedding_dim*self.model.dtype_bytes
         nvec=max(1.0,index_bytes/vec_bytes)
+
+        # SSD-PIM supports GEMV only, so concurrent queries are modeled as repeated GEMVs.
         flops=2.0*nvec*embedding_dim*batch
-        score_bytes=4.0*nvec*batch  # FP32 scores when TOPK is not available in-memory.
+        full_vector_bytes=index_bytes*batch
+        score_bytes=4.0*nvec*batch  # one FP32 similarity score per stored vector/query.
 
         if m.retrieval_dot_capable:
-            internal_scan=index_bytes/max(1.0,m.int_bw)
+            internal_scan=index_bytes*batch/max(1.0,m.int_bw)
             compute=flops/max(1.0,float(m.compute_flops))
             score_return=score_bytes/max(1.0,m.ext_bw)
+            # top-k/ranking runs after score generation; its compute is not the acceleration target.
             return max(internal_scan,compute)+score_return+m.latency_s
 
-        # No in-memory dot-product: data must be visible to GPU/host compute.
-        data_path=index_bytes/max(1.0,m.ext_bw)
+        # Without in-storage GEMV, full vectors must cross the external path before similarity.
+        data_path=full_vector_bytes/max(1.0,m.ext_bw)
         gpu_compute=flops/(self.gpu_compute_flops*self.gpu_compute_eff)
         return data_path+gpu_compute+m.latency_s
 
