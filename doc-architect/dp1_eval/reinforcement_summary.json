@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "source_run_id": 35302970469,
+    "cluster": "b200_8gpu",
+    "model": "llama_3_1_70b",
+    "scenario_count": 23,
+    "seeds": [
+      11,
+      23,
+      37,
+      51,
+      71
+    ],
+    "load_scales": [
+      0.25,
+      0.5,
+      0.75,
+      1,
+      1.25
+    ],
+    "candidates": [
+      "As-Is-HBM-first",
+      "C1-memory-centric",
+      "C1-R-stable-resource",
+      "C2-data-centric",
+      "C2-R-feasibility-stable"
+    ]
+  },
+  "aggregate": {
+    "C1-memory-centric": {
+      "goodput_ratio_vs_as_is_heavy": 0.9998568659718582,
+      "goodput_ratio_ci95": [
+        0.9372438442320771,
+        1.0666527804726993
+      ],
+      "slo_goodput_mean": 687.6445221383814,
+      "resource_utilization_index": 0.7854087962962963,
+      "hbm_pressure_violation_rate": 0.1293888888888889,
+      "bw_saturation_rate": 0.021435185185185186,
+      "migration_count_mean": 16.27,
+      "fallback_count_mean": 0,
+      "decision_us_avg": 12.2
+    },
+    "C1-R-stable-resource": {
+      "goodput_ratio_vs_as_is_heavy": 1.0643757148166055,
+      "goodput_ratio_ci95": [
+        0.9500932803548061,
+        1.1924046677482947
+      ],
+      "slo_goodput_mean": 699.4569033814649,
+      "resource_utilization_index": 0.8100592592592593,
+      "hbm_pressure_violation_rate": 0.17727777777777778,
+      "bw_saturation_rate": 0.021037037037037035,
+      "migration_count_mean": 1.87,
+      "suppressed_migrations_mean": 11.97,
+      "fallback_count_mean": 0,
+      "decision_us_avg": 14
+    },
+    "C2-data-centric": {
+      "goodput_ratio_vs_as_is_heavy": 0.8604388573387673,
+      "goodput_ratio_ci95": [
+        0.7441746874995185,
+        0.9948672531527386
+      ],
+      "slo_goodput_mean": 806.5737688022886,
+      "resource_utilization_index": 0.737336574074074,
+      "hbm_pressure_violation_rate": 0.18888888888888888,
+      "bw_saturation_rate": 0.032212962962962964,
+      "migration_count_mean": 48,
+      "fallback_count_mean": 75.81,
+      "deferred_stage_count_mean": 0.91,
+      "deferred_promotion_count_mean": 0.17,
+      "decision_us_avg": 34
+    },
+    "C2-R-feasibility-stable": {
+      "goodput_ratio_vs_as_is_heavy": 0.9482308583075327,
+      "goodput_ratio_ci95": [
+        0.8099233131868115,
+        1.1101566605223157
+      ],
+      "slo_goodput_mean": 826.7194791289753,
+      "resource_utilization_index": 0.7692564814814815,
+      "hbm_pressure_violation_rate": 0.2096111111111111,
+      "bw_saturation_rate": 0.032092592592592596,
+      "migration_count_mean": 11.29,
+      "fallback_count_mean": 14.27,
+      "deferred_stage_count_mean": 0.86,
+      "deferred_promotion_count_mean": 0.29,
+      "suppressed_migrations_mean": 10.44,
+      "feasibility_filtered_mean": 199.46,
+      "infeasible_stable_hold_mean": 11.78,
+      "decision_us_avg": 39
+    }
+  },
+  "fallback_reasons": {
+    "C2-data-centric": {
+      "predicted_first_response_violation": 33387,
+      "operation_infeasible": 11328,
+      "predicted_tpot_violation": 10574,
+      "low_classifier_confidence": 820,
+      "runtime_behavior_mismatch": 262,
+      "no_capacity_candidate": 169
+    },
+    "C2-R-feasibility-stable": {
+      "hard_feasibility_empty": 9823,
+      "low_classifier_confidence": 2365,
+      "runtime_behavior_mismatch": 2
+    }
+  },
+  "acceptance": {
+    "C1-R": {
+      "goodput_preserved": true,
+      "migration_reduced_20pct": true,
+      "rui_not_lower": true
+    },
+    "C2-R": {
+      "fallback_le_20": true,
+      "migration_le_24": true,
+      "goodput_ge_095": false,
+      "rui_ge_078": false
+    }
+  }
+}
