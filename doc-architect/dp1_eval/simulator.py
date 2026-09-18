@@ -30,7 +30,9 @@ def poisson(rng,lam):
     return max(0,int(round(rng.gauss(lam,math.sqrt(lam)))))
 
 def effective_limits(sc,t,name):
-    cap_mult=sc.capacity_mult
+    if name in sc.disabled_tiers:
+        return 0.0, 0.01
+    cap_mult=sc.capacity_mult*(sc.hbm_capacity_mult if name=="hbm" else 1.0)
     bw_mult=1.0
     if sc.phase=="capacity_ramp" and name=="hbm":
         frac=t/max(1,sc.horizon_s-1)
