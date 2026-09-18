@@ -48,7 +48,7 @@
 
 ## Scenario suite
 
-22개 scenario × 5 seeds × 3 policies(As-Is/C1/C2) × 5 offered-load scales를 실행한다. Throughput은 load sweep에서 얻은 **Max Sustainable SLO Goodput**으로 평가한다.
+23개 scenario × 5 seeds × 3 policies(As-Is/C1/C2) × 5 offered-load scales를 실행한다. Throughput은 load sweep에서 얻은 **Max Sustainable SLO Goodput**으로 평가한다.
 
 대표 시나리오:
 
@@ -60,6 +60,7 @@
 - mixed all-AI-data coexistence
 - HBM capacity ramp / BW shock / host-path pressure
 - classifier error fault injection + C2 Safe Fallback
+- prediction error + HBM relief + DRAM deferred-promotion recovery
 - six-tier capacity stress
 
 ## Run
