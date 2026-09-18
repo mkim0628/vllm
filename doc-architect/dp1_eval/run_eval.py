@@ -97,8 +97,23 @@ def aggregate(rows,candidate,mod):
         ratio_ci=[math.exp(lci[0]),math.exp(lci[1])]
         throughput_star=star_goodput(ratio,ratio_ci)
 
-    ttft=max((r["ttft_p99_ms"] for r in nominal),default=0.0)
-    tpot=max((r["tpot_p99_ms"] for r in nominal),default=0.0)
+    # Latency stars are taken at each candidate's max-sustainable-goodput point,
+    # excluding cells where every policy has zero SLO-goodput (stress-only boundary).
+    best_maps={c:best_goodput_rows(rows,c,normal) for c in CANDIDATES}
+    all_keys=set().union(*(m.keys() for m in best_maps.values()))
+    feasible_keys={
+        k for k in all_keys
+        if any(best_maps[c].get(k,{}).get("slo_goodput",0)>0 for c in CANDIDATES)
+    }
+    lat_rows=[best_maps[candidate][k] for k in feasible_keys if k in best_maps[candidate]]
+    ttft=max((r["ttft_p99_ms"] for r in lat_rows),default=0.0)
+    tpot=max((r["tpot_p99_ms"] for r in lat_rows),default=0.0)
+
+    stress_keys=all_keys-feasible_keys
+    stress_rows=[best_maps[candidate][k] for k in stress_keys if k in best_maps[candidate]]
+    stress_ttft=max((r["ttft_p99_ms"] for r in stress_rows),default=0.0)
+    stress_tpot=max((r["tpot_p99_ms"] for r in stress_rows),default=0.0)
+
     rui=statistics.mean(r["resource_index"] for r in nominal) if nominal else 0.0
     key="C1" if candidate.startswith("C1") else "C2" if candidate.startswith("C2") else None
     mod_star=mod["totals"][key]["final_star"] if key else None
@@ -109,8 +124,10 @@ def aggregate(rows,candidate,mod):
       "slo_goodput_mean":statistics.mean(r["slo_goodput"] for r in nominal),
       "goodput_ratio_vs_as_is_heavy":ratio,
       "goodput_ratio_ci95":ratio_ci,
-      "ttft_p99_worst_ms":ttft,
-      "tpot_p99_worst_ms":tpot,
+      "ttft_p99_worst_scored_ms":ttft,
+      "tpot_p99_worst_scored_ms":tpot,
+      "ttft_p99_worst_stress_ms":stress_ttft,
+      "tpot_p99_worst_stress_ms":stress_tpot,
       "e2e_p99_mean_ms":statistics.mean(r["e2e_p99_ms"] for r in nominal),
       "resource_utilization_index":rui,
       "hbm_pressure_violation_rate":statistics.mean(r["hbm_pressure_violation_rate"] for r in nominal),
@@ -207,8 +224,10 @@ def write_report(path,summary):
     for key,label in [
       ("slo_goodput_mean","SLO Goodput mean [tok/s]"),
       ("goodput_ratio_vs_as_is_heavy","Heavy Goodput ratio vs As-Is"),
-      ("ttft_p99_worst_ms","Worst TTFT p99 [ms]"),
-      ("tpot_p99_worst_ms","Worst TPOT p99 [ms]"),
+      ("ttft_p99_worst_scored_ms","Worst scored TTFT p99 [ms]"),
+      ("tpot_p99_worst_scored_ms","Worst scored TPOT p99 [ms]"),
+      ("ttft_p99_worst_stress_ms","Worst stress TTFT p99 [ms]"),
+      ("tpot_p99_worst_stress_ms","Worst stress TPOT p99 [ms]"),
       ("resource_utilization_index","Resource Utilization Index"),
       ("migration_count_mean","Migration decisions/run"),
       ("decision_us_avg","Placement decision proxy [us]"),
