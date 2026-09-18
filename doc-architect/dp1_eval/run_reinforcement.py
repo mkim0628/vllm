@@ -145,17 +145,18 @@ def scenario_delta(rows):
     out=[]
     for sc in scenarios():
         maps={c:best_rows(rows,c,{sc.name}) for c in CANDIDATES}
-        keys=sorted(maps["As-Is-HBM-first"])
+        base=maps["As-Is-HBM-first"]
+        keys=sorted(base)
         vals={}
         for c in CANDIDATES:
             rs=[]
             for k in keys:
-                b=maps["As-Is-HBM-first"][k]
-                x=maps[c][k]
-                if b["slo_goodput"]<=0 and x["slo_goodput"]<=0:
-                    continue
-                rs.append(10.0 if b["slo_goodput"]<=0<x["slo_goodput"]
-                          else x["slo_goodput"]/max(1e-9,b["slo_goodput"]))
+                b=base[k]
+                x=maps[c].get(k)
+                if x is None:
+                    rs.append(0.0)
+                else:
+                    rs.append(x["slo_goodput"]/max(1e-9,b["slo_goodput"]))
             vals[c]=geom_mean(rs) if rs else None
         out.append({
             "scenario":sc.name,
