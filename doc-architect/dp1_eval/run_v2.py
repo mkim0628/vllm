@@ -10,6 +10,7 @@ from pathlib import Path
 from model import load_system
 from scenarios import scenarios
 from simulator import run_sim
+from qa_utils import best_sustainable_rows, p99_slo_feasible
 
 SEEDS=[11,23,37,51,71]
 LOAD_SCALES=(0.25,0.50,0.75,1.00,1.25)
@@ -52,14 +53,7 @@ def ci95_log(vals):
     return [math.exp(m-h),math.exp(m+h)]
 
 def best_rows(rows,candidate,names):
-    best={}
-    for r in rows:
-        if r["candidate"]!=candidate or r["scenario"] not in names:
-            continue
-        k=(r["scenario"],r["seed"])
-        if k not in best or r["slo_goodput"]>best[k]["slo_goodput"]:
-            best[k]=r
-    return best
+    return best_sustainable_rows(rows,candidate,names)
 
 def ratios(rows,candidate,names):
     b=best_rows(rows,"As-Is-HBM-first",names)
