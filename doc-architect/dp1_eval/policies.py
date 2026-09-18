@@ -129,8 +129,10 @@ class DataCharacteristicInterpreter:
         if n:
             observed=clamp(rate/.35)
             p["observed_hotness"]=observed
-            p["hotness"]=clamp(.55*p["hotness"]+.45*observed)
-            p["reuse"]=clamp(.70*p["reuse"]+.30*observed)
+            # Class prior dominates cold-start, then decays as Runtime State history accumulates.
+            prior_w=max(.15,math.exp(-n/6.0))
+            p["hotness"]=clamp(prior_w*p["hotness"]+(1-prior_w)*observed)
+            p["reuse"]=clamp(max(.25,prior_w)*p["reuse"]+(1-max(.25,prior_w))*observed)
         else:
             p["observed_hotness"]=p["hotness"]
         if cls==obj.data_class:
