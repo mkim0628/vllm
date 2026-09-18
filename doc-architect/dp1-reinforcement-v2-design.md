@@ -1,574 +1,532 @@
 # DP1 Reinforcement V2 Design — C1-R2 / C2-R2
 
-> 목적: C1/C2의 기본 철학은 유지하면서, 1차 평가에서 발견된 문제를 최소한의 모듈로 보완한다.
+> 목적: 1차 평가에서 발견된 문제를 보완하되, C1/C2의 핵심 철학은 유지한다.
 >
-> 이 문서는 **심사 시 한 번에 설명할 수 있는 구조**를 우선한다.  
-> 모든 구조도는 **Top-down**으로 표현한다.
+> 이 문서는 **심사 시 한 장씩 설명할 수 있는 Module View**를 우선한다.  
+> 다이어그램은 모두 **Top-down module/dependency view**이며 sequence/flow chart가 아니다.
 
 ---
 
-# 1. 한 장 요약
+# 1. 핵심 요약
 
 ## C1-R2
 
-**Resource 상태를 보고 배치한다.**  
-단, 너무 자주 옮기지 않고, 정말 HBM pressure가 위험할 때만 강제로 relief한다.
-
-```text
-Resource 상태 관찰
-      ↓
-후보 Memory 평가
-      ↓
-안정성 검사
-      ↓
-정상: 유지/배치
-위험: 필요한 만큼만 긴급 이동
-```
+> **Resource 상태를 보고 가장 좋은 Memory Tier를 선택한다.  
+> 단, HBM pressure가 Emergency 수준이면 목적함수를 “최고 utility”에서 “최소 비용으로 pressure 해소”로 바꾼다.**
 
 ## C2-R2
 
-**Data가 무엇인지 + 실제로 어떻게 사용되는지 보고 배치한다.**  
-Data-near compute가 실제로 유리할 때만 사용하고, 일시적으로 배치가 어려우면 Fallback State Manager가 복구를 담당한다.
-
-```text
-Data 이해
-      ↓
-실행 가능한 Memory만 필터링
-      ↓
-Data/Operation에 가장 유리한 Tier 선택
-      ↓
-As-Is보다 실제로 유리한지 확인
-      ↓
-안정적으로 유지 또는 Recovery
-```
-
----
-
-# 2. C1-R2 — 전체 구조
-
-C1은 끝까지 **Resource-centric**이다.  
-Data type/hotness/reuse를 해석하지 않는다.
-
-```mermaid
-flowchart TD
-    A[Telemetry Collector<br/>Capacity / BW / Pressure]
-    B[Resource State Monitor<br/>Current + Near-future Prediction]
-    C[Memory Candidate Evaluator<br/>Headroom / BW / Latency]
-    D[Resource-aware Tier Selector<br/>Best Resource Tier]
-    E[Placement Stability Guard<br/>Residency + Hysteresis + Migration Cost]
-    F{Emergency Pressure?}
-    G[Keep / Normal Placement]
-    H[Emergency Pressure Escape<br/>Minimum Required Migration]
-    I[Placement Decision]
-    J[DP4 Migration Executor]
-
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    E --> F
-    F -->|No| G
-    F -->|Yes| H
-    G --> I
-    H --> I
-    I --> J
-```
-
-## 2.1 모듈 설명
-
-### ① Resource State Monitor
-현재 HBM/DRAM/CXL 등의:
-
-- Capacity utilization
-- BW utilization
-- 최근 trend
-
-를 보고 가까운 미래의 pressure를 예측한다.
-
-### ② Memory Candidate Evaluator
-현재 object를 둘 수 있는 Memory만 추린다.
-
-예:
-
-- Capacity가 충분한가
-- 필요한 operation을 실행할 수 있는가
-- BW/latency가 너무 나쁘지 않은가
-
-### ③ Resource-aware Tier Selector
-Data 의미는 보지 않고 **Resource 상태만으로** 가장 좋은 Tier를 고른다.
-
-### ④ Placement Stability Guard
-가장 좋은 Tier가 바뀌었다고 바로 migration하지 않는다.
-
-```text
-새 Tier의 이득
-    >
-Migration Cost + Hysteresis Margin
-```
-
-일 때만 이동한다.
-
-### ⑤ Emergency Pressure Escape
-C1-R에서 migration을 너무 억제하자 HBM pressure가 늦게 해소되는 문제가 생겼다.
-
-따라서:
-
-```text
-Predicted HBM Pressure < Emergency
-        ↓
-기존 Stability Guard 유지
-
-Predicted HBM Pressure >= Emergency
-        ↓
-Residency 일부 우회
-        ↓
-Pressure를 줄이는 데 가장 효율적인 Object만 이동
-```
-
-핵심은 **“평소에는 안 움직이고, 위험할 때 필요한 만큼만 움직인다”**이다.
-
----
-
-# 3. C2-R2 — 전체 구조
-
-C2의 핵심은 **Data-aware + Operation-aware Placement**다.
+> **Data Type과 Runtime behavior를 이용해 각 Memory Tier에서 가능한 Placement/Execution Path의 비용을 비교한다.  
+> Data-near Compute가 As-Is보다 실제로 유리할 때만 사용한다.**
 
 중요한 전제:
 
-> **Data Type은 deterministic하다.**
+- Data Type은 Data Descriptor로부터 **deterministic**하게 결정한다.
+- 정상 상황에서 “갈 수 있는 Tier가 없다”는 표현은 사용하지 않는다.
+- DRAM/CXL/SSD 등 물리적으로 저장 가능한 Tier는 일반적으로 존재한다.
+- 다만 **SLO를 만족하는 Path가 없을 수는 있다.**
+- 이 경우는 Fallback이 아니라 **Degraded Placement**로 정의한다.
 
-Data Descriptor에 `KV_CACHE`, `RAG_DATA`, `AGENT_MEMORY`, `TOOL_RESULT` 등이 명시되므로  
-“이 데이터가 무슨 종류인지”는 추측하지 않는다.
+---
 
-불확실한 것은 Data Type이 아니라:
-
-- 앞으로 얼마나 자주 접근될지
-- 언제 다시 사용될지
-- 얼마나 오래 살아 있을지
-
-같은 **Runtime behavior**다.
+# 2. C1-R2 Module View
 
 ```mermaid
-flowchart TD
-    A[Data Descriptor<br/>Deterministic Data Type]
-    B[Runtime Data Events<br/>Access / Reuse / Idle]
-    C[Data Type Resolver<br/>KV / RAG / Agent / Tool / LoRA / MoE]
-    D[Runtime State Monitor<br/>Hotness / Reuse / Lifetime]
-    E[Data Characteristic Interpreter]
+flowchart TB
 
-    F[Feasibility Filter<br/>Capacity + Operation + SLO]
-    G[Data-aware Tier Evaluator<br/>Data × Operation × Memory]
-    H[Performance Guard<br/>Candidate vs As-Is HBM-first]
-    I[Placement Stability Guard<br/>Residency + Migration Cost]
+    subgraph RM["① Memory Resource Manager"]
+        TC["Telemetry Collector<br/>Capacity / BW"]
+        RSM["Resource State Monitor<br/>Current + Near-future Pressure"]
+        MR["Memory Registry<br/>Capacity / BW / Latency"]
+    end
 
-    J{Feasible?}
-    K[Normal Placement]
-    L[Fallback State Manager]
-    M[Placement Decision]
-    N[DP4 Migration Executor]
+    subgraph PP["② Resource-aware Placement Planner"]
+        RUE["Resource Utility Evaluator<br/>Current Tier + Candidate Tier + Migration Cost"]
+        EPP["Emergency Pressure Policy<br/>High Watermark + Minimum-cost Pressure Relief"]
+    end
 
-    O[Telemetry / Memory Registry]
-    P[Upper Scheduler / Autoscaler]
+    subgraph OUT["③ Placement Output"]
+        PD["Placement Decision"]
+    end
 
-    A --> C
-    B --> D
-    C --> E
-    D --> E
+    TC --> RSM
+    RSM --> RUE
+    MR --> RUE
 
-    E --> F
-    O --> F
+    RSM --> EPP
+    MR --> EPP
 
-    F --> J
-    J -->|Yes| G
-    G --> H
-    H --> I
-    I --> K
+    RUE --> PD
+    EPP -. "Emergency일 때만 override" .-> PD
+```
 
-    J -->|Temporary problem| L
-    J -->|Structural limit| P
+## 2.1 Resource Utility Evaluator
 
-    K --> M
-    L --> M
-    M --> N
+별도의 `Placement Stability Guard`는 두지 않는다.
+
+다음 항목을 **Resource Utility Evaluator 안에서 같이 계산**한다.
+
+```text
+Candidate Utility
+- Migration Cost
+- Current Tier를 버리는 Cost
+```
+
+따라서 새 Tier가 조금 좋아졌다는 이유만으로 바로 migration하지 않는다.
+
+---
+
+## 2.2 Emergency Pressure란?
+
+쉽게 말하면:
+
+> **HBM Capacity 또는 BW가 high watermark를 넘었거나, 가까운 미래에 넘을 것으로 예측되는 상태**
+
+V2 초기 simulation에서는 재현성을 위해 예를 들어:
+
+```text
+Emergency High Watermark = 0.90
+```
+
+처럼 Config 값으로 고정할 수 있다.
+
+하지만 `0.90` 자체가 architecture의 본질은 아니다.  
+실제 시스템에서는 Tier/Workload별 configurable parameter다.
+
+예:
+
+```text
+Normal
+Predicted HBM Pressure < 90%
+→ 기존 Resource Utility 정책 사용
+
+Emergency
+Predicted HBM Pressure >= 90%
+→ Pressure Relief 정책으로 전환
+```
+
+Emergency에서 정책 자체가 바뀐다는 것이 핵심이다.
+
+---
+
+## 2.3 Minimum-cost Pressure Relief
+
+Emergency라고 해서 많은 Data를 한꺼번에 내리지 않는다.
+
+목표는:
+
+> **HBM pressure를 safe 영역으로 되돌리는 데 필요한 최소 이동만 수행**
+
+이다.
+
+개념적으로:
+
+```text
+minimize
+    Total Migration Cost
+
+subject to
+    Predicted HBM Pressure after migration
+    <= Relief Target
+```
+
+예:
+
+```text
+Predicted HBM Pressure = 94%
+Relief Target          = 85%
+
+→ 9%p 정도의 pressure만 줄이면 됨
+→ 모든 Object를 내리지 않고
+→ Migration Cost 대비 Pressure Relief가 큰 Object부터 선택
+```
+
+초기 evaluator에서는 High Watermark / Relief Target을 Config로 고정하고 sensitivity test를 별도로 수행한다.
+
+---
+
+# 3. C2-R2 Module View
+
+C2는 **Data-aware + Operation-aware** 구조다.
+
+```mermaid
+flowchart TB
+
+    subgraph DM["① Data Model"]
+        DD["Data Descriptor"]
+        DTR["Data Type Resolver<br/>Deterministic"]
+        RSM["Runtime State Monitor<br/>Access / Reuse / Idle / Lifetime"]
+        DCI["Data Characteristic Interpreter<br/>Hotness / Next Reuse / Lifetime"]
+    end
+
+    subgraph MM["② Memory / Resource Model"]
+        MR["Memory Registry<br/>Capacity / BW / Compute Capability"]
+        TM["Resource Telemetry<br/>Current / Predicted Pressure"]
+    end
+
+    subgraph PP["③ Data-aware Placement Planner"]
+        PB["Placement Path Builder<br/>HBM Direct / Near-compute / Restore / Stage"]
+        CE["Data-Operation Cost Evaluator<br/>TTFT / TPOT / Throughput Cost"]
+        BG["Performance Guard<br/>Best Candidate vs As-Is HBM-first"]
+        DP["Degraded Placement Policy<br/>No SLO-feasible Path일 때 Best-effort"]
+    end
+
+    subgraph OUT["④ Placement Output"]
+        DEC["Placement Decision<br/>Tier + Access/Execution Mode + Status"]
+    end
+
+    DD --> DTR
+    DTR --> DCI
+    RSM --> DCI
+
+    DCI --> PB
+    MR --> PB
+    TM --> PB
+
+    PB --> CE
+    MR --> CE
+    TM --> CE
+
+    CE --> BG
+    CE --> DP
+
+    BG --> DEC
+    DP -. "SLO-feasible path가 없을 때만" .-> DEC
 ```
 
 ---
 
-# 4. C2-R2 모듈 설명
+# 4. C2 모듈 설명
 
 ## 4.1 Data Type Resolver
 
-```text
-Data Descriptor
-   ↓
-KV_CACHE / RAG_DATA / AGENT_MEMORY / ...
-```
-
-여기는 **deterministic**하다.
+Data Type은 추측하지 않는다.
 
 예:
 
 - vLLM이 생성한 KV block → `KV_CACHE`
 - Vector DB index → `RAG_DATA`
-- Agent long-term state → `AGENT_MEMORY`
+- Agent state → `AGENT_MEMORY`
+- Tool output → `TOOL_RESULT`
 
-따라서 기존 draft의 **Low-confidence Classifier / Safe Envelope는 제거한다.**
+불확실성은 **Type이 아니라 Runtime behavior**에 있다.
 
 ---
 
 ## 4.2 Runtime State Monitor
 
-Data Type이 아니라 **실제 사용 패턴**을 관찰한다.
-
-예:
-
-```text
-Access Rate
-Reuse Interval
-Idle Time
-Object Age
-```
-
-여기에서:
+실제 access history를 보고 다음을 추정한다.
 
 - Hot / Cold
 - Next Reuse
 - Long-lived / Short-lived
-
-를 추정한다.
-
----
-
-## 4.3 Feasibility Filter
-
-C2 baseline의 가장 큰 문제는:
-
-```text
-Affinity로 Tier 선택
-      ↓
-나중에 보니 실행 불가
-      ↓
-Fallback
-```
-
-였다는 점이다.
-
-V2에서는 순서를 바꾼다.
-
-```text
-모든 Tier
-   ↓
-실행 가능한 Tier만 남김
-   ↓
-그 안에서 Affinity 비교
-```
-
-검사 항목:
-
-- Capacity
-- Required operation support
-- TTFT budget
-- TPOT budget
-- Link / BW condition
-
----
-
-## 4.4 Data-aware Tier Evaluator
-
-여기가 C2의 핵심 차별점이다.
-
-```text
-Data Type
-+ Runtime Behavior
-+ Required Operation
-+ Memory Capability
-        ↓
-Placement Affinity
-```
+- Idle duration
 
 예:
 
-### RAG
 ```text
-RAG_DATA
-+ Vector Similarity GEMV
-+ SSD resident
-        ↓
-SSD-PIM 후보
+KV_CACHE라는 Type은 확정
+
+하지만
+"이 KV가 1초 뒤 다시 쓰일지,
+ 30초 뒤 다시 쓰일지"
+는 Runtime prediction 대상
 ```
 
-### KV Cache
+---
+
+## 4.3 Placement Path Builder
+
+여기서 중요한 변경은 **Tier를 단순히 가능/불가능으로 잘라내지 않는 것**이다.
+
+같은 Tier라도 여러 Path가 있을 수 있다.
+
+예: DRAM의 KV Cache
+
 ```text
-KV_CACHE
-+ Attention
-+ Cold / Large Context
-        ↓
-Custom HBM / CXL-PNM 후보
+DRAM에 저장
+→ Attention은 DRAM에서 못 함
+→ Access 시 HBM으로 Restore
 ```
 
-즉 C2는 **Data-near Compute를 의도적으로 활용할 수 있는 구조**다.
+이것도 유효한 Placement Path다.
+
+예: CXL-PNM의 KV Cache
+
+```text
+CXL-PNM에 저장
+→ Attention을 Near-memory에서 실행
+→ Activation만 GPU와 교환
+```
+
+따라서 C2는:
+
+```text
+Tier
++
+Data Access / Execution Mode
+```
+
+를 하나의 Path로 만들어 비교한다.
+
+---
+
+## 4.4 Data-Operation Cost Evaluator
+
+각 Path의 end-to-end 비용을 계산한다.
+
+예: KV
+
+```text
+HBM Path
+= HBM Attention + GPU FFN
+
+CXL-PNM Path
+= Near-memory Attention
++ Activation Round-trip
++ GPU FFN
+
+DRAM Path
+= Restore Cost
++ HBM Attention
++ GPU FFN
+```
+
+예: RAG
+
+```text
+As-Is
+= Vector Transfer + GPU/CPU GEMV
+
+SSD-PIM
+= Local GEMV + Score Transfer
+```
+
+여기가 C2의 핵심 장점인 **Data-near Compute 활용 여부를 정량적으로 판단하는 모듈**이다.
 
 ---
 
 ## 4.5 Performance Guard
 
-C2가 Data-aware라는 이유만으로 다른 Tier를 사용하면 안 된다.
-
-항상 후보 path를 As-Is HBM-first와 비교한다.
+가장 좋은 Candidate Path가 나와도 As-Is HBM-first보다 느리면 사용하지 않는다.
 
 ```text
-Candidate Path
-vs
-As-Is HBM-first
+Best Candidate Path
+        vs
+As-Is HBM-first Path
 ```
 
-예:
+Candidate가 Performance 이득을 만들 때만 새로운 Tier/Mode를 선택한다.
 
-### KV
+따라서:
+
 ```text
-HBM:
-Attention + GPU FFN
-
-Custom HBM / CXL-PNM:
-Remote Attention
-+ Activation Round-trip
-+ GPU FFN
-+ Migration Cost
+Cold KV + CXL-PNM 가능
+≠
+무조건 CXL-PNM 사용
 ```
 
-Candidate가 더 빠를 때만 offload한다.
+이다.
 
-### RAG
-```text
-As-Is:
-Vector Transfer + GPU/CPU GEMV
-
-SSD-PIM:
-Local GEMV + Score Transfer
-```
-
-SSD-PIM이 실제로 TTFT/Goodput을 개선할 때만 사용한다.
-
-이 Guard가 `kv_b1_c32k_cold_cxl` 같은 **잘못된 offload를 막는 역할**을 한다.
+CXL remote Attention 비용이 HBM보다 크면 HBM path를 유지한다.
 
 ---
 
-## 4.6 Placement Stability Guard
+# 5. Fallback 대신 Degraded Placement
 
-좋은 Tier가 바뀌었다고 바로 이동하지 않는다.
+기존 문서의 `Fallback State Manager` 용어는 제거한다.
+
+이유는 사용자 지적대로:
+
+> 정상 Placement에서 “갈 수 있는 Tier가 하나도 없다”는 상황은 일반적인 DP1 상태로 보기 어렵다.
+
+HBM에서 만든 Data라면:
+
+- HBM에 유지하거나
+- DRAM으로 Stage하거나
+- CXL/HBF/SSD로 Spill하는
+
+물리적인 저장 선택지가 일반적으로 존재한다.
+
+따라서 구분은 다음이 더 정확하다.
+
+## Normal Placement
+
+하나 이상의 Path가 SLO를 만족.
 
 ```text
-Current Tier still usable?
+SLO-feasible Paths
       ↓
-New Tier benefit > Migration Cost?
-      ↓
-Minimum Residency satisfied?
-      ↓
-Migration
+가장 좋은 Path 선택
 ```
 
-목적은 C2 baseline에서 발생했던 migration storm을 막는 것이다.
+## Degraded Placement
+
+물리적인 저장 Path는 있지만 **어떤 Path도 현재 SLO를 만족하지 못함**.
+
+```text
+No SLO-feasible Path
+      ↓
+Best-effort Path 선택
+      +
+DEGRADED 상태 표시
+```
+
+이는 “잘못 배치했다가 뒤로 돌아오는 Fallback”이 아니다.  
+**Placement Decision을 내리기 전에 선택하는 Best-effort mode**다.
 
 ---
 
-# 5. C2 Fallback State Manager
-
-Fallback State Manager는 **기존 C2 정상 path 옆에 붙는 Recovery Module**이다.
-
-정상 placement를 대신하지 않는다.
+# 6. Degraded Placement Policy
 
 ```mermaid
-flowchart TD
-    A[Feasibility Filter]
-    B{Feasible Tier Exists?}
+flowchart TB
 
-    C[Normal C2 Placement<br/>Affinity → Performance Guard → Stability]
-    D[Fallback State Manager]
+    subgraph IN["Input"]
+        CP["Evaluated Placement Paths"]
+        RT["Runtime Reuse Information"]
+        RS["Resource Pressure"]
+    end
 
-    E{Temporary or Structural?}
+    subgraph DPM["Degraded Placement Policy"]
+        KEEP["Keep Current/HBM<br/>if capacity remains"]
+        STAGE["DRAM Stage<br/>if HBM relief is expected"]
+        REMOTE["Remote/Near-compute Path<br/>if cheaper than restore"]
+        SPILL["Lower-tier Spill<br/>if capacity pressure requires"]
+    end
 
-    F[Temporary Resource Problem]
-    G[HBM Relief Estimator]
-    H{Next Reuse after HBM Relief?}
-    I[DRAM Stage]
-    J[Wait for HBM Low Watermark]
-    K[Promote DRAM → HBM]
+    subgraph OUT["Output"]
+        DEC["Best-effort Placement<br/>status = DEGRADED"]
+        FB["Capability/SLO Feedback<br/>to Scheduler/Autoscaler"]
+    end
 
-    L[Remote / Safe Tier]
-    M[Condition-based Retry]
+    CP --> KEEP
+    CP --> STAGE
+    CP --> REMOTE
+    CP --> SPILL
 
-    N[Structural Infeasibility]
-    O[Least-violation Placement]
-    P[Feedback to Scheduler / Autoscaler]
+    RT --> STAGE
+    RS --> KEEP
+    RS --> STAGE
+    RS --> SPILL
 
-    Q[Placement Decision]
+    KEEP --> DEC
+    STAGE --> DEC
+    REMOTE --> DEC
+    SPILL --> DEC
 
-    A --> B
-    B -->|Yes| C
-    C --> Q
-
-    B -->|No| D
-    D --> E
-
-    E -->|Temporary| F
-    F --> G
-    G --> H
-
-    H -->|Yes| I
-    I --> J
-    J --> K
-    K --> Q
-
-    H -->|No, remote feasible| L
-    L --> Q
-
-    H -->|No safe move| M
-    M --> Q
-
-    E -->|Structural| N
-    N --> O
-    N --> P
-    O --> Q
+    DEC --> FB
 ```
 
-## 5.1 Temporary Infeasible
+### 왜 Next Reuse가 필요한가?
 
-현재 순간에만 placement가 어렵다.
+`Next Reuse`는 Fallback의 기준이 아니다.
 
-예:
-
-- HBM pressure
-- Link contention
-- 일시적 capacity shortage
-
-이 경우:
-
-- DRAM stage 후 HBM 회복 대기
-- Remote compute 가능한 Tier 사용
-- Resource condition이 바뀔 때만 재평가
-
-를 한다.
-
-매 tick fallback하지 않는다.
-
-## 5.2 Structural Infeasible
-
-현재 HW/SLO 조합 자체가 불가능하다.
+**DRAM Stage라는 하나의 Best-effort Path가 좋은지 판단할 때만 사용한다.**
 
 예:
 
 ```text
-B256 × 512K
-TPOT target = 50 ms
-모든 Tier가 50 ms 초과
+HBM Pressure가 3초 뒤 풀릴 전망
+KV Next Reuse는 10초 뒤
+
+→ DRAM에 잠깐 Stage
+→ 3초 뒤 HBM 복귀
+→ 10초 access 전에 준비 완료
 ```
 
-이 경우 계속 migration을 시도하지 않는다.
+반대로:
 
 ```text
-least-violation Tier
-+
-"현재 HW/SLO로는 불가능" Feedback
-        ↓
-Upper Scheduler / Autoscaler
+KV Next Reuse = 0.5초 뒤
 ```
+
+라면 DRAM wait은 불리하므로 다른 Path를 선택한다.
 
 ---
 
-# 6. C1-R2 vs C2-R2 — 심사용 한 눈 비교
+# 7. 정말 Target Tier가 없는 경우
+
+정말로:
+
+- HBM
+- DRAM
+- CXL
+- HBF
+- SSD
+
+모든 Tier가 Capacity까지 꽉 차서 **물리적으로 저장할 공간이 하나도 없는 경우**는 DP1 placement policy 문제가 아니라 **System OOM / Admission Control 문제**다.
+
+이 경우에만:
+
+```text
+NO_PHYSICAL_CAPACITY
+→ Scheduler / Admission Control
+```
+
+로 올린다.
+
+정상적인 C2 Placement에서는 “valid target tier 없음”을 일반적인 fallback condition으로 사용하지 않는다.
+
+---
+
+# 8. C1-R2 vs C2-R2 — 한 눈 비교
 
 | | C1-R2 | C2-R2 |
 |---|---|---|
-| 기준 정보 | Resource 상태 | Data 특성 + Resource 상태 |
-| Data Type 이해 | 없음 | **Deterministic Resolver** |
-| Runtime behavior 예측 | 없음 | Hotness / Reuse / Lifetime |
-| Data-near Compute 활용 | 제한적 | **주요 장점** |
-| Tier 선택 기준 | Resource utility | Data/Operation affinity |
-| 잘못된 이동 방지 | Stability Guard | Performance + Stability Guard |
-| Pressure 대응 | Emergency Escape | Pressure-aware Fallback |
-| 일시적 배치 실패 | 다른 Resource 선택 | **Fallback State Manager** |
-| 구조적 SLO 불가 | 별도 처리 약함 | Scheduler에 명시적 feedback |
+| 핵심 판단 | Resource 상태 | Data + Operation + Resource |
+| Data Type | 사용 안 함 | Deterministic |
+| Runtime behavior | 사용 안 함 | Hotness / Reuse / Lifetime |
+| Data-near Compute | 제한적 | **핵심 장점** |
+| Migration Cost | Resource Utility 안에서 고려 | Path Cost 안에서 고려 |
+| High HBM Pressure | **Emergency Pressure Policy** | Path Cost + Degraded Policy |
+| SLO 만족 Path 없음 | Resource 기준 best-effort | **Degraded Placement** |
+| 실제 저장 공간 없음 | OOM / Admission Control | OOM / Admission Control |
 
 ---
 
-# 7. Performance-first 원칙
+# 9. Performance-first 평가 원칙
 
-최종 후보는 **Target Workload에서 As-Is보다 Performance가 좋아야 한다.**
+최종 후보는 Target Workload에서 As-Is보다 Performance가 좋아야 한다.
 
-모든 scenario는 계속 실행한다.
+모든 Scenario를 계속 실행하되 다음으로 분류한다.
 
-결과는 다음 네 가지로 나눈다.
+- **WIN** — Goodput/Latency가 As-Is보다 개선
+- **TRADE-OFF** — Throughput과 Latency 방향이 다름
+- **NEUTRAL** — As-Is와 실질적으로 동일
+- **LOSS** — Performance 전반 악화
+- **SLO-INFEASIBLE STRESS** — 모든 후보가 SLO 불가
 
-```text
-Target Domain
-→ As-Is보다 Performance WIN
+대표 Target Domain:
 
-Neutral Domain
-→ As-Is와 거의 동일
+### C1-R2
+- HBM Capacity/BW pressure
+- Resource shock/ramp
 
-Adverse Domain
-→ Performance Guard로 As-Is path 유지
+### C2-R2
+- SSD-PIM RAG GEMV
+- Custom HBM / CXL-PNM Attention
+- Long-lived / reuse-sensitive data
 
-SLO-infeasible Stress
-→ Candidate winner가 아니라 HW/SLO boundary로 분리
-```
+Negative control:
 
-Performance는 다음을 따로 본다.
-
-- Max Sustainable SLO Goodput
-- TTFT p99
-- TPOT p99
-
----
-
-# 8. 대표 Target Scenario
-
-## C1-R2
-Resource pressure가 placement의 핵심 변수인 경우.
-
-- `hbm_pressure_ramp_b64`
-- `hbm_bw_shock_b256`
-- `host_path_pressure_b64`
-
-## C2-R2 — Data-near Compute
-Data와 Memory-side operation의 궁합이 중요한 경우.
-
-- `rag_8tib_b64_ssd_pim`
-- `rag_8tib_b256_ssd_pim`
-- `kv_b16_c32k_burst_chbm`
-
-## C2-R2 — Negative Control
-사용 가능한 accelerator가 있어도 실제 성능이 나쁘면 사용하지 않아야 한다.
-
-- `kv_b1_c32k_cold_cxl`
-
-기대 결과:
-
-```text
-CXL-PNM available
-      ↓
-Performance Guard
-      ↓
-HBM-first가 더 빠름
-      ↓
-CXL offload 하지 않음
-```
+- `kv_b1_c32k_cold_cxl`  
+  CXL-PNM이 존재해도 실제 cost가 더 크면 **HBM path를 유지해야 한다.**
 
 ---
 
-# 9. 다음 평가에서 확인할 것
+# 10. V2 구현 시 검증 포인트
 
 ## C1-R2
 
-- As-Is 대비 Goodput 개선
-- C1-R의 낮은 migration 유지
-- HBM pressure violation 감소
+- Emergency threshold 진입 전/후 정책 변경이 명확한가
+- Minimum-cost relief가 migration storm 없이 pressure를 낮추는가
+- Target pressure scenario에서 As-Is보다 Goodput이 좋아지는가
 
 ## C2-R2
 
-- Data-near scenario에서 As-Is보다 Goodput/TTFT 개선
-- Neutral scenario에서 As-Is 수준 유지
-- CXL negative-control에서 불필요한 offload 제거
-- Fallback / Migration storm 재발 방지
-
-최종 보고서는 **Scenario별 WIN / TRADE-OFF / NEUTRAL / LOSS**와 함께 Target-domain aggregate를 별도로 제시한다.
+- Data Type은 deterministic하게 처리되는가
+- Tier가 아니라 **Placement/Execution Path**를 비교하는가
+- Data-near compute가 실제 Performance 이득일 때만 선택되는가
+- SLO를 못 맞추는 경우에도 항상 Best-effort placement가 결정되는가
+- 정말 공간이 없는 경우만 OOM/Admission Control로 분리되는가
