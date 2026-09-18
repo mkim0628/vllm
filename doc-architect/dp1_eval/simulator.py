@@ -37,6 +37,10 @@ def effective_limits(sc,t,name):
     if sc.phase=="capacity_ramp" and name=="hbm":
         frac=t/max(1,sc.horizon_s-1)
         cap_mult=max(.42,1-.58*frac)
+    if sc.phase=="hbm_relief" and name=="hbm":
+        frac=t/max(1,sc.horizon_s-1)
+        start=sc.capacity_mult*sc.hbm_capacity_mult
+        cap_mult=start+(sc.capacity_mult-start)*frac
     if sc.phase=="hbm_bw_shock" and t>=sc.horizon_s//2 and name=="hbm":
         bw_mult=sc.hbm_bw_mult
     if sc.phase=="host_bw_shock" and t>=sc.horizon_s//2 and name in ("custom_hbm","cxl_pnm","dram","ssd_pim"):
