@@ -20,7 +20,7 @@ HBM, DRAM, CXL Memory, SSD, PIM/PNM 등 서로 다른 특성을 가진 Memory Ti
 - KV Cache
 - RAG Data / Embedding / Retrieval Index
 - Agent Memory / State
-- Tool Result / Agent State / Agent Execution Trace
+- Tool Result / Agent State
 - LoRA Adapter
 - MoE Expert
 
