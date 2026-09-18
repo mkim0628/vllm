@@ -274,6 +274,8 @@ TPOT budget을 만족하는 Custom HBM / CXL-PNM
 
 이 DRAM wait 경로는 **C2의 정상 placement rule이 아니라 prediction failure에 대한 temporal fallback**이다.
 
+한 번 prediction error/fallback이 발생한 object는 짧은 watch list에 넣고, 현재 evaluator에서는 5개의 observed sample마다 다시 평가한다. 그래서 첫 fallback 시점에는 HBM relief가 불확실해서 Custom HBM/CXL-PNM을 선택했더라도, 이후 HBM pressure가 실제로 내려가는 trend가 보이면 DRAM stage-and-wait 경로로 전환할 수 있다.
+
 ---
 
 # 10. SSD-PIM Operation Boundary
