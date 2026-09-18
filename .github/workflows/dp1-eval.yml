@@ -25,11 +25,19 @@ jobs:
       - name: Unit tests
         working-directory: doc-architect/dp1_eval
         run: python -m unittest -v test_eval.py
-      - name: Run evaluator
+      - name: Run baseline evaluator
         working-directory: doc-architect/dp1_eval
         run: python run_eval.py
-      - name: Upload results
+      - name: Run reinforcement evaluator
+        working-directory: doc-architect/dp1_eval
+        run: python run_reinforcement.py
+      - name: Upload baseline results
         uses: actions/upload-artifact@v4
         with:
           name: dp1-eval-results
           path: doc-architect/dp1_eval/out/
+      - name: Upload reinforcement results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dp1-reinforcement-results
+          path: doc-architect/dp1_eval/out_reinforcement/
