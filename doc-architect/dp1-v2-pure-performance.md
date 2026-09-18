@@ -130,6 +130,79 @@ Current / HBM Path
 
 따라서 C1에 Performance Guard를 넣어도 C1/C2가 같은 architecture가 되는 것은 아니다.
 
+
+## 7. Architecture Trade-off & Selection Rationale
+
+이 비교의 목적은 C1/C2 중 하나가 모든 지표에서 이기는지를 증명하는 것이 아니다.  
+두 구조가 **어떤 정보와 복잡도를 추가로 사용하고, 그 대가로 어떤 최적화 기회를 얻는지**를 명확히 하는 것이 핵심이다.
+
+| 관점 | C1-R2 — Resource-centric | C2-R2 — Data-centric |
+|---|---|---|
+| **핵심 장점** | 구조가 단순하고 Resource pressure에 직접 반응 | Data/Operation 특성을 이용해 더 정교한 Placement 가능 |
+| **Decision input** | Capacity / BW / Latency / Capability | C1 정보 + Data Type + Hotness / Reuse / Lifetime |
+| **Runtime monitoring** | **작음** — object-level behavior 추적 불필요 | **큼** — object별 access/reuse 상태 유지 필요 |
+| **Decision overhead** | **낮음** | 상대적으로 높음 |
+| **State / Metadata overhead** | **낮음** | 상대적으로 높음 |
+| **Prediction dependency** | **낮음** — Resource trend 위주 | **높음** — Runtime behavior prediction 사용 |
+| **Prediction error robustness** | **높음** — Data behavior 오예측 영향이 작음 | 상대적으로 민감하므로 Guard 필요 |
+| **Resource pressure 대응** | **직접적이고 설명하기 쉬움** | Data lifecycle까지 고려해 선택적으로 대응 |
+| **Data-near Compute 활용** | 제한적 — capability/static cost 수준 | **강점** — Data/Operation path와 직접 연결 |
+| **RAG / Agent / KV별 차별화** | 제한적 | **강점** |
+| **Modifiability** | **높음** — 모듈/상태가 적고 확장 영향이 작음 | 상대적으로 낮음 — Data model/monitor/path model 동시 변경 가능 |
+| **설명 가능성** | **높음** — “Resource가 부족해 이동” | 더 복잡함 — “이 Data/Operation에는 이 Path가 유리” |
+| **적합 환경** | 단순한 Tiering, Resource balancing, 낮은 Runtime overhead가 중요한 환경 | AI Data 종류와 near-memory capability가 다양하고 최적화 폭이 큰 환경 |
+
+### C1-R2를 선택할 논리
+
+다음이 우선이면 C1-R2가 더 자연스럽다.
+
+- Memory Tier 간 **Capacity/BW pressure 관리 자체가 핵심 문제**
+- Runtime에서 Data object별 behavior state를 유지하고 싶지 않음
+- 낮은 decision/monitoring overhead가 중요
+- Predictability와 단순한 운영이 중요
+- 새로운 Data Type이 추가될 때 Placement logic 변경을 최소화하고 싶음
+
+즉:
+
+> **“무슨 Data인지보다 현재 어느 Resource가 여유 있는지가 더 중요하다”**
+
+는 시스템이면 C1-R2가 적합하다.
+
+### C2-R2를 선택할 논리
+
+다음이 우선이면 C2-R2가 더 자연스럽다.
+
+- KV / RAG / Agent Memory / LoRA / MoE처럼 **Data별 access/execution 특성이 크게 다름**
+- CXL-PNM / Custom HBM / SSD-PIM처럼 **Tier별 Compute Capability가 다름**
+- 같은 Memory Tier라도 `HBM Direct / Near-compute / Restore / Stage`처럼 실행 Path가 달라짐
+- Data-near Compute를 실제 end-to-end 성능 이득이 있을 때만 사용해야 함
+- Long-lived / cold / reuse-sensitive Data를 Runtime behavior에 따라 다르게 배치할 필요가 있음
+
+즉:
+
+> **“Resource 상태만으로는 어떤 Tier가 좋은지 결정할 수 없고, Data와 Operation을 같이 봐야 한다”**
+
+는 시스템이면 C2-R2가 적합하다.
+
+### DP1 최종 선택 근거
+
+DP1의 목표가 단순 Memory balancing이 아니라 **AI Data를 heterogeneous Memory/Compute Tier에 배치하는 Runtime architecture**라는 점을 기준으로 하면, 최종 후보는 **C2-R2**로 두는 것이 논리적이다.
+
+선택 이유는 “모든 수치에서 C2가 더 좋았기 때문”이 아니다.
+
+핵심 이유는 다음과 같다.
+
+1. **AI Data 종류별 특성이 다르다.** KV, RAG, Agent Memory, LoRA/MoE를 동일한 Resource score만으로 다루면 최적화 기회를 놓친다.
+2. **Memory Tier마다 가능한 Operation이 다르다.** SSD-PIM의 GEMV, CXL/Custom-HBM의 near-memory Attention처럼 Placement와 Execution Path가 연결된다.
+3. **DP1의 차별화 포인트가 Data-aware Placement다.** 단순 Resource balancing만 필요하면 C1 구조로 충분하지만, AI Runtime 관점의 확장성은 C2가 더 크다.
+4. **C2의 단점은 명확하고 관리 가능하다.** Monitoring overhead, metadata, prediction error, implementation complexity가 대가이며 Performance Guard와 modular design으로 제한한다.
+
+따라서 의사결정은 다음 한 문장으로 정리할 수 있다.
+
+> **C1은 단순하고 robust한 Resource-centric 대안이지만, DP1은 AI Data와 Operation 특성에 따라 heterogeneous Memory/Compute Tier를 활용하는 것이 핵심이므로 C2-R2를 최종 Architecture로 선택한다.**
+
+이때 C1-R2는 버리는 설계가 아니라 **baseline / simpler alternative**로 남겨 두어, C2가 추가하는 Data awareness의 비용과 효과를 설명하는 비교 기준으로 사용한다.
+
 ## 7. Measurement Boundary
 
 - SLO / Admission / Autoscaling target은 상위 serving layer의 책임이며 DP1 Performance QA에는 사용하지 않는다.
