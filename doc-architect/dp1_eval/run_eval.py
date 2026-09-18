@@ -149,33 +149,37 @@ def scenario_comparison(rows):
     out=[]
     for sc in scenarios():
         best={c:best_goodput_rows(rows,c,{sc.name}) for c in CANDIDATES}
-        keys=sorted(best["As-Is-HBM-first"])
-        base=[best["As-Is-HBM-first"][k] for k in keys]
-        c1=[best["C1-memory-centric"][k] for k in keys]
-        c2=[best["C2-data-centric"][k] for k in keys]
+        base_map=best["As-Is-HBM-first"]
+        keys=sorted(base_map)
+        base=[base_map[k] for k in keys]
         nominal={c:sorted([r for r in rows if r["scenario"]==sc.name and r["candidate"]==c and abs(r["load_scale"]-1.0)<1e-9],
                           key=lambda x:x["seed"]) for c in CANDIDATES}
         c1b=[]; c2b=[]; d12=[]
-        for a,b,z in zip(c1,c2,base):
-            if z["slo_goodput"]<=0 and a["slo_goodput"]<=0 and b["slo_goodput"]<=0:
-                continue
-            c1b.append(10.0 if z["slo_goodput"]<=0<a["slo_goodput"] else a["slo_goodput"]/max(1e-9,z["slo_goodput"]))
-            c2b.append(10.0 if z["slo_goodput"]<=0<b["slo_goodput"] else b["slo_goodput"]/max(1e-9,z["slo_goodput"]))
-            d12.append(10.0 if a["slo_goodput"]<=0<b["slo_goodput"] else b["slo_goodput"]/max(1e-9,a["slo_goodput"]))
+        c1_rows=[]; c2_rows=[]
+        for k in keys:
+            z=base_map[k]
+            a=best["C1-memory-centric"].get(k)
+            b=best["C2-data-centric"].get(k)
+            c1b.append(0.0 if a is None else a["slo_goodput"]/max(1e-9,z["slo_goodput"]))
+            c2b.append(0.0 if b is None else b["slo_goodput"]/max(1e-9,z["slo_goodput"]))
+            if a is not None: c1_rows.append(a)
+            if b is not None: c2_rows.append(b)
+            if a is not None and b is not None:
+                d12.append(b["slo_goodput"]/max(1e-9,a["slo_goodput"]))
         out.append({
           "scenario":sc.name,
           "role":"robustness/coverage" if sc.name in ROBUSTNESS else "QA-score",
           "batch":sc.batch_size,"context":sc.context_tokens,
-          "as_is_goodput":statistics.mean(r["slo_goodput"] for r in base),
-          "slo_feasible":any(r["slo_goodput"]>0 for r in base+c1+c2),
-          "c1_goodput":statistics.mean(r["slo_goodput"] for r in c1),
-          "c2_goodput":statistics.mean(r["slo_goodput"] for r in c2),
+          "as_is_goodput":statistics.mean(r["slo_goodput"] for r in base) if base else 0.0,
+          "slo_feasible":bool(base or c1_rows or c2_rows),
+          "c1_goodput":statistics.mean(r["slo_goodput"] for r in c1_rows) if c1_rows else 0.0,
+          "c2_goodput":statistics.mean(r["slo_goodput"] for r in c2_rows) if c2_rows else 0.0,
           "c1_vs_as_is":geom_mean(c1b) if c1b else None,"c2_vs_as_is":geom_mean(c2b) if c2b else None,
           "c2_vs_c1":geom_mean(d12) if d12 else None,"c2_vs_c1_ci95":ci95(d12) if d12 else None,
-          "c1_ttft_p99_ms":statistics.mean(r["ttft_p99_ms"] for r in nominal["C1-memory-centric"]),
-          "c2_ttft_p99_ms":statistics.mean(r["ttft_p99_ms"] for r in nominal["C2-data-centric"]),
-          "c1_tpot_p99_ms":statistics.mean(r["tpot_p99_ms"] for r in nominal["C1-memory-centric"]),
-          "c2_tpot_p99_ms":statistics.mean(r["tpot_p99_ms"] for r in nominal["C2-data-centric"]),
+          "c1_ttft_p99_ms":statistics.mean(r["ttft_p99_ms"] for r in c1_rows) if c1_rows else 0.0,
+          "c2_ttft_p99_ms":statistics.mean(r["ttft_p99_ms"] for r in c2_rows) if c2_rows else 0.0,
+          "c1_tpot_p99_ms":statistics.mean(r["tpot_p99_ms"] for r in c1_rows) if c1_rows else 0.0,
+          "c2_tpot_p99_ms":statistics.mean(r["tpot_p99_ms"] for r in c2_rows) if c2_rows else 0.0,
           "c1_resource_index":statistics.mean(r["resource_index"] for r in nominal["C1-memory-centric"]),
           "c2_resource_index":statistics.mean(r["resource_index"] for r in nominal["C2-data-centric"]),
           "c2_fallback_mean":statistics.mean(r.get("fallback_count",0) for r in nominal["C2-data-centric"]),
