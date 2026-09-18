@@ -366,6 +366,7 @@ class C2DataCentric:
         self.fallback=SafeFallbackSelector(system)
         self.hbm_relief=HBMReliefEstimator()
         self.deferred_hbm=set()
+        self.fallback_watch=set()
         self.deferred_stage_count=0
         self.deferred_promotion_count=0
         self.decision_ops=0
@@ -379,14 +380,23 @@ class C2DataCentric:
         self.runtime.observe(obj,access_count,now_s)
 
     def should_reevaluate(self,obj:DataObject,telemetry:dict[str,Telemetry]):
-        if obj.oid not in self.deferred_hbm:
-            return False
         h=telemetry["hbm"]
-        return h.capacity_util<=.72 and h.bw_util<=.72
+        if obj.oid in self.deferred_hbm:
+            return h.capacity_util<=.72 and h.bw_util<=.72
+
+        # A prediction-error object stays on a short watch list while HBM is
+        # pressured. Re-evaluate every 5 observed samples so that a later
+        # "wait in DRAM" opportunity is not missed.
+        if obj.oid in self.fallback_watch:
+            st=self.runtime.stats(obj)
+            return (st["samples"]>0 and st["samples"]%5==0
+                    and max(h.capacity_util,h.bw_util)>.72)
+        return False
 
     def _fallback_place(self,obj,telemetry,cap_mult,ch,reason):
         self.fallback_count+=1
         self.fallback_reason[reason]+=1
+        self.fallback_watch.add(obj.oid)
         tier,mode=self.fallback.decide(
             obj,telemetry,cap_mult,ch,self.hbm_relief.seconds_to_relief())
         if mode=="deferred_hbm_promotion":
@@ -404,6 +414,7 @@ class C2DataCentric:
             headroom=hbm.capacity_bytes*cap_mult*(1-min(1,telemetry["hbm"].capacity_util))
             if headroom>=obj.size_bytes:
                 self.deferred_hbm.discard(obj.oid)
+                self.fallback_watch.discard(obj.oid)
                 self.deferred_promotion_count+=1
                 return "hbm"
 
@@ -451,6 +462,7 @@ class C2DataCentric:
 
         if best!="dram":
             self.deferred_hbm.discard(obj.oid)
+        self.fallback_watch.discard(obj.oid)
         return best
 
 
