@@ -240,26 +240,32 @@ DP1~DP4에서 동일한 변경 archetype 4종을 고정하고 두 단위로 잰�
 
 ## 4. 측정 절차 (DP1~DP4 공통)
 
-1. **워크로드를 정책과 무관하게 먼저 생성한다.** 정책마다 난수 소비 순서가 달라지면 같은 seed라도 다른 입력을 보게 되어 짝지은 비교가 무효가 된다.
-2. **동일 seed에서 짝지어(paired) 비교하고, 95% 신뢰구간이 0을 지나면 "차이 없음"으로 판정한다.** 점 추정의 부호로 판정하지 않는다.
-3. **Goodput의 분모는 horizon으로 고정한다.**
-4. **최초 턴은 SLO 판정과 Goodput 분자에서 제외한다** — 배치 결정 이전이므로 대조군으로만 쓴다.
-5. **"정책 없음" 대조군(As-Is)을 반드시 함께 잰다.** 후보 간 격차보다 "정책이 있는가 없는가"의 격차가 더 클 수 있다.
-6. **TTFT·TPOT의 p99는 전체 요청에 대해 하나만 낸다.** 정상/급변 구간을 나누지 않고, 부하 변동을 워크로드 안에 포함시킨다.
-7. **정책 결정 시간과 데이터 이동 시간을 모든 시간 지표에 포함한다.** 결정점 A의 비용은 Decode를 막고, 결정점 B의 비용은 유휴에 숨되 초과분이 다음 턴의 TTFT로 이월된다.
+1. **워크로드/trace를 후보와 무관하게 먼저 생성한다.** 같은 `(scenario, seed)`에서 후보들이 동일 입력을 보게 하여 paired 비교가 성립하도록 한다.
+2. **동일 seed에서 짝지어(paired) 비교하고, 95% 신뢰구간이 0을 지나면 "차이 없음"으로 판정한다.** 점 추정의 부호만으로 우열을 정하지 않는다.
+3. **Throughput/Goodput의 시간 분모는 후보와 무관한 고정 horizon으로 둔다.**
+4. **Warm-up 또는 정책 적용 이전 구간을 제외해야 하는 DP는 제외 규칙을 실행 전에 고정하고 모든 후보에 동일하게 적용한다.** DP마다 "최초 턴"의 의미가 다르므로 특정 턴 번호를 공통 규칙으로 강제하지 않는다.
+5. **의미 있는 As-Is/정책 없음 대조군을 정의할 수 있는 DP에서는 함께 측정한다.** 다만 C1/C2 등 후보의 최종 별점은 대조군 상대값이 아니라 §3의 공통 절대/정규화 기준으로 매긴다.
+6. **TTFT·TPOT p99는 각 평가 시나리오의 전체 요청을 기준으로 계산한다.** 급변/정상 구간을 사후 분리해 유리한 구간만 인용하지 않는다.
+7. **정책 결정 비용과 DP가 유발하는 실행 비용을 critical path에 노출되는 만큼 Latency/Throughput에 포함한다.** DP1의 tier 변경은 DP4 migration mechanism 자체를 구현하지 않더라도 이동 비용 proxy를 명시해야 하며, DP4에서는 실제 migration 비용을 직접 측정한다.
+8. **Fault injection / infeasible stress / coverage-only scenario는 정상 운용 QA 별점과 분리한다.** Trade-off와 failure mode 분석에는 포함하되, 별점에 넣을 경우 공통 문서에 사전 명시한다.
 
 ---
 
 ## 5. 재현
 
+각 DP 결과 문서는 이 공통 문서를 인용하고, 자기 evaluator의 정확한 실행 명령·seed·scenario manifest·원자료 경로를 기록한다.
+
+DP1 현재 evaluator 예:
+
 ```bash
-# CPython 3.11.15. 의존성 없음 (표준 라이브러리만).
-python3 -m dp1_sim.run_grid --seeds 8 --horizon 200   # 클러스터 x 모델 x 배치 x context
-python3 -m dp1_sim.static_metrics                      # 정적 지표
-python3 -m dp1_sim.modifiability                       # Man-month / 토큰
+cd doc-architect/dp1_eval
+python3 run_eval.py
+python3 -m unittest -v test_eval.py
 ```
 
-> Python 버전이 다르면 수치가 달라질 수 있다 — CPython은 `random.random()`의 시퀀스만 보장하고 그 위의 분포 함수(`gauss`/`expovariate`/`choices`)는 보장하지 않는다. 판정이 paired CI라 결론은 유지될 것으로 본다.
+DP2~DP4도 동일한 네 QA와 §3의 별점 기준을 사용하되, DP별 raw resource metric과 scenario만 각 결과 문서에서 추가 정의한다.
+
+> Python 버전/난수 구현이 결과에 영향을 줄 수 있으므로 실행 환경과 seed를 함께 기록한다. 최종 후보 비교는 paired trace와 95% 신뢰구간을 우선한다.
 
 ---
 
