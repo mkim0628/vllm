@@ -48,8 +48,10 @@ def geom_mean(vals):
     return math.exp(sum(math.log(x) for x in xs)/len(xs)) if xs else 0.0
 
 def heavy_score_names():
+    # Large-batch OR long-context cells; cells with zero SLO-goodput for all policies
+    # are removed later as SLO-infeasible stress points.
     return {s.name for s in scenarios()
-            if s.name not in ROBUSTNESS and s.batch_size>=64 and s.context_tokens>=131072}
+            if s.name not in ROBUSTNESS and (s.batch_size>=64 or s.context_tokens>=131072)}
 
 def normal_score_names():
     return {s.name for s in scenarios() if s.name not in ROBUSTNESS}
@@ -180,6 +182,9 @@ def stars(n):
     if n is None: return "N/A"
     return "★"*n+"☆"*(3-n)
 
+def fmt_ratio(v):
+    return "N/A" if v is None else f"{v:.3f}"
+
 def write_report(path,summary):
     a=summary["aggregate"]; mod=summary["modifiability"]["totals"]
     lines=[
@@ -213,7 +218,7 @@ def write_report(path,summary):
 
     lines += [
       "","## 3. Workload coverage","",
-      "명시적 batch/concurrency와 context를 사용한다. Heavy throughput score는 batch ≥64, context ≥128K의 정상 시나리오만 사용한다.","",
+      "명시적 batch/concurrency와 context를 사용한다. Heavy throughput score는 large-batch 또는 long-context 정상 시나리오를 사용하고, 모든 정책의 SLO-goodput이 0인 cell은 throughput ratio에서 제외한다.","",
       "| Scenario | Batch | Context | Data mix | Target tiers |","|---|---:|---:|---|---|",
     ]
     for sc in scenarios():
@@ -230,7 +235,7 @@ def write_report(path,summary):
       "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for x in summary["scenario_comparison"]:
-        lines.append(f"| `{x['scenario']}` | {x['batch']} | {x['context']//1024}K | {x['c1_vs_as_is']:.3f} | {x['c2_vs_as_is']:.3f} | {x['c2_vs_c1']:.3f} | {x['c1_ttft_p99_ms']:.1f} | {x['c2_ttft_p99_ms']:.1f} | {x['c1_tpot_p99_ms']:.1f} | {x['c2_tpot_p99_ms']:.1f} |")
+        lines.append(f"| `{x['scenario']}` | {x['batch']} | {x['context']//1024}K | {fmt_ratio(x['c1_vs_as_is'])} | {fmt_ratio(x['c2_vs_as_is'])} | {fmt_ratio(x['c2_vs_c1'])} | {x['c1_ttft_p99_ms']:.1f} | {x['c2_ttft_p99_ms']:.1f} | {x['c1_tpot_p99_ms']:.1f} | {x['c2_tpot_p99_ms']:.1f} |")
 
     lines += [
       "","## 6. Modifiability","",
@@ -247,7 +252,7 @@ def write_report(path,summary):
       "- 실제 migration algorithm/path scheduling은 DP4 범위이며, 여기서는 이동 path cost proxy만 반영한다.",
       "- SSD-PIM에 TOPK가 없으므로 RAG retrieval은 dot-product local + score transfer로 계산한다. TOPK capability가 config에 추가되면 별도 sweep이 필요하다.",
     ]
-    path.write_text("\\n".join(lines).replace("`","`"),encoding="utf-8")
+    path.write_text("\n".join(lines),encoding="utf-8")
 
 def main():
     ap=argparse.ArgumentParser()
