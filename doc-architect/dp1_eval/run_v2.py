@@ -58,16 +58,18 @@ def best_rows(rows,candidate,names):
 def ratios(rows,candidate,names):
     b=best_rows(rows,"As-Is-HBM-first",names)
     c=best_rows(rows,candidate,names)
-    out=[]
+    out=[]; lost=[]; extension=[]
     for k,br in b.items():
-        cr=c[k]
-        if br["slo_goodput"]<=0 and cr["slo_goodput"]<=0:
-            continue
-        if br["slo_goodput"]<=0<cr["slo_goodput"]:
-            out.append(10.0)
+        cr=c.get(k)
+        if cr is None:
+            out.append(0.0)
+            lost.append(k)
         else:
             out.append(cr["slo_goodput"]/max(1e-9,br["slo_goodput"]))
-    return out
+    for k in c:
+        if k not in b:
+            extension.append(k)
+    return out,lost,extension
 
 def aggregate(rows,candidate):
     normal={s.name for s in scenarios() if s.name not in ROBUSTNESS}
@@ -75,10 +77,12 @@ def aggregate(rows,candidate):
            if s.name not in ROBUSTNESS and (s.batch_size>=64 or s.context_tokens>=131072)}
     nominal=[r for r in rows if r["candidate"]==candidate and r["scenario"] in normal
              and abs(r["load_scale"]-1.0)<1e-9]
-    rr=ratios(rows,candidate,heavy)
+    rr,lost,extension=ratios(rows,candidate,heavy)
     return {
         "heavy_goodput_ratio_vs_as_is":geom(rr),
         "heavy_goodput_ci95":ci95_log(rr),
+        "lost_sustainable_heavy_cells":len(lost),
+        "feasibility_extension_heavy_cells":len(extension),
         "mean_slo_goodput":statistics.mean(r["slo_goodput"] for r in nominal),
         "mean_token_throughput":statistics.mean(r["token_throughput"] for r in nominal),
         "resource_index":statistics.mean(r["resource_index"] for r in nominal),
@@ -95,11 +99,13 @@ def aggregate(rows,candidate):
 def domain_summary(rows,candidate):
     out={}
     for name,scs in DOMAINS.items():
-        rr=ratios(rows,candidate,scs)
+        rr,lost,extension=ratios(rows,candidate,scs)
         out[name]={
             "goodput_ratio_vs_as_is":geom(rr),
             "ci95":ci95_log(rr),
             "paired_cells":len(rr),
+            "lost_sustainable_cells":len(lost),
+            "feasibility_extension_cells":len(extension),
         }
     return out
 
