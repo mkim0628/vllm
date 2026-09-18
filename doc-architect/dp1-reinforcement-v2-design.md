@@ -12,7 +12,7 @@
 ## C1-R2
 
 > **Resource 상태를 보고 가장 좋은 Memory Tier를 선택한다.  
-> 단, HBM pressure가 Emergency 수준이면 목적함수를 “최고 utility”에서 “최소 비용으로 pressure 해소”로 바꾼다.**
+> 단, HBM pressure가 Emergency 수준이어도 As-Is/현재 Path보다 성능이 크게 나빠지는 이동은 Performance Guard가 차단한다.**
 
 ## C2-R2
 
@@ -37,12 +37,13 @@ flowchart TB
     subgraph RM["① Memory Resource Manager"]
         TC["Telemetry Collector<br/>Capacity / BW"]
         RSM["Resource State Monitor<br/>Current + Near-future Pressure"]
-        MR["Memory Registry<br/>Capacity / BW / Latency"]
+        MR["Memory Registry<br/>Capacity / BW / Latency / Capability"]
     end
 
     subgraph PP["② Resource-aware Placement Planner"]
-        RUE["Resource Utility Evaluator<br/>Current Tier + Candidate Tier + Migration Cost"]
-        EPP["Emergency Pressure Policy<br/>High Watermark + Minimum-cost Pressure Relief"]
+        RUE["Resource Utility Evaluator<br/>Headroom + BW + Latency + Migration Cost"]
+        PG["Performance Guard<br/>Candidate Path vs Current / HBM Path"]
+        EPP["Emergency Pressure Policy<br/>High Watermark + Pressure Relief"]
     end
 
     subgraph OUT["③ Placement Output"]
@@ -53,12 +54,15 @@ flowchart TB
     RSM --> RUE
     MR --> RUE
 
+    RUE --> PG
     RSM --> EPP
     MR --> EPP
+    PG --> EPP
 
-    RUE --> PD
+    PG --> PD
     EPP -. "Emergency일 때만 override" .-> PD
 ```
+
 
 ## 2.1 Resource Utility Evaluator
 
@@ -74,9 +78,57 @@ Candidate Utility
 
 따라서 새 Tier가 조금 좋아졌다는 이유만으로 바로 migration하지 않는다.
 
+
+## 2.2 Performance Guard
+
+C1-R2도 C2-R2와 동일하게 **“옮길 수 있는가?”뿐 아니라 “옮기면 실제로 더 느려지는가?”**를 확인한다.
+
+다만 C1은 C2처럼 Hotness / Reuse / Lifetime 같은 Runtime Data Semantics를 사용하지 않는다.
+
+C1의 Performance Guard 입력은:
+
+```text
+Current / Predicted Resource State
++ Memory Capability
++ Static Execution / Transfer Cost
++ Migration Cost
+```
+
+이다.
+
+비교 대상:
+
+```text
+Candidate Path
+vs
+Current Tier / HBM Path
+```
+
+Candidate가 다음 중 하나를 만족해야 이동 후보로 인정한다.
+
+- service time 개선
+- TTFT 개선
+- TPOT regression이 허용 범위 이내
+
+따라서 Emergency라고 해도:
+
+```text
+HBM pressure 높음
+→ offload candidate 생성
+→ Performance Guard
+→ 성능 손실이 너무 크면 HBM 유지
+```
+
+한다.
+
+C2와의 차이는 **Guard의 원칙은 같지만 판단 정보가 다르다**는 점이다.
+
+- C1: Resource State + Static Path Cost
+- C2: Data Type + Runtime Behavior + Operation-aware Path Cost
+
 ---
 
-## 2.2 Emergency Pressure란?
+## 2.3 Emergency Pressure란?
 
 쉽게 말하면:
 
@@ -109,7 +161,7 @@ Emergency에서 정책 자체가 바뀐다는 것이 핵심이다.
 
 ---
 
-## 2.3 Minimum-cost Pressure Relief
+## 2.4 Minimum-cost Pressure Relief
 
 Emergency라고 해서 많은 Data를 한꺼번에 내리지 않는다.
 
