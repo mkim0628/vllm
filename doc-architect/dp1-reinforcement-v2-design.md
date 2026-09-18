@@ -24,8 +24,8 @@
 - Data Type은 Data Descriptor로부터 **deterministic**하게 결정한다.
 - 정상 상황에서 “갈 수 있는 Tier가 없다”는 표현은 사용하지 않는다.
 - DRAM/CXL/SSD 등 물리적으로 저장 가능한 Tier는 일반적으로 존재한다.
-- 다만 **SLO를 만족하는 Path가 없을 수는 있다.**
-- 이 경우는 Fallback이 아니라 **Degraded Placement**로 정의한다.
+- Serving SLO는 DP1 Placement Policy의 판단 기준으로 사용하지 않는다.
+- 모든 Candidate Path는 **Current/HBM Path 대비 상대 성능**으로 비교한다.
 
 ---
 
@@ -219,8 +219,8 @@ flowchart TB
     subgraph PP["③ Data-aware Placement Planner"]
         PB["Placement Path Builder<br/>HBM Direct / Near-compute / Restore / Stage"]
         CE["Data-Operation Cost Evaluator<br/>TTFT / TPOT / Throughput Cost"]
-        BG["Performance Guard<br/>Best Candidate vs As-Is HBM-first"]
-        DP["Degraded Placement Policy<br/>No SLO-feasible Path일 때 Best-effort"]
+        BG["Performance Guard<br/>Best Candidate vs Current / HBM Path"]
+        LS["Lifecycle Staging Controller<br/>DRAM Stage / Deferred Promotion"]
     end
 
     subgraph OUT["④ Placement Output"]
@@ -240,10 +240,11 @@ flowchart TB
     TM --> CE
 
     CE --> BG
-    CE --> DP
+    DCI --> LS
+    TM --> LS
 
     BG --> DEC
-    DP -. "SLO-feasible path가 없을 때만" .-> DEC
+    LS -. "Reuse / Relief 조건일 때만" .-> DEC
 ```
 
 ---
@@ -384,107 +385,48 @@ CXL remote Attention 비용이 HBM보다 크면 HBM path를 유지한다.
 
 ---
 
-# 5. Fallback 대신 Degraded Placement
+# 5. Fallback 대신 Relative Performance + Lifecycle Staging
 
-기존 문서의 `Fallback State Manager` 용어는 제거한다.
+기존 `Fallback State Manager` / `Degraded Placement` 개념은 제거한다.
 
-이유는 사용자 지적대로:
+이유는 두 가지다.
 
-> 정상 Placement에서 “갈 수 있는 Tier가 하나도 없다”는 상황은 일반적인 DP1 상태로 보기 어렵다.
+1. DP1은 serving SLO를 결정하지 않는다.
+2. 정상 상태에서는 저장 가능한 Tier가 일반적으로 존재한다.
 
-HBM에서 만든 Data라면:
-
-- HBM에 유지하거나
-- DRAM으로 Stage하거나
-- CXL/HBF/SSD로 Spill하는
-
-물리적인 저장 선택지가 일반적으로 존재한다.
-
-따라서 구분은 다음이 더 정확하다.
-
-## Normal Placement
-
-하나 이상의 Path가 SLO를 만족.
+따라서 C2-R2는 모든 Candidate Path를 다음처럼 비교한다.
 
 ```text
-SLO-feasible Paths
-      ↓
-가장 좋은 Path 선택
+Candidate Path
+        vs
+Current Tier / HBM Path
 ```
 
-## Degraded Placement
+평가 항목:
 
-물리적인 저장 Path는 있지만 **어떤 Path도 현재 SLO를 만족하지 못함**.
+- service interval / throughput cost
+- TTFT cost
+- TPOT cost
+- migration / transfer cost
+- Data/Operation affinity
 
-```text
-No SLO-feasible Path
-      ↓
-Best-effort Path 선택
-      +
-DEGRADED 상태 표시
-```
-
-이는 “잘못 배치했다가 뒤로 돌아오는 Fallback”이 아니다.  
-**Placement Decision을 내리기 전에 선택하는 Best-effort mode**다.
+Candidate가 end-to-end Performance에서 불리하면 Current/HBM Path를 유지한다.
 
 ---
 
-# 6. Degraded Placement Policy
+# 6. Lifecycle Staging Controller
 
-```mermaid
-flowchart TB
-
-    subgraph IN["Input"]
-        CP["Evaluated Placement Paths"]
-        RT["Runtime Reuse Information"]
-        RS["Resource Pressure"]
-    end
-
-    subgraph DPM["Degraded Placement Policy"]
-        KEEP["Keep Current/HBM<br/>if capacity remains"]
-        STAGE["DRAM Stage<br/>if HBM relief is expected"]
-        REMOTE["Remote/Near-compute Path<br/>if cheaper than restore"]
-        SPILL["Lower-tier Spill<br/>if capacity pressure requires"]
-    end
-
-    subgraph OUT["Output"]
-        DEC["Best-effort Placement<br/>status = DEGRADED"]
-        FB["Capability/SLO Feedback<br/>to Scheduler/Autoscaler"]
-    end
-
-    CP --> KEEP
-    CP --> STAGE
-    CP --> REMOTE
-    CP --> SPILL
-
-    RT --> STAGE
-    RS --> KEEP
-    RS --> STAGE
-    RS --> SPILL
-
-    KEEP --> DEC
-    STAGE --> DEC
-    REMOTE --> DEC
-    SPILL --> DEC
-
-    DEC --> FB
-```
-
-### 왜 Next Reuse가 필요한가?
-
-`Next Reuse`는 Fallback의 기준이 아니다.
-
-**DRAM Stage라는 하나의 Best-effort Path가 좋은지 판단할 때만 사용한다.**
+DRAM Stage / Deferred Promotion은 fallback이 아니라 **Data lifecycle을 이용한 별도 optimization**이다.
 
 예:
 
 ```text
-HBM Pressure가 3초 뒤 풀릴 전망
+HBM Pressure가 3초 뒤 완화될 전망
 KV Next Reuse는 10초 뒤
 
-→ DRAM에 잠깐 Stage
-→ 3초 뒤 HBM 복귀
-→ 10초 access 전에 준비 완료
+→ DRAM에 잠시 Stage
+→ HBM 여유 발생
+→ Access 전에 HBM으로 Promotion
 ```
 
 반대로:
@@ -493,7 +435,9 @@ KV Next Reuse는 10초 뒤
 KV Next Reuse = 0.5초 뒤
 ```
 
-라면 DRAM wait은 불리하므로 다른 Path를 선택한다.
+라면 기다리는 것이 더 느리므로 Stage하지 않는다.
+
+즉 `Next Reuse`는 “fallback 여부”가 아니라 **Stage가 critical path를 피할 수 있는가**를 판단하는 정보다.
 
 ---
 
@@ -531,8 +475,8 @@ NO_PHYSICAL_CAPACITY
 | Runtime behavior | 사용 안 함 | Hotness / Reuse / Lifetime |
 | Data-near Compute | 제한적 | **핵심 장점** |
 | Migration Cost | Resource Utility 안에서 고려 | Path Cost 안에서 고려 |
-| High HBM Pressure | **Emergency Pressure Policy** | Path Cost + Degraded Policy |
-| SLO 만족 Path 없음 | Resource 기준 best-effort | **Degraded Placement** |
+| High HBM Pressure | **Emergency Pressure Policy + Performance Guard** | Path Cost + Performance Guard |
+| Lifecycle 활용 | 없음 | **DRAM Stage / Deferred Promotion** |
 | 실제 저장 공간 없음 | OOM / Admission Control | OOM / Admission Control |
 
 ---
@@ -543,11 +487,12 @@ NO_PHYSICAL_CAPACITY
 
 모든 Scenario를 계속 실행하되 다음으로 분류한다.
 
-- **WIN** — Goodput/Latency가 As-Is보다 개선
+- **WIN** — Throughput/Latency가 As-Is보다 개선
 - **TRADE-OFF** — Throughput과 Latency 방향이 다름
 - **NEUTRAL** — As-Is와 실질적으로 동일
 - **LOSS** — Performance 전반 악화
-- **SLO-INFEASIBLE STRESS** — 모든 후보가 SLO 불가
+
+Serving SLO 초과 여부로 workload를 평가에서 제외하지 않는다.
 
 대표 Target Domain:
 
@@ -573,12 +518,12 @@ Negative control:
 
 - Emergency threshold 진입 전/후 정책 변경이 명확한가
 - Minimum-cost relief가 migration storm 없이 pressure를 낮추는가
-- Target pressure scenario에서 As-Is보다 Goodput이 좋아지는가
+- Target pressure scenario에서 As-Is 대비 Throughput/Latency가 개선되는가
 
 ## C2-R2
 
 - Data Type은 deterministic하게 처리되는가
 - Tier가 아니라 **Placement/Execution Path**를 비교하는가
 - Data-near compute가 실제 Performance 이득일 때만 선택되는가
-- SLO를 못 맞추는 경우에도 항상 Best-effort placement가 결정되는가
+- Serving SLO 없이도 Current/HBM 대비 상대 성능으로 Path를 선택하는가
 - 정말 공간이 없는 경우만 OOM/Admission Control로 분리되는가
