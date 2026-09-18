@@ -1,39 +1,91 @@
 # DP1 C1/C2 Architecture Evaluator
 
-현재 DP1 설계(`dp1-data-placement-design.md`, `dp1-data-placement-uml-rendered.md`)의 두 후보를 동일한 환경에서 비교하기 위한 **architecture-level discrete-time simulator**다.
+현재 DP1 설계(`dp1-data-placement-design.md`, `dp1-data-placement-uml-rendered.md`)의 두 후보를 동일 trace에서 비교하는 **architecture-level discrete-time simulator**다.
 
 - **C1 — Memory-centric**: `Telemetry Collector → Resource State Monitor → Candidate Builder → Memory State View → Resource-aware Placement`
 - **C2 — Data-centric**: `Data Classifier + Runtime State Monitor → Data Characteristic Interpreter → Tier Affinity Evaluator → Memory Tier Selector`
 
-이 코드는 실제 vLLM 서버 벤치마크가 아니라 DP 후보 선택을 위한 설계 검증기다. 물리/토폴로지 입력은 기존 `../configs/`의 JSON을 직접 읽으며, 시나리오 trace는 후보와 무관하게 먼저 생성한다.
+## Scope
+
+이 evaluator는 KV Cache만 대상으로 하지 않는다. DP1 문서의 AI Runtime Data를 모두 포함한다.
+
+- `KV_CACHE`
+- `RAG_DATA`
+- `AGENT_MEMORY`
+- `TOOL_RESULT`
+- `LOG_DATA`
+- `LORA_ADAPTER`
+- `MOE_EXPERT`
+
+또한 `memories_default.json`의 6개 target tier를 모두 사용한다.
+
+- `hbm`
+- `custom_hbm`
+- `cxl_pnm`
+- `dram`
+- `hbf`
+- `ssd_pim`
+
+실제 run 결과에서도 C1/C2 모두 6개 tier에 placement decision이 발생하는지 검증한다.
+
+## Common QA basis
+
+최종 QA 별점은 `../evaluation-criteria.md`의 **DP1~DP4 공통 기준**만 사용한다.
+
+1. Performance Throughput
+2. Performance Latency
+3. Resource Utilization
+4. Modifiability
+
+별도 evaluator가 임의의 QA threshold를 만들지 않는다. fault-injection / infeasible-capacity / six-tier coverage stress는 trade-off 분석에는 포함하지만 정상 운용 QA 별점에는 넣지 않는다.
 
 ## Inputs
 
-기본값은 다음 repository configuration을 그대로 사용한다.
+기본값은 다음 repository configuration을 직접 읽는다.
 
 - `../configs/memories_default.json`
 - `../configs/clusters.json` → `b200_8gpu`
 - `../configs/models.json` → `llama_3_1_70b`
 
+## Scenario suite
+
+20개 scenario × 5 seeds × 2 candidates = **200 candidate runs**.
+
+대표 시나리오:
+
+- stable hot KV
+- KV + RAG mixed
+- RAG hot/cold index
+- long-lived Agent Memory
+- bursty Tool Result
+- append-heavy AI runtime / Agent execution Log
+- Multi-LoRA
+- MoE expert skew
+- all-AI-data coexistence
+- HBM capacity ramp / BW shock
+- host-path pressure / resource oscillation
+- hotness flip / data-mix shift
+- long context
+- cold archive reactivation
+- classifier error fault injection
+- capacity crunch
+- six-tier stress
+
+`runtime_log_append`는 **SST/SSTable이 아니다.** DP1의 `Tool Result / Runtime Log` 범주 중 AI runtime/agent execution log를 모델링한다. SSTable은 storage-engine 내부 자료구조이므로 DP1 AI Runtime Data로 취급하지 않는다.
+
 ## Run
 
 ```bash
 cd doc-architect/dp1_eval
-python run_eval.py \
-  --seeds 11,23,37,51,71 \
-  --output results.json \
-  --report report.md
+python run_eval.py
 ```
 
-특정 시나리오만 실행하려면:
+출력:
 
-```bash
-python run_eval.py \
-  --scenarios classifier_error,hbm_bw_shock,mixed_hot_cold \
-  --seeds 11,23,37,51,71
-```
-
-다른 config를 비교하려면 `--config-dir`, `--cluster`, `--model`을 사용한다.
+- `out/results_runs.csv`
+- `out/results_summary.json`
+- `out/scenario_manifest.json`
+- `out/dp1-qa-evaluation.md`
 
 ## Tests
 
@@ -42,18 +94,12 @@ cd doc-architect/dp1_eval
 python -m unittest -v test_eval.py
 ```
 
-## Checked-in Results
+7개 test가 config 6-tier 로딩, 7종 AI Data coverage, six-tier scenario, C1 resource prediction, C2 classifier, deterministic trace, Runtime Log의 non-SST 의미를 확인한다.
 
-- `results_runs.csv` — C1/C2 18 scenarios × 5 seeds = 180 candidate runs
-- `oracle_runs.csv` — 동일 trace의 reference heuristic 90 runs
-- `results_summary.json` — QA aggregate, 별점, scenario별 paired comparison
-- `scenario_manifest.json` — scenario 목록과 seed
-- `../dp1-qa-evaluation.md` — 평가 기준, 결과, 해석, 제한사항
+## Important modeling rules
 
-## Important Modeling Rules
-
-1. **Same trace**: 같은 `(scenario, seed)`에서 C1/C2/reference가 완전히 동일한 object trace를 사용한다.
-2. **Current design only**: 기존 `../dp1_sim/`은 과거 KV-centric 구조의 실험 코드다. 본 디렉터리는 현재 Resource State Monitor / Data Classifier 구조를 기준으로 새로 작성했다.
-3. **DP4 boundary**: migration mechanism은 구현하지 않는다. 이동 시간 proxy의 20%만 다음 request critical path에 노출시키고 나머지는 background overlap으로 둔다.
-4. **No fabricated AI-token metric**: 이 실행 환경은 coding-agent token usage를 제공하지 않으므로 Modifiability의 AI Token Consumption은 `N/A`로 기록한다.
-5. **Absolute vs relative**: config에는 ASSUMED 항목도 있으므로 절대 성능값보다 동일 trace에서의 C1/C2 상대 비교를 더 신뢰해야 한다.
+1. **Same trace**: 같은 `(scenario, seed)`에서 C1/C2가 같은 object trace를 사용한다.
+2. **Current design only**: 기존 `../dp1_sim/`은 과거 KV-centric 설계를 검증한 코드이므로 현재 C1/C2 최종 QA 별점에는 사용하지 않는다.
+3. **DP4 boundary**: migration mechanism 자체는 구현하지 않는다. tier 변경 시 idealized path cost의 20%만 다음 access critical path에 반영한다.
+4. **Modifiability token**: 실제 API usage가 아니라 공통 기준의 static source read/write token estimate(char/3.6)를 사용한다.
+5. **Absolute vs relative**: config의 ASSUMED 값 때문에 절대값보다 동일 trace의 후보 간 차이와 failure mode를 더 신뢰한다.
