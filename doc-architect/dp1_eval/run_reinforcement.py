@@ -70,21 +70,22 @@ def best_rows(rows,candidate,names):
 def ratio_vs_as_is(rows,candidate,names):
     base=best_rows(rows,"As-Is-HBM-first",names)
     cand=best_rows(rows,candidate,names)
-    vals=[]; infeasible=[]
+    vals=[]; infeasible=[]; extension=[]
     for k,b in base.items():
-        c=cand[k]
-        if b["slo_goodput"]<=0 and c["slo_goodput"]<=0:
+        c=cand.get(k)
+        if c is None:
+            vals.append(0.0)
             infeasible.append(k)
-            continue
-        if b["slo_goodput"]<=0<c["slo_goodput"]:
-            vals.append(10.0)
         else:
             vals.append(c["slo_goodput"]/max(1e-9,b["slo_goodput"]))
+    for k in cand:
+        if k not in base:
+            extension.append(k)
     if not vals:
-        return 1.0,[1.0,1.0],infeasible
+        return 0.0,[0.0,0.0],infeasible,extension
     logs=[math.log(max(1e-9,x)) for x in vals]
     lci=ci95(logs)
-    return geom_mean(vals),[math.exp(lci[0]),math.exp(lci[1])],infeasible
+    return geom_mean(vals),[math.exp(lci[0]),math.exp(lci[1])],infeasible,extension
 
 def aggregate(rows,candidate):
     normal=normal_names(); heavy=heavy_names()
@@ -92,7 +93,7 @@ def aggregate(rows,candidate):
              if r["candidate"]==candidate and r["scenario"] in normal
              and abs(r["load_scale"]-1.0)<1e-9]
 
-    ratio,ratio_ci,infeasible=ratio_vs_as_is(rows,candidate,heavy)
+    ratio,ratio_ci,infeasible,extension=ratio_vs_as_is(rows,candidate,heavy)
 
     maps={c:best_rows(rows,c,normal) for c in CANDIDATES}
     all_keys=set().union(*(x.keys() for x in maps.values()))
@@ -109,6 +110,7 @@ def aggregate(rows,candidate):
         "goodput_ratio_vs_as_is_heavy":ratio,
         "goodput_ratio_ci95":ratio_ci,
         "infeasible_heavy_cells":len(infeasible),
+        "feasibility_extension_heavy_cells":len(extension),
         "token_throughput_mean":statistics.mean(r["token_throughput"] for r in nominal),
         "slo_goodput_mean":statistics.mean(r["slo_goodput"] for r in nominal),
         "ttft_p99_worst_scored_ms":ttft,
