@@ -181,7 +181,7 @@ ResourceState
 └── predicted_state
 ```
 
-예측 대상은 복잡한 장기 forecasting이 아니라 Placement decision window에서 필요한 near-future 상태이다.
+예측 대상은 복잡한 장기 forecasting이 아니라 Placement decision window에서 필요한 near-future 상태이다. 구체적인 sampling/window/trend 식은 `dp1-monitoring-prediction-methodology.md`에 정의한다.
 
 ```text
 현재 HBM 사용률 82%
@@ -395,7 +395,7 @@ DataRuntimeStats
 └── transition_history
 ```
 
-초기 배치 시에는 충분한 History가 없을 수 있으므로 Data Class의 prior/default profile을 사용하고, Runtime이 진행되면서 실제 관찰값으로 갱신한다.
+초기 배치 시에는 충분한 History가 없을 수 있으므로 Data Class의 prior/default profile을 사용하고, Runtime이 진행되면서 실제 관찰 access event의 EWMA/reuse interval/idle time/object age로 갱신한다. 구체적인 online prediction 식은 `dp1-monitoring-prediction-methodology.md`에 정의한다.
 
 ```text
 Initial Placement
@@ -527,7 +527,6 @@ C2의 Data classification 또는 Hotness/Lifetime 예측은 틀릴 수 있으므
 Fallback trigger:
 
 - Data Classifier confidence가 threshold 미만
-- 상위 두 Tier의 affinity gap이 너무 작아 결정 confidence가 낮음
 - 선택 Tier가 `required_operations`를 만족하지 못함
 - 예상 first-response / TPOT budget을 넘음
 - 배치 후 관찰된 access rate / reuse가 예측과 크게 달라짐
@@ -538,14 +537,19 @@ Fallback은 Data type에 따라 다르게 적용한다.
 ```text
 Active KV Cache
   1) HBM에 headroom이 있으면 HBM
-  2) 아니면 full Attention primitive + step budget을 만족하는
+  2) HBM pressure가 높지만 곧 완화될 것으로 보이고,
+     predicted next reuse가 그 이후라면:
+       DRAM_STAGE → wait → HBM low-watermark에서 promotion
+  3) next reuse가 임박하면 full Attention primitive + TPOT budget을 만족하는
      Custom HBM / CXL-PNM 후보
-  3) 그것도 불가하면 lower tier에 보관하되 Decode 직전 HBM restore
+  4) 그것도 불가하면 DRAM 등 staging tier에 두고 next access에서 HBM restore
 
 RAG / Embedding / Retrieval Index
-  1) 선택 Tier가 retrieval required-operation을 지원하면 in-place 사용
-  2) 지원하지 않거나 latency budget 초과 시 HBF / DRAM / HBM 쪽 safe tier
-  3) SSD-PIM은 지원 primitive만 사용하며 unsupported operation을 가정하지 않음
+  1) Vector DB가 SSD에 resident
+  2) SSD-PIM은 GEMV만 사용하여 stored vector × query vector similarity 계산
+  3) similarity score result만 외부로 전달
+  4) ranking / top-k는 controller/host 후처리
+  5) SSD-PIM을 KV Attention / FFN / 일반 GEMM 자원으로 사용하지 않음
 
 Agent Memory / Tool Result
   1) latency-insensitive cold object는 DRAM/CXL/SSD 계층 허용
@@ -583,16 +587,31 @@ Custom HBM or CXL-PNM
 - GPU에서 계속 수행되는 FFN / weight path
 - external link contention
 
-#### RAG Index — SSD-PIM retrieval
+#### RAG Index — SSD-PIM Vector Similarity
 
-Embedding / Vector Index가 매우 크고 cold/long-lived이면 SSD-PIM 배치가 가능하다. Retrieval이 dot-product/GEMV 계열이라 SSD-PIM의 supported primitive로 일부 연산을 수행할 수 있다면 **전체 embedding을 GPU로 읽어오는 대신 연산 결과만 외부로 전달**할 수 있다.
+SSD-PIM의 연산 기능은 **GEMV 하나**로 제한한다. 용도도 하나다.
 
-단, 현재 Memory Registry에 `TOPK` primitive가 명시되어 있지 않다면 full in-storage vector search를 가정하지 않는다. 이 경우 simulation은 다음 두 비용을 분리한다.
+```text
+Vector DB / Embedding Index resident on SSD
+        ↓
+Query Vector
+        ↓
+SSD-PIM GEMV
+stored vectors × query vector
+        ↓
+Similarity Score Result
+        ↓
+Controller / Host ranking / top-k
+```
 
-- SSD 내부 dot-product/GEMV 비용
-- Top-k를 외부에서 수행해야 할 경우 score/result transfer 비용
+Baseline은 vector 자체를 SSD에서 GPU/CPU로 읽은 뒤 similarity를 계산하지만, SSD-PIM 경로에서는 **vector를 SSD 밖으로 가져오지 않고 similarity GEMV를 data-near하게 수행**한다.
 
-즉 `GEMV 지원 = 전체 RAG retrieval pipeline 지원`으로 간주하지 않는다.
+따라서 핵심 이득은 Top-k 연산 가속이 아니라 다음 두 가지다.
+
+- Vector similarity GEMV 자체의 가속
+- 외부 traffic을 full vector data에서 similarity score result로 축소
+
+Top-k는 SSD-PIM primitive가 아니며 controller/host 후처리로 본다. SSD-PIM은 KV Decode Attention, Softmax, Causal Mask, FFN, 일반 GEMM 자원으로 사용하지 않는다.
 
 ## 4.7 C2 Decision Flow
 
