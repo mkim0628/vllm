@@ -15,6 +15,7 @@ from modifiability import measure as measure_modifiability
 
 SEEDS=[11,23,37,51,71]
 CANDIDATES=("As-Is-HBM-first","C1-memory-centric","C2-data-centric")
+LOAD_SCALES=(0.25,0.50,0.75,1.00,1.25)
 ROBUSTNESS={
     "classifier_error":"fault injection: wrong DataDescriptor type hints",
     "six_tier_capacity_stress":"coverage stress: force all six tiers",
@@ -53,52 +54,68 @@ def heavy_score_names():
 def normal_score_names():
     return {s.name for s in scenarios() if s.name not in ROBUSTNESS}
 
-def paired_goodput_ratios(rows,candidate,names):
-    base={(r["scenario"],r["seed"]):r for r in rows
-          if r["candidate"]=="As-Is-HBM-first" and r["scenario"] in names}
-    vals=[]
+def best_goodput_rows(rows,candidate,names):
+    best={}
     for r in rows:
-        if r["candidate"]!=candidate or r["scenario"] not in names: continue
-        b=base[(r["scenario"],r["seed"])]
-        vals.append(r["slo_goodput"]/max(1e-9,b["slo_goodput"]))
-    return vals
+        if r["candidate"]!=candidate or r["scenario"] not in names:
+            continue
+        k=(r["scenario"],r["seed"])
+        if k not in best or r["slo_goodput"]>best[k]["slo_goodput"]:
+            best[k]=r
+    return best
+
+def paired_goodput_ratios(rows,candidate,names):
+    base=best_goodput_rows(rows,"As-Is-HBM-first",names)
+    cand=best_goodput_rows(rows,candidate,names)
+    vals=[]; infeasible=[]
+    for k,b in base.items():
+        c=cand[k]
+        if b["slo_goodput"]<=0 and c["slo_goodput"]<=0:
+            infeasible.append(k)
+            continue
+        if b["slo_goodput"]<=0 and c["slo_goodput"]>0:
+            vals.append(10.0)
+        else:
+            vals.append(c["slo_goodput"]/b["slo_goodput"])
+    return vals,infeasible
 
 def aggregate(rows,candidate,mod):
     normal=normal_score_names(); heavy=heavy_score_names()
     rs=[r for r in rows if r["candidate"]==candidate and r["scenario"] in normal]
+    nominal=[r for r in rs if abs(r["load_scale"]-1.0)<1e-9]
     hrs=[r for r in rs if r["scenario"] in heavy]
 
     if candidate=="As-Is-HBM-first":
-        ratio=1.0; ratio_ci=[1.0,1.0]; throughput_star=2
+        ratio=1.0; ratio_ci=[1.0,1.0]; throughput_star=2; infeasible=[]
     else:
-        ratios=paired_goodput_ratios(rows,candidate,heavy)
-        ratio=geom_mean(ratios)
+        ratios,infeasible=paired_goodput_ratios(rows,candidate,heavy)
+        ratio=geom_mean(ratios) if ratios else 1.0
         logs=[math.log(max(1e-9,x)) for x in ratios]
-        lci=ci95(logs)
+        lci=ci95(logs) if logs else [0.0,0.0]
         ratio_ci=[math.exp(lci[0]),math.exp(lci[1])]
         throughput_star=star_goodput(ratio,ratio_ci)
 
-    ttft=max((r["ttft_p99_ms"] for r in rs),default=0.0)
-    tpot=max((r["tpot_p99_ms"] for r in rs),default=0.0)
-    rui=statistics.mean(r["resource_index"] for r in rs) if rs else 0.0
+    ttft=max((r["ttft_p99_ms"] for r in nominal),default=0.0)
+    tpot=max((r["tpot_p99_ms"] for r in nominal),default=0.0)
+    rui=statistics.mean(r["resource_index"] for r in nominal) if nominal else 0.0
     key="C1" if candidate.startswith("C1") else "C2" if candidate.startswith("C2") else None
     mod_star=mod["totals"][key]["final_star"] if key else None
 
     return {
-      "normal_runs":len(rs),"heavy_runs":len(hrs),
-      "token_throughput_mean":statistics.mean(r["token_throughput"] for r in rs),
-      "slo_goodput_mean":statistics.mean(r["slo_goodput"] for r in rs),
+      "normal_runs":len(rs),"heavy_runs":len(hrs),"infeasible_heavy_cells":len(infeasible),
+      "token_throughput_mean":statistics.mean(r["token_throughput"] for r in nominal),
+      "slo_goodput_mean":statistics.mean(r["slo_goodput"] for r in nominal),
       "goodput_ratio_vs_as_is_heavy":ratio,
       "goodput_ratio_ci95":ratio_ci,
       "ttft_p99_worst_ms":ttft,
       "tpot_p99_worst_ms":tpot,
-      "e2e_p99_mean_ms":statistics.mean(r["e2e_p99_ms"] for r in rs),
+      "e2e_p99_mean_ms":statistics.mean(r["e2e_p99_ms"] for r in nominal),
       "resource_utilization_index":rui,
-      "hbm_pressure_violation_rate":statistics.mean(r["hbm_pressure_violation_rate"] for r in rs),
-      "bw_saturation_rate":statistics.mean(r["bw_saturation_rate"] for r in rs),
-      "migration_count_mean":statistics.mean(r["migration_count"] for r in rs),
-      "decision_us_avg":statistics.mean(r["decision_us_avg"] for r in rs),
-      "fallback_count_mean":statistics.mean(r.get("fallback_count",0) for r in rs),
+      "hbm_pressure_violation_rate":statistics.mean(r["hbm_pressure_violation_rate"] for r in nominal),
+      "bw_saturation_rate":statistics.mean(r["bw_saturation_rate"] for r in nominal),
+      "migration_count_mean":statistics.mean(r["migration_count"] for r in nominal),
+      "decision_us_avg":statistics.mean(r["decision_us_avg"] for r in nominal),
+      "fallback_count_mean":statistics.mean(r.get("fallback_count",0) for r in nominal),
       "stars":{
         "performance_throughput":throughput_star,
         "latency_first_response":star_first_response(ttft),
@@ -111,30 +128,37 @@ def aggregate(rows,candidate,mod):
 def scenario_comparison(rows):
     out=[]
     for sc in scenarios():
-        bycand={c:sorted([r for r in rows if r["scenario"]==sc.name and r["candidate"]==c],
-                         key=lambda x:x["seed"]) for c in CANDIDATES}
-        c1=bycand["C1-memory-centric"]; c2=bycand["C2-data-centric"]; base=bycand["As-Is-HBM-first"]
+        best={c:best_goodput_rows(rows,c,{sc.name}) for c in CANDIDATES}
+        keys=sorted(best["As-Is-HBM-first"])
+        base=[best["As-Is-HBM-first"][k] for k in keys]
+        c1=[best["C1-memory-centric"][k] for k in keys]
+        c2=[best["C2-data-centric"][k] for k in keys]
+        nominal={c:sorted([r for r in rows if r["scenario"]==sc.name and r["candidate"]==c and abs(r["load_scale"]-1.0)<1e-9],
+                          key=lambda x:x["seed"]) for c in CANDIDATES}
         c1b=[]; c2b=[]; d12=[]
         for a,b,z in zip(c1,c2,base):
-            c1b.append(a["slo_goodput"]/max(1e-9,z["slo_goodput"]))
-            c2b.append(b["slo_goodput"]/max(1e-9,z["slo_goodput"]))
-            d12.append(b["slo_goodput"]/max(1e-9,a["slo_goodput"]))
+            if z["slo_goodput"]<=0 and a["slo_goodput"]<=0 and b["slo_goodput"]<=0:
+                continue
+            c1b.append(10.0 if z["slo_goodput"]<=0<a["slo_goodput"] else a["slo_goodput"]/max(1e-9,z["slo_goodput"]))
+            c2b.append(10.0 if z["slo_goodput"]<=0<b["slo_goodput"] else b["slo_goodput"]/max(1e-9,z["slo_goodput"]))
+            d12.append(10.0 if a["slo_goodput"]<=0<b["slo_goodput"] else b["slo_goodput"]/max(1e-9,a["slo_goodput"]))
         out.append({
           "scenario":sc.name,
           "role":"robustness/coverage" if sc.name in ROBUSTNESS else "QA-score",
           "batch":sc.batch_size,"context":sc.context_tokens,
           "as_is_goodput":statistics.mean(r["slo_goodput"] for r in base),
+          "slo_feasible":any(r["slo_goodput"]>0 for r in base+c1+c2),
           "c1_goodput":statistics.mean(r["slo_goodput"] for r in c1),
           "c2_goodput":statistics.mean(r["slo_goodput"] for r in c2),
-          "c1_vs_as_is":geom_mean(c1b),"c2_vs_as_is":geom_mean(c2b),
-          "c2_vs_c1":geom_mean(d12),"c2_vs_c1_ci95":ci95(d12),
-          "c1_ttft_p99_ms":statistics.mean(r["ttft_p99_ms"] for r in c1),
-          "c2_ttft_p99_ms":statistics.mean(r["ttft_p99_ms"] for r in c2),
-          "c1_tpot_p99_ms":statistics.mean(r["tpot_p99_ms"] for r in c1),
-          "c2_tpot_p99_ms":statistics.mean(r["tpot_p99_ms"] for r in c2),
-          "c1_resource_index":statistics.mean(r["resource_index"] for r in c1),
-          "c2_resource_index":statistics.mean(r["resource_index"] for r in c2),
-          "c2_fallback_mean":statistics.mean(r.get("fallback_count",0) for r in c2),
+          "c1_vs_as_is":geom_mean(c1b) if c1b else None,"c2_vs_as_is":geom_mean(c2b) if c2b else None,
+          "c2_vs_c1":geom_mean(d12) if d12 else None,"c2_vs_c1_ci95":ci95(d12) if d12 else None,
+          "c1_ttft_p99_ms":statistics.mean(r["ttft_p99_ms"] for r in nominal["C1-memory-centric"]),
+          "c2_ttft_p99_ms":statistics.mean(r["ttft_p99_ms"] for r in nominal["C2-data-centric"]),
+          "c1_tpot_p99_ms":statistics.mean(r["tpot_p99_ms"] for r in nominal["C1-memory-centric"]),
+          "c2_tpot_p99_ms":statistics.mean(r["tpot_p99_ms"] for r in nominal["C2-data-centric"]),
+          "c1_resource_index":statistics.mean(r["resource_index"] for r in nominal["C1-memory-centric"]),
+          "c2_resource_index":statistics.mean(r["resource_index"] for r in nominal["C2-data-centric"]),
+          "c2_fallback_mean":statistics.mean(r.get("fallback_count",0) for r in nominal["C2-data-centric"]),
         })
     return out
 
@@ -239,7 +263,8 @@ def main():
     for sc in scenarios():
         for seed in seeds:
             for c in CANDIDATES:
-                rows.append(run_sim(system,sc,seed,c))
+                for load_scale in LOAD_SCALES:
+                    rows.append(run_sim(system,sc,seed,c,load_scale))
 
     special={"placement_decisions","class_tier","fallback_reason"}
     fields=[k for k in rows[0] if k not in special]+["placement_decisions_json","class_tier_json","fallback_reason_json"]
@@ -256,7 +281,7 @@ def main():
     agg={c:aggregate(rows,c,mod) for c in CANDIDATES}
     summary={
       "meta":{
-        "seeds":seeds,"scenario_count":len(scenarios()),
+        "seeds":seeds,"scenario_count":len(scenarios()),"load_scales":LOAD_SCALES,
         "heavy_score_scenarios":sorted(heavy_score_names()),
         "robustness_excluded_from_star":ROBUSTNESS,
         "cluster":"b200_8gpu","model":"llama_3_1_70b",
