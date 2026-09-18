@@ -5,7 +5,10 @@ import random
 from collections import Counter, defaultdict
 
 from model import SystemSpec, DataObject
-from policies import Telemetry, AsIsHBMFirst, C1MemoryCentric, C2DataCentric
+from policies import (
+    Telemetry, AsIsHBMFirst, C1MemoryCentric, C2DataCentric,
+    C1MemoryCentricReinforced, C2DataCentricReinforced,
+)
 from scenarios import Scenario, generate_trace
 
 FIRST_RESPONSE_SLO_S=2.0
@@ -56,7 +59,7 @@ def operation_external_bytes(system:SystemSpec,obj:DataObject,tier:str,candidate
     m=system.memories[tier]
     if obj.data_class=="RAG_DATA":
         if m.retrieval_dot_capable:
-            # Current registry has no TOPK primitive: return all scores, not whole vectors.
+            # SSD-PIM executes vector-similarity GEMV locally; only score results leave SSD.
             return _rag_score_bytes(system,obj)
         return obj.size_bytes
     if obj.data_class=="KV_CACHE":
@@ -135,6 +138,10 @@ def _policy(system,candidate):
         return C1MemoryCentric(system)
     if candidate=="C2-data-centric":
         return C2DataCentric(system)
+    if candidate=="C1-R-stable-resource":
+        return C1MemoryCentricReinforced(system)
+    if candidate=="C2-R-feasibility-stable":
+        return C2DataCentricReinforced(system)
     raise ValueError(candidate)
 
 def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:float=1.0):
@@ -152,7 +159,13 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
     total_served_requests=0.0; total_good_requests=0.0
     bw_sat_seconds=0; hbm_pressure_seconds=0
     decision_count=0
-    decision_us_per={"As-Is-HBM-first":3.0,"C1-memory-centric":12.2,"C2-data-centric":34.0}[candidate]
+    decision_us_per={
+        "As-Is-HBM-first":3.0,
+        "C1-memory-centric":12.2,
+        "C1-R-stable-resource":14.0,
+        "C2-data-centric":34.0,
+        "C2-R-feasibility-stable":39.0,
+    }[candidate]
 
     for t in range(sc.horizon_s):
         alive=[o for o in objs if o.alive(t)]
@@ -334,14 +347,28 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
       "placement_decisions":dict(placement_decisions),
       "class_tier":{f"{k[0]}@{k[1]}":v for k,v in class_tier.items()},
     }
-    if candidate=="C2-data-centric":
+    if candidate.startswith("C2"):
         out["fallback_count"]=policy.fallback_count
         out["fallback_reason"]=dict(policy.fallback_reason)
         out["deferred_stage_count"]=policy.deferred_stage_count
         out["deferred_promotion_count"]=policy.deferred_promotion_count
+        out["suppressed_migrations"]=getattr(policy,"suppressed_migrations",0)
+        out["feasibility_filtered"]=getattr(policy,"feasibility_filtered",0)
+        out["infeasible_stable_hold"]=getattr(policy,"infeasible_stable_hold",0)
+    elif candidate.startswith("C1"):
+        out["fallback_count"]=0
+        out["fallback_reason"]={}
+        out["deferred_stage_count"]=0
+        out["deferred_promotion_count"]=0
+        out["suppressed_migrations"]=getattr(policy,"suppressed_migrations",0)
+        out["feasibility_filtered"]=0
+        out["infeasible_stable_hold"]=0
     else:
         out["fallback_count"]=0
         out["fallback_reason"]={}
         out["deferred_stage_count"]=0
         out["deferred_promotion_count"]=0
+        out["suppressed_migrations"]=0
+        out["feasibility_filtered"]=0
+        out["infeasible_stable_hold"]=0
     return out
