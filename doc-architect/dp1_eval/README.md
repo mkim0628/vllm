@@ -95,3 +95,39 @@ Unit test는 config 6-tier 로딩, primary AI Data coverage, large-batch/long-co
 5. **Operation-aware placement**: KV Attention은 Custom HBM/CXL-PNM에서 수행 가능하되 FFN은 GPU에 남고 activation round-trip을 포함한다. SSD-PIM은 GEMV만 지원하며 SSD-resident Vector DB의 similarity 계산에만 사용한다. similarity score 이후 ranking/top-k는 controller/host 후처리다.
 4. **Modifiability token**: 실제 API usage가 아니라 공통 기준의 static source read/write token estimate(char/3.6)를 사용한다.
 5. **Absolute vs relative**: config의 ASSUMED 값 때문에 절대값보다 동일 trace의 후보 간 차이와 failure mode를 더 신뢰한다.
+
+
+## Evaluation history
+
+DP1 후보 비교는 결과를 덮어쓰지 않고 단계별로 보존한다.
+
+1. `../dp1-c1-c2-baseline-assessment.md`
+   - 최초 C1/C2 비교 결과 동결
+   - C2 fallback/migration storm 발견
+
+2. `../dp1-reinforcement-design.md`
+   - C1-R / C2-R 1차 보완 설계
+   - C1-R: hysteresis / minimum residency / migration benefit gate
+   - C2-R: feasibility-first / cooldown / stable fallback
+
+3. `../dp1-reinforcement-evaluation.md`
+   - 동일 workload에서 before/after 재평가
+   - C1-R migration -88.5%
+   - C2-R fallback -81.2%, migration -76.5%, heavy-goodput +10.2%
+
+4. `../dp1-reinforcement-v2-design.md`
+   - C1-R2: emergency pressure escape
+   - C2-R2: explicit infeasibility state / low-confidence envelope / pressure override
+
+Reinforcement 재현:
+
+```bash
+cd doc-architect/dp1_eval
+python run_reinforcement.py
+```
+
+출력:
+
+- `out_reinforcement/reinforcement_runs.csv`
+- `out_reinforcement/reinforcement_summary.json`
+- `out_reinforcement/dp1-reinforcement-evaluation.md`
