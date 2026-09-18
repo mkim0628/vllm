@@ -1,6 +1,6 @@
 # DP1 V2 Evaluation — Strict p99 Sustainable Operating Point
 
-> Source run: GitHub Actions `35325900238`  
+> Source run: GitHub Actions `35326307384`  
 > Unit test / baseline / reinforcement / V2 evaluator = **success**
 >
 > **Sustainable operating point 정의**
