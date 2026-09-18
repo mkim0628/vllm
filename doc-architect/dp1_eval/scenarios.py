@@ -52,7 +52,7 @@ def scenarios():
     S=[]; add=S.append
 
     # Explicit batch/context cells for KV decode placement.
-    add(Scenario("kv_b1_c32k_cold_cxl","Cold latency-tolerant KV while Custom-HBM is reserved/unavailable; validates CXL-PNM Attention path.",{"KV_CACHE":1},32768,64,1,24,.75,
+    add(Scenario("kv_b1_c32k_cold_cxl","Cold latency-tolerant KV while Custom-HBM is reserved/unavailable; validates CXL-PNM Attention path.",{"KV_CACHE":1},32768,64,1,24,.15,
                  phase="cold_kv",disabled_tiers=("custom_hbm",),latency_sensitivity_override=.35,target_tiers=("hbm","cxl_pnm")))
     add(Scenario("kv_b16_c32k","KV baseline: moderate batch/context.",{"KV_CACHE":1},32768,64,16,24,1.0,
                  target_tiers=("hbm","custom_hbm","cxl_pnm")))
