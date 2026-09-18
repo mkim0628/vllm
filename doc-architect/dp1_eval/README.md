@@ -131,3 +131,5 @@ python run_reinforcement.py
 - `out_reinforcement/reinforcement_runs.csv`
 - `out_reinforcement/reinforcement_summary.json`
 - `out_reinforcement/dp1-reinforcement-evaluation.md`
+
+- `../dp1-reinforcement-uml-rendered.md` — C1-R/C2-R 보완 구조도 및 sequence diagram
