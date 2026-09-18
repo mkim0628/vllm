@@ -219,19 +219,45 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         if telemetry["hbm"].capacity_util>.90:
             hbm_pressure_seconds+=1
 
-        # Capacity approximation: harmonic mean of per-batch token rate for active event classes.
+        # Throughput capacity is modeled as independent resource pools.
+        # Remote Attention can consume Custom-HBM/CXL-PNM while GPU FFN keeps running;
+        # therefore their capacities add through parallel resource usage rather than a
+        # single harmonic-mean bottleneck.
         if events:
             offered_tokens=sum(n*tok for _,n,_,_,_,tok in events)
             total_offered_tokens+=offered_tokens
-            denom=0.0; weight=0.0
+            demand_s=Counter()
+
             for o,n,tier,fr,tp,tok in events:
+                steps=n*o.output_tokens
                 _,bwm=effective_limits(sc,t,tier)
-                interval=service_interval_s(system,o,tier,candidate,bwm)
-                token_rate=o.batch_size/max(1e-9,interval)
-                w=n*tok
-                denom+=w/max(1e-9,token_rate); weight+=w
-            effective_capacity_tps=weight/max(1e-9,denom)
-            service_fraction=min(1.0,effective_capacity_tps/max(1e-9,offered_tokens))
+
+                # Every generated token still executes the model's non-Attention path on GPU.
+                demand_s["gpu_non_attention"] += steps*system.gpu_non_attention_decode_s(o.batch_size)
+
+                if o.data_class=="KV_CACHE":
+                    m=system.memories[tier]
+                    if tier!="hbm" and candidate!="As-Is-HBM-first" and m.attention_capable:
+                        demand_s[f"remote_attention:{tier}"] += (
+                            steps*system.offloaded_attention_s(
+                                m,o.context_tokens,o.batch_size,bwm))
+                    else:
+                        demand_s["hbm_attention"] += (
+                            steps*system.hbm_attention_s(
+                                o.context_tokens,o.batch_size,bwm))
+                else:
+                    # RAG/Agent/Tool/LoRA/MoE still decode on GPU after their data access.
+                    demand_s["hbm_attention"] += (
+                        steps*system.hbm_attention_s(
+                            o.context_tokens,o.batch_size,1.0))
+
+            # External-link traffic is a separate shared-resource constraint.
+            for name,m in system.memories.items():
+                _,bwm=effective_limits(sc,t,name)
+                demand_s[f"link:{name}"] += ext_bytes[name]/max(1.0,m.ext_bw*bwm)
+
+            peak=max(demand_s.values(),default=0.0)
+            service_fraction=min(1.0,1.0/max(1e-9,peak))
         else:
             service_fraction=1.0
 
