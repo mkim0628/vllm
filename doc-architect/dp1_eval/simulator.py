@@ -160,8 +160,14 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         telemetry={}
         for name,m in system.memories.items():
             capm,bwm=effective_limits(sc,t,name)
+            # capacity_util includes reserved/unavailable capacity. Policies therefore see
+            # true headroom even when a scenario reserves part of HBM or disables a tier.
+            policy_base_cap=max(1.0,m.capacity_bytes*sc.capacity_mult)
+            effective_cap=max(0.0,m.capacity_bytes*capm)
+            available=max(0.0,effective_cap-occupancy[name])
+            capacity_util=1.0-min(1.0,available/policy_base_cap)
             telemetry[name]=Telemetry(
-                capacity_util=occupancy[name]/max(1.0,m.capacity_bytes*capm),
+                capacity_util=capacity_util,
                 bw_util=prev_ext_bytes[name]/max(1.0,m.ext_bw*bwm))
 
         policy.observe_telemetry(telemetry)
@@ -188,8 +194,11 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
                 # Otherwise every object sees stale empty capacity and HBM/HBF can overcommit.
                 for tier in {x for x in (old,new) if x is not None}:
                     capm,_=effective_limits(sc,t,tier)
-                    telemetry[tier].capacity_util=occupancy[tier]/max(
-                        1.0,system.memories[tier].capacity_bytes*capm)
+                    m=system.memories[tier]
+                    policy_base_cap=max(1.0,m.capacity_bytes*sc.capacity_mult)
+                    effective_cap=max(0.0,m.capacity_bytes*capm)
+                    available=max(0.0,effective_cap-occupancy[tier])
+                    telemetry[tier].capacity_util=1.0-min(1.0,available/policy_base_cap)
 
                 if old is not None:
                     migration_count+=1; migration_bytes+=o.size_bytes
