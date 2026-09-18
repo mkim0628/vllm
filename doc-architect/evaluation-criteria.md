@@ -180,7 +180,9 @@ First-response latency와 TPOT은 원인이 다르므로 **절대 하나의 숫�
 
 ### 3.4 Performance — Latency QA 표기 규칙
 
-Latency는 하나의 QA이지만 결과는 항상 두 sub-metric을 **각각 별점으로 표기**한다.
+Latency는 하나의 QA이지만 결과는 항상 두 sub-metric을 **각각 별점으로 표기**한다. 별점 산정은 offered-load sweep에서 해당 후보의 **Max Sustainable SLO Goodput operating point**를 사용한다.
+
+모든 후보가 first-response/TPOT SLO를 만족하는 요청을 하나도 만들지 못하는 cell은 `SLO-infeasible stress`로 분리한다. 이런 cell은 large-batch/long-context failure boundary를 보여주는 데는 중요하지만, 하드웨어 자체의 불가능 영역으로 인해 모든 후보의 Latency 별점을 일괄적으로 떨어뜨리지 않도록 **최종 Latency 별점 집계에서는 제외하고 raw TTFT/TPOT을 별도 보고**한다.
 
 ```
 Performance Latency
