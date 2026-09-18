@@ -790,13 +790,101 @@ class DataTypeResolver:
         return obj.data_class
 
 
-class C1MemoryCentricR2(C1MemoryCentric):
-    """C1-R2: resource-centric placement + relative performance guard.
+class DataMemoryAffinityRegistry:
+    """C1 static Data<->Memory affinity knowledge.
 
-    C1 remains resource-centric: it does not use runtime hotness/reuse/lifetime.
-    Required operation capability and static execution-cost estimates are allowed
-    as hard/resource cost information.  Emergency pressure relief cannot bypass
-    the performance guard.
+    This is a deterministic registry, not a profiler/predictor.  It uses only
+    descriptor-level facts (data class, size/write trait, required operation
+    implied by the class) plus Memory Registry capability.
+    """
+
+    def affinity(self,obj:DataObject,m:MemorySpec):
+        cls=obj.data_class
+
+        if cls=="RAG_DATA":
+            # Vector similarity is a deterministic GEMV use-case.  If the tier
+            # exposes in-storage GEMV, prefer data-near retrieval.  HBF/DRAM are
+            # reasonable read-mostly capacity tiers otherwise.
+            if m.retrieval_dot_capable:
+                return 1.00
+            if m.name=="hbf":
+                return .55
+            if m.name=="dram":
+                return .30
+            if m.name=="hbm":
+                return .15
+            return .05
+
+        if cls=="KV_CACHE":
+            # Active KV is appendable and decode-critical.  C1 deliberately
+            # avoids dynamic hot/cold inference; storage-only HBF/SSD is not
+            # preferred without an explicit sealed/read-only descriptor.
+            if m.name=="hbm":
+                return .90
+            if m.attention_capable:
+                return .55
+            if m.name=="dram":
+                return -.30
+            if m.name=="hbf":
+                return -.45
+            if m.name=="ssd_pim":
+                return -1.00
+            return -.20
+
+        if cls=="MOE_EXPERT":
+            # Large immutable/read-mostly weights: HBF is the preferred spill
+            # tier when HBM is pressured; HBM remains best when affordable.
+            if m.name=="hbm":
+                return .80
+            if m.name=="hbf":
+                return .75
+            if m.name=="dram":
+                return .25
+            return -.10
+
+        if cls=="LORA_ADAPTER":
+            if m.name=="hbm":
+                return .75
+            if m.name=="hbf":
+                return .60
+            if m.name=="dram":
+                return .35
+            return .00
+
+        if cls=="AGENT_MEMORY":
+            if m.name=="hbf":
+                return .65
+            if m.name=="dram":
+                return .60
+            if m.name=="cxl_pnm":
+                return .45
+            if m.name=="ssd_pim":
+                return .25
+            if m.name=="hbm":
+                return -.10
+            return .00
+
+        if cls=="TOOL_RESULT":
+            if m.name=="hbf":
+                return .60
+            if m.name=="dram":
+                return .55
+            if m.name=="ssd_pim":
+                return .15
+            if m.name=="hbm":
+                return .05
+            return .00
+
+        return 0.0
+
+
+class C1MemoryCentricR2(C1MemoryCentric):
+    """C1-R2: resource-centric placement + static AI affinity + performance guard.
+
+    C1 remains resource-centric and does not use runtime hotness/reuse/lifetime.
+    A deterministic Data-Memory Affinity Registry contributes lightweight domain
+    knowledge such as RAG->SSD-PIM GEMV and MoE->HBF spill preference.
+    Emergency pressure relief cannot bypass the performance guard.
     """
     name="C1-R2-emergency-resource"
 
@@ -804,6 +892,9 @@ class C1MemoryCentricR2(C1MemoryCentric):
                  performance_margin=.02,max_perf_regression=.10):
         super().__init__(system)
         self.current_tier={}
+        self.affinity_registry=DataMemoryAffinityRegistry()
+        self.static_affinity_candidate_evals=0
+        self.static_affinity_override_count=0
         self.emergency_high=emergency_high
         self.relief_target=relief_target
         self.performance_margin=performance_margin
@@ -813,7 +904,7 @@ class C1MemoryCentricR2(C1MemoryCentric):
         self.performance_bypass_count=0
         self.emergency_blocked_by_perf=0
 
-    def _utility(self,obj,m,st,current):
+    def _resource_utility(self,obj,m,st,current):
         if obj.data_class=="KV_CACHE" and m.attention_capable:
             raw=m.int_bw
         elif obj.data_class=="RAG_DATA" and m.retrieval_dot_capable:
@@ -829,12 +920,20 @@ class C1MemoryCentricR2(C1MemoryCentric):
         sizecap=min(1,math.log2(max(2,m.capacity_bytes/obj.size_bytes))/8)
         utility=.30*cap+.24*bw+.32*speed+.09*latency+.05*sizecap
 
-        # Movement/stability cost is part of resource utility.
         if current and current!=m.name:
             src=self.system.memories[current]
             transfer_s=obj.size_bytes/max(1.0,min(src.ext_bw,m.ext_bw))
             utility-=min(.22,.08+transfer_s*.04)
         return utility
+
+    def _utility(self,obj,m,st,current):
+        resource=self._resource_utility(obj,m,st,current)
+        affinity=self.affinity_registry.affinity(obj,m)
+        self.static_affinity_candidate_evals+=1
+        # Resource state remains the primary signal.  Static affinity is a
+        # bounded hint, strong enough to expose obvious deterministic pairings
+        # but unable to bypass the end-to-end Performance Guard.
+        return resource+.22*affinity
 
     def _migration_proxy(self,obj,current,target):
         if not current or current==target:
@@ -941,13 +1040,18 @@ class C1MemoryCentricR2(C1MemoryCentric):
             return current or "hbm"
 
         scored=[]
+        resource_only=[]
         paths={}
         for m,st in cands:
+            resource_only.append((self._resource_utility(obj,m,st,current),m.name))
             scored.append((self._utility(obj,m,st,current),m.name))
             paths[m.name]=self._performance_path(obj,m,telemetry,current)
             self.decision_ops+=1
 
+        pure_resource_best=max(resource_only)[1]
         resource_best=max(scored)[1]
+        if resource_best!=pure_resource_best:
+            self.static_affinity_override_count+=1
 
         # C1 baseline is current placement when one exists; otherwise HBM if available.
         if current in paths:
