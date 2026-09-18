@@ -70,14 +70,14 @@ KV 공식:
 
 ### 1.4 부하 정의
 
-**부하 = 배치 크기 × context 길이.** LLM 서빙 벤치마크의 통상 축이다 (vLLM `benchmark_serving`의 `--max-concurrency` + 입력/출력 길이, MLPerf Inference의 고정 시퀀스 길이 + 동시성 시나리오).
+**부하 = 명시적 Batch/Concurrency × Context Length**를 기본 좌표로 한다. 도착률만 올려 large-batch를 대체하지 않는다.
 
 ```
-BATCH   = [1, 16, 64, 256]
-CONTEXT = [16K, 32K, 128K, 512K]
+BATCH / CONCURRENCY = [1, 16, 64, 256]
+CONTEXT             = [16K, 32K, 128K, 512K]
 ```
 
-도착률은 배치를 채우는 수단이며 부하의 좌표가 아니다.
+일반 sweep은 전체 grid를 사용하고, 최종 heavy-load throughput score는 **batch 64/256 × context 128K/512K**를 사용한다. RAG처럼 LLM decode batch와 의미가 다른 workload는 동일한 숫자를 **concurrent queries**로 해석하고 index size를 별도 축으로 기록한다.
 
 ### 1.5 SLO
 
@@ -88,9 +88,11 @@ CONTEXT = [16K, 32K, 128K, 512K]
 
 ---
 
-## 2. Reference Performance — 절대 수치의 기준점
+## 2. Analytical GPU-only Reference — sanity check only
 
-**큐잉 없는 물리 하한**이다. 워크로드가 아니라 Configuration에서 유도되므로 기준점으로 쓸 수 있다.
+아래 수치는 **GPU-only / HBM-resident 경로를 단순화한 분석값**이다. 실측 peak도 아니고, DP1~DP4 후보의 성능 상한도 아니다.
+
+특히 Custom HBM / CXL-PNM / SSD-PIM처럼 별도 연산 자원이 병렬로 동작하면 GPU-only reference를 넘는 system goodput도 가능하므로, **이 값을 QA 별점의 분모나 ceiling으로 사용하지 않는다.** 용도는 모델식 sanity check와 단위 검증뿐이다.
 
 ```
 TTFT = Attention prefill + FFN prefill                       (GPU 고정)
@@ -119,39 +121,70 @@ TPS  = 배치 ÷ TPOT
 
 배수와 절대 수치를 함께 적는다. 배수는 §2의 Reference Performance 대비다.
 
-### 3.1 Performance — 처리량 (TPS)
+### 3.1 Performance — Throughput / SLO-constrained Goodput
 
-| 별점 | 배수 | 절대 (기준 셀) | 근거 |
-|---|---|---|---|
-| ★☆☆ | < 0.50× | < 557 tok/s | 물리 하한의 절반도 못 내면 구조가 자원을 낭비하고 있다 |
-| ★★☆ | 0.50 ~ 0.85× | 557 ~ 946 | 통상적인 실측/이론 비율 구간 |
-| ★★★ | ≥ 0.85× | ≥ 946 tok/s | 물리 하한의 85% 이상. 스케줄링·배치 오버헤드를 감안한 실질 상한 |
+Throughput QA는 analytical physical reference 대비 비율로 매기지 않는다. **같은 HW / 같은 trace / 같은 workload에서의 As-Is baseline**과 비교한다.
 
-### 3.2 Performance — TTFT p99
+주 지표는 다음 두 개를 함께 기록한다.
 
-| 별점 | 배수 | 절대 | 근거 |
-|---|---|---|---|
-| ★☆☆ | > 2.0× SLO | > 4,000 ms | 사용자가 이탈하는 구간 |
-| ★★☆ | 1.0 ~ 2.0× SLO | 2,000 ~ 4,000 ms | SLO 초과이나 사용 가능 |
-| ★★★ | ≤ SLO | ≤ 2,000 ms | §1.5의 SLO 달성 |
+- Raw Token Throughput [tok/s]
+- **SLO-constrained Goodput [tok/s]** — First-response latency와 TPOT SLO를 모두 만족한 요청/토큰만 분자에 포함
+
+공통 score는 heavy-load cell의 Goodput ratio를 사용한다.
+
+```
+Goodput Ratio = Candidate SLO-constrained Goodput / As-Is SLO-constrained Goodput
+```
+
+기본 heavy-load grid:
+
+```
+BATCH   = [64, 256]
+CONTEXT = [128K, 512K]
+```
+
+| 별점 | 공통 정량 기준 | 의미 |
+|---|---|---|
+| ★☆☆ | geometric-mean ratio < 0.90 **and** paired 95% CI upper < 1.0 | baseline보다 유의하게 악화 |
+| ★★☆ | 0.90 ~ 1.10 또는 paired CI가 1.0을 포함 | baseline과 유사 / trade-off 구간 |
+| ★★★ | ratio ≥ 1.10 **and** paired 95% CI lower ≥ 1.0 | heavy load에서 10% 이상 유의한 goodput 개선 |
+
+> 1.10/0.90은 “이론 peak의 몇 %”가 아니라 **같은 시스템의 As-Is 대비 최소 의미 있는 개선/회귀 폭 10%**를 나타낸다. 후보 간 비교는 별점과 별개로 paired C1-C2 차이와 95% CI를 함께 보고한다.
+
+### 3.2 Performance — First-response Latency p99 (TTFB / TTFT)
+
+First-response latency와 TPOT은 원인이 다르므로 **절대 하나의 숫자나 min/max 연산으로 합치지 않는다.**
+
+- Serving interface까지 network / HTTP framing을 모델링하면 **TTFB**
+- Model/runtime ready-to-first-token까지만 모델링하면 **TTFT**
+
+현재 simulator가 network transport를 모델링하지 않으면 결과 표에는 **TTFT**라고 써야 하며, TTFB라고 부르지 않는다.
+
+| 별점 | 절대 | 근거 |
+|---|---|---|
+| ★☆☆ | > 4,000 ms | first response가 매우 늦음 |
+| ★★☆ | 2,000 ~ 4,000 ms | target SLO 초과 |
+| ★★★ | ≤ 2,000 ms | first-response SLO 달성 |
 
 ### 3.3 Performance — TPOT p99
 
-| 별점 | 배수 | 절대 | 근거 |
-|---|---|---|---|
-| ★☆☆ | > 1.0× SLO | > 50 ms | step 예산 초과. 그 토큰은 Goodput 분자에서 빠진다 |
-| ★★☆ | 0.5 ~ 1.0× SLO | 25 ~ 50 ms | 여유 없음 |
-| ★★★ | ≤ 0.5× SLO | ≤ 25 ms | 부하가 두 배가 되어도 SLO를 지킨다 |
+| 별점 | 절대 | 근거 |
+|---|---|---|
+| ★☆☆ | > 50 ms | decode step 예산 초과 |
+| ★★☆ | 25 ~ 50 ms | SLO 안이지만 headroom이 작음 |
+| ★★★ | ≤ 25 ms | 부하 증가에 대한 headroom 확보 |
 
-### 3.4 Performance — Latency 최종 별점
+### 3.4 Performance — Latency QA 표기 규칙
 
-Performance Latency의 최종 별점은 TTFT와 TPOT 중 **더 낮은 별점**을 사용한다.
+Latency는 하나의 QA이지만 결과는 항상 두 sub-metric을 **각각 별점으로 표기**한다.
 
 ```
-Latency Star = min(TTFT Star, TPOT Star)
+Performance Latency
+  First-response (TTFB/TTFT): ★★★
+  TPOT:                       ★★☆
 ```
 
-이 규칙은 DP1~DP4에 동일하게 적용한다. E2E Latency는 원인 분석용 보조 지표로 함께 보고하되 최종 별점의 별도 축을 만들지 않는다.
+즉 **Latency = First-response + TPOT 두 결과의 묶음**이며, 둘을 하나의 별점으로 축약하지 않는다. E2E Latency는 보조 지표로 함께 보고한다.
 
 ### 3.5 Resource Utilization
 
