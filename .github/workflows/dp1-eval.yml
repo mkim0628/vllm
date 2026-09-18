@@ -31,6 +31,9 @@ jobs:
       - name: Run reinforcement evaluator
         working-directory: doc-architect/dp1_eval
         run: python run_reinforcement.py
+      - name: Run V2 evaluator
+        working-directory: doc-architect/dp1_eval
+        run: python run_v2.py
       - name: Upload baseline results
         uses: actions/upload-artifact@v4
         with:
@@ -41,3 +44,8 @@ jobs:
         with:
           name: dp1-reinforcement-results
           path: doc-architect/dp1_eval/out_reinforcement/
+      - name: Upload V2 results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dp1-v2-results
+          path: doc-architect/dp1_eval/out_v2/
