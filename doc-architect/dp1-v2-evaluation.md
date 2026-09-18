@@ -18,15 +18,48 @@
 
 ---
 
-## 1. V2 QA 평가표
+## 1. V2 QA 평가표 — Case Group 분리
 
-| QA | C1-R2 | C2-R2 | 기준 |
+전체 평균 한 줄로 Performance를 표시하면 Neutral workload가 대부분 As-Is path로 수렴하기 때문에 C1/C2 차이가 가려진다.  
+따라서 Performance QA는 **C1이 의도한 Resource-pressure Case Group**과 **C2가 의도한 Data-aware / Data-near Case Group**을 분리해 표시한다.
+
+| QA | C1-R2 | C2-R2 | 기준 / 비고 |
 |---|:---:|:---:|---|
-| **Performance Throughput** | **★★☆** | **★★☆** | Strict-p99 Heavy Goodput / As-Is |
-| **Performance Latency — TTFT** | **★★★** | **★★★** | Sustainable point의 worst p99 ≤ 2,000 ms |
-| **Performance Latency — TPOT** | **★★☆** | **★★☆** | Sustainable point의 worst p99 = 약 50 ms |
-| **Resource Utilization** | **★★★** | **★★☆** | RUI ≥0.85 / 0.65~0.85 |
-| **Modifiability** | 재산정 필요 | 재산정 필요 | R2 구조 기준 별도 측정 필요 |
+| **Performance Throughput — C1 유리 Case** | **N/A** | **N/A** | 현재 C1 Resource-pressure 5개 scenario는 As-Is부터 strict-p99 sustainable point가 없음. Stress 결과만 존재 |
+| **Performance Throughput — C2 유리 Case** | **★☆☆** | **★★☆** | C1-R2는 As-Is-feasible 20개 paired seed 중 10개 sustainable point 상실. C2-R2 = **0.986×**, 95% CI ≈ [0.972, 1.000] |
+| **Performance Latency — TTFT — C1 유리 Case** | **N/A** | **N/A** | C1 Resource-pressure group 전체가 TPOT 기준에서 SLO-infeasible이므로 strict QA operating point 없음 |
+| **Performance Latency — TTFT — C2 유리 Case** | **★★★*** | **★★★** | Worst sustainable TTFT: C1-R2 ≈ **182 ms** (단 10/20 paired seed만 sustainable), C2-R2 ≈ **189 ms** (20/20) |
+| **Performance Latency — TPOT — C1 유리 Case** | **N/A** | **N/A** | C1 Resource-pressure group은 모든 load에서 TPOT SLO를 만족하는 paired operating point가 없음 |
+| **Performance Latency — TPOT — C2 유리 Case** | **★★☆*** | **★★☆** | Worst sustainable TPOT ≈ **49.99 ms**. C1-R2는 10/20 paired seed만 sustainable, C2-R2는 20/20 |
+| **Resource Utilization — Overall** | **★★★** | **★★☆** | RUI: C1-R2 **0.859**, C2-R2 **0.753** |
+| **Modifiability — Overall** | 재산정 필요 | 재산정 필요 | R2 구조 기준 별도 측정 필요 |
+
+\* C1-R2의 C2-favorable group Latency 별점은 **남아 있는 sustainable point만** 보면 해당 별점이라는 뜻이다. Baseline이 sustainable한 paired seed의 절반을 잃었기 때문에, 이 별점만 보고 C1-R2의 Latency가 좋다고 해석하면 안 된다. Throughput의 ★☆☆가 그 feasibility loss를 반영한다.
+
+### Case Group 정의
+
+**C1 유리 Case — Resource-pressure 중심**
+
+- `hbm_pressure_ramp_b64`
+- `hbm_bw_shock_b256`
+- `host_path_pressure_b64`
+- `data_mix_shift_b64`
+- `mixed_all_ai_data_b64`
+
+이 그룹은 C1의 Resource State Monitor / Emergency Pressure Policy가 효과를 내야 하는 영역이다.  
+현재는 workload 강도가 너무 높아 **As-Is 자체가 strict p99 SLO를 만족하지 못하므로 Performance QA 별점을 매길 수 없다.** Stress 분석에서는 C1-R2가 HBM pressure와 RUI를 개선하는 경우가 확인되지만 이는 strict Performance WIN과는 구분한다.
+
+**C2 유리 Case — Data-aware / Data-near / Lifecycle 중심**
+
+- `kv_b16_c32k_burst_chbm`
+- `kv_b1_c32k_cold_cxl` — negative control 포함
+- `kv_mispredict_dram_wait`
+- `agent_memory_long_lived`
+- `rag_8tib_b64_ssd_pim` — strict SLO에서는 stress
+- `rag_8tib_b256_ssd_pim` — strict SLO에서는 stress
+
+Strict-p99 별점에 실제로 pair되는 것은 앞의 4개 scenario × 5 seeds = **20 paired seed**다.  
+이 영역에서는 C2-R2가 20/20 sustainable point를 유지하는 반면 C1-R2는 10/20만 유지하여 Throughput QA에서 차이가 드러난다.
 
 ### 정량값
 
