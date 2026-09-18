@@ -133,6 +133,9 @@ class DataCharacteristicInterpreter:
             p["reuse"]=clamp(.70*p["reuse"]+.30*observed)
         else:
             p["observed_hotness"]=p["hotness"]
+        if cls==obj.data_class:
+            p["latency"]=obj.latency_sensitivity
+            p["write"]=obj.write_ratio
         return p
 
 class MemoryTierAffinityEvaluator:
@@ -152,10 +155,12 @@ class MemoryTierAffinityEvaluator:
             if m.name=="hbm":
                 step=self.system.decode_step_s(obj.context_tokens,obj.batch_size,"hbm")
                 score+=.34/(1+step/.05)
+                if h<.40 and ls<.60:
+                    score-=.22
             elif m.attention_capable:
                 step=self.system.decode_step_s(obj.context_tokens,obj.batch_size,m.name)
-                # Cold / latency-tolerant KV can trade latency for HBM headroom.
-                cold_bonus=.12*(1-h)+.08*(1-ls)
+                # Cold / latency-tolerant KV can trade latency for HBM headroom as long as TPOT is feasible.
+                cold_bonus=.28*(1-h)+.16*(1-ls) if step<=.050 else 0.0
                 score+=.30/(1+step/.05)+cold_bonus
             else:
                 score-=1.0
