@@ -771,3 +771,330 @@ class C2DataCentricReinforced(C2DataCentric):
 
         self.fallback_watch.discard(obj.oid)
         return self._commit(obj,best)
+
+
+@dataclass
+class PlacementPath:
+    tier:str
+    mode:str
+    service_s:float
+    ttft_s:float
+    tpot_s:float
+    slo_feasible:bool
+    perf_cost:float
+
+
+class DataTypeResolver:
+    """V2: DataDescriptor -> deterministic runtime data class."""
+    def resolve(self,obj:DataObject):
+        return obj.data_class
+
+
+class C1MemoryCentricR2(C1MemoryCentric):
+    """C1-R2: resource utility already includes movement cost; emergency changes objective."""
+    name="C1-R2-emergency-resource"
+
+    def __init__(self,system:SystemSpec,emergency_high=.90,relief_target=.85):
+        super().__init__(system)
+        self.current_tier={}
+        self.emergency_high=emergency_high
+        self.relief_target=relief_target
+        self.emergency_count=0
+        self.emergency_migrations=0
+
+    def _utility(self,obj,m,st,current):
+        if obj.data_class=="KV_CACHE" and m.attention_capable:
+            raw=m.int_bw
+        elif obj.data_class=="RAG_DATA" and m.retrieval_dot_capable:
+            raw=m.int_bw
+        else:
+            raw=m.ext_bw
+
+        speed=clamp((math.log10(max(1,raw))-math.log10(16e9))/
+                    (math.log10(64e12)-math.log10(16e9)))
+        cap=max(0,1-st.predicted_pressure)
+        bw=max(0,1-st.predicted_bw)
+        latency=1/(1+m.latency_s/2e-6)
+        sizecap=min(1,math.log2(max(2,m.capacity_bytes/obj.size_bytes))/8)
+        utility=.30*cap+.24*bw+.32*speed+.09*latency+.05*sizecap
+
+        # Stability is part of utility, not a separate policy stage.
+        if current and current!=m.name:
+            src=self.system.memories[current]
+            transfer_s=obj.size_bytes/max(1.0,min(src.ext_bw,m.ext_bw))
+            utility-=min(.22,.08+transfer_s*.04)
+        return utility
+
+    def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
+        states={n:self.monitor.state(n,t) for n,t in telemetry.items()}
+        current=self.current_tier.get(obj.oid)
+        cands=self.builder.build(self.system,states,obj,cap_mult)
+
+        # The current placement remains a valid "keep" option even when there is
+        # no additional free headroom for another copy.
+        if current and current not in {m.name for m,_ in cands}:
+            m=self.system.memories[current]
+            if not (obj.data_class=="KV_CACHE" and current!="hbm" and not m.attention_capable):
+                cands.append((m,states[current]))
+
+        if not cands:
+            return current or "hbm"
+
+        scored=[]
+        for m,st in cands:
+            scored.append((self._utility(obj,m,st,current),m.name))
+            self.decision_ops+=1
+        best=max(scored)[1]
+
+        h=states["hbm"]
+        hbm_now=max(telemetry["hbm"].capacity_util,telemetry["hbm"].bw_util)
+        hbm_pred=max(h.predicted_pressure,h.predicted_bw)
+        emergency=(hbm_now>=self.emergency_high or
+                   (hbm_now>=self.relief_target and hbm_pred>=self.emergency_high))
+
+        # Emergency policy only applies to data currently occupying HBM.  The
+        # objective changes from max utility to minimum-cost pressure relief.
+        if current=="hbm" and emergency and hbm_now>self.relief_target:
+            off=[(score,name) for score,name in scored if name!="hbm"]
+            if off:
+                self.emergency_count+=1
+                # Utility already contains transfer cost; choosing its maximum
+                # approximates highest pressure-relief benefit per movement cost.
+                target=max(off)[1]
+                self.current_tier[obj.oid]=target
+                self.emergency_migrations+=1
+                return target
+
+        self.current_tier[obj.oid]=best
+        return best
+
+
+class C2DataCentricR2:
+    """C2-R2: deterministic data type + path-cost comparison + degraded placement.
+
+    There is no classifier-confidence fallback.  A placement path always exists
+    as long as at least one memory tier has physical capacity; a path may simply
+    be unable to satisfy the requested SLO, in which case it is marked degraded.
+    """
+    name="C2-R2-path-aware"
+
+    def __init__(self,system:SystemSpec,performance_margin=.02):
+        self.system=system
+        self.resolver=DataTypeResolver()
+        self.runtime=RuntimeStateMonitor()
+        self.interpreter=DataCharacteristicInterpreter(self.runtime)
+        self.aff=MemoryTierAffinityEvaluator(system)
+        self.hbm_relief=HBMReliefEstimator()
+        self.performance_margin=performance_margin
+        self.current_tier={}
+        self.current_mode={}
+        self.deferred_hbm=set()
+
+        self.decision_ops=0
+        self.degraded_count=0
+        self.no_physical_capacity_count=0
+        self.performance_bypass_count=0
+        self.deferred_stage_count=0
+        self.deferred_promotion_count=0
+        self.path_mode_count=defaultdict(int)
+
+        # compatibility with existing report fields
+        self.fallback_count=0
+        self.fallback_reason=defaultdict(int)
+        self.suppressed_migrations=0
+        self.feasibility_filtered=0
+        self.infeasible_stable_hold=0
+
+    def observe_telemetry(self,telemetry):
+        self.hbm_relief.observe(telemetry)
+
+    def observe_runtime(self,obj,access_count,now_s=None):
+        self.runtime.observe(obj,access_count,now_s)
+
+    def should_reevaluate(self,obj:DataObject,telemetry:dict[str,Telemetry]):
+        if obj.oid in self.deferred_hbm:
+            h=telemetry["hbm"]
+            return h.capacity_util<=.72 and h.bw_util<=.72
+        return False
+
+    def _headroom_ok(self,obj,m,telemetry,cap_mult,current):
+        if current==m.name:
+            return True
+        headroom=m.capacity_bytes*cap_mult*(1-min(1,telemetry[m.name].capacity_util))
+        return headroom+1e-6>=obj.size_bytes
+
+    def _migration_proxy(self,obj,current,target):
+        if not current or current==target:
+            return 0.0
+        a=self.system.memories[current]; b=self.system.memories[target]
+        return .20*obj.size_bytes/max(1.0,min(a.ext_bw,b.ext_bw))
+
+    def _path(self,cls,ch,obj,m,telemetry,current):
+        q=min(2048,obj.context_tokens)
+        prefill=self.system.prefill_s(obj.context_tokens,q)
+        non_attn=self.system.gpu_non_attention_decode_s(obj.batch_size)
+        hbm_attn=self.system.hbm_attention_s(obj.context_tokens,obj.batch_size)
+        hbm_tpot=non_attn+hbm_attn
+        hbm_service=max(non_attn,hbm_attn)
+        migration=self._migration_proxy(obj,current,m.name)
+
+        if cls=="KV_CACHE":
+            if m.name=="hbm":
+                mode="hbm_direct"
+                tpot=hbm_tpot
+                ttft=prefill+migration
+                service=hbm_service
+            elif m.attention_capable:
+                mode="near_memory_attention"
+                attn=self.system.offloaded_attention_s(
+                    m,obj.context_tokens,obj.batch_size)
+                tpot=non_attn+attn
+                ttft=prefill+migration
+                service=max(non_attn,attn)
+            else:
+                mode="restore_on_access"
+                restore=obj.size_bytes/max(1.0,m.ext_bw)
+                tpot=hbm_tpot
+                ttft=prefill+restore+migration
+                service=max(hbm_service,restore)
+
+        elif cls=="RAG_DATA":
+            mode="local_gemv" if m.retrieval_dot_capable else "transfer_then_gemv"
+            retrieval=self.system.rag_retrieval_s(
+                obj.size_bytes,obj.batch_size,m.name,obj.retrieval_dim)
+            tpot=hbm_tpot
+            ttft=prefill+retrieval+migration
+            service=max(hbm_service,retrieval/max(1,obj.output_tokens))
+
+        else:
+            mode="resident" if m.name=="hbm" else "remote_access"
+            transfer=0.0 if m.name=="hbm" else (
+                min(obj.size_bytes,obj.access_bytes*obj.batch_size)/max(1.0,m.ext_bw))
+            tpot=hbm_tpot
+            ttft=prefill+transfer+migration
+            service=max(hbm_service,transfer/max(1,obj.output_tokens))
+
+        # Resource pressure is part of end-to-end path cost.
+        pressure=max(telemetry[m.name].capacity_util,telemetry[m.name].bw_util)
+        pressure_mult=1.0+max(0.0,pressure-.75)*2.0
+        ttft_eff=ttft*pressure_mult
+        service_eff=service*pressure_mult
+
+        slo=(ttft_eff<=2.0 and tpot<=.050)
+        perf=max(ttft_eff/2.0,tpot/.050,service_eff/.050)
+
+        # Data characteristics break close performance ties; performance remains primary.
+        affinity=self.aff.affinity(cls,ch,obj,m)
+        perf=max(0.0,perf-.08*affinity)
+        self.decision_ops+=1
+        return PlacementPath(m.name,mode,service_eff,ttft_eff,tpot,slo,perf)
+
+    def _baseline_path(self,paths):
+        by={p.tier:p for p in paths}
+        for name in ("hbm","hbf","dram","cxl_pnm","custom_hbm","ssd_pim"):
+            if name in by:
+                return by[name]
+        return min(paths,key=lambda p:p.perf_cost)
+
+    def _candidate_beats_baseline(self,cand,base):
+        if cand.tier==base.tier and cand.mode==base.mode:
+            return True
+        throughput_win=cand.service_s <= base.service_s*(1-self.performance_margin)
+        ttft_win=cand.ttft_s <= base.ttft_s*(1-self.performance_margin)
+        # Never buy a large decode-latency regression for a small throughput gain.
+        latency_safe=cand.tpot_s <= max(.050,base.tpot_s*1.10)
+        return latency_safe and (throughput_win or ttft_win)
+
+    def _commit(self,obj,path):
+        self.current_tier[obj.oid]=path.tier
+        self.current_mode[obj.oid]=path.mode
+        self.path_mode_count[path.mode]+=1
+        return path.tier
+
+    def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
+        current=self.current_tier.get(obj.oid)
+
+        # Deferred DRAM staging is promoted only when HBM has actually recovered.
+        if obj.oid in self.deferred_hbm:
+            h=telemetry["hbm"]
+            hbm=self.system.memories["hbm"]
+            headroom=hbm.capacity_bytes*cap_mult*(1-min(1,h.capacity_util))
+            if h.capacity_util<=.72 and h.bw_util<=.72 and headroom>=obj.size_bytes:
+                self.deferred_hbm.discard(obj.oid)
+                self.deferred_promotion_count+=1
+                dummy=PlacementPath("hbm","hbm_direct",0,0,0,True,0)
+                return self._commit(obj,dummy)
+            if current:
+                return current
+
+        cls=self.resolver.resolve(obj)
+        ch=self.interpreter.interpret(cls,obj)
+
+        paths=[]
+        for m in self.system.memories.values():
+            if self._headroom_ok(obj,m,telemetry,cap_mult,current):
+                paths.append(self._path(cls,ch,obj,m,telemetry,current))
+
+        if not paths:
+            # True all-tier capacity exhaustion: this is an admission/OOM condition,
+            # not an ordinary placement fallback.  Keep current data if possible.
+            self.no_physical_capacity_count+=1
+            if current:
+                return current
+            best=max(
+                self.system.memories.values(),
+                key=lambda m:m.capacity_bytes*cap_mult*
+                    (1-min(1,telemetry[m.name].capacity_util)))
+            self.current_tier[obj.oid]=best.name
+            self.current_mode[obj.oid]="oom_best_effort"
+            return best.name
+
+        feasible=[p for p in paths if p.slo_feasible]
+        baseline=self._baseline_path(paths)
+
+        if feasible:
+            best=min(feasible,key=lambda p:p.perf_cost)
+
+            # No-regret guard: if a non-baseline path cannot beat the As-Is path,
+            # use the baseline path rather than exercising a tier just because it exists.
+            if baseline.slo_feasible and not self._candidate_beats_baseline(best,baseline):
+                if best.tier!=baseline.tier or best.mode!=baseline.mode:
+                    self.performance_bypass_count+=1
+                best=baseline
+
+            # Under high HBM pressure, an SLO-feasible non-HBM path may be chosen
+            # even if its point estimate is close, because it relieves the bottleneck.
+            hp=max(telemetry["hbm"].capacity_util,telemetry["hbm"].bw_util)
+            if hp>=.90 and best.tier=="hbm":
+                off=[p for p in feasible if p.tier!="hbm" and p.tpot_s<=.050]
+                if off:
+                    alt=min(off,key=lambda p:p.perf_cost)
+                    if alt.perf_cost<=best.perf_cost*1.10:
+                        best=alt
+
+            return self._commit(obj,best)
+
+        # No path can satisfy TTFT+TPOT simultaneously: choose best effort.
+        # This is a degraded placement, not a post-hoc fallback.
+        self.degraded_count+=1
+
+        # A temporary DRAM stage is useful only when predicted HBM relief occurs
+        # before the next reuse.  next_reuse is not a fallback criterion in general.
+        if cls=="KV_CACHE":
+            dram=next((p for p in paths if p.tier=="dram"),None)
+            relief=self.hbm_relief.seconds_to_relief()
+            next_reuse=float(ch.get("next_reuse_s",float("inf")))
+            if dram is not None and math.isfinite(relief) and relief<=30.0:
+                promote_s=obj.size_bytes/max(
+                    1.0,min(self.system.memories["dram"].ext_bw,self.system.gpu_hbm_bw))
+                if next_reuse>relief+promote_s+.05:
+                    dram=PlacementPath(
+                        dram.tier,"dram_stage_wait",dram.service_s,
+                        dram.ttft_s,dram.tpot_s,False,dram.perf_cost)
+                    if obj.oid not in self.deferred_hbm:
+                        self.deferred_stage_count+=1
+                    self.deferred_hbm.add(obj.oid)
+                    return self._commit(obj,dram)
+
+        best=min(paths,key=lambda p:p.perf_cost)
+        return self._commit(obj,best)
