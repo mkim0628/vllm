@@ -171,12 +171,17 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
                 bw_util=prev_ext_bytes[name]/max(1.0,m.ext_bw*bwm))
 
         policy.observe_telemetry(telemetry)
-        for o in alive:
-            policy.observe_runtime(o,o.rate_at(t)*load_scale)
 
         dynamic_tick=sc.phase is not None and t in {sc.horizon_s//2,sc.horizon_s//2+10}
         pressured=any(x.capacity_util>.88 or x.bw_util>.88 for x in telemetry.values())
-        decision_objs=[o for o in alive if o.oid not in placements or (t%20==0 and pressured) or dynamic_tick]
+        decision_objs=[
+            o for o in alive
+            if (o.oid not in placements
+                or (t%20==0 and pressured)
+                or dynamic_tick
+                or (hasattr(policy,"should_reevaluate")
+                    and policy.should_reevaluate(o,telemetry)))
+        ]
 
         for o in decision_objs:
             old=placements.get(o.oid)
@@ -212,7 +217,13 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         ext_bytes=Counter()
         for o in alive:
             n=poisson(rng,o.rate_at(t)*load_scale)
-            if n<=0: continue
+
+            # Feed the monitor only observed access events. The policy never sees
+            # the synthetic generator's hidden true rate before placement.
+            policy.observe_runtime(o,n,t)
+
+            if n<=0:
+                continue
             tier=placements[o.oid]
             _,bwm=effective_limits(sc,t,tier)
             fr=first_response_s(system,o,tier,candidate,bwm,migration_debt[o.oid],decision_us_per)
@@ -322,7 +333,11 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
     if candidate=="C2-data-centric":
         out["fallback_count"]=policy.fallback_count
         out["fallback_reason"]=dict(policy.fallback_reason)
+        out["deferred_stage_count"]=policy.deferred_stage_count
+        out["deferred_promotion_count"]=policy.deferred_promotion_count
     else:
         out["fallback_count"]=0
         out["fallback_reason"]={}
+        out["deferred_stage_count"]=0
+        out["deferred_promotion_count"]=0
     return out
