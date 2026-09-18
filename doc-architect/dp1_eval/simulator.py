@@ -378,10 +378,11 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         out["infeasible_stable_hold"]=0
         out["degraded_count"]=0
         out["no_physical_capacity_count"]=0
-        out["performance_bypass_count"]=0
+        out["performance_bypass_count"]=getattr(policy,"performance_bypass_count",0)
         out["path_mode_count"]={}
         out["emergency_count"]=getattr(policy,"emergency_count",0)
         out["emergency_migrations"]=getattr(policy,"emergency_migrations",0)
+        out["emergency_blocked_by_perf"]=getattr(policy,"emergency_blocked_by_perf",0)
     else:
         out["fallback_count"]=0
         out["fallback_reason"]={}
@@ -396,4 +397,5 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         out["path_mode_count"]={}
         out["emergency_count"]=0
         out["emergency_migrations"]=0
+        out["emergency_blocked_by_perf"]=0
     return out
