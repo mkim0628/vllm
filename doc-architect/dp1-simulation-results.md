@@ -1,5 +1,7 @@
 # DP1 후보 구조 구현 및 QA 측정 결과
 
+> ⚠️ **LEGACY / KV-centric experiment.** 이 문서와 `dp1_sim/`은 이전 KV 중심 DP1 구조를 검증한 결과다. 현재 AI Data Placement C1/C2 최종 QA 평가는 `dp1_eval/` 및 `dp1-qa-evaluation.md`를 사용한다. 현재 평가는 KV Cache뿐 아니라 RAG Data, Agent Memory, Tool Result, Runtime Log, LoRA Adapter, MoE Expert와 6개 Memory Tier를 모두 포함한다.
+
 **대상** [`dp1-heterogeneous-memory-data-placement.md`](dp1-heterogeneous-memory-data-placement.md) §7의 C1/C2
 **구현** [`dp1_sim/`](dp1_sim/) — 구현 UML의 클래스 구조를 그대로 코드로 옮긴 이산 사건 시뮬레이터
 **원자료** [`dp1_sim/results.json`](dp1_sim/results.json) · [`dp1_sim/static_metrics.json`](dp1_sim/static_metrics.json)
