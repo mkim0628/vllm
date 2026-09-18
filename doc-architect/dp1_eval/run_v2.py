@@ -71,6 +71,22 @@ def star_tpot(ms):
 def star_resource(x):
     return 3 if x>=.85 else 2 if x>=.65 else 1
 
+def star_relative_high(ratio,ci):
+    """Relative star for higher-is-better metrics in SLO-degraded regions."""
+    if ratio is None or ci is None: return None
+    lo,hi=ci
+    if ratio>=1.10 and lo>=1.0: return 3
+    if ratio<.90 and hi<1.0: return 1
+    return 2
+
+def star_relative_low(ratio,ci):
+    """Relative star for lower-is-better metrics in SLO-degraded regions."""
+    if ratio is None or ci is None: return None
+    lo,hi=ci
+    if ratio<=.90 and hi<=1.0: return 3
+    if ratio>1.10 and lo>1.0: return 1
+    return 2
+
 def stars(n):
     return "N/A" if n is None else "★"*n+"☆"*(3-n)
 
@@ -155,6 +171,39 @@ def domain_summary(rows,candidate):
             "lost_sustainable_cells":len(lost),
             "feasibility_extension_cells":len(extension),
         }
+    return out
+
+def nominal_relative_group(rows,candidate,names):
+    """Paired relative comparison at fixed nominal offered load=1.0.
+
+    Used when a case group is outside the strict SLO region.  SLO is still
+    reported separately; this prevents overload/stress behavior from vanishing.
+    """
+    base={
+        (r["scenario"],r["seed"]):r for r in rows
+        if r["candidate"]=="As-Is-HBM-first" and r["scenario"] in names
+        and abs(r["load_scale"]-1.0)<1e-9
+    }
+    cand={
+        (r["scenario"],r["seed"]):r for r in rows
+        if r["candidate"]==candidate and r["scenario"] in names
+        and abs(r["load_scale"]-1.0)<1e-9
+    }
+    metric_pairs={
+        "throughput":("token_throughput",star_relative_high),
+        "ttft":("ttft_p99_ms",star_relative_low),
+        "tpot":("tpot_p99_ms",star_relative_low),
+    }
+    out={}
+    for label,(metric,star_fn) in metric_pairs.items():
+        vals=[]
+        for k,b in base.items():
+            c=cand.get(k)
+            if c is None: continue
+            vals.append(c[metric]/max(1e-9,b[metric]))
+        ratio=geom(vals)
+        ci=ci95_log(vals)
+        out[label]={"ratio":ratio,"ci95":ci,"star":star_fn(ratio,ci),"pairs":len(vals)}
     return out
 
 def scenario_matrix(rows):
@@ -294,6 +343,17 @@ def main():
         "meta":{"seeds":SEEDS,"load_scales":LOAD_SCALES,"candidates":CANDIDATES,"scenario_count":len(scenarios())},
         "aggregate":{c:aggregate(rows,c) for c in CANDIDATES},
         "domains":{c:domain_summary(rows,c) for c in CANDIDATES},
+        "case_group_relative":{
+            "c1_resource_pressure":{
+                c:nominal_relative_group(rows,c,DOMAINS["c1_resource_pressure"])
+                for c in CANDIDATES
+            },
+            "c2_data_aware":{
+                c:nominal_relative_group(
+                    rows,c,DOMAINS["c2_data_near"] | DOMAINS["c2_data_lifecycle"])
+                for c in CANDIDATES
+            },
+        },
         "scenario_matrix":scenario_matrix(rows),
     }
     write_report(out/"dp1-v2-evaluation.md",summary)
