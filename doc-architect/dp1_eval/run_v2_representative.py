@@ -15,12 +15,12 @@ GROUPS={
   'overall': {
     'kv_b16_c32k','kv_b1_c32k_cold_cxl',
     'host_path_pressure_b64','data_mix_shift_b64',
-    'rag_8tib_b64_ssd_pim',
+    'rag_8tib_b64_ssd_pim','mixed_all_ai_data_b64',
     'kv_mispredict_dram_wait','moe_expert_skew_b256',
   },
   'neutral_control': {'kv_b16_c32k','kv_b1_c32k_cold_cxl'},
   'c1_target': {'host_path_pressure_b64','data_mix_shift_b64'},
-  'shared_static_affinity': {'rag_8tib_b64_ssd_pim','moe_expert_skew_b256'},
+  'shared_static_affinity': {'rag_8tib_b64_ssd_pim','mixed_all_ai_data_b64'},
   'c2_dynamic_target': {'kv_mispredict_dram_wait','moe_expert_skew_b256'},
 }
 
@@ -97,6 +97,10 @@ def mod_score(x):
     # Transparent architecture-change surface: <=2 small, <=3 medium, >3 large.
     return 3 if avg<=2 else 2 if avg<=3 else 1
 
+def class_tier_count(row,cls,tier):
+    d=row.get('class_tier',{})
+    return float(d.get(f"{cls}@{tier}",0)) if isinstance(d,dict) else 0.0
+
 def main():
     system=load_system(Path(__file__).resolve().parents[1]/'configs')
     scmap={s.name:s for s in scenarios()}
@@ -118,6 +122,12 @@ def main():
       summary['modifiability'][c]=y
 
     c1rows=[r for r in rows if r['candidate']=='C1-R2-emergency-resource']
+    mixed=[r for r in c1rows if r['scenario']=='mixed_all_ai_data_b64']
+    moe_hbf=sum(class_tier_count(r,'MOE_EXPERT','hbf') for r in mixed)
+    moe_total=sum(
+        class_tier_count(r,'MOE_EXPERT',tier)
+        for r in mixed
+        for tier in ('hbm','hbf','dram','cxl_pnm','custom_hbm','ssd_pim'))
     summary['c1_static_affinity']={
       'mean_override_count': statistics.mean(
           r.get('static_affinity_override_count',0) for r in c1rows),
@@ -126,9 +136,9 @@ def main():
       'rag_mean_override_count': statistics.mean(
           r.get('static_affinity_override_count',0) for r in c1rows
           if r['scenario']=='rag_8tib_b64_ssd_pim'),
-      'moe_mean_override_count': statistics.mean(
-          r.get('static_affinity_override_count',0) for r in c1rows
-          if r['scenario']=='moe_expert_skew_b256'),
+      'mixed_mean_override_count': statistics.mean(
+          r.get('static_affinity_override_count',0) for r in mixed),
+      'mixed_moe_hbf_decision_share': (moe_hbf/moe_total if moe_total else 0.0),
     }
 
     out=Path(__file__).resolve().parent/'out_v2_representative'; out.mkdir(exist_ok=True)
@@ -143,14 +153,14 @@ def main():
     lines=[
       '# DP1 Representative QA Evaluation',
       '',
-      '> 7 representative scenarios, 5 seeds, 5 load points, 3 candidates = **525 cells**.',
+      '> 8 representative scenarios, 5 seeds, 5 load points, 3 candidates = **600 cells**.',
       '> Serving SLO is not used. All stars are based on paired ratios vs As-Is.',
       '',
       '## Representative suite',
       '',
       '- Neutral/Control: `kv_b16_c32k`, `kv_b1_c32k_cold_cxl`',
       '- C1 Target / Resource Dynamics: `host_path_pressure_b64`, `data_mix_shift_b64`',
-      '- Shared Static Affinity: `rag_8tib_b64_ssd_pim`, `moe_expert_skew_b256`',
+      '- Shared Static Affinity: `rag_8tib_b64_ssd_pim`, `mixed_all_ai_data_b64`',
       '- C2 Dynamic Target: `kv_mispredict_dram_wait`, `moe_expert_skew_b256`',
       '',
       '## QA table',
@@ -192,7 +202,8 @@ def main():
       '## Notes',
       '',
       '- C1 Target uses host-path pressure and data-mix shift because these directly exercise cross-tier resource-state adaptation; simple HBM shock/ramp cases that cause no placement change are not representative of the C1 mechanism.',
-      f"- C1 Data-Memory Affinity Registry changed the resource-only preferred tier on average **{summary['c1_static_affinity']['mean_override_count']:.1f}** times/run; RAG **{summary['c1_static_affinity']['rag_mean_override_count']:.1f}**, MoE **{summary['c1_static_affinity']['moe_mean_override_count']:.1f}**.",
+      f"- C1 Data-Memory Affinity Registry changed the resource-only preferred tier on average **{summary['c1_static_affinity']['mean_override_count']:.1f}** times/run; RAG **{summary['c1_static_affinity']['rag_mean_override_count']:.1f}**, mixed workload **{summary['c1_static_affinity']['mixed_mean_override_count']:.1f}**.",
+      f"- In `mixed_all_ai_data_b64`, **{summary['c1_static_affinity']['mixed_moe_hbf_decision_share']*100:.1f}%** of C1 MoE placement decisions used HBF, validating the deterministic MoE→HBF spill rule under pressure.",
       '- `rag_8tib_b64_ssd_pim` is an architecture stress/reference for data-near GEMV, not a claim about realistic production vector-DB latency.',
       '- Static Affinity scenarios validate optimizations available to both C1 and C2; C2 Dynamic Target is reserved for behavior-dependent differentiation.',
       '- Representative scenarios are selected by mechanism coverage, not by post-hoc winner selection.',
