@@ -115,7 +115,7 @@ def _policy(system,candidate):
         return C2DataCentric(system)
     raise ValueError(candidate)
 
-def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str):
+def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:float=1.0):
     rng=random.Random(seed*7919+sum(map(ord,sc.name)))
     objs=generate_trace(sc,seed)
     policy=_policy(system,candidate)
@@ -148,7 +148,7 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str):
 
         policy.observe_telemetry(telemetry)
         for o in alive:
-            policy.observe_runtime(o,o.rate_at(t))
+            policy.observe_runtime(o,o.rate_at(t)*load_scale)
 
         dynamic_tick=sc.phase is not None and t in {sc.horizon_s//2,sc.horizon_s//2+10}
         pressured=any(x.capacity_util>.88 or x.bw_util>.88 for x in telemetry.values())
@@ -173,7 +173,7 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str):
         events=[]
         ext_bytes=Counter()
         for o in alive:
-            n=poisson(rng,o.rate_at(t))
+            n=poisson(rng,o.rate_at(t)*load_scale)
             if n<=0: continue
             tier=placements[o.oid]
             _,bwm=effective_limits(sc,t,tier)
@@ -235,7 +235,7 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str):
     resource_index=.40*pressure_safe+.35*bw_safe+.15*migration_eff+.10*tier_coverage
 
     out={
-      "scenario":sc.name,"seed":seed,"candidate":candidate,
+      "scenario":sc.name,"seed":seed,"candidate":candidate,"load_scale":load_scale,
       "batch_size":sc.batch_size,"context_tokens":sc.context_tokens,
       "request_throughput":total_served_requests/sc.horizon_s,
       "token_throughput":total_served_tokens/sc.horizon_s,
