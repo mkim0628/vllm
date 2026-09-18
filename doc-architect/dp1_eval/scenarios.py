@@ -21,6 +21,8 @@ class Scenario:
     capacity_mult:float=1.0
     hbm_bw_mult:float=1.0
     host_bw_mult:float=1.0
+    hbm_capacity_mult:float=1.0
+    disabled_tiers:tuple[str,...]=()
     rag_index_total_gib:float|None=None
     latency_sensitivity_override:float|None=None
     target_tiers:tuple[str,...]=()
@@ -50,12 +52,12 @@ def scenarios():
     S=[]; add=S.append
 
     # Explicit batch/context cells for KV decode placement.
-    add(Scenario("kv_b1_c32k_cold_cxl","Cold latency-tolerant KV; CXL-PNM can satisfy TPOT while freeing HBM.",{"KV_CACHE":1},32768,64,1,24,.75,
-                 phase="cold_kv",latency_sensitivity_override=.35,target_tiers=("hbm","cxl_pnm","custom_hbm")))
+    add(Scenario("kv_b1_c32k_cold_cxl","Cold latency-tolerant KV while Custom-HBM is reserved/unavailable; validates CXL-PNM Attention path.",{"KV_CACHE":1},32768,64,1,24,.75,
+                 phase="cold_kv",disabled_tiers=("custom_hbm",),latency_sensitivity_override=.35,target_tiers=("hbm","cxl_pnm")))
     add(Scenario("kv_b16_c32k","KV baseline: moderate batch/context.",{"KV_CACHE":1},32768,64,16,24,1.0,
                  target_tiers=("hbm","custom_hbm","cxl_pnm")))
-    add(Scenario("kv_b16_c32k_burst_chbm","Burst at a batch/context where Custom-HBM Attention can still meet TPOT.",{"KV_CACHE":1},32768,64,16,30,1.45,
-                 phase="arrival_burst",latency_sensitivity_override=.75,target_tiers=("hbm","custom_hbm","cxl_pnm")))
+    add(Scenario("kv_b16_c32k_burst_chbm","Burst at a batch/context where HBM headroom is tight and Custom-HBM Attention can still meet TPOT.",{"KV_CACHE":1},32768,64,16,30,1.45,
+                 phase="arrival_burst",hbm_capacity_mult=.28,latency_sensitivity_override=.75,target_tiers=("hbm","custom_hbm","cxl_pnm")))
     add(Scenario("kv_b64_c128k_cold","Cold/latency-tolerant KV; CXL-PNM attention offload can be useful.",{"KV_CACHE":1},131072,64,64,24,.85,
                  phase="cold_kv",target_tiers=("hbm","cxl_pnm","custom_hbm")))
     add(Scenario("kv_b256_c128k_burst","Large-batch burst; tests Custom-HBM attention offload and shared-link pressure.",{"KV_CACHE":1},131072,64,256,28,1.35,
