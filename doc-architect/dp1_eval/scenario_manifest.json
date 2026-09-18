@@ -1,0 +1,328 @@
+[
+  {
+    "name": "steady_hot_kv",
+    "role": "QA-score",
+    "data_mix": {
+      "KV_CACHE": 1
+    },
+    "target_tiers": [
+      "hbm",
+      "custom_hbm",
+      "cxl_pnm"
+    ],
+    "intent": "stable hot KV; resident vs attention-capable offload"
+  },
+  {
+    "name": "mixed_kv_rag",
+    "role": "QA-score",
+    "data_mix": {
+      "KV_CACHE": 0.58,
+      "RAG_DATA": 0.42
+    },
+    "target_tiers": [
+      "hbm",
+      "hbf",
+      "dram",
+      "cxl_pnm"
+    ],
+    "intent": "interactive KV plus retrieval corpus"
+  },
+  {
+    "name": "rag_hot_cold_index",
+    "role": "QA-score",
+    "data_mix": {
+      "RAG_DATA": 1
+    },
+    "target_tiers": [
+      "hbm",
+      "hbf",
+      "dram",
+      "ssd_pim"
+    ],
+    "intent": "hot/cold RAG locality"
+  },
+  {
+    "name": "agent_memory_long_lived",
+    "role": "QA-score",
+    "data_mix": {
+      "AGENT_MEMORY": 1
+    },
+    "target_tiers": [
+      "dram",
+      "cxl_pnm",
+      "ssd_pim",
+      "hbf"
+    ],
+    "intent": "long-lived sparse-reuse agent memory"
+  },
+  {
+    "name": "tool_result_bursty",
+    "role": "QA-score",
+    "data_mix": {
+      "TOOL_RESULT": 1
+    },
+    "target_tiers": [
+      "hbm",
+      "dram",
+      "hbf",
+      "ssd_pim"
+    ],
+    "intent": "bursty tool-result reuse"
+  },
+  {
+    "name": "runtime_log_append",
+    "role": "QA-score",
+    "data_mix": {
+      "LOG_DATA": 1
+    },
+    "target_tiers": [
+      "dram",
+      "ssd_pim"
+    ],
+    "intent": "append-heavy AI runtime/agent execution log; not SST/SSTable"
+  },
+  {
+    "name": "lora_multi_tenant",
+    "role": "QA-score",
+    "data_mix": {
+      "LORA_ADAPTER": 1
+    },
+    "target_tiers": [
+      "hbm",
+      "hbf",
+      "dram"
+    ],
+    "intent": "multi-LoRA popularity skew"
+  },
+  {
+    "name": "moe_expert_skew",
+    "role": "QA-score",
+    "data_mix": {
+      "MOE_EXPERT": 1
+    },
+    "target_tiers": [
+      "hbm",
+      "hbf",
+      "dram"
+    ],
+    "intent": "MoE routing hot/cold skew"
+  },
+  {
+    "name": "mixed_all_ai_data",
+    "role": "QA-score",
+    "data_mix": {
+      "KV_CACHE": 0.28,
+      "RAG_DATA": 0.18,
+      "AGENT_MEMORY": 0.14,
+      "TOOL_RESULT": 0.1,
+      "LOG_DATA": 0.08,
+      "LORA_ADAPTER": 0.1,
+      "MOE_EXPERT": 0.12
+    },
+    "target_tiers": [
+      "hbm",
+      "custom_hbm",
+      "cxl_pnm",
+      "dram",
+      "hbf",
+      "ssd_pim"
+    ],
+    "intent": "all DP1 AI runtime data coexist"
+  },
+  {
+    "name": "hbm_pressure_ramp",
+    "role": "QA-score",
+    "data_mix": {
+      "KV_CACHE": 0.55,
+      "LORA_ADAPTER": 0.2,
+      "MOE_EXPERT": 0.25
+    },
+    "target_tiers": [
+      "hbm",
+      "custom_hbm",
+      "hbf",
+      "dram"
+    ],
+    "intent": "progressive HBM capacity pressure"
+  },
+  {
+    "name": "hbm_bw_shock",
+    "role": "QA-score",
+    "data_mix": {
+      "KV_CACHE": 0.75,
+      "MOE_EXPERT": 0.25
+    },
+    "target_tiers": [
+      "hbm",
+      "custom_hbm",
+      "cxl_pnm",
+      "hbf"
+    ],
+    "intent": "sudden HBM bandwidth shock"
+  },
+  {
+    "name": "host_path_pressure",
+    "role": "QA-score",
+    "data_mix": {
+      "RAG_DATA": 0.4,
+      "AGENT_MEMORY": 0.35,
+      "TOOL_RESULT": 0.25
+    },
+    "target_tiers": [
+      "hbf",
+      "dram",
+      "cxl_pnm",
+      "ssd_pim"
+    ],
+    "intent": "CPU/PCIe path contention"
+  },
+  {
+    "name": "resource_oscillation",
+    "role": "QA-score",
+    "data_mix": {
+      "KV_CACHE": 0.45,
+      "RAG_DATA": 0.25,
+      "AGENT_MEMORY": 0.15,
+      "LORA_ADAPTER": 0.15
+    },
+    "target_tiers": [
+      "hbm",
+      "custom_hbm",
+      "hbf",
+      "dram",
+      "cxl_pnm"
+    ],
+    "intent": "alternating HBM/host-path pressure"
+  },
+  {
+    "name": "hotness_flip",
+    "role": "QA-score",
+    "data_mix": {
+      "RAG_DATA": 0.35,
+      "AGENT_MEMORY": 0.25,
+      "LORA_ADAPTER": 0.2,
+      "MOE_EXPERT": 0.2
+    },
+    "target_tiers": [
+      "hbm",
+      "hbf",
+      "dram",
+      "ssd_pim"
+    ],
+    "intent": "data hot/cold phase reversal"
+  },
+  {
+    "name": "data_mix_shift",
+    "role": "QA-score",
+    "data_mix": {
+      "KV_CACHE": 0.35,
+      "RAG_DATA": 0.2,
+      "AGENT_MEMORY": 0.15,
+      "LORA_ADAPTER": 0.15,
+      "TOOL_RESULT": 0.15
+    },
+    "target_tiers": [
+      "hbm",
+      "custom_hbm",
+      "hbf",
+      "dram",
+      "cxl_pnm",
+      "ssd_pim"
+    ],
+    "intent": "workload mix changes over time"
+  },
+  {
+    "name": "classifier_error",
+    "role": "robustness/coverage",
+    "data_mix": {
+      "KV_CACHE": 0.3,
+      "RAG_DATA": 0.25,
+      "AGENT_MEMORY": 0.2,
+      "TOOL_RESULT": 0.1,
+      "LORA_ADAPTER": 0.15
+    },
+    "target_tiers": [
+      "hbm",
+      "hbf",
+      "dram",
+      "cxl_pnm",
+      "ssd_pim"
+    ],
+    "intent": "40% wrong DataDescriptor type hints"
+  },
+  {
+    "name": "capacity_crunch",
+    "role": "robustness/coverage",
+    "data_mix": {
+      "KV_CACHE": 0.3,
+      "RAG_DATA": 0.22,
+      "AGENT_MEMORY": 0.18,
+      "LOG_DATA": 0.1,
+      "LORA_ADAPTER": 0.1,
+      "MOE_EXPERT": 0.1
+    },
+    "target_tiers": [
+      "hbm",
+      "custom_hbm",
+      "cxl_pnm",
+      "dram",
+      "hbf",
+      "ssd_pim"
+    ],
+    "intent": "near-infeasible capacity stress"
+  },
+  {
+    "name": "long_context",
+    "role": "QA-score",
+    "data_mix": {
+      "KV_CACHE": 0.65,
+      "RAG_DATA": 0.35
+    },
+    "target_tiers": [
+      "hbm",
+      "custom_hbm",
+      "cxl_pnm",
+      "hbf",
+      "dram"
+    ],
+    "intent": "long-context capacity/decode-read pressure"
+  },
+  {
+    "name": "cold_archive_reactivation",
+    "role": "QA-score",
+    "data_mix": {
+      "AGENT_MEMORY": 0.45,
+      "TOOL_RESULT": 0.25,
+      "LOG_DATA": 0.3
+    },
+    "target_tiers": [
+      "dram",
+      "hbf",
+      "ssd_pim",
+      "cxl_pnm"
+    ],
+    "intent": "cold archive then sparse reactivation"
+  },
+  {
+    "name": "six_tier_stress",
+    "role": "robustness/coverage",
+    "data_mix": {
+      "KV_CACHE": 0.22,
+      "RAG_DATA": 0.2,
+      "AGENT_MEMORY": 0.16,
+      "TOOL_RESULT": 0.1,
+      "LOG_DATA": 0.12,
+      "LORA_ADAPTER": 0.1,
+      "MOE_EXPERT": 0.1
+    },
+    "target_tiers": [
+      "hbm",
+      "custom_hbm",
+      "cxl_pnm",
+      "dram",
+      "hbf",
+      "ssd_pim"
+    ],
+    "intent": "force meaningful roles for all six memory tiers"
+  }
+]
