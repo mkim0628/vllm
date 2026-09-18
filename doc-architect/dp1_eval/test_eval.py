@@ -10,6 +10,7 @@ from policies import (
     DataClassifier, SafeFallbackSelector
 )
 from scenarios import scenarios, generate_trace
+from qa_utils import p99_slo_feasible, best_sustainable_rows
 
 CONFIG_DIR=Path(__file__).resolve().parents[1]/"configs"
 
@@ -94,6 +95,25 @@ class DP1EvalTests(unittest.TestCase):
         self.assertGreater(st["rate"],0)
         self.assertGreater(st["samples"],0)
         self.assertTrue(st["reuse_interval_s"]>=1.0)
+
+
+    def test_sustainable_load_requires_both_p99_slos(self):
+        good={"ttft_p99_ms":1999.0,"tpot_p99_ms":49.9}
+        bad_ttft={"ttft_p99_ms":2001.0,"tpot_p99_ms":20.0}
+        bad_tpot={"ttft_p99_ms":1000.0,"tpot_p99_ms":50.1}
+        self.assertTrue(p99_slo_feasible(good))
+        self.assertFalse(p99_slo_feasible(bad_ttft))
+        self.assertFalse(p99_slo_feasible(bad_tpot))
+
+    def test_best_sustainable_row_excludes_request_level_only_goodput(self):
+        rows=[
+            {"candidate":"X","scenario":"s","seed":1,"slo_goodput":100.0,
+             "ttft_p99_ms":2500.0,"tpot_p99_ms":30.0},
+            {"candidate":"X","scenario":"s","seed":1,"slo_goodput":80.0,
+             "ttft_p99_ms":1800.0,"tpot_p99_ms":45.0},
+        ]
+        best=best_sustainable_rows(rows,"X",{"s"})
+        self.assertEqual(best[("s",1)]["slo_goodput"],80.0)
 
     def test_same_seed_generates_same_trace(self):
         s=next(x for x in scenarios() if x.name=="mixed_all_ai_data_b64")
