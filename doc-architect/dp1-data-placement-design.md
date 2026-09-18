@@ -20,7 +20,7 @@ HBM, DRAM, CXL Memory, SSD, PIM/PNM 등 서로 다른 특성을 가진 Memory Ti
 - KV Cache
 - RAG Data / Embedding / Retrieval Index
 - Agent Memory / State
-- Tool Result / Runtime Log
+- Tool Result / Agent State / Agent Execution Trace
 - LoRA Adapter
 - MoE Expert
 
@@ -354,8 +354,7 @@ DataClass
 ├── KV_CACHE
 ├── RAG_DATA
 ├── AGENT_MEMORY
-├── TOOL_RESULT
-├── LOG_DATA
+├── TOOL_RESULT / AGENT_STATE
 ├── LORA_ADAPTER
 └── MOE_EXPERT
 ```
@@ -519,6 +518,81 @@ DRAM 선택
 
 - **1차:** Data 특성으로 적합한 Tier를 좁힘
 - **2차:** 실시간 Resource 상태로 실제 Best Tier를 결정
+- **3차:** Confidence / operation feasibility / latency guard를 통과하지 못하면 Safe Fallback 수행
+
+### 4.6.1 Safe Fallback / Mis-placement Recovery
+
+C2의 Data classification 또는 Hotness/Lifetime 예측은 틀릴 수 있으므로 **오류를 그대로 실행 경로에 남겨두지 않는다.**
+
+Fallback trigger:
+
+- Data Classifier confidence가 threshold 미만
+- 상위 두 Tier의 affinity gap이 너무 작아 결정 confidence가 낮음
+- 선택 Tier가 `required_operations`를 만족하지 못함
+- 예상 first-response / TPOT budget을 넘음
+- 배치 후 관찰된 access rate / reuse가 예측과 크게 달라짐
+- Telemetry 상 capacity / BW pressure가 safety threshold를 넘음
+
+Fallback은 Data type에 따라 다르게 적용한다.
+
+```text
+Active KV Cache
+  1) HBM에 headroom이 있으면 HBM
+  2) 아니면 full Attention primitive + step budget을 만족하는
+     Custom HBM / CXL-PNM 후보
+  3) 그것도 불가하면 lower tier에 보관하되 Decode 직전 HBM restore
+
+RAG / Embedding / Retrieval Index
+  1) 선택 Tier가 retrieval required-operation을 지원하면 in-place 사용
+  2) 지원하지 않거나 latency budget 초과 시 HBF / DRAM / HBM 쪽 safe tier
+  3) SSD-PIM은 지원 primitive만 사용하며 unsupported operation을 가정하지 않음
+
+Agent Memory / Tool Result
+  1) latency-insensitive cold object는 DRAM/CXL/SSD 계층 허용
+  2) 재활성 후 latency sensitivity가 올라가면 상위 tier로 promotion
+```
+
+Post-placement mis-placement는 Runtime State Monitor의 관찰값과 최초 예측의 차이로 감지하고 `reevaluation_hint`를 발생시켜 재배치를 요청한다. 실제 이동 수행은 DP4가 담당한다.
+
+### 4.6.2 Operation-aware Placement 예
+
+DP1은 Compute Placement 자체를 결정하지 않지만, **그 Memory에 Data를 둘 경우 required operation을 그 자리에서 수행할 수 있는지**를 affinity/cost에 반영한다.
+
+#### KV Cache — Decode Attention offload
+
+Decode를 `Attention + FFN`으로 분리하면 KV는 Attention에만 직접 필요하다.
+
+```text
+GPU
+  FFN / model-weight path
+     ↑               ↓ activation
+     │               │
+Custom HBM or CXL-PNM
+  KV resident
+  QK / Softmax / AV / Causal Mask
+  = Attention 수행
+```
+
+따라서 KV가 cold하고 latency budget에 여유가 있으면 CXL-PNM으로, burst 부하에서 GPU/HBM pressure가 높고 Custom HBM의 내부 BW/compute가 유리하면 Custom HBM으로 affinity가 올라갈 수 있다.
+
+이때 비용은 최소한 다음을 분리해 본다.
+
+- Memory 내부 KV read bandwidth
+- Attention compute capability
+- GPU↔Memory activation round-trip traffic
+- GPU에서 계속 수행되는 FFN / weight path
+- external link contention
+
+#### RAG Index — SSD-PIM retrieval
+
+Embedding / Vector Index가 매우 크고 cold/long-lived이면 SSD-PIM 배치가 가능하다. Retrieval이 dot-product/GEMV 계열이라 SSD-PIM의 supported primitive로 일부 연산을 수행할 수 있다면 **전체 embedding을 GPU로 읽어오는 대신 연산 결과만 외부로 전달**할 수 있다.
+
+단, 현재 Memory Registry에 `TOPK` primitive가 명시되어 있지 않다면 full in-storage vector search를 가정하지 않는다. 이 경우 simulation은 다음 두 비용을 분리한다.
+
+- SSD 내부 dot-product/GEMV 비용
+- Top-k를 외부에서 수행해야 할 경우 score/result transfer 비용
+
+즉 `GEMV 지원 = 전체 RAG retrieval pipeline 지원`으로 간주하지 않는다.
 
 ## 4.7 C2 Decision Flow
 
