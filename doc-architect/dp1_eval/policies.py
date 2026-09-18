@@ -282,8 +282,6 @@ class C2DataCentric:
         reason=None
         if confidence<.65:
             reason="low_classifier_confidence"
-        elif gap<.025:
-            reason="low_affinity_margin"
         elif cls=="KV_CACHE" and best!="hbm" and not selected.attention_capable:
             reason="operation_infeasible"
         elif cls=="KV_CACHE" and best!="hbm":
@@ -297,7 +295,7 @@ class C2DataCentric:
         # Runtime mismatch catches high-confidence wrong hints after observations accumulate.
         _,samples=self.runtime.stats(obj)
         prior=DATA_PRIORS.get(cls,DATA_PRIORS["TOOL_RESULT"])["hotness"]
-        if samples>=4 and abs(ch["observed_hotness"]-prior)>.45:
+        if confidence<.90 and samples>=4 and abs(ch["observed_hotness"]-prior)>.45:
             reason=reason or "runtime_behavior_mismatch"
 
         if reason:
