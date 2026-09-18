@@ -52,6 +52,28 @@ def ci95_log(vals):
     h=1.96*statistics.stdev(logs)/math.sqrt(len(logs))
     return [math.exp(m-h),math.exp(m+h)]
 
+def star_goodput(ratio,ci):
+    if ratio is None or ci is None:
+        return None
+    lo,hi=ci
+    if ratio>=1.10 and lo>=1.0: return 3
+    if ratio<.90 and hi<1.0: return 1
+    return 2
+
+def star_ttft(ms):
+    if ms is None: return None
+    return 3 if ms<=2000 else 2 if ms<=4000 else 1
+
+def star_tpot(ms):
+    if ms is None: return None
+    return 3 if ms<=25 else 2 if ms<=50 else 1
+
+def star_resource(x):
+    return 3 if x>=.85 else 2 if x>=.65 else 1
+
+def stars(n):
+    return "N/A" if n is None else "★"*n+"☆"*(3-n)
+
 def best_rows(rows,candidate,names):
     return best_sustainable_rows(rows,candidate,names)
 
@@ -78,14 +100,34 @@ def aggregate(rows,candidate):
     nominal=[r for r in rows if r["candidate"]==candidate and r["scenario"] in normal
              and abs(r["load_scale"]-1.0)<1e-9]
     rr,lost,extension=ratios(rows,candidate,heavy)
+    ratio=geom(rr)
+    ci=ci95_log(rr)
+
+    strict=best_rows(rows,candidate,normal)
+    strict_rows=list(strict.values())
+    ttft=max((r["ttft_p99_ms"] for r in strict_rows),default=None)
+    tpot=max((r["tpot_p99_ms"] for r in strict_rows),default=None)
+
+    # Mean max-sustainable goodput counts a missing sustainable point as zero.
+    normal_keys={(r["scenario"],r["seed"]) for r in rows if r["scenario"] in normal}
+    sustainable_goodputs=[
+        strict[k]["slo_goodput"] if k in strict else 0.0
+        for k in normal_keys
+    ]
+
+    rui=statistics.mean(r["resource_index"] for r in nominal)
     return {
-        "heavy_goodput_ratio_vs_as_is":geom(rr),
-        "heavy_goodput_ci95":ci95_log(rr),
+        "heavy_goodput_ratio_vs_as_is":ratio,
+        "heavy_goodput_ci95":ci,
         "lost_sustainable_heavy_cells":len(lost),
         "feasibility_extension_heavy_cells":len(extension),
+        "strict_sustainable_points":len(strict_rows),
+        "mean_max_sustainable_goodput":statistics.mean(sustainable_goodputs),
+        "worst_sustainable_ttft_p99_ms":ttft,
+        "worst_sustainable_tpot_p99_ms":tpot,
         "mean_slo_goodput":statistics.mean(r["slo_goodput"] for r in nominal),
         "mean_token_throughput":statistics.mean(r["token_throughput"] for r in nominal),
-        "resource_index":statistics.mean(r["resource_index"] for r in nominal),
+        "resource_index":rui,
         "hbm_pressure_violation":statistics.mean(r["hbm_pressure_violation_rate"] for r in nominal),
         "bw_saturation":statistics.mean(r["bw_saturation_rate"] for r in nominal),
         "migration_count":statistics.mean(r["migration_count"] for r in nominal),
@@ -94,6 +136,12 @@ def aggregate(rows,candidate):
         "performance_bypass_count":statistics.mean(r.get("performance_bypass_count",0) for r in nominal),
         "emergency_migrations":statistics.mean(r.get("emergency_migrations",0) for r in nominal),
         "no_physical_capacity_count":statistics.mean(r.get("no_physical_capacity_count",0) for r in nominal),
+        "stars":{
+            "throughput":star_goodput(ratio,ci),
+            "ttft":star_ttft(ttft),
+            "tpot":star_tpot(tpot),
+            "resource":star_resource(rui),
+        },
     }
 
 def domain_summary(rows,candidate):
@@ -156,10 +204,20 @@ def write_report(path,summary):
     lines=[
         "# DP1 V2 Simulation Result",
         "",
-        "> C1-R2: Resource Utility + Emergency Pressure Policy",
-        "> C2-R2: deterministic Data Type + Placement Path Cost + Performance Guard + Degraded Placement",
+        "> Sustainable operating point: **TTFT p99 <= 2,000 ms AND TPOT p99 <= 50 ms**.",
+        "> Request 일부만 SLO를 만족하는 load point는 QA sustainable point로 인정하지 않는다.",
         "",
-        "## 1. Aggregate",
+        "## 1. QA score — strict p99 sustainable point",
+        "",
+        "| QA | C1-R2 | C2-R2 |",
+        "|---|:---:|:---:|",
+        f"| Performance Throughput | {stars(a['C1-R2-emergency-resource']['stars']['throughput'])} | {stars(a['C2-R2-path-aware']['stars']['throughput'])} |",
+        f"| Performance Latency — TTFT | {stars(a['C1-R2-emergency-resource']['stars']['ttft'])} | {stars(a['C2-R2-path-aware']['stars']['ttft'])} |",
+        f"| Performance Latency — TPOT | {stars(a['C1-R2-emergency-resource']['stars']['tpot'])} | {stars(a['C2-R2-path-aware']['stars']['tpot'])} |",
+        f"| Resource Utilization | {stars(a['C1-R2-emergency-resource']['stars']['resource'])} | {stars(a['C2-R2-path-aware']['stars']['resource'])} |",
+        "",
+        "## 2. Aggregate",
+
         "",
         "| Candidate | Heavy Goodput / As-Is | Mean SLO Goodput | RUI | HBM pressure | Migration/run | Fallback/run | Degraded/run |",
         "|---|---:|---:|---:|---:|---:|---:|---:|",
