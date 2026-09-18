@@ -82,12 +82,14 @@ CONTEXT             = [16K, 32K, 128K, 512K]
 
 일반 sweep은 전체 grid를 사용하고, 최종 heavy-load throughput score는 **batch 64/256 × context 128K/512K**를 사용한다. RAG처럼 LLM decode batch와 의미가 다른 workload는 동일한 숫자를 **concurrent queries**로 해석하고 index size를 별도 축으로 기록한다.
 
-### 1.5 SLO
+### 1.5 Serving SLO reference — Performance QA 비점수
 
 | 항목 | 값 | 근거 |
 |---|---|---|
-| TTFT | ≤ 2,000 ms | 대화형 에이전트의 체감 한계 |
-| TPOT | ≤ 50 ms | 20 tok/s ≈ 사람의 읽기 속도 |
+| TTFT | ≤ 2,000 ms | Serving layer가 필요 시 사용할 수 있는 예시 target |
+| TPOT | ≤ 50 ms | Serving layer가 필요 시 사용할 수 있는 예시 target |
+
+> DP1~DP4 Architecture QA는 특정 serving product의 SLO를 직접 최적화하는 평가가 아니다. 위 값은 참고용이며 **Performance 별점 산정에는 사용하지 않는다.** SLO/Admission/Autoscaling target은 상위 serving layer가 결정한다.
 
 ---
 
@@ -124,109 +126,89 @@ TPS  = 배치 ÷ TPOT
 
 배수와 절대 수치를 함께 적는다. 배수는 §2의 Reference Performance 대비다.
 
-### 3.1 Performance — Throughput / SLO-constrained Goodput
+### 3.1 Performance — Throughput
 
-Throughput QA는 analytical physical reference 대비 비율로 매기지 않는다. **같은 HW / 같은 trace / 같은 workload에서의 As-Is baseline**과 비교한다.
+Performance QA는 **동일 HW / 동일 trace / 동일 offered load에서의 As-Is 대비 순수 system performance**로 평가한다.
+Serving SLO는 score filter나 operating-point selector로 사용하지 않는다.
 
-주 지표는 다음 두 개를 함께 기록한다.
+주 지표:
 
 - Raw Token Throughput [tok/s]
-- **Max Sustainable SLO Goodput [tok/s]** — 동일 workload cell에서 offered load를 sweep하고, First-response와 TPOT SLO를 만족하면서 얻은 최대 Goodput
+- Request Throughput [req/s] — 보조
 
-각 `(batch, context, workload)` cell에서 다음 load sweep을 수행한다.
+각 `(scenario, seed)`에서 사전에 고정한 load sweep 전체를 동일하게 실행한다.
 
-```
+```text
 OFFERED_LOAD_SCALE = [0.25, 0.50, 0.75, 1.00, 1.25]
-Sustainable(load) =
-  (TTFT_p99(load) <= 2,000 ms)
-  AND
-  (TPOT_p99(load) <= 50 ms)
 
-Max Sustainable SLO Goodput =
-  max(SLO goodput at load)
-  over Sustainable(load) == true
+Throughput Ratio(load) =
+  Candidate Token Throughput(load)
+  / As-Is Token Throughput(load)
 ```
 
-공통 score는 **SLO-feasible heavy cell**에서 As-Is 대비 ratio를 사용한다.
+load sweep을 후보별로 유리한 한 점만 고르지 않는다. 먼저 `(scenario, seed)` 내부의 load-ratio를 geometric mean으로 묶고, 그 뒤 scenario-seed 간 geometric mean과 paired 95% CI를 계산한다.
 
+| 별점 | As-Is 대비 Throughput ratio | 의미 |
+|---|---:|---|
+| ★☆☆ | < 0.90 and CI upper < 1.0 | baseline보다 10% 이상 유의하게 낮음 |
+| ★★☆ | 0.90 ~ 1.10 또는 CI가 1.0 포함 | baseline과 유사 / trade-off |
+| ★★★ | ≥ 1.10 and CI lower ≥ 1.0 | baseline보다 10% 이상 유의하게 높음 |
+
+---
+
+### 3.2 Performance — First-response Latency p99 (TTFT)
+
+현재 simulator는 network / HTTP framing을 모델링하지 않으므로 **TTFT**를 사용한다.
+
+```text
+TTFT Ratio(load) = Candidate TTFT p99(load) / As-Is TTFT p99(load)
 ```
-Goodput Ratio =
-  Candidate Max Sustainable SLO Goodput
-  / As-Is Max Sustainable SLO Goodput
-```
 
-**Request 일부가 SLO를 만족했다는 이유만으로 그 load point를 sustainable로 인정하지 않는다.** 해당 load point의 전체 요청 기준 p99 TTFT와 p99 TPOT이 둘 다 SLO를 만족해야 한다.
+TTFT는 낮을수록 좋다.
 
-기본 heavy/stress 축은 large batch와 long context를 모두 포함하지만, As-Is와 모든 후보에서 위 p99 조건을 만족하는 load point가 하나도 없는 cell은 **SLO-infeasible stress cell**로 표시하고 Throughput 별점 분모에서는 제외한다. 예를 들어 512K context가 물리적으로 TPOT SLO를 넘는다면 그 cell은 Latency/Stress 분석에는 남기되 throughput ratio를 0/0으로 만들지 않는다.
+| 별점 | As-Is 대비 TTFT ratio | 의미 |
+|---|---:|---|
+| ★☆☆ | > 1.10 and CI lower > 1.0 | baseline보다 10% 이상 유의하게 느림 |
+| ★★☆ | 0.90 ~ 1.10 또는 CI가 1.0 포함 | baseline과 유사 / trade-off |
+| ★★★ | ≤ 0.90 and CI upper ≤ 1.0 | baseline보다 10% 이상 유의하게 빠름 |
 
-| 별점 | 공통 정량 기준 | 의미 |
-|---|---|---|
-| ★☆☆ | feasible-cell geometric-mean ratio < 0.90 **and** paired 95% CI upper < 1.0 | baseline보다 유의하게 악화 |
-| ★★☆ | 0.90 ~ 1.10 또는 paired CI가 1.0을 포함 | baseline과 유사 / trade-off 구간 |
-| ★★★ | ratio ≥ 1.10 **and** paired 95% CI lower ≥ 1.0 | heavy load에서 10% 이상 유의한 goodput 개선 |
+절대 TTFT 값도 반드시 함께 보고한다. 다만 특정 2초 같은 serving target을 QA 별점의 경계값으로 사용하지 않는다.
 
-> 1.10/0.90은 “이론 peak의 몇 %”가 아니라 **같은 시스템의 As-Is 대비 최소 의미 있는 개선/회귀 폭 10%**다. Large-batch/Long-context stress 결과는 ratio 별점과 별개로 raw throughput, TTFT, TPOT을 반드시 같이 보고한다.
-
-### 3.2 Performance — First-response Latency p99 (TTFB / TTFT)
-
-First-response latency와 TPOT은 원인이 다르므로 **절대 하나의 숫자나 min/max 연산으로 합치지 않는다.**
-
-- Serving interface까지 network / HTTP framing을 모델링하면 **TTFB**
-- Model/runtime ready-to-first-token까지만 모델링하면 **TTFT**
-
-현재 simulator가 network transport를 모델링하지 않으면 결과 표에는 **TTFT**라고 써야 하며, TTFB라고 부르지 않는다.
-
-| 별점 | 절대 | 근거 |
-|---|---|---|
-| ★☆☆ | > 4,000 ms | first response가 매우 늦음 |
-| ★★☆ | 2,000 ~ 4,000 ms | target SLO 초과 |
-| ★★★ | ≤ 2,000 ms | first-response SLO 달성 |
+---
 
 ### 3.3 Performance — TPOT p99
 
-| 별점 | 절대 | 근거 |
-|---|---|---|
-| ★☆☆ | > 50 ms | decode step 예산 초과 |
-| ★★☆ | 25 ~ 50 ms | SLO 안이지만 headroom이 작음 |
-| ★★★ | ≤ 25 ms | 부하 증가에 대한 headroom 확보 |
+```text
+TPOT Ratio(load) = Candidate TPOT p99(load) / As-Is TPOT p99(load)
+```
 
-### 3.4 Performance — Latency QA 표기 규칙
+TPOT도 낮을수록 좋으며 TTFT와 동일한 상대 기준을 사용한다.
 
-Latency는 하나의 QA이지만 결과는 항상 두 sub-metric을 **각각 별점으로 표기**한다. 별점 산정은 offered-load sweep에서 **p99 TTFT ≤ 2,000 ms AND p99 TPOT ≤ 50 ms를 동시에 만족하는 load point 중 SLO Goodput이 최대인 operating point**를 사용한다.
+| 별점 | As-Is 대비 TPOT ratio | 의미 |
+|---|---:|---|
+| ★☆☆ | > 1.10 and CI lower > 1.0 | baseline보다 10% 이상 유의하게 느림 |
+| ★★☆ | 0.90 ~ 1.10 또는 CI가 1.0 포함 | baseline과 유사 / trade-off |
+| ★★★ | ≤ 0.90 and CI upper ≤ 1.0 | baseline보다 10% 이상 유의하게 빠름 |
 
-모든 후보가 first-response/TPOT SLO를 만족하는 operating point를 만들지 못하는 cell은 `SLO-degraded`로 표시한다. **SLO는 성공/실패의 목표선이지, 해당 workload를 평가표에서 삭제하는 필터가 아니다.**
+---
 
-따라서 결과는 두 층으로 보고한다.
+### 3.4 Performance — Case Group 표기 규칙
 
-1. **SLO-qualified score** — TTFT p99 ≤ 2,000 ms AND TPOT p99 ≤ 50 ms를 만족하는 load에서 Max Sustainable SLO Goodput과 절대 Latency 별점을 계산한다.
-2. **SLO-degraded relative score** — SLO를 만족하지 못하더라도 동일 trace / 동일 offered load에서 As-Is 대비 얼마나 좋아지거나 나빠졌는지 계산한다. DP1의 case-group 비교에서는 사전에 고정한 nominal load `1.0`을 사용한다.
-
-SLO-degraded relative score의 ratio는 다음과 같다.
+Overall aggregate 하나만 보면 architecture별 강점이 상쇄될 수 있으므로 Performance는 최소 세 그룹을 함께 보고한다.
 
 ```text
-Throughput ratio = Candidate raw token throughput / As-Is raw token throughput
-TTFT ratio       = Candidate TTFT p99 / As-Is TTFT p99
-TPOT ratio       = Candidate TPOT p99 / As-Is TPOT p99
+Overall
+C1-favorable target domain
+C2-favorable target domain
 ```
 
-별점은 기존 10% MDE band를 대칭적으로 사용한다.
+각 그룹은 **결과를 보기 전에 architecture mechanism으로 정의**하고, 같은 그룹에서 C1/C2/As-Is를 모두 실행한다. `C1-favorable`는 C1을 winner로 선언한다는 뜻이 아니라 C1의 Resource-centric mechanism이 필요해지는 workload group이라는 뜻이다. C2도 동일하다.
 
-| SLO-degraded 상대 별점 | Throughput | TTFT / TPOT |
-|---|---:|---:|
-| ★★★ | ratio ≥ 1.10 and CI lower ≥ 1.0 | ratio ≤ 0.90 and CI upper ≤ 1.0 |
-| ★★☆ | 0.90~1.10 또는 CI가 1.0 포함 | 0.90~1.10 또는 CI가 1.0 포함 |
-| ★☆☆ | ratio < 0.90 and CI upper < 1.0 | ratio > 1.10 and CI lower > 1.0 |
+Performance 표에는 Throughput / TTFT / TPOT 각각에 대해 Overall, C1 Case, C2 Case 행을 둔다.
 
-이 상대 별점에는 반드시 `† SLO-degraded relative` 표시를 붙인다. **★★★라도 SLO를 만족했다는 뜻은 아니며, As-Is보다 해당 stress 상황을 더 잘 버틴다는 뜻**이다. 절대 TTFT/TPOT 값도 항상 함께 보고한다.
+Serving SLO 초과 여부와 무관하게 모든 workload는 동일한 상대 비교에 포함한다. 극단적인 OOM/실행불가, fault-injection/coverage-only case만 별도 robustness 영역으로 분리한다.
 
-```
-Performance Latency
-  First-response (TTFB/TTFT): ★★★
-  TPOT:                       ★★☆
-```
-
-즉 **Latency = First-response + TPOT 두 결과의 묶음**이며, 둘을 하나의 별점으로 축약하지 않는다. E2E Latency는 보조 지표로 함께 보고한다.
-
+---
 ### 3.5 Resource Utilization
 
 DP마다 자원 종류는 다르므로(HBM/Memory Tier, GPU/CPU, Link 등) raw metric은 각 DP 문서에서 정의하되, 최종 별점은 공통의 **Resource Utilization Index (RUI, 0~1)** 로 정규화한다.
@@ -319,9 +301,9 @@ DP1~DP4에서 동일한 변경 archetype 4종을 고정하고 두 단위로 잰�
 3. **Throughput/Goodput의 시간 분모는 후보와 무관한 고정 horizon으로 둔다.**
 4. **Warm-up 또는 정책 적용 이전 구간을 제외해야 하는 DP는 제외 규칙을 실행 전에 고정하고 모든 후보에 동일하게 적용한다.** DP마다 "최초 턴"의 의미가 다르므로 특정 턴 번호를 공통 규칙으로 강제하지 않는다.
 5. **의미 있는 As-Is/정책 없음 대조군을 정의할 수 있는 DP에서는 함께 측정한다.** 다만 C1/C2 등 후보의 최종 별점은 대조군 상대값이 아니라 §3의 공통 절대/정규화 기준으로 매긴다.
-6. **TTFT·TPOT p99는 각 평가 시나리오의 전체 요청을 기준으로 계산한다.** 급변/정상 구간을 사후 분리해 유리한 구간만 인용하지 않는다. 또한 Max Sustainable operating point는 **TTFT p99와 TPOT p99가 둘 다 SLO를 만족하는 load point만** 후보로 인정한다.
+6. **TTFT·TPOT p99는 각 평가 시나리오의 전체 요청을 기준으로 계산한다.** 급변/정상 구간을 사후 분리해 유리한 구간만 인용하지 않는다. Performance QA는 SLO로 load point를 제거하지 않고 사전에 고정한 load sweep 전체를 동일하게 비교한다.
 7. **정책 결정 비용과 DP가 유발하는 실행 비용을 critical path에 노출되는 만큼 Latency/Throughput에 포함한다.** DP1의 tier 변경은 DP4 migration mechanism 자체를 구현하지 않더라도 이동 비용 proxy를 명시해야 하며, DP4에서는 실제 migration 비용을 직접 측정한다.
-8. **Fault injection / coverage-only scenario는 정상 운용 QA 별점과 분리한다.** SLO-degraded workload는 삭제하지 않고 §3.4의 relative score로 함께 보고한다. 즉 SLO-qualified score와 SLO-degraded relative score를 혼합하지 않고 같은 QA 표에서 행을 분리한다.
+8. **Fault injection / coverage-only scenario만 정상 운용 QA 별점과 분리한다.** 높은 load, long context, resource pressure처럼 성능이 크게 떨어지는 workload는 실제 system-performance 영역으로 보고 Performance QA에서 제거하지 않는다.
 
 ---
 
