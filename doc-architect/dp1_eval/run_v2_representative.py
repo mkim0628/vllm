@@ -14,11 +14,11 @@ CANDIDATES=['As-Is-HBM-first','C1-R2-emergency-resource','C2-R2-path-aware']
 GROUPS={
   'overall': {
     'kv_b16_c32k','kv_b1_c32k_cold_cxl',
-    'hbm_pressure_ramp_b64','hbm_bw_shock_b256',
+    'host_path_pressure_b64','data_mix_shift_b64',
     'kv_b16_c32k_burst_chbm','rag_8tib_b64_ssd_pim',
   },
   'neutral_control': {'kv_b16_c32k','kv_b1_c32k_cold_cxl'},
-  'c1_target': {'hbm_pressure_ramp_b64','hbm_bw_shock_b256'},
+  'c1_target': {'host_path_pressure_b64','data_mix_shift_b64'},
   'c2_target': {'kv_b16_c32k_burst_chbm','rag_8tib_b64_ssd_pim'},
 }
 
@@ -133,7 +133,7 @@ def main():
       '## Representative suite',
       '',
       '- Neutral/Control: `kv_b16_c32k`, `kv_b1_c32k_cold_cxl`',
-      '- C1 Target / Resource Pressure: `hbm_pressure_ramp_b64`, `hbm_bw_shock_b256`',
+      '- C1 Target / Resource Dynamics: `host_path_pressure_b64`, `data_mix_shift_b64`',
       '- C2 Target / Data-Operation: `kv_b16_c32k_burst_chbm`, `rag_8tib_b64_ssd_pim`',
       '',
       '## QA table',
@@ -152,6 +152,8 @@ def main():
       ('Performance Latency — TPOT — C1 Target','c1_target','tpot'),
       ('Performance Latency — TPOT — C2 Target','c2_target','tpot'),
       ('Resource Utilization — Overall','overall','resource'),
+      ('Resource Utilization — C1 Target','c1_target','resource'),
+      ('Resource Utilization — C2 Target','c2_target','resource'),
     ]
     for label,g,m in spec:
       a=summary['groups'][g][c1][m]; b=summary['groups'][g][c2][m]
@@ -168,6 +170,7 @@ def main():
       '',
       '## Notes',
       '',
+      '- C1 Target uses host-path pressure and data-mix shift because these directly exercise cross-tier resource-state adaptation; simple HBM shock/ramp cases that cause no placement change are not representative of the C1 mechanism.',
       '- `rag_8tib_b64_ssd_pim` is an architecture stress/reference for data-near GEMV, not a claim about realistic production vector-DB latency.',
       '- Representative scenarios are selected by mechanism coverage, not by post-hoc winner selection.',
     ]
