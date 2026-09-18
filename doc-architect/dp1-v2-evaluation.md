@@ -41,6 +41,55 @@
 | HBM pressure violation ↓ | 0.191 | **0.065** | 0.166 |
 | Migration/run ↓ | 11.44 | **3.11** | 26.35 |
 
+
+---
+
+## 1.1 Case-separated QA Matrix
+
+전체 aggregate에서 Performance가 1.000×로 보이는 이유는 C1/C2가 실제로 항상 동일해서가 아니다.
+
+Strict-p99 기준에서 현재 score 가능한 workload가 제한적이고, score 가능한 neutral workload에서는 C1-R2/C2-R2 모두 As-Is/HBM path로 수렴하기 때문이다. 따라서 아래처럼 **architecture가 유리하도록 설계된 case를 별도로 본다.**
+
+> `SLO Stress`는 QA 별점에는 포함하지 않는다. 다만 해당 architecture mechanism이 실제로 무엇을 개선하고 무엇을 악화시키는지 보여주는 보조 결과로 남긴다.
+
+### C1-R2가 유리하도록 설계한 Case — Resource Pressure
+
+| Case | Throughput | TTFT | TPOT | Resource | 판정 |
+|---|---:|---:|---:|---:|---|
+| `hbm_pressure_ramp_b64` | Raw token throughput **1.016×** As-Is | 0.999× | **4.97×** | RUI **0.933 vs 0.913**, HBM pressure 0.000 vs 0.009 | **Resource WIN / Performance SLO Stress** |
+| `hbm_bw_shock_b256` | Raw token throughput **1.016×** | 1.000× | **5.11×** | RUI 0.873 vs 0.917 | **Performance SLO Stress** |
+| `host_path_pressure_b64` | Raw token throughput 1.000× | **2.78×** | 1.000× | RUI **0.930 vs 0.819**, HBM pressure 0.000 vs 0.178 | **Resource WIN / Latency LOSS** |
+| **C1 Resource-pressure strict aggregate** | **N/A** | N/A | N/A | — | As-Is 자체가 strict p99 SLO를 만족하는 paired cell이 없어 **Performance 우위 판정 불가** |
+
+현재 C1-R2의 명확한 장점은 **Resource Pressure 해소**다.  
+아직 strict-p99 기준의 **Performance WIN case는 확보하지 못했다.**
+
+### C2-R2가 유리하도록 설계한 Case — Data-near / Data-lifecycle
+
+| Case | Strict Goodput / As-Is | TTFT / As-Is | TPOT / As-Is | Resource | 판정 |
+|---|---:|---:|---:|---:|---|
+| `kv_b16_c32k_burst_chbm` | **0.958×** | **0.869×** | 2.586× | RUI 0.368 vs 0.382 | **TTFT 개선 / Goodput·TPOT Trade-off** |
+| `kv_b1_c32k_cold_cxl` | **1.000×** | 1.001× | 1.000× | 동일 | **Negative-control PASS** — 느린 CXL offload를 하지 않음 |
+| `kv_mispredict_dram_wait` | **0.986×** | 1.181× | 2.286× | RUI 동일 | **Near-neutral Goodput / Latency LOSS** |
+| `rag_8tib_b64_ssd_pim` | **SLO Stress** | Stress TTFT **0.818×** | Stress TPOT 0.996× | RUI 0.528 vs 0.657 | **Data-near Performance Benefit은 보이나 2s TTFT SLO 밖** |
+| `rag_1tib_b16` | **1.000×** | 1.000× | 1.000× | 동일 | **Neutral / No-regression** |
+| `agent_memory_long_lived` | **1.000×** | 1.001× | 1.000× | 동일 | **Neutral / No-regression** |
+| **C2 Data-near strict aggregate** | **0.979×** | — | — | — | As-Is와 근접하나 아직 **Performance WIN 아님** |
+| **C2 Data-lifecycle strict aggregate** | **0.993×** | — | — | — | 사실상 As-Is 수준 |
+
+### QA 관점에서 읽는 법
+
+| QA | C1-R2 유리 영역 | C2-R2 유리 영역 | 현재 증명 수준 |
+|---|---|---|---|
+| **Performance Throughput** | Resource-pressure가 SLO-feasible한 영역을 아직 확보하지 못함 | SSD-PIM RAG / near-memory KV가 후보이나 strict aggregate 0.979× | **추가 target scenario 필요** |
+| **Performance Latency — TTFT** | 현재 명확한 WIN 없음 | Custom-HBM KV burst에서 0.869×, 8 TiB RAG stress에서 0.818× | C2의 data-near 장점 일부 확인 |
+| **Performance Latency — TPOT** | Emergency offload에서 악화 | KV offload/deferred path에서 headroom 감소 | 둘 다 보완 필요 |
+| **Resource Utilization** | **명확한 강점** — aggregate RUI 0.859 | aggregate RUI 0.753 | C1-R2 우세 영역이 명확 |
+| **Modifiability** | 재산정 필요 | 재산정 필요 | R2 구현 기준으로 다시 측정 |
+
+따라서 **C1과 C2의 Performance가 실제로 같다고 결론 내리면 안 된다.**  
+현재 strict-p99 QA suite가 두 후보의 target-domain Performance 차이를 충분히 관찰하지 못하고 있다는 것이 더 정확한 해석이다.
+
 ---
 
 ## 2. 왜 이전 결과와 달라졌는가
