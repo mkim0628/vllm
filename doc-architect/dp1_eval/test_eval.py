@@ -5,7 +5,10 @@ import unittest
 from pathlib import Path
 
 from model import DataObject, load_system, DATA_CLASSES
-from policies import ResourceStateMonitor, Telemetry, DataClassifier, SafeFallbackSelector
+from policies import (
+    ResourceStateMonitor, RuntimeStateMonitor, Telemetry,
+    DataClassifier, SafeFallbackSelector
+)
 from scenarios import scenarios, generate_trace
 
 CONFIG_DIR=Path(__file__).resolve().parents[1]/"configs"
@@ -30,7 +33,7 @@ class DP1EvalTests(unittest.TestCase):
             "rag_8tib_b64_ssd_pim","rag_8tib_b256_ssd_pim",
             "agent_memory_long_lived","lora_multi_tenant_b64",
             "moe_expert_skew_b256","mixed_all_ai_data_b64",
-            "classifier_error","six_tier_capacity_stress",
+            "classifier_error","kv_mispredict_dram_wait","six_tier_capacity_stress",
         }:
             self.assertIn(required,names)
 
@@ -56,11 +59,12 @@ class DP1EvalTests(unittest.TestCase):
         self.assertEqual(cls,"RAG_DATA")
         self.assertAlmostEqual(conf,.61)
 
-    def test_rag_ssd_pim_uses_dot_product_but_not_topk(self):
+    def test_rag_ssd_pim_is_gemv_only(self):
         system=load_system(CONFIG_DIR)
         ssd=system.memories["ssd_pim"]
         self.assertTrue(ssd.retrieval_dot_capable)
-        self.assertNotIn("TOPK",ssd.primitives)
+        self.assertEqual(ssd.primitives,frozenset({"GEMV"}))
+        self.assertFalse(ssd.attention_capable)
         cost=system.rag_retrieval_s(128*1024**3,64,"ssd_pim",1024)
         self.assertGreater(cost,0)
 
@@ -75,7 +79,21 @@ class DP1EvalTests(unittest.TestCase):
         f=SafeFallbackSelector(system)
         obj=DataObject(1,"KV_CACHE",4*1024**3,.1,1.0,32768,64,100,batch_size=64)
         tele={n:Telemetry(.1,.1) for n in system.memories}
-        self.assertEqual(f.choose(obj,tele,1.0),"hbm")
+        tier,mode=f.decide(obj,tele,1.0,{"next_reuse_s":1.0},float("inf"))
+        self.assertEqual(tier,"hbm")
+        self.assertEqual(mode,"immediate_hbm")
+
+    def test_runtime_monitor_uses_observed_accesses(self):
+        m=RuntimeStateMonitor()
+        obj=DataObject(7,"KV_CACHE",1.0,.1,1.0,2048,16,100)
+        m.observe(obj,0,0)
+        m.observe(obj,2,1)
+        m.observe(obj,0,2)
+        m.observe(obj,1,4)
+        st=m.stats(obj)
+        self.assertGreater(st["rate"],0)
+        self.assertGreater(st["samples"],0)
+        self.assertTrue(st["reuse_interval_s"]>=1.0)
 
     def test_same_seed_generates_same_trace(self):
         s=next(x for x in scenarios() if x.name=="mixed_all_ai_data_b64")
