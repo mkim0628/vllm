@@ -1,0 +1,35 @@
+name: DP1 architecture evaluation
+
+on:
+  push:
+    branches:
+      - claude/dp1-ai-data-placement
+    paths:
+      - 'doc-architect/dp1_eval/**'
+      - 'doc-architect/configs/**'
+      - '.github/workflows/dp1-eval.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dp1-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Unit tests
+        working-directory: doc-architect/dp1_eval
+        run: python -m unittest -v test_eval.py
+      - name: Run evaluator
+        working-directory: doc-architect/dp1_eval
+        run: python run_eval.py
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dp1-eval-results
+          path: doc-architect/dp1_eval/out/
