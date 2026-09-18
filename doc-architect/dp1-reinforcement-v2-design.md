@@ -512,7 +512,51 @@ Negative control:
 
 ---
 
-# 10. V2 구현 시 검증 포인트
+
+# 10. Architecture Decision — C1 vs C2
+
+C1-R2와 C2-R2는 “성능 수치가 높은 쪽”만으로 선택하지 않는다.  
+Architecture selection은 **얻는 capability와 지불하는 complexity의 trade-off**로 판단한다.
+
+| | C1-R2 | C2-R2 |
+|---|---|---|
+| Runtime complexity | **낮음** | 높음 |
+| Monitoring / State overhead | **낮음** | 높음 |
+| Prediction dependency | **낮음** | 높음 |
+| Resource pressure 대응 | **직접적** | Data context를 포함해 선택적 |
+| Data-specific optimization | 제한적 | **강함** |
+| Near-memory / PIM 활용 | 제한적 | **강함** |
+| 새로운 AI Data별 정책 확장 | 공통 Resource 기준으로 단순 | **Data semantics를 반영 가능** |
+| 운영 단순성 / Robustness | **강점** | Guard가 필요 |
+| 최적화 potential | 제한적 | **강점** |
+
+### Decision
+
+DP1은 일반적인 Memory Tier balancer가 아니라 **AI Data Placement architecture**를 목표로 한다.
+
+따라서 최종 Architecture는 **C2-R2**로 선택한다.
+
+선택 근거:
+
+- KV / RAG / Agent / LoRA / MoE의 Data behavior가 서로 다름
+- Memory Tier별 Compute Capability가 서로 다름
+- Placement가 Access/Execution Mode와 연결됨
+- Data-near Compute를 쓸지 말지를 Resource 상태만으로는 충분히 판단하기 어려움
+- Runtime Data behavior를 활용하면 Stage / Restore / Near-compute 같은 선택을 더 세밀하게 할 수 있음
+
+반대로 C1-R2의 장점도 명확하다.
+
+- 구조가 단순함
+- Runtime state가 적음
+- Decision overhead가 낮음
+- Prediction error에 덜 민감함
+- Resource balancing 문제만 풀 때는 충분히 실용적임
+
+따라서 C1-R2는 **Simple / Robust baseline**, C2-R2는 **Feature-rich / Optimization-oriented final candidate**로 정리한다.
+
+---
+
+# 11. V2 구현 시 검증 포인트
 
 ## C1-R2
 
