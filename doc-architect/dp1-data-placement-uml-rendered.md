@@ -598,7 +598,7 @@ sequenceDiagram
         MTS-->>DPM: Best Tier
     else low confidence / operation infeasible / latency violation
         MTS->>MTS: Safe Fallback
-        Note over MTS: Active KV: HBM → feasible Custom HBM/CXL-PNM → restore path
+        Note over MTS: Active KV: HBM → DRAM wait/promotion or feasible Custom HBM/CXL-PNM → restore path
         Note over MTS: RAG: operation-feasible lowest-cost tier
         MTS-->>DPM: Safe Tier
     end
@@ -732,8 +732,28 @@ flowchart LR
 DP1은 Compute Placement 자체를 결정하지 않지만, **Data를 해당 Tier에 둘 때 필요한 operation을 그 Tier에서 실행할 수 있는지**를 Placement feasibility/cost로 사용한다.
 
 - **KV Cache / Custom HBM·CXL-PNM:** QK GEMM + Softmax + AV GEMM + Causal Mask를 모두 지원할 때 Attention을 memory-side에서 수행할 수 있다. FFN/model-weight path는 GPU에 남고 activation round-trip 및 external-link 비용을 포함한다.
-- **RAG / SSD-PIM:** 현재 Memory Registry의 SSD-PIM은 QK_GEMM/AV_GEMM만 지원한다. 따라서 local dot-product는 허용하지만 TOPK가 명시되지 않은 상태에서 full in-storage vector search를 가정하지 않는다.
-- **SSD-PIM / KV:** Softmax/Causal Mask가 없으므로 full Decode Attention offload 후보가 아니다.
+- **RAG / SSD-PIM:** SSD-PIM은 GEMV만 지원하며 SSD-resident Vector DB의 stored vector × query vector similarity 계산에만 사용한다. similarity score result는 controller/host로 전달하고 ranking/top-k는 후처리한다.
+- **SSD-PIM / KV:** GEMV-only이므로 Decode Attention/Softmax/Causal Mask/FFN 실행 후보가 아니다.
+
+---
+
+## 6.2 C2 Prediction-error Fallback — Deferred HBM Promotion
+
+```mermaid
+flowchart TD
+    E[Prediction / Classification Error] --> H{HBM healthy?}
+    H -->|Yes| A[Place on HBM]
+    H -->|No| R{HBM relief expected before next reuse?}
+    R -->|Yes| D[Stage on DRAM]
+    D --> W[Wait for HBM low watermark]
+    W --> P[Promote DRAM → HBM]
+    R -->|No| O{Remote Attention meets TPOT?}
+    O -->|Yes| C[Custom HBM / CXL-PNM]
+    O -->|No| S[DRAM / safe staging tier]
+    S --> X[Restore to HBM on access]
+```
+
+구체적인 monitoring/prediction 식과 threshold는 `dp1-monitoring-prediction-methodology.md`에 정의한다.
 
 ---
 
