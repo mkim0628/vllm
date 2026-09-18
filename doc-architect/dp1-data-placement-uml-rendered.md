@@ -416,6 +416,13 @@ classDiagram
 
     class MemoryTierSelector {
         +select(affinity: TierAffinity[], telemetry: ResourceTelemetry[]) ResourceId
+        +validate(decision: ResourceId, constraints: PlacementConstraint) bool
+    }
+
+    class SafeFallbackSelector {
+        +select(data: DataCharacteristics, telemetry: ResourceTelemetry[]) ResourceId
+        +fallbackKV() ResourceId
+        +fallbackRAG() ResourceId
     }
 
     class DataDescriptor {
@@ -433,7 +440,6 @@ classDiagram
         RAG_DATA
         AGENT_MEMORY
         TOOL_RESULT
-        LOG_DATA
         LORA_ADAPTER
         MOE_EXPERT
     }
@@ -533,6 +539,8 @@ classDiagram
 
     MemoryTierSelector --> TierAffinity : selects from
     TelemetryCollector --> MemoryTierSelector : feeds realtime state
+    MemoryTierSelector --> SafeFallbackSelector : fallback on low confidence / infeasible op / latency violation
+    SafeFallbackSelector --> PlacementDecision : creates safe decision
     MemoryTierSelector --> PlacementDecision : creates
     PlacementExecutor --> PlacementDecision : executes
 ```
@@ -584,7 +592,16 @@ sequenceDiagram
     MTS->>TC: request latest resource state
     TC-->>MTS: real-time Memory telemetry
     MTS->>MTS: combine affinity + resource availability
-    MTS-->>DPM: Best Tier
+    MTS->>MTS: validate confidence / required operation / predicted TTFT·TPOT
+
+    alt decision is confident and feasible
+        MTS-->>DPM: Best Tier
+    else low confidence / operation infeasible / latency violation
+        MTS->>MTS: Safe Fallback
+        Note over MTS: Active KV: HBM → feasible Custom HBM/CXL-PNM → restore path
+        Note over MTS: RAG: operation-feasible lowest-cost tier
+        MTS-->>DPM: Safe Tier
+    end
 
     DPM->>EX: execute PlacementDecision
     EX-->>SCH: PlacementResult
@@ -618,7 +635,13 @@ sequenceDiagram
 
         MTS->>TC: get current resource telemetry
         TC-->>MTS: pressure / BW / capacity / contention
-        MTS-->>DPM: Best Tier
+        MTS->>MTS: validate confidence / operation feasibility / latency budget
+        alt runtime behavior mismatches prediction or decision is infeasible
+            MTS->>MTS: Safe Fallback / promotion
+            MTS-->>DPM: Safe Tier + reevaluation reason
+        else decision remains valid
+            MTS-->>DPM: Best Tier
+        end
 
         alt Best Tier differs from current tier
             DPM->>EX: execute PlacementDecision
@@ -690,14 +713,27 @@ flowchart LR
         A2[Tier Affinity Evaluator]
         T2[Telemetry]
         S2[Memory Tier Selector]
-        B2[Best Tier]
+        F2[Safe Fallback]
+        B2[Best / Safe Tier]
 
         D2 --> C2C --> I2
         R2 --> I2
-        I2 --> A2 --> S2 --> B2
+        I2 --> A2 --> S2
         T2 --> S2
+        S2 -->|valid| B2
+        S2 -->|low confidence / infeasible op / TTFT·TPOT violation| F2 --> B2
     end
 ```
+
+---
+
+## 6.1 Operation-aware Placement Boundary
+
+DP1은 Compute Placement 자체를 결정하지 않지만, **Data를 해당 Tier에 둘 때 필요한 operation을 그 Tier에서 실행할 수 있는지**를 Placement feasibility/cost로 사용한다.
+
+- **KV Cache / Custom HBM·CXL-PNM:** QK GEMM + Softmax + AV GEMM + Causal Mask를 모두 지원할 때 Attention을 memory-side에서 수행할 수 있다. FFN/model-weight path는 GPU에 남고 activation round-trip 및 external-link 비용을 포함한다.
+- **RAG / SSD-PIM:** 현재 Memory Registry의 SSD-PIM은 QK_GEMM/AV_GEMM만 지원한다. 따라서 local dot-product는 허용하지만 TOPK가 명시되지 않은 상태에서 full in-storage vector search를 가정하지 않는다.
+- **SSD-PIM / KV:** Softmax/Causal Mask가 없으므로 full Decode Attention offload 후보가 아니다.
 
 ---
 
