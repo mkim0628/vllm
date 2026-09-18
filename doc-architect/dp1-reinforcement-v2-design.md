@@ -815,3 +815,291 @@ flowchart TD
 ```
 
 이 구조에서 Fallback State Manager는 **C2의 기존 selector를 대체하지 않는다.** 정상 FEASIBLE path는 기존 C2처럼 Affinity + Selector가 담당하고, fallback manager는 temporary failure / uncertainty / recovery state만 담당한다.
+
+
+---
+
+# 14. Performance-first Acceptance Rule
+
+DP1의 후보 구조는 단순히 Resource Utilization이나 Modifiability가 좋아지는 것만으로는 충분하지 않다. **후보 구조를 채택할 당위성은 사전에 정의한 target workload domain에서 As-Is보다 Performance가 좋아지는 데서 출발한다.**
+
+다만 모든 workload에서 항상 As-Is를 이겨야 한다는 의미는 아니다. HBM에 working set이 충분히 들어가고 data-near compute의 이득이 없는 workload에서는 As-Is HBM-first가 이미 강한 baseline이기 때문이다.
+
+따라서 V2부터 다음 원칙을 사용한다.
+
+1. **모든 scenario는 그대로 실행한다.**
+2. 후보별 **Target Domain은 결과를 보기 전에 architecture mechanism으로 정의한다.**
+3. Target Domain aggregate와 All-scenario aggregate를 둘 다 보고한다.
+4. 후보가 Target Domain에서도 Performance improvement를 만들지 못하면 해당 mechanism은 채택하지 않는다.
+5. 불리한 scenario를 사후에 제거해서 결과를 만들지 않는다.
+6. Neutral workload에서는 가능한 한 As-Is path로 수렴하도록 **Performance Guard / Baseline Bypass**를 둔다.
+
+Performance는 하나의 합성 score로 숨기지 않고 다음 세 항목을 각각 본다.
+
+- Max Sustainable SLO Goodput
+- TTFT p99
+- TPOT p99
+
+## 14.1 Scenario-level 판정
+
+각 scenario에서 As-Is 대비 다음 형태로 표시한다.
+
+### PERFORMANCE WIN
+
+- Goodput이 의미 있게 증가하거나,
+- TTFT/TPOT가 의미 있게 감소하고,
+- 다른 critical performance metric의 regression이 허용 범위 안에 있음.
+
+### PERFORMANCE TRADE-OFF
+
+예:
+
+- Goodput -5%, TTFT -60%
+- Goodput +8%, TPOT +12%
+
+처럼 throughput/latency 방향이 서로 다름.
+
+### PERFORMANCE NEUTRAL
+
+모든 주요 performance metric이 As-Is와 실질적으로 유사.
+
+### PERFORMANCE LOSS
+
+Goodput과 latency가 모두 As-Is보다 나쁘거나, architecture가 의도한 target mechanism이 실질적인 performance benefit을 만들지 못함.
+
+### SLO-INFEASIBLE STRESS
+
+모든 후보의 SLO Goodput이 0인 영역. 이 경우 policy winner를 정하지 않고 hardware/SLO boundary로 별도 분류한다.
+
+---
+
+# 15. DP1 Target Workload Domain — 결과와 무관하게 사전 정의
+
+아래 분류는 “현재 누가 이겼는가”가 아니라 **어떤 architecture mechanism을 검증하기 위한 scenario인가**를 기준으로 한다.
+
+## 15.1 Neutral / HBM-fit Domain
+
+목적: 후보가 불필요하게 As-Is를 망가뜨리지 않는지 검증.
+
+- `kv_b16_c32k`
+- `rag_1tib_b16`
+- `tool_result_bursty`
+
+기대 동작:
+
+```text
+No meaningful tiering / data-near benefit
+        ↓
+C1/C2 Performance Guard
+        ↓
+HBM-first 또는 current-tier hold
+        ↓
+As-Is에 수렴
+```
+
+## 15.2 C1 Target — Resource-pressure Domain
+
+목적: Data semantics 없이 resource prediction만으로 pressure를 피하는 것이 performance에 실제 도움이 되는지 검증.
+
+- `hbm_pressure_ramp_b64`
+- `hbm_bw_shock_b256`
+- `host_path_pressure_b64`
+- `data_mix_shift_b64`
+- `mixed_all_ai_data_b64`
+
+주 mechanism:
+
+- near-future capacity/BW prediction
+- pressure relief
+- stable migration
+- emergency pressure escape
+
+## 15.3 C2 Target — Data-near Compute Domain
+
+목적: Data/Operation 특성을 알고 memory-side compute와 매칭했을 때 As-Is보다 performance가 좋아지는지 검증.
+
+- `rag_8tib_b64_ssd_pim`
+- `rag_8tib_b256_ssd_pim`
+- `kv_b16_c32k_burst_chbm`
+- `kv_b1_c32k_cold_cxl`
+
+주 mechanism:
+
+```text
+RAG Vector DB
+  → SSD-PIM GEMV similarity
+
+KV Cache
+  → Custom HBM / CXL-PNM Attention
+  → GPU는 FFN/model-weight path 유지
+```
+
+중요: “data-near compute가 있다”는 이유만으로 이득이라고 가정하지 않는다. external activation traffic, remote compute throughput, queueing까지 포함한 end-to-end Performance가 As-Is보다 좋아야 한다.
+
+## 15.4 C2 Target — Data-lifecycle / Temporal Domain
+
+목적: hot/cold/reuse/lifetime prediction이 HBM occupancy와 performance를 동시에 개선할 수 있는지 검증.
+
+- `kv_mispredict_dram_wait`
+- `agent_memory_long_lived`
+
+주 mechanism:
+
+- runtime access history
+- next-reuse prediction
+- DRAM stage / wait
+- deferred HBM promotion
+
+## 15.5 Robustness / Failure-boundary Domain
+
+후보의 정상 performance claim과 분리한다.
+
+- `classifier_error`
+- `six_tier_capacity_stress`
+- B64/B256 × 128K/512K 중 모든 후보 SLO Goodput=0인 cell
+
+---
+
+# 16. Performance Guard / Baseline Bypass
+
+V2에서 C1-R2와 C2-R2 모두 **As-Is HBM-first path를 비교 기준으로 내부에 유지**한다.
+
+후보 policy가 non-HBM placement를 선택하기 전에 다음을 비교한다.
+
+```text
+Predicted Candidate Performance
+vs
+Predicted As-Is/HBM-first Performance
+```
+
+## 16.1 C1-R2 Performance Guard
+
+C1은 Data semantics를 사용하지 않으므로 resource model만 사용한다.
+
+비교 대상:
+
+- predicted service interval
+- predicted HBM saturation/queue penalty
+- migration cost
+- target-tier resource headroom
+
+```text
+Candidate Benefit <= As-Is + Margin
+        ↓
+Keep HBM / Current Tier
+
+Candidate Benefit > As-Is + Margin
+        ↓
+Resource-aware placement
+```
+
+예외:
+
+As-Is path가 near-future pressure 때문에 SLO-infeasible할 것으로 예측되면 emergency pressure escape가 허용된다.
+
+## 16.2 C2-R2 Performance Guard
+
+C2는 Data/Operation semantics를 알고 있으므로 operation-aware 비교가 가능하다.
+
+### KV
+
+```text
+HBM-first:
+  HBM Attention + GPU FFN
+
+Candidate:
+  Custom HBM/CXL-PNM Attention
+  + activation round-trip
+  + GPU FFN
+  + migration/staging cost
+```
+
+Candidate path가 end-to-end Goodput/TTFT/TPOT 관점에서 HBM-first보다 유리할 때만 offload한다.
+
+### RAG
+
+```text
+As-Is:
+  vector transfer
+  + GPU/CPU similarity GEMV
+
+SSD-PIM:
+  local GEMV
+  + similarity-score transfer
+```
+
+SSD-PIM path가 retrieval latency 또는 sustainable goodput을 실제로 개선할 때만 선택한다.
+
+### Data lifecycle
+
+DRAM stage는 다음 조건을 만족해야 한다.
+
+```text
+Expected HBM-wait path cost
+<
+Immediate As-Is path cost
+OR
+As-Is path cannot remain SLO-feasible because of pressure
+```
+
+이 Performance Guard의 목적은 C2가 “data-aware니까 무조건 다른 tier를 써야 한다”는 식으로 동작하지 않게 하는 것이다.
+
+---
+
+# 17. 현재 결과를 Performance 관점에서 읽는 방법
+
+현재 baseline C1/C2 결과는 V2 설계 전의 문제점을 보여주는 참고점이다.
+
+## 17.1 Baseline C1
+
+현재 feasible workload에서 C1은 대부분 As-Is와 throughput이 비슷하거나 일부 pressure scenario에서 낮다. 즉 **C1 baseline 자체는 아직 명확한 Performance superiority를 입증하지 못했다.**
+
+반면 C1-R에서는 heavy-domain aggregate Goodput이 As-Is 대비 약 **1.064×**까지 올라갔다. 따라서 Resource-centric 접근의 performance justification은 C1-R 이후에서 더 명확해졌다.
+
+## 17.2 Baseline C2
+
+C2 baseline은 heavy-domain aggregate Goodput이 As-Is 대비 약 **0.860×**로 낮다.
+
+그러나 `rag_8tib_b64_ssd_pim`에서는:
+
+- Goodput은 약 0.96× 수준으로 소폭 낮았지만
+- TTFT가 As-Is 대비 약 **0.35×**까지 감소
+
+하여 **throughput ↔ retrieval-latency trade-off**가 나타났다.
+
+C2-R에서는 같은 RAG scenario의 Max Sustainable SLO Goodput이 geometric-mean 기준 약 **1.19× As-Is**까지 올라가면서, data-near compute가 throughput/latency 양쪽에서 이득을 만들 수 있는 target domain이 확인되었다.
+
+반대로 `kv_b1_c32k_cold_cxl`처럼 CXL-PNM을 사용할 수 있어도 activation/link/remote-compute 비용 때문에 As-Is보다 느린 경우가 있다. 이 scenario는 V2 Performance Guard가 해당 offload를 **선택하지 않아야 하는 negative-control** 역할을 한다.
+
+---
+
+# 18. 최종 Report 형식
+
+다음 V2 결과부터는 단일 aggregate 표만 보여주지 않는다.
+
+## 18.1 All-scenario Matrix
+
+| Scenario | Domain | Goodput vs As-Is | TTFT vs As-Is | TPOT vs As-Is | Verdict |
+|---|---|---:|---:|---:|---|
+| ... | C1 Resource-pressure | ... | ... | ... | WIN / TRADE-OFF / LOSS |
+| ... | C2 Data-near | ... | ... | ... | ... |
+
+## 18.2 Domain Aggregate
+
+별도로 다음을 계산한다.
+
+- C1 Resource-pressure Domain aggregate
+- C2 Data-near Compute Domain aggregate
+- C2 Data-lifecycle Domain aggregate
+- Neutral/HBM-fit regression aggregate
+- All-scenario aggregate
+
+따라서 최종 선택 시 다음 질문에 답할 수 있어야 한다.
+
+```text
+1. 이 후보는 어디서 As-Is보다 빨라지는가?
+2. 그 workload는 우리가 실제 target으로 하는 workload인가?
+3. 어디서 손해를 보는가?
+4. 손해 workload에서는 Baseline Bypass로 As-Is에 수렴할 수 있는가?
+5. Performance 이득을 위해 Resource/Modifiability에서 무엇을 지불하는가?
+```
