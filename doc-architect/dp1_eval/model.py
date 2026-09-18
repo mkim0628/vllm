@@ -81,9 +81,9 @@ class SystemSpec:
         compute=ffn_flops/(self.gpu_compute_flops*self.gpu_compute_eff)
         return max(weight,compute)
 
-    def hbm_attention_s(self,context:int,batch:int):
+    def hbm_attention_s(self,context:int,batch:int,bw_mult:float=1.0):
         kv=self.model.kv_bytes_per_token*context*batch
-        bw=kv/(self.gpu_hbm_bw*self.gpu_bw_eff)
+        bw=kv/(self.gpu_hbm_bw*self.gpu_bw_eff*max(.05,bw_mult))
         flops=self.model.attention_flops(context,1)*batch
         comp=flops/(self.gpu_compute_flops*self.gpu_compute_eff)
         return max(bw,comp)
@@ -103,7 +103,7 @@ class SystemSpec:
     def decode_step_s(self,context:int,batch:int,tier:str,link_bw_mult:float=1.0):
         non_attn=self.gpu_non_attention_decode_s(batch)
         if tier=="hbm":
-            attn=self.hbm_attention_s(context,batch)
+            attn=self.hbm_attention_s(context,batch,link_bw_mult)
         else:
             attn=self.offloaded_attention_s(self.memories[tier],context,batch,link_bw_mult)
         return non_attn+attn
