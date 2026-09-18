@@ -58,6 +58,9 @@ def scenarios():
                  target_tiers=("hbm","custom_hbm","cxl_pnm")))
     add(Scenario("kv_b16_c32k_burst_chbm","Burst at a batch/context where HBM headroom is tight and Custom-HBM Attention can still meet TPOT.",{"KV_CACHE":1},32768,64,16,30,1.45,
                  phase="arrival_burst",hbm_capacity_mult=.12,latency_sensitivity_override=.75,target_tiers=("hbm","custom_hbm","cxl_pnm")))
+    add(Scenario("kv_mispredict_dram_wait","C2 prediction/classification error while HBM is pressured, then pressure relaxes; tests DRAM stage-and-wait promotion.",{"KV_CACHE":1},32768,64,16,24,.35,
+                 phase="hbm_relief",misclass_rate=.50,hbm_capacity_mult=.12,
+                 latency_sensitivity_override=.55,target_tiers=("dram","hbm","custom_hbm","cxl_pnm")))
     add(Scenario("kv_b64_c128k_cold","Cold/latency-tolerant KV; CXL-PNM attention offload can be useful.",{"KV_CACHE":1},131072,64,64,24,.85,
                  phase="cold_kv",target_tiers=("hbm","cxl_pnm","custom_hbm")))
     add(Scenario("kv_b256_c128k_burst","Large-batch burst; tests Custom-HBM attention offload and shared-link pressure.",{"KV_CACHE":1},131072,64,256,28,1.35,
