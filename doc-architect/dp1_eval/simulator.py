@@ -8,6 +8,7 @@ from model import SystemSpec, DataObject
 from policies import (
     Telemetry, AsIsHBMFirst, C1MemoryCentric, C2DataCentric,
     C1MemoryCentricReinforced, C2DataCentricReinforced,
+    C1MemoryCentricR2, C2DataCentricR2,
 )
 from scenarios import Scenario, generate_trace
 
@@ -142,6 +143,10 @@ def _policy(system,candidate):
         return C1MemoryCentricReinforced(system)
     if candidate=="C2-R-feasibility-stable":
         return C2DataCentricReinforced(system)
+    if candidate=="C1-R2-emergency-resource":
+        return C1MemoryCentricR2(system)
+    if candidate=="C2-R2-path-aware":
+        return C2DataCentricR2(system)
     raise ValueError(candidate)
 
 def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:float=1.0):
@@ -165,6 +170,8 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         "C1-R-stable-resource":14.0,
         "C2-data-centric":34.0,
         "C2-R-feasibility-stable":39.0,
+        "C1-R2-emergency-resource":15.0,
+        "C2-R2-path-aware":40.0,
     }[candidate]
 
     for t in range(sc.horizon_s):
@@ -348,13 +355,19 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
       "class_tier":{f"{k[0]}@{k[1]}":v for k,v in class_tier.items()},
     }
     if candidate.startswith("C2"):
-        out["fallback_count"]=policy.fallback_count
-        out["fallback_reason"]=dict(policy.fallback_reason)
-        out["deferred_stage_count"]=policy.deferred_stage_count
-        out["deferred_promotion_count"]=policy.deferred_promotion_count
+        out["fallback_count"]=getattr(policy,"fallback_count",0)
+        out["fallback_reason"]=dict(getattr(policy,"fallback_reason",{}))
+        out["deferred_stage_count"]=getattr(policy,"deferred_stage_count",0)
+        out["deferred_promotion_count"]=getattr(policy,"deferred_promotion_count",0)
         out["suppressed_migrations"]=getattr(policy,"suppressed_migrations",0)
         out["feasibility_filtered"]=getattr(policy,"feasibility_filtered",0)
         out["infeasible_stable_hold"]=getattr(policy,"infeasible_stable_hold",0)
+        out["degraded_count"]=getattr(policy,"degraded_count",0)
+        out["no_physical_capacity_count"]=getattr(policy,"no_physical_capacity_count",0)
+        out["performance_bypass_count"]=getattr(policy,"performance_bypass_count",0)
+        out["path_mode_count"]=dict(getattr(policy,"path_mode_count",{}))
+        out["emergency_count"]=0
+        out["emergency_migrations"]=0
     elif candidate.startswith("C1"):
         out["fallback_count"]=0
         out["fallback_reason"]={}
@@ -363,6 +376,12 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         out["suppressed_migrations"]=getattr(policy,"suppressed_migrations",0)
         out["feasibility_filtered"]=0
         out["infeasible_stable_hold"]=0
+        out["degraded_count"]=0
+        out["no_physical_capacity_count"]=0
+        out["performance_bypass_count"]=0
+        out["path_mode_count"]={}
+        out["emergency_count"]=getattr(policy,"emergency_count",0)
+        out["emergency_migrations"]=getattr(policy,"emergency_migrations",0)
     else:
         out["fallback_count"]=0
         out["fallback_reason"]={}
@@ -371,4 +390,10 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         out["suppressed_migrations"]=0
         out["feasibility_filtered"]=0
         out["infeasible_stable_hold"]=0
+        out["degraded_count"]=0
+        out["no_physical_capacity_count"]=0
+        out["performance_bypass_count"]=0
+        out["path_mode_count"]={}
+        out["emergency_count"]=0
+        out["emergency_migrations"]=0
     return out
