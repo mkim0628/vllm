@@ -305,3 +305,28 @@ class C2DataCentric:
             self.fallback_reason[reason]+=1
             return self.fallback.choose(obj,telemetry,cap_mult)
         return best
+
+
+class AsIsHBMFirst:
+    """Baseline: HBM first, then fixed capacity spill. No data characterization or PNM compute awareness."""
+    name="As-Is-HBM-first"
+
+    def __init__(self,system:SystemSpec):
+        self.system=system
+        self.decision_ops=0
+        self.spill_order=("hbm","hbf","dram","cxl_pnm","custom_hbm","ssd_pim")
+
+    def observe_telemetry(self,telemetry):
+        pass
+
+    def observe_runtime(self,obj,rate):
+        pass
+
+    def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
+        for name in self.spill_order:
+            m=self.system.memories[name]
+            headroom=m.capacity_bytes*cap_mult*(1-min(1,telemetry[name].capacity_util))
+            self.decision_ops+=1
+            if headroom>=obj.size_bytes:
+                return name
+        return "ssd_pim"
