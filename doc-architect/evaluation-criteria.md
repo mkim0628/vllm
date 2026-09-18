@@ -194,7 +194,30 @@ First-response latency와 TPOT은 원인이 다르므로 **절대 하나의 숫�
 
 Latency는 하나의 QA이지만 결과는 항상 두 sub-metric을 **각각 별점으로 표기**한다. 별점 산정은 offered-load sweep에서 **p99 TTFT ≤ 2,000 ms AND p99 TPOT ≤ 50 ms를 동시에 만족하는 load point 중 SLO Goodput이 최대인 operating point**를 사용한다.
 
-모든 후보가 first-response/TPOT SLO를 만족하는 요청을 하나도 만들지 못하는 cell은 `SLO-infeasible stress`로 분리한다. 이런 cell은 large-batch/long-context failure boundary를 보여주는 데는 중요하지만, 하드웨어 자체의 불가능 영역으로 인해 모든 후보의 Latency 별점을 일괄적으로 떨어뜨리지 않도록 **최종 Latency 별점 집계에서는 제외하고 raw TTFT/TPOT을 별도 보고**한다.
+모든 후보가 first-response/TPOT SLO를 만족하는 operating point를 만들지 못하는 cell은 `SLO-degraded`로 표시한다. **SLO는 성공/실패의 목표선이지, 해당 workload를 평가표에서 삭제하는 필터가 아니다.**
+
+따라서 결과는 두 층으로 보고한다.
+
+1. **SLO-qualified score** — TTFT p99 ≤ 2,000 ms AND TPOT p99 ≤ 50 ms를 만족하는 load에서 Max Sustainable SLO Goodput과 절대 Latency 별점을 계산한다.
+2. **SLO-degraded relative score** — SLO를 만족하지 못하더라도 동일 trace / 동일 offered load에서 As-Is 대비 얼마나 좋아지거나 나빠졌는지 계산한다. DP1의 case-group 비교에서는 사전에 고정한 nominal load `1.0`을 사용한다.
+
+SLO-degraded relative score의 ratio는 다음과 같다.
+
+```text
+Throughput ratio = Candidate raw token throughput / As-Is raw token throughput
+TTFT ratio       = Candidate TTFT p99 / As-Is TTFT p99
+TPOT ratio       = Candidate TPOT p99 / As-Is TPOT p99
+```
+
+별점은 기존 10% MDE band를 대칭적으로 사용한다.
+
+| SLO-degraded 상대 별점 | Throughput | TTFT / TPOT |
+|---|---:|---:|
+| ★★★ | ratio ≥ 1.10 and CI lower ≥ 1.0 | ratio ≤ 0.90 and CI upper ≤ 1.0 |
+| ★★☆ | 0.90~1.10 또는 CI가 1.0 포함 | 0.90~1.10 또는 CI가 1.0 포함 |
+| ★☆☆ | ratio < 0.90 and CI upper < 1.0 | ratio > 1.10 and CI lower > 1.0 |
+
+이 상대 별점에는 반드시 `† SLO-degraded relative` 표시를 붙인다. **★★★라도 SLO를 만족했다는 뜻은 아니며, As-Is보다 해당 stress 상황을 더 잘 버틴다는 뜻**이다. 절대 TTFT/TPOT 값도 항상 함께 보고한다.
 
 ```
 Performance Latency
@@ -298,7 +321,7 @@ DP1~DP4에서 동일한 변경 archetype 4종을 고정하고 두 단위로 잰�
 5. **의미 있는 As-Is/정책 없음 대조군을 정의할 수 있는 DP에서는 함께 측정한다.** 다만 C1/C2 등 후보의 최종 별점은 대조군 상대값이 아니라 §3의 공통 절대/정규화 기준으로 매긴다.
 6. **TTFT·TPOT p99는 각 평가 시나리오의 전체 요청을 기준으로 계산한다.** 급변/정상 구간을 사후 분리해 유리한 구간만 인용하지 않는다. 또한 Max Sustainable operating point는 **TTFT p99와 TPOT p99가 둘 다 SLO를 만족하는 load point만** 후보로 인정한다.
 7. **정책 결정 비용과 DP가 유발하는 실행 비용을 critical path에 노출되는 만큼 Latency/Throughput에 포함한다.** DP1의 tier 변경은 DP4 migration mechanism 자체를 구현하지 않더라도 이동 비용 proxy를 명시해야 하며, DP4에서는 실제 migration 비용을 직접 측정한다.
-8. **Fault injection / infeasible stress / coverage-only scenario는 정상 운용 QA 별점과 분리한다.** Trade-off와 failure mode 분석에는 포함하되, 별점에 넣을 경우 공통 문서에 사전 명시한다.
+8. **Fault injection / coverage-only scenario는 정상 운용 QA 별점과 분리한다.** SLO-degraded workload는 삭제하지 않고 §3.4의 relative score로 함께 보고한다. 즉 SLO-qualified score와 SLO-degraded relative score를 혼합하지 않고 같은 QA 표에서 행을 분리한다.
 
 ---
 
