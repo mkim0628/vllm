@@ -16,9 +16,10 @@
 
 | 클러스터 | 도메인 구성 | 도메인 HBM | 도메인 대역폭 | 도메인 TDP | 도메인 수 |
 |---|---|---:|---:|---:|---:|
-| `b200_x16_2node` **(기준)** | 8× B200 | 1.50 TiB | 64 TB/s | 8.0 kW | 2 |
-| `gb200_nvl72` | 72× Blackwell | 13.50 TiB | 576 TB/s | 86.4 kW | 1 |
-| `rubin_x16_2node` | 8× Rubin | 2.79 TiB | 224 TB/s | 18.4 kW | 2 |
+| `b200_8gpu` **(기준)** | 8× B200 | 1.50 TiB | 64 TB/s | 8.0 kW | 1 |
+| `vera_rubin_8gpu` | 8× Vera Rubin | 3.072 TB (≈2.79 TiB) | 224 TB/s | 18.4 kW | 1 |
+
+> 클러스터 이름과 값은 `configs/clusters.json`을 source of truth로 사용한다. 문서에만 존재하고 Config에 없는 가상 cluster 이름을 QA 기준으로 사용하지 않는다.
 
 ### 1.2 메모리 계층과 토폴로지
 
@@ -34,25 +35,27 @@
                     │ PCIe5 x16 = 63.0 GB/s   ← 도메인 전체가 공유
         ┌───────────┴──────────────────┐
         │  Custom HBM 노드 × 1          │  ← GPU 직접 읽기 불가
-        │  768 GB, 내부 56 TB/s         │     재활성 경로는 Mode C 뿐
-        │  1,665 TFLOPS(FP16), 767 W   │
+        │  384 GiB, 내부 16 TB/s        │
+        │  450 TFLOPS(FP16), 333 W     │
         └──────────────────────────────┘
 ```
 
 | 메모리 | 용량 | 외부 BW | 내부 BW | 연산 | TDP | provenance |
 |---|---:|---:|---:|---:|---:|---|
-| `hbm` | 1.50 TiB | 64 TB/s | 64 TB/s | — | GPU 포함 | SPEC |
-| `custom_hbm` | 768 GB | **63.0 GB/s** | **56 TB/s** | 1,665 TF | 767 W | 사용자 제공 (Rubin 환산) |
-| `cxl_pnm` | 512 GiB | 63.0 GB/s | 1.1 TB/s | **3.28 TF** | 150 W | 사용자 제공 (FP32 1.64 TF ×2) |
-| `dram` | 1.00 TiB | 63.0 GB/s | 400 GB/s | — | 50 W | ASSUMED |
-| `hbf` | 2.00 TiB | 1.0 TB/s | 1.0 TB/s | — | 100 W | ASSUMED |
-| `ssd_pim` | 16.00 TiB | 16.0 GB/s | 200 GB/s | 2.0 TF | 75 W | ASSUMED |
+| `hbm` | 1.50 TiB/domain | 64 TB/s/domain | 64 TB/s/domain | GPU | GPU 포함 | `clusters.json`의 8×B200 집계 |
+| `custom_hbm` | 384 GiB | **63.0 GB/s** | **16 TB/s** | 450 TF FP16 | 333 W | `memories_default.json` B200-paired default |
+| `cxl_pnm` | 512 GiB | 63.0 GB/s | **400 GB/s** | 3.28 TF FP16 | 150 W | `memories_default.json` |
+| `dram` | 1.00 TiB | 64.0 GB/s | 400 GB/s | — | 50 W | `memories_default.json` |
+| `hbf` | 2.00 TiB | 1.0 TB/s | 1.0 TB/s | — | 100 W | `memories_default.json` |
+| `ssd_pim` | 16.00 TiB | 16.0 GB/s | 200 GB/s | 2.0 TF FP16 | 75 W | `memories_default.json` |
+
+> DP1~DP4 실험의 Memory source of truth는 `configs/memories_default.json`이다. Rubin 환경을 평가할 때만 cluster pairing rule에 따라 별도 sweep으로 값을 바꾼다.
 
 > **링크 스펙 유도** — PCIe 5.0 x16 = 32 GT/s × 16 × (128/130) ÷ 8 = **63.0 GB/s** 단방향. PCIe 6.0 x16 = 64 GT/s × 16 × (242/256) ÷ 8 = **121.0 GB/s** (`configs/memories_pcie6.json`).
 >
 > **Custom HBM은 GPU가 직접 읽지 못한다.** CPU를 2홉 경유하므로 Mode A(GPU 직접 읽기)가 성립하지 않고, 재활성 경로는 Mode C(Attention 오프로드)뿐이며 오프로드가 불가하면 Mode B(전량 복원)로 떨어진다.
 >
-> **cHBM은 도메인당 1대다.** HBM은 GPU 수만큼 합산되지만(64 TB/s) cHBM은 1대(56 TB/s)다. 따라서 **오프로드의 이득은 대역폭이 아니라 (a) 용량 확장과 (b) GPU를 Attention에서 놓아주는 자원 병렬화에서 나온다.**
+> **cHBM은 도메인당 1대다.** HBM은 GPU 수만큼 합산되지만(64 TB/s) 기본 B200-paired cHBM은 1대(16 TB/s)다. 따라서 **오프로드의 이득은 대역폭이 아니라 (a) 용량 확장과 (b) GPU를 Attention에서 놓아주는 자원 병렬화에서 나온다.**
 
 ### 1.3 모델
 
