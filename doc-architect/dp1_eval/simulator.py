@@ -63,6 +63,22 @@ def operation_external_bytes(system:SystemSpec,obj:DataObject,tier:str,candidate
         return 0.0 if tier=="hbm" else min(obj.size_bytes,obj.access_bytes*obj.batch_size)
     return min(obj.size_bytes,obj.access_bytes*obj.batch_size)
 
+def service_interval_s(system:SystemSpec,obj:DataObject,tier:str,candidate:str,link_bw_mult:float=1.0):
+    """Steady-state batch service interval for throughput.
+
+    Latency remains sequential Attention+FFN. For memory-side Attention, however,
+    different batches can pipeline remote Attention with GPU FFN, so throughput
+    uses max(remote-attention, GPU-non-attention) rather than their sum.
+    """
+    if obj.data_class=="KV_CACHE":
+        m=system.memories[tier]
+        if tier=="hbm" or candidate=="As-Is-HBM-first" or not m.attention_capable:
+            return system.decode_step_s(obj.context_tokens,obj.batch_size,"hbm",link_bw_mult)
+        non_attn=system.gpu_non_attention_decode_s(obj.batch_size)
+        remote_attn=system.offloaded_attention_s(m,obj.context_tokens,obj.batch_size,link_bw_mult)
+        return max(non_attn,remote_attn)
+    return tpot_s(system,obj,tier,candidate,link_bw_mult)
+
 def tpot_s(system:SystemSpec,obj:DataObject,tier:str,candidate:str,link_bw_mult:float=1.0):
     # RAG/Agent/Tool data influence first-response; decode itself remains on GPU.
     if obj.data_class not in ("KV_CACHE","LORA_ADAPTER","MOE_EXPERT"):
@@ -161,7 +177,18 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
             placement_decisions[new]+=1
             class_tier[(o.data_class,new)]+=1
             if old!=new:
+                if old is not None:
+                    occupancy[old]-=o.size_bytes
                 placements[o.oid]=new
+                occupancy[new]+=o.size_bytes
+
+                # Capacity state must change immediately within the same placement batch.
+                # Otherwise every object sees stale empty capacity and HBM/HBF can overcommit.
+                for tier in {x for x in (old,new) if x is not None}:
+                    capm,_=effective_limits(sc,t,tier)
+                    telemetry[tier].capacity_util=occupancy[tier]/max(
+                        1.0,system.memories[tier].capacity_bytes*capm)
+
                 if old is not None:
                     migration_count+=1; migration_bytes+=o.size_bytes
                     src=system.memories[old]; dst=system.memories[new]
@@ -198,7 +225,9 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
             total_offered_tokens+=offered_tokens
             denom=0.0; weight=0.0
             for o,n,tier,fr,tp,tok in events:
-                token_rate=o.batch_size/max(1e-9,tp)
+                _,bwm=effective_limits(sc,t,tier)
+                interval=service_interval_s(system,o,tier,candidate,bwm)
+                token_rate=o.batch_size/max(1e-9,interval)
                 w=n*tok
                 denom+=w/max(1e-9,token_rate); weight+=w
             effective_capacity_tps=weight/max(1e-9,denom)
