@@ -1,9 +1,15 @@
 from __future__ import annotations
-import math, random, statistics
+
+import math
+import random
 from collections import Counter, defaultdict
-from model import SystemSpec, DataObject, clamp
-from policies import Telemetry, C1MemoryCentric, C2DataCentric
+
+from model import SystemSpec, DataObject
+from policies import Telemetry, AsIsHBMFirst, C1MemoryCentric, C2DataCentric
 from scenarios import Scenario, generate_trace
+
+FIRST_RESPONSE_SLO_S=2.0
+TPOT_SLO_S=0.050
 
 def weighted_quantile(samples,q):
     data=sorted((v,w) for v,w in samples if w>0)
@@ -19,195 +25,238 @@ def poisson(rng,lam):
     if lam<30:
         L=math.exp(-lam); k=0; p=1.0
         while p>L:
-            k+=1;p*=rng.random()
+            k+=1; p*=rng.random()
         return k-1
     return max(0,int(round(rng.gauss(lam,math.sqrt(lam)))))
 
-def effective_limits(sc,t,name,system):
+def effective_limits(sc,t,name):
     cap_mult=sc.capacity_mult
     bw_mult=1.0
-    host_mult=1.0
     if sc.phase=="capacity_ramp" and name=="hbm":
-        frac=t/max(1,sc.horizon_s-1); cap_mult=max(.42,1-.58*frac)
+        frac=t/max(1,sc.horizon_s-1)
+        cap_mult=max(.42,1-.58*frac)
     if sc.phase=="hbm_bw_shock" and t>=sc.horizon_s//2 and name=="hbm":
         bw_mult=sc.hbm_bw_mult
     if sc.phase=="host_bw_shock" and t>=sc.horizon_s//2 and name in ("custom_hbm","cxl_pnm","dram","ssd_pim"):
-        host_mult=sc.host_bw_mult
-    if sc.phase=="resource_oscillation":
-        slot=(t//30)%2
-        if slot==0 and name=="hbm": bw_mult=.38
-        if slot==1 and name in ("custom_hbm","cxl_pnm","dram","ssd_pim"): host_mult=.40
-    return cap_mult,bw_mult*host_mult
+        bw_mult=sc.host_bw_mult
+    return cap_mult,bw_mult
 
-def data_access_bytes(obj:DataObject):
-    if obj.data_class=="KV_CACHE": return obj.access_bytes*obj.output_tokens
-    if obj.data_class in ("LORA_ADAPTER","MOE_EXPERT"): return obj.access_bytes*obj.output_tokens*.45
-    return obj.access_bytes
+def _rag_score_bytes(system:SystemSpec,obj:DataObject):
+    vec_bytes=obj.retrieval_dim*system.model.dtype_bytes
+    nvec=max(1.0,obj.size_bytes/vec_bytes)
+    return 4.0*nvec*obj.batch_size
 
-def object_tpot(system:SystemSpec,obj:DataObject,tier:str,bw_util:float,bw_mult:float):
+def operation_external_bytes(system:SystemSpec,obj:DataObject,tier:str,candidate:str):
     m=system.memories[tier]
-    base=system.base_tpot_s(obj.context_tokens,16)
-    overload=min(20.0,max(1.0,(bw_util/.85)**1.45))
+    if obj.data_class=="RAG_DATA":
+        if m.retrieval_dot_capable:
+            # Current registry has no TOPK primitive: return all scores, not whole vectors.
+            return _rag_score_bytes(system,obj)
+        return obj.size_bytes
     if obj.data_class=="KV_CACHE":
-        kvread=min(obj.size_bytes,system.model.kv_bytes_per_token*obj.context_tokens)
-        weight=system.model.active_params*system.model.dtype_bytes/(system.gpu_hbm_bw*system.gpu_bw_eff)
         if tier=="hbm":
-            attn=kvread*16/(system.gpu_hbm_bw*system.gpu_bw_eff)
-            return (weight+attn)*overload
-        if m.attention_capable:
-            attn=kvread/(m.int_bw*max(.3,m.attn_bw_eff))
-            activation=2*system.model.hidden*system.model.dtype_bytes/max(1,m.ext_bw*bw_mult)
-            return (weight+attn+activation)*overload
-        restore=obj.size_bytes/max(1,m.ext_bw*bw_mult)
-        return (base+restore/max(1,obj.output_tokens))*overload
+            return 0.0
+        if candidate!="As-Is-HBM-first" and m.attention_capable:
+            return system.model.activation_roundtrip_bytes_per_token*obj.batch_size
+        return obj.size_bytes  # restore path
     if obj.data_class in ("LORA_ADAPTER","MOE_EXPERT"):
-        extra=obj.access_bytes/max(1,m.ext_bw*bw_mult)/max(1,obj.output_tokens)
-        return (base+extra)*overload
-    return base
+        return 0.0 if tier=="hbm" else min(obj.size_bytes,obj.access_bytes*obj.batch_size)
+    return min(obj.size_bytes,obj.access_bytes*obj.batch_size)
 
-def object_ttft(system:SystemSpec,obj:DataObject,tier:str,bw_util:float,bw_mult:float,migration_debt:float,decision_us:float):
+def tpot_s(system:SystemSpec,obj:DataObject,tier:str,candidate:str,link_bw_mult:float=1.0):
+    # RAG/Agent/Tool data influence first-response; decode itself remains on GPU.
+    if obj.data_class not in ("KV_CACHE","LORA_ADAPTER","MOE_EXPERT"):
+        return system.decode_step_s(obj.context_tokens,obj.batch_size,"hbm")
+
+    if obj.data_class=="KV_CACHE":
+        m=system.memories[tier]
+        if tier=="hbm":
+            return system.decode_step_s(obj.context_tokens,obj.batch_size,"hbm")
+        if candidate!="As-Is-HBM-first" and m.attention_capable:
+            # Attention on PNM/cHBM, FFN/model-weight path remains on GPU.
+            return system.decode_step_s(obj.context_tokens,obj.batch_size,tier,link_bw_mult)
+        # Storage-only tier: restore before decode, then decode from HBM.
+        return system.decode_step_s(obj.context_tokens,obj.batch_size,"hbm")
+
+    # LoRA / MoE: model step on GPU + remote weight/adaptor access penalty.
+    base=system.decode_step_s(obj.context_tokens,obj.batch_size,"hbm")
+    if tier=="hbm":
+        return base
     m=system.memories[tier]
+    remote=min(obj.size_bytes,obj.access_bytes*obj.batch_size)/max(1.0,m.ext_bw*link_bw_mult)
+    return base+remote/max(1,obj.output_tokens)
+
+def first_response_s(system:SystemSpec,obj:DataObject,tier:str,candidate:str,
+                     link_bw_mult:float=1.0,migration_debt:float=0.0,decision_us:float=0.0):
+    # Incremental prefill proxy. Network/HTTP transport is NOT modeled: this is TTFT, not literal TTFB.
     q=min(2048,obj.context_tokens)
     base=system.prefill_s(obj.context_tokens,q)
-    overload=min(20.0,max(1.0,(bw_util/.85)**1.35))
-    data=0.0
-    if obj.data_class!="KV_CACHE":
-        bw=m.write_bw if obj.write_ratio>.55 else m.ext_bw
-        data=obj.access_bytes/max(1,bw*bw_mult)+m.latency_s*4
-    elif tier!="hbm" and not m.attention_capable:
-        data=obj.size_bytes/max(1,m.ext_bw*bw_mult)
-    return (base+data*overload+migration_debt+decision_us*1e-6)
+    m=system.memories[tier]
+    extra=0.0
+
+    if obj.data_class=="RAG_DATA":
+        extra=system.rag_retrieval_s(obj.size_bytes,obj.batch_size,tier,obj.retrieval_dim)
+    elif obj.data_class in ("AGENT_MEMORY","TOOL_RESULT"):
+        extra=min(obj.size_bytes,obj.access_bytes*obj.batch_size)/max(1.0,m.ext_bw*link_bw_mult)+m.latency_s
+    elif obj.data_class in ("LORA_ADAPTER","MOE_EXPERT") and tier!="hbm":
+        extra=min(obj.size_bytes,obj.access_bytes*obj.batch_size)/max(1.0,m.ext_bw*link_bw_mult)
+    elif obj.data_class=="KV_CACHE" and tier!="hbm":
+        if candidate=="As-Is-HBM-first" or not m.attention_capable:
+            extra=obj.size_bytes/max(1.0,m.ext_bw*link_bw_mult)
+
+    return base+extra+migration_debt+decision_us*1e-6
+
+def _policy(system,candidate):
+    if candidate=="As-Is-HBM-first":
+        return AsIsHBMFirst(system)
+    if candidate=="C1-memory-centric":
+        return C1MemoryCentric(system)
+    if candidate=="C2-data-centric":
+        return C2DataCentric(system)
+    raise ValueError(candidate)
 
 def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str):
-    rng=random.Random(seed*7919+sum(map(ord,candidate+sc.name)))
+    rng=random.Random(seed*7919+sum(map(ord,sc.name)))
     objs=generate_trace(sc,seed)
-    policy=C1MemoryCentric(system) if candidate.startswith("C1") else C2DataCentric(system)
+    policy=_policy(system,candidate)
     placements={}
     migration_debt=defaultdict(float)
-    prev_bw={n:0.0 for n in system.memories}
-    latency_ttft=[]; latency_tpot=[]; latency_e2e=[]
-    placement_decisions=Counter(); placement_bytes=Counter(); class_tier=Counter()
-    migration_bytes=0.0; migration_count=0; bw_sat_seconds=0; hbm_pressure_seconds=0
-    offered_tokens=0.0; served_tokens=0.0; served_requests=0.0
-    useful_access_bytes=Counter(); total_access_bytes=0.0
-    ref_acc=0.0
-    base_offer=sum(o.rate_at(0)*o.output_tokens for o in objs if o.arrival_s==0)
-    ref=system.reference_tps(sc.context_tokens,16)
-    rate_scale=(sc.demand_scale*ref)/max(1e-9,base_offer)
-    decision_us_per=12.2 if candidate.startswith("C1") else 34.0
+    prev_ext_bytes={n:0.0 for n in system.memories}
+
+    ttft_samples=[]; tpot_samples=[]; e2e_samples=[]
+    placement_decisions=Counter(); class_tier=Counter()
+    migration_bytes=0.0; migration_count=0
+    total_offered_tokens=0.0; total_served_tokens=0.0; total_goodput_tokens=0.0
+    total_served_requests=0.0; total_good_requests=0.0
+    bw_sat_seconds=0; hbm_pressure_seconds=0
     decision_count=0
+    decision_us_per={"As-Is-HBM-first":3.0,"C1-memory-centric":12.2,"C2-data-centric":34.0}[candidate]
+
     for t in range(sc.horizon_s):
         alive=[o for o in objs if o.alive(t)]
         occupancy=Counter()
         for o in alive:
-            if o.oid in placements: occupancy[placements[o.oid]]+=o.size_bytes
+            if o.oid in placements:
+                occupancy[placements[o.oid]]+=o.size_bytes
+
         telemetry={}
-        for n,m in system.memories.items():
-            capm,bwm=effective_limits(sc,t,n,system)
-            telemetry[n]=Telemetry(
-                capacity_util=occupancy[n]/max(1,m.capacity_bytes*capm),
-                bw_util=prev_bw[n]/max(1,m.ext_bw*bwm if n!="custom_hbm" and n!="cxl_pnm" else max(m.ext_bw*bwm,m.int_bw*.15))
-            )
+        for name,m in system.memories.items():
+            capm,bwm=effective_limits(sc,t,name)
+            telemetry[name]=Telemetry(
+                capacity_util=occupancy[name]/max(1.0,m.capacity_bytes*capm),
+                bw_util=prev_ext_bytes[name]/max(1.0,m.ext_bw*bwm))
+
         policy.observe_telemetry(telemetry)
-        rates={}
         for o in alive:
-            r=o.rate_at(t)*rate_scale
-            rates[o.oid]=r
-            policy.observe_runtime(o,r)
-        dynamic_tick = sc.phase is not None and t in {sc.horizon_s//2, sc.horizon_s//2+10}
-        pressured = any(x.capacity_util>.88 or x.bw_util>.88 for x in telemetry.values())
+            policy.observe_runtime(o,o.rate_at(t))
+
+        dynamic_tick=sc.phase is not None and t in {sc.horizon_s//2,sc.horizon_s//2+10}
+        pressured=any(x.capacity_util>.88 or x.bw_util>.88 for x in telemetry.values())
         decision_objs=[o for o in alive if o.oid not in placements or (t%20==0 and pressured) or dynamic_tick]
-        if decision_objs:
-            for o in decision_objs:
-                old=placements.get(o.oid)
-                capm,_=effective_limits(sc,t,"hbm",system)
-                new=policy.place(o,telemetry,capm if sc.phase!="capacity_ramp" else 1.0)
-                decision_count+=1; placement_decisions[new]+=1
-                if old!=new:
-                    if old is not None: occupancy[old]-=o.size_bytes
-                    placements[o.oid]=new; occupancy[new]+=o.size_bytes
-                    placement_bytes[new]+=o.size_bytes; class_tier[(o.data_class,new)]+=1
-                    for tier in {x for x in (old,new) if x is not None}:
-                        capx,_=effective_limits(sc,t,tier,system)
-                        telemetry[tier].capacity_util=occupancy[tier]/max(1,system.memories[tier].capacity_bytes*capx)
-                    if old is not None:
-                        migration_count+=1; migration_bytes+=o.size_bytes
-                        src=system.memories[old]; dst=system.memories[new]
-                        _,sm=effective_limits(sc,t,old,system); _,dm=effective_limits(sc,t,new,system)
-                        path=min(src.ext_bw*sm,dst.ext_bw*dm)
-                        migration_debt[o.oid]+=0.20*o.size_bytes/max(1,path)
-            occupancy=Counter()
-            for o in alive: occupancy[placements[o.oid]]+=o.size_bytes
-        tier_bytes=Counter(); access_rows=[]
-        second_offered_tokens=0.0
+
+        for o in decision_objs:
+            old=placements.get(o.oid)
+            new=policy.place(o,telemetry,sc.capacity_mult)
+            decision_count+=1
+            placement_decisions[new]+=1
+            class_tier[(o.data_class,new)]+=1
+            if old!=new:
+                placements[o.oid]=new
+                if old is not None:
+                    migration_count+=1; migration_bytes+=o.size_bytes
+                    src=system.memories[old]; dst=system.memories[new]
+                    _,sm=effective_limits(sc,t,old); _,dm=effective_limits(sc,t,new)
+                    path=min(src.ext_bw*sm,dst.ext_bw*dm)
+                    migration_debt[o.oid]+=0.20*o.size_bytes/max(1.0,path)
+
+        # Generate this second's batch-events.
+        events=[]
+        ext_bytes=Counter()
         for o in alive:
-            r=rates[o.oid]; n=poisson(rng,r)
+            n=poisson(rng,o.rate_at(t))
             if n<=0: continue
             tier=placements[o.oid]
-            b=data_access_bytes(o)*n
-            tier_bytes[tier]+=b; total_access_bytes+=b; useful_access_bytes[tier]+=b
-            second_offered_tokens+=n*o.output_tokens
-            access_rows.append((o,n,tier))
-        offered_tokens+=second_offered_tokens
-        bwutil={}
-        max_over=1.0
-        for n,m in system.memories.items():
-            _,bwm=effective_limits(sc,t,n,system)
-            cap=m.ext_bw*bwm
-            kv_internal=sum(data_access_bytes(o)*cnt for o,cnt,tr in access_rows if tr==n and o.data_class=="KV_CACHE" and m.attention_capable)
-            normal=tier_bytes[n]-kv_internal
-            util=normal/max(1,cap)+kv_internal/max(1,m.int_bw*max(.3,m.attn_bw_eff))
-            bwutil[n]=util
-            if util>.90: bw_sat_seconds+=1
-            max_over=max(max_over,(util/.90)**1.3 if util>.90 else 1.0)
-        if telemetry["hbm"].capacity_util>.90: hbm_pressure_seconds+=1
-        if access_rows:
-            weighted_pen=0.0; weight=0.0
-            for o,n,tier in access_rows:
-                _,bwm=effective_limits(sc,t,tier,system)
-                tp=object_tpot(system,o,tier,bwutil[tier],bwm)
-                base=system.base_tpot_s(o.context_tokens,16)
-                weighted_pen+=n*o.output_tokens*max(1.0,tp/max(1e-9,base)); weight+=n*o.output_tokens
-            mem_pen=weighted_pen/max(1,weight)
-        else: mem_pen=1.0
-        cap_tps=ref/max(1.0,mem_pen)
-        second_served=min(second_offered_tokens,cap_tps)
-        service_frac=second_served/max(1e-9,second_offered_tokens) if second_offered_tokens else 1.0
-        served_tokens+=second_served
-        for o,n,tier in access_rows:
-            _,bwm=effective_limits(sc,t,tier,system)
-            debt=migration_debt[o.oid]
-            tt=object_ttft(system,o,tier,bwutil[tier],bwm,debt,decision_us_per)
-            tp=object_tpot(system,o,tier,bwutil[tier],bwm)
-            queue=1.0+max(0.0,1-service_frac)*3.2
-            tt*=queue; tp*=queue
-            e2e=tt+o.output_tokens*tp
-            latency_ttft.append((tt,n)); latency_tpot.append((tp,n)); latency_e2e.append((e2e,n))
-            served_requests+=n*service_frac
+            _,bwm=effective_limits(sc,t,tier)
+            fr=first_response_s(system,o,tier,candidate,bwm,migration_debt[o.oid],decision_us_per)
+            tp=tpot_s(system,o,tier,candidate,bwm)
+            event_tokens=o.batch_size*o.output_tokens
+            events.append((o,n,tier,fr,tp,event_tokens))
+            ext_bytes[tier]+=operation_external_bytes(system,o,tier,candidate)*n
             migration_debt[o.oid]=0.0
-        prev_bw={n:float(tier_bytes[n]) for n in system.memories}
-        ref_acc+=ref
-    active_tiers=set(placements.values())
-    raw_tps=served_tokens/sc.horizon_s
-    raw_rps=served_requests/sc.horizon_s
-    throughput_ratio=clamp(raw_tps/(ref_acc/sc.horizon_s),0,1.05)
+
+        # Link saturation and pressure accounting.
+        for name,m in system.memories.items():
+            _,bwm=effective_limits(sc,t,name)
+            if ext_bytes[name]/max(1.0,m.ext_bw*bwm)>.90:
+                bw_sat_seconds+=1
+        if telemetry["hbm"].capacity_util>.90:
+            hbm_pressure_seconds+=1
+
+        # Capacity approximation: harmonic mean of per-batch token rate for active event classes.
+        if events:
+            offered_tokens=sum(n*tok for _,n,_,_,_,tok in events)
+            total_offered_tokens+=offered_tokens
+            denom=0.0; weight=0.0
+            for o,n,tier,fr,tp,tok in events:
+                token_rate=o.batch_size/max(1e-9,tp)
+                w=n*tok
+                denom+=w/max(1e-9,token_rate); weight+=w
+            effective_capacity_tps=weight/max(1e-9,denom)
+            service_fraction=min(1.0,effective_capacity_tps/max(1e-9,offered_tokens))
+        else:
+            service_fraction=1.0
+
+        for o,n,tier,fr,tp,event_tokens in events:
+            served_batches=n*service_fraction
+            served_tokens=served_batches*event_tokens
+            served_requests=served_batches*o.batch_size
+            total_served_tokens+=served_tokens
+            total_served_requests+=served_requests
+
+            # Queueing penalty only after offered load exceeds modeled generation capacity.
+            qmult=1.0+max(0.0,1.0-service_fraction)*3.0
+            frq=fr*qmult; tpq=tp*qmult
+            e2e=frq+o.output_tokens*tpq
+            ttft_samples.append((frq,served_requests))
+            tpot_samples.append((tpq,served_requests))
+            e2e_samples.append((e2e,served_requests))
+
+            if frq<=FIRST_RESPONSE_SLO_S and tpq<=TPOT_SLO_S:
+                total_goodput_tokens+=served_tokens
+                total_good_requests+=served_requests
+
+        prev_ext_bytes={name:float(ext_bytes[name]) for name in system.memories}
+
     pressure_safe=1-hbm_pressure_seconds/max(1,sc.horizon_s)
     bw_safe=1-min(1,bw_sat_seconds/max(1,sc.horizon_s*len(system.memories)))
-    migration_eff=1-min(1,migration_bytes/max(1,total_access_bytes))
-    tier_use=min(1,len([n for n,b in useful_access_bytes.items() if b>0])/max(1,len(sc.target_tiers) or 3))
-    resource_index=.35*pressure_safe+.35*bw_safe+.20*migration_eff+.10*tier_use
-    return {
+    migration_eff=1-min(1,migration_bytes/max(1.0,total_served_tokens*4096.0))
+    tiers_used={placements[o.oid] for o in objs if o.oid in placements}
+    tier_coverage=len(tiers_used)/len(system.memories)
+    resource_index=.40*pressure_safe+.35*bw_safe+.15*migration_eff+.10*tier_coverage
+
+    out={
       "scenario":sc.name,"seed":seed,"candidate":candidate,
-      "request_throughput":raw_rps,"token_throughput":raw_tps,"throughput_ratio":throughput_ratio,
-      "ttft_p99_ms":weighted_quantile(latency_ttft,.99)*1000,
-      "tpot_p99_ms":weighted_quantile(latency_tpot,.99)*1000,
-      "e2e_p99_ms":weighted_quantile(latency_e2e,.99)*1000,
-      "resource_index":resource_index,"hbm_pressure_violation_rate":1-pressure_safe,
-      "bw_saturation_rate":1-bw_safe,"migration_bytes":migration_bytes,"migration_count":migration_count,
+      "batch_size":sc.batch_size,"context_tokens":sc.context_tokens,
+      "request_throughput":total_served_requests/sc.horizon_s,
+      "token_throughput":total_served_tokens/sc.horizon_s,
+      "slo_goodput":total_goodput_tokens/sc.horizon_s,
+      "slo_good_request_throughput":total_good_requests/sc.horizon_s,
+      "ttft_p99_ms":weighted_quantile(ttft_samples,.99)*1000,
+      "tpot_p99_ms":weighted_quantile(tpot_samples,.99)*1000,
+      "e2e_p99_ms":weighted_quantile(e2e_samples,.99)*1000,
+      "resource_index":resource_index,
+      "hbm_pressure_violation_rate":1-pressure_safe,
+      "bw_saturation_rate":1-bw_safe,
+      "migration_bytes":migration_bytes,"migration_count":migration_count,
       "decision_us_avg":decision_us_per,"decision_count":decision_count,
-      "active_tiers":";".join(sorted(active_tiers)),
+      "active_tiers":";".join(sorted(tiers_used)),
       "placement_decisions":dict(placement_decisions),
-      "placement_bytes":dict(placement_bytes),
       "class_tier":{f"{k[0]}@{k[1]}":v for k,v in class_tier.items()},
-      "reference_tps":ref_acc/sc.horizon_s,
     }
+    if candidate=="C2-data-centric":
+        out["fallback_count"]=policy.fallback_count
+        out["fallback_reason"]=dict(policy.fallback_reason)
+    else:
+        out["fallback_count"]=0
+        out["fallback_reason"]={}
+    return out
