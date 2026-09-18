@@ -13,7 +13,6 @@
 - `RAG_DATA`
 - `AGENT_MEMORY`
 - `TOOL_RESULT`
-- `LOG_DATA`
 - `LORA_ADAPTER`
 - `MOE_EXPERT`
 
@@ -49,29 +48,19 @@
 
 ## Scenario suite
 
-20개 scenario × 5 seeds × 2 candidates = **200 candidate runs**.
+20개 scenario × 5 seeds × 3 policies(As-Is/C1/C2) × 5 offered-load scales를 실행한다. Throughput은 load sweep에서 얻은 **Max Sustainable SLO Goodput**으로 평가한다.
 
 대표 시나리오:
 
-- stable hot KV
-- KV + RAG mixed
-- RAG hot/cold index
-- long-lived Agent Memory
-- bursty Tool Result
-- append-heavy AI runtime / Agent execution Log
-- Multi-LoRA
-- MoE expert skew
-- all-AI-data coexistence
-- HBM capacity ramp / BW shock
-- host-path pressure / resource oscillation
-- hotness flip / data-mix shift
-- long context
-- cold archive reactivation
-- classifier error fault injection
-- capacity crunch
-- six-tier stress
-
-`runtime_log_append`는 **SST/SSTable이 아니다.** DP1의 `Tool Result / Runtime Log` 범주 중 AI runtime/agent execution log를 모델링한다. SSTable은 storage-engine 내부 자료구조이므로 DP1 AI Runtime Data로 취급하지 않는다.
+- KV batch 16/64/256 + context 32K/128K/512K
+- Cold KV on CXL-PNM and burst KV on Custom HBM attention offload
+- 1 TiB / 8 TiB RAG vector index + SSD-PIM dot-product path
+- long-lived Agent Memory / bursty Tool Result
+- Multi-LoRA / MoE expert skew
+- mixed all-AI-data coexistence
+- HBM capacity ramp / BW shock / host-path pressure
+- classifier error fault injection + C2 Safe Fallback
+- six-tier capacity stress
 
 ## Run
 
@@ -98,8 +87,10 @@ python -m unittest -v test_eval.py
 
 ## Important modeling rules
 
-1. **Same trace**: 같은 `(scenario, seed)`에서 C1/C2가 같은 object trace를 사용한다.
+1. **Same trace**: 같은 `(scenario, seed, load_scale)`에서 As-Is/C1/C2가 같은 object trace를 사용한다.
 2. **Current design only**: 기존 `../dp1_sim/`은 과거 KV-centric 설계를 검증한 코드이므로 현재 C1/C2 최종 QA 별점에는 사용하지 않는다.
 3. **DP4 boundary**: migration mechanism 자체는 구현하지 않는다. tier 변경 시 idealized path cost의 20%만 다음 access critical path에 반영한다.
+4. **Latency split**: network transport는 모델링하지 않으므로 first-response metric은 TTFT다. TTFT와 TPOT은 별도 별점으로 보고 하나로 합치지 않는다.
+5. **Operation-aware placement**: KV Attention은 Custom HBM/CXL-PNM에서 수행 가능하되 FFN은 GPU에 남고 activation round-trip을 포함한다. RAG SSD-PIM은 current registry의 QK_GEMM만 사용하며 TOPK를 가정하지 않는다.
 4. **Modifiability token**: 실제 API usage가 아니라 공통 기준의 static source read/write token estimate(char/3.6)를 사용한다.
 5. **Absolute vs relative**: config의 ASSUMED 값 때문에 절대값보다 동일 trace의 후보 간 차이와 failure mode를 더 신뢰한다.
