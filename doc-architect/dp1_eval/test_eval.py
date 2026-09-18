@@ -1,74 +1,59 @@
-"""Fast unit tests for the DP1 C1/C2 architecture evaluator."""
-
+"""Fast unit tests for the current DP1 multi-AI-data evaluator."""
 from __future__ import annotations
-
 import unittest
 from pathlib import Path
 
-import run_eval as ev
+from model import DataObject, load_system, DATA_CLASSES
+from policies import ResourceStateMonitor, Telemetry, DataClassifier
+from scenarios import scenarios, generate_trace
 
-
-CONFIG_DIR = Path(__file__).resolve().parents[1] / "configs"
-
+CONFIG_DIR=Path(__file__).resolve().parents[1]/"configs"
 
 class DP1EvalTests(unittest.TestCase):
-    def test_reference_config_loads(self):
-        system = ev.load_system(CONFIG_DIR)
-        self.assertEqual(system.model.name, "llama_3_1_70b")
-        self.assertIn("hbm", system.memories)
-        self.assertEqual(system.memories["hbm"].capacity_bytes, 206158430208 * 8)
-        self.assertAlmostEqual(system.memories["hbm"].ext_bw, 8e12 * 8)
+    def test_reference_config_loads_all_six_memories(self):
+        system=load_system(CONFIG_DIR)
+        self.assertEqual(system.model.name,"llama_3_1_70b")
+        self.assertEqual(set(system.memories),{"hbm","custom_hbm","cxl_pnm","dram","hbf","ssd_pim"})
+        self.assertEqual(system.memories["hbm"].capacity_bytes,206158430208*8)
+        self.assertAlmostEqual(system.memories["hbm"].ext_bw,8e12*8)
 
-    def test_scenario_suite_is_broad(self):
-        names = {s.name for s in ev.scenarios()}
-        self.assertGreaterEqual(len(names), 18)
-        for required in {
-            "mixed_hot_cold",
-            "hbm_pressure_ramp",
-            "behavior_noise",
-            "classifier_error",
-            "capacity_crunch",
-            "long_context",
-        }:
-            self.assertIn(required, names)
+    def test_scenario_suite_covers_all_ai_data_classes(self):
+        covered=set()
+        names=set()
+        for s in scenarios():
+            names.add(s.name); covered.update(s.data_mix)
+        self.assertGreaterEqual(len(names),20)
+        self.assertEqual(covered,set(DATA_CLASSES))
+        for required in {"steady_hot_kv","rag_hot_cold_index","agent_memory_long_lived",
+                         "runtime_log_append","lora_multi_tenant","moe_expert_skew",
+                         "mixed_all_ai_data","classifier_error","six_tier_stress"}:
+            self.assertIn(required,names)
+
+    def test_six_tier_stress_declares_all_target_tiers(self):
+        s=next(x for x in scenarios() if x.name=="six_tier_stress")
+        self.assertEqual(set(s.target_tiers),{"hbm","custom_hbm","cxl_pnm","dram","hbf","ssd_pim"})
 
     def test_resource_monitor_predicts_trend(self):
-        m = ev.ResourceStateMonitor(window=5, horizon=2)
-        for p in (0.2, 0.3, 0.4):
-            m.observe({"hbm": ev.Telemetry(capacity_util=p)})
-        pred = m.state("hbm", ev.Telemetry(capacity_util=0.4))
-        self.assertGreater(pred.predicted_pressure, pred.current_pressure)
+        m=ResourceStateMonitor(window=5,horizon=2)
+        for p in (.2,.3,.4):
+            m.observe({"hbm":Telemetry(capacity_util=p)})
+        pred=m.state("hbm",Telemetry(capacity_util=.4))
+        self.assertGreater(pred.predicted_pressure,pred.current_pressure)
 
     def test_c2_classifier_uses_descriptor_hint(self):
-        c = ev.DataClassifier()
-        obj = ev.DataObject(
-            object_id=1,
-            data_class="KV_CACHE",
-            size_bytes=1.0,
-            arrival_s=0,
-            death_s=10,
-            base_rate=1.0,
-            access_bytes=1.0,
-            context_tokens=2048,
-            output_tokens=16,
-            read_ratio=1.0,
-            latency_sensitivity=1.0,
-            type_hint="RAG_DATA",
-        )
-        self.assertEqual(c.classify(obj), "RAG_DATA")
+        c=DataClassifier()
+        obj=DataObject(1,"KV_CACHE",1.0,1.0,1.0,2048,16,10,type_hint="RAG_DATA")
+        self.assertEqual(c.classify(obj),"RAG_DATA")
 
     def test_same_seed_generates_same_trace(self):
-        sc = next(s for s in ev.scenarios() if s.name == "steady_hot_kv")
-        a = ev.generate_trace(sc, 11)
-        b = ev.generate_trace(sc, 11)
-        self.assertEqual([(x.data_class, x.size_bytes, x.arrival_s, x.base_rate) for x in a],
-                         [(x.data_class, x.size_bytes, x.arrival_s, x.base_rate) for x in b])
+        s=next(x for x in scenarios() if x.name=="mixed_all_ai_data")
+        a=generate_trace(s,11); b=generate_trace(s,11)
+        self.assertEqual([(x.data_class,x.size_bytes,x.arrival_s,x.base_rate,x.type_hint) for x in a],
+                         [(x.data_class,x.size_bytes,x.arrival_s,x.base_rate,x.type_hint) for x in b])
 
-    def test_modifiability_audit_does_not_fabricate_ai_tokens(self):
-        audit = ev.modifiability_audit()
-        for candidate in audit.values():
-            self.assertIn("N/A", candidate["ai_token_consumption"])
+    def test_runtime_log_is_not_sstable_scenario(self):
+        s=next(x for x in scenarios() if x.name=="runtime_log_append")
+        self.assertEqual(s.data_mix,{"LOG_DATA":1})
+        self.assertIn("Not SST",s.description)
 
-
-if __name__ == "__main__":
-    unittest.main()
+if __name__=="__main__": unittest.main()
