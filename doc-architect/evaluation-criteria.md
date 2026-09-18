@@ -137,7 +137,14 @@ Throughput QA는 analytical physical reference 대비 비율로 매기지 않는
 
 ```
 OFFERED_LOAD_SCALE = [0.25, 0.50, 0.75, 1.00, 1.25]
-Max Sustainable SLO Goodput = max(goodput at each load)
+Sustainable(load) =
+  (TTFT_p99(load) <= 2,000 ms)
+  AND
+  (TPOT_p99(load) <= 50 ms)
+
+Max Sustainable SLO Goodput =
+  max(SLO goodput at load)
+  over Sustainable(load) == true
 ```
 
 공통 score는 **SLO-feasible heavy cell**에서 As-Is 대비 ratio를 사용한다.
@@ -148,7 +155,9 @@ Goodput Ratio =
   / As-Is Max Sustainable SLO Goodput
 ```
 
-기본 heavy/stress 축은 large batch와 long context를 모두 포함하지만, As-Is와 모든 후보의 Max Sustainable SLO Goodput이 0인 cell은 **SLO-infeasible stress cell**로 표시하고 Throughput 별점 분모에서는 제외한다. 예를 들어 512K context가 물리적으로 TPOT SLO를 넘는다면 그 cell은 Latency/Stress 분석에는 남기되 throughput ratio를 0/0으로 만들지 않는다.
+**Request 일부가 SLO를 만족했다는 이유만으로 그 load point를 sustainable로 인정하지 않는다.** 해당 load point의 전체 요청 기준 p99 TTFT와 p99 TPOT이 둘 다 SLO를 만족해야 한다.
+
+기본 heavy/stress 축은 large batch와 long context를 모두 포함하지만, As-Is와 모든 후보에서 위 p99 조건을 만족하는 load point가 하나도 없는 cell은 **SLO-infeasible stress cell**로 표시하고 Throughput 별점 분모에서는 제외한다. 예를 들어 512K context가 물리적으로 TPOT SLO를 넘는다면 그 cell은 Latency/Stress 분석에는 남기되 throughput ratio를 0/0으로 만들지 않는다.
 
 | 별점 | 공통 정량 기준 | 의미 |
 |---|---|---|
@@ -183,7 +192,7 @@ First-response latency와 TPOT은 원인이 다르므로 **절대 하나의 숫�
 
 ### 3.4 Performance — Latency QA 표기 규칙
 
-Latency는 하나의 QA이지만 결과는 항상 두 sub-metric을 **각각 별점으로 표기**한다. 별점 산정은 offered-load sweep에서 해당 후보의 **Max Sustainable SLO Goodput operating point**를 사용한다.
+Latency는 하나의 QA이지만 결과는 항상 두 sub-metric을 **각각 별점으로 표기**한다. 별점 산정은 offered-load sweep에서 **p99 TTFT ≤ 2,000 ms AND p99 TPOT ≤ 50 ms를 동시에 만족하는 load point 중 SLO Goodput이 최대인 operating point**를 사용한다.
 
 모든 후보가 first-response/TPOT SLO를 만족하는 요청을 하나도 만들지 못하는 cell은 `SLO-infeasible stress`로 분리한다. 이런 cell은 large-batch/long-context failure boundary를 보여주는 데는 중요하지만, 하드웨어 자체의 불가능 영역으로 인해 모든 후보의 Latency 별점을 일괄적으로 떨어뜨리지 않도록 **최종 Latency 별점 집계에서는 제외하고 raw TTFT/TPOT을 별도 보고**한다.
 
@@ -287,7 +296,7 @@ DP1~DP4에서 동일한 변경 archetype 4종을 고정하고 두 단위로 잰�
 3. **Throughput/Goodput의 시간 분모는 후보와 무관한 고정 horizon으로 둔다.**
 4. **Warm-up 또는 정책 적용 이전 구간을 제외해야 하는 DP는 제외 규칙을 실행 전에 고정하고 모든 후보에 동일하게 적용한다.** DP마다 "최초 턴"의 의미가 다르므로 특정 턴 번호를 공통 규칙으로 강제하지 않는다.
 5. **의미 있는 As-Is/정책 없음 대조군을 정의할 수 있는 DP에서는 함께 측정한다.** 다만 C1/C2 등 후보의 최종 별점은 대조군 상대값이 아니라 §3의 공통 절대/정규화 기준으로 매긴다.
-6. **TTFT·TPOT p99는 각 평가 시나리오의 전체 요청을 기준으로 계산한다.** 급변/정상 구간을 사후 분리해 유리한 구간만 인용하지 않는다.
+6. **TTFT·TPOT p99는 각 평가 시나리오의 전체 요청을 기준으로 계산한다.** 급변/정상 구간을 사후 분리해 유리한 구간만 인용하지 않는다. 또한 Max Sustainable operating point는 **TTFT p99와 TPOT p99가 둘 다 SLO를 만족하는 load point만** 후보로 인정한다.
 7. **정책 결정 비용과 DP가 유발하는 실행 비용을 critical path에 노출되는 만큼 Latency/Throughput에 포함한다.** DP1의 tier 변경은 DP4 migration mechanism 자체를 구현하지 않더라도 이동 비용 proxy를 명시해야 하며, DP4에서는 실제 migration 비용을 직접 측정한다.
 8. **Fault injection / infeasible stress / coverage-only scenario는 정상 운용 QA 별점과 분리한다.** Trade-off와 failure mode 분석에는 포함하되, 별점에 넣을 경우 공통 문서에 사전 명시한다.
 
