@@ -113,26 +113,29 @@ def scenario_matrix(rows):
     out=[]
     for sc in scenarios():
         maps={c:best_rows(rows,c,{sc.name}) for c in CANDIDATES}
-        keys=sorted(maps["As-Is-HBM-first"])
+        base=maps["As-Is-HBM-first"]
+        keys=sorted(base)
         row={"scenario":sc.name,"batch":sc.batch_size,"context":sc.context_tokens}
         for c in CANDIDATES:
-            vals=[]
-            tt=[]; tp=[]
+            vals=[]; tt=[]; tp=[]
+            extension=sum(1 for k in maps[c] if k not in base)
+            lost=0
             for k in keys:
-                b=maps["As-Is-HBM-first"][k]
-                x=maps[c][k]
-                if b["slo_goodput"]<=0 and x["slo_goodput"]<=0:
+                b=base[k]
+                x=maps[c].get(k)
+                if x is None:
+                    vals.append(0.0)
+                    lost+=1
                     continue
-                vals.append(
-                    10.0 if b["slo_goodput"]<=0<x["slo_goodput"]
-                    else x["slo_goodput"]/max(1e-9,b["slo_goodput"])
-                )
+                vals.append(x["slo_goodput"]/max(1e-9,b["slo_goodput"]))
                 tt.append(x["ttft_p99_ms"]/max(1e-9,b["ttft_p99_ms"]))
                 tp.append(x["tpot_p99_ms"]/max(1e-9,b["tpot_p99_ms"]))
             row[c]={
                 "goodput_ratio":geom(vals),
                 "ttft_ratio":statistics.mean(tt) if tt else None,
                 "tpot_ratio":statistics.mean(tp) if tp else None,
+                "lost_sustainable_seeds":lost,
+                "feasibility_extension_seeds":extension,
             }
         out.append(row)
     return out
