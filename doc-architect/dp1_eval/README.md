@@ -54,7 +54,7 @@
 
 - KV batch 16/64/256 + context 32K/128K/512K
 - Cold KV on CXL-PNM and burst KV on Custom HBM attention offload
-- 1 TiB / 8 TiB RAG vector index + SSD-PIM dot-product path
+- 1 TiB / 8 TiB RAG vector index + SSD-PIM GEMV similarity path
 - long-lived Agent Memory / bursty Tool Result
 - Multi-LoRA / MoE expert skew
 - mixed all-AI-data coexistence
@@ -91,6 +91,6 @@ Unit test는 config 6-tier 로딩, primary AI Data coverage, large-batch/long-co
 2. **Current design only**: 기존 `../dp1_sim/`은 과거 KV-centric 설계를 검증한 코드이므로 현재 C1/C2 최종 QA 별점에는 사용하지 않는다.
 3. **DP4 boundary**: migration mechanism 자체는 구현하지 않는다. tier 변경 시 idealized path cost의 20%만 다음 access critical path에 반영한다.
 4. **Latency split**: network transport는 모델링하지 않으므로 first-response metric은 TTFT다. TTFT와 TPOT은 별도 별점으로 보고 하나로 합치지 않는다.
-5. **Operation-aware placement**: KV Attention은 Custom HBM/CXL-PNM에서 수행 가능하되 FFN은 GPU에 남고 activation round-trip을 포함한다. RAG SSD-PIM은 current registry의 QK_GEMM만 사용하며 TOPK를 가정하지 않는다.
+5. **Operation-aware placement**: KV Attention은 Custom HBM/CXL-PNM에서 수행 가능하되 FFN은 GPU에 남고 activation round-trip을 포함한다. SSD-PIM은 GEMV만 지원하며 SSD-resident Vector DB의 similarity 계산에만 사용한다. similarity score 이후 ranking/top-k는 controller/host 후처리다.
 4. **Modifiability token**: 실제 API usage가 아니라 공통 기준의 static source read/write token estimate(char/3.6)를 사용한다.
 5. **Absolute vs relative**: config의 ASSUMED 값 때문에 절대값보다 동일 trace의 후보 간 차이와 failure mode를 더 신뢰한다.
