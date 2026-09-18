@@ -1,4 +1,4 @@
-# DP1 C1 Refinement Proposal — Resource-centric + Static AI Data Affinity
+# DP1 C1 Refinement Proposal — Resource-centric + Data-Memory Affinity
 
 > 목적: C1을 단순한 "빈 Memory Tier 선택기"로 두지 않고, **대표적인 AI Data / Operation의 정적 특성은 가볍게 반영**한다.
 >
@@ -21,11 +21,11 @@ Resource State
 ```text
 Resource State
 + Memory Capability
-+ Static AI Data Affinity
++ Data-Memory Affinity
 → Resource-centric Placement
 ```
 
-여기서 `Static AI Data Affinity`는 classifier나 runtime predictor가 아니다.
+여기서 `Data-Memory Affinity`는 classifier나 runtime predictor가 아니다.
 
 Data Descriptor가 이미 제공하는 deterministic 정보만 사용한다.
 
@@ -96,7 +96,7 @@ flowchart TB
 
 ---
 
-# 3. Static AI Data Affinity Profile
+# 3. Data-Memory Affinity Registry
 
 예시 Rule Table:
 
@@ -194,7 +194,7 @@ Runtime expert popularity를 보지 않으므로 "hot expert는 HBM, cold expert
 
 이 refinement 후 비교는 다음이 된다.
 
-| | C1 — Resource-centric + Static AI Affinity | C2 — Dynamic Data-centric |
+| | C1 — Resource-centric + Data-Memory Affinity | C2 — Dynamic Data-centric |
 |---|---|---|
 | Data Type | Descriptor에서 deterministic 사용 | deterministic 사용 |
 | Static AI rule | **사용** | 사용 가능 |
@@ -265,7 +265,7 @@ C2가 증명해야 하는 것은:
 
 ```text
 C1. Resource-centric Placement
-    + Static AI Data Affinity
+    + Data-Memory Affinity
 
 C2. Dynamic Data-centric Placement
     + Runtime Behavior Adaptation
