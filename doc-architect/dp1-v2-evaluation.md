@@ -20,21 +20,27 @@
 
 ## 1. V2 QA 평가표 — Case Group 분리
 
-전체 평균 한 줄로 Performance를 표시하면 Neutral workload가 대부분 As-Is path로 수렴하기 때문에 C1/C2 차이가 가려진다.  
-따라서 Performance QA는 **C1이 의도한 Resource-pressure Case Group**과 **C2가 의도한 Data-aware / Data-near Case Group**을 분리해 표시한다.
+SLO는 **목표선**으로 사용하되, SLO를 넘는 workload를 평가에서 버리지는 않는다.
+
+- SLO 만족 영역: 기존 strict-p99 Max Sustainable SLO Goodput / 절대 Latency 기준
+- SLO 미달 영역: 동일 trace, 동일 nominal load(1.0)에서 **As-Is 대비 상대 성능**을 계산
+- 아래 † 표시는 **SLO-degraded relative score**다. ★★★라도 SLO를 만족했다는 뜻이 아니라 As-Is보다 10% 이상 개선됐다는 뜻이다.
 
 | QA | C1-R2 | C2-R2 | 기준 / 비고 |
 |---|:---:|:---:|---|
-| **Performance Throughput — C1 유리 Case** | **N/A** | **N/A** | 현재 C1 Resource-pressure 5개 scenario는 As-Is부터 strict-p99 sustainable point가 없음. Stress 결과만 존재 |
-| **Performance Throughput — C2 유리 Case** | **★☆☆** | **★★☆** | C1-R2는 As-Is-feasible 20개 paired seed 중 10개 sustainable point 상실. C2-R2 = **0.986×**, 95% CI ≈ [0.972, 1.000] |
-| **Performance Latency — TTFT — C1 유리 Case** | **N/A** | **N/A** | C1 Resource-pressure group 전체가 TPOT 기준에서 SLO-infeasible이므로 strict QA operating point 없음 |
-| **Performance Latency — TTFT — C2 유리 Case** | **★★★*** | **★★★** | Worst sustainable TTFT: C1-R2 ≈ **182 ms** (단 10/20 paired seed만 sustainable), C2-R2 ≈ **189 ms** (20/20) |
-| **Performance Latency — TPOT — C1 유리 Case** | **N/A** | **N/A** | C1 Resource-pressure group은 모든 load에서 TPOT SLO를 만족하는 paired operating point가 없음 |
-| **Performance Latency — TPOT — C2 유리 Case** | **★★☆*** | **★★☆** | Worst sustainable TPOT ≈ **49.99 ms**. C1-R2는 10/20 paired seed만 sustainable, C2-R2는 20/20 |
+| **Performance Throughput — C1 유리 Case†** | **★☆☆** | **★★☆** | As-Is 대비 raw throughput: C1 **0.874×**, C2 **1.001×** |
+| **Performance Throughput — C2 유리 Case†** | **★☆☆** | **★★☆** | As-Is 대비 raw throughput: C1 **0.460×**, C2 **1.011×** |
+| **Performance Latency — TTFT — C1 유리 Case†** | **★★☆** | **★★☆** | Candidate/As-Is: C1 **1.153×**, C2 **1.644×**; 두 CI 모두 1.0 포함 |
+| **Performance Latency — TTFT — C2 유리 Case†** | **★☆☆** | **★★☆** | Candidate/As-Is: C1 **1.166×**, C2 **0.999×** |
+| **Performance Latency — TPOT — C1 유리 Case†** | **★☆☆** | **★★☆** | Candidate/As-Is: C1 **3.638×**, C2 **1.000×** |
+| **Performance Latency — TPOT — C2 유리 Case†** | **★☆☆** | **★☆☆** | Candidate/As-Is: C1 **5.921×**, C2 **1.345×** |
 | **Resource Utilization — Overall** | **★★★** | **★★☆** | RUI: C1-R2 **0.859**, C2-R2 **0.753** |
 | **Modifiability — Overall** | 재산정 필요 | 재산정 필요 | R2 구조 기준 별도 측정 필요 |
 
-\* C1-R2의 C2-favorable group Latency 별점은 **남아 있는 sustainable point만** 보면 해당 별점이라는 뜻이다. Baseline이 sustainable한 paired seed의 절반을 잃었기 때문에, 이 별점만 보고 C1-R2의 Latency가 좋다고 해석하면 안 된다. Throughput의 ★☆☆가 그 feasibility loss를 반영한다.
+중요한 해석은 두 가지다.
+
+1. **C1 유리 Case라고 이름 붙인 Resource-pressure workload에서도 현재 C1-R2가 Performance까지 유리한 것은 아니다.** Resource pressure는 잘 낮추지만 Emergency offload의 TPOT 비용 때문에 Performance가 악화된다.
+2. **C2 유리 Case에서는 C2-R2가 C1-R2보다 분명히 잘 버티지만 TPOT는 여전히 개선 대상**이다.
 
 ### Case Group 정의
 
@@ -46,20 +52,17 @@
 - `data_mix_shift_b64`
 - `mixed_all_ai_data_b64`
 
-이 그룹은 C1의 Resource State Monitor / Emergency Pressure Policy가 효과를 내야 하는 영역이다.  
-현재는 workload 강도가 너무 높아 **As-Is 자체가 strict p99 SLO를 만족하지 못하므로 Performance QA 별점을 매길 수 없다.** Stress 분석에서는 C1-R2가 HBM pressure와 RUI를 개선하는 경우가 확인되지만 이는 strict Performance WIN과는 구분한다.
-
 **C2 유리 Case — Data-aware / Data-near / Lifecycle 중심**
 
 - `kv_b16_c32k_burst_chbm`
-- `kv_b1_c32k_cold_cxl` — negative control 포함
+- `kv_b1_c32k_cold_cxl`
 - `kv_mispredict_dram_wait`
 - `agent_memory_long_lived`
-- `rag_8tib_b64_ssd_pim` — strict SLO에서는 stress
-- `rag_8tib_b256_ssd_pim` — strict SLO에서는 stress
+- `rag_8tib_b64_ssd_pim`
+- `rag_8tib_b256_ssd_pim`
 
-Strict-p99 별점에 실제로 pair되는 것은 앞의 4개 scenario × 5 seeds = **20 paired seed**다.  
-이 영역에서는 C2-R2가 20/20 sustainable point를 유지하는 반면 C1-R2는 10/20만 유지하여 Throughput QA에서 차이가 드러난다.
+† 상대 별점은 각 group의 5 seed를 nominal load=1.0에서 paired 비교한 geometric-mean ratio와 95% CI로 계산한다. Throughput은 높을수록, TTFT/TPOT은 낮을수록 좋다.
+
 
 ### 정량값
 
@@ -77,51 +80,26 @@ Strict-p99 별점에 실제로 pair되는 것은 앞의 4개 scenario × 5 seeds
 
 ---
 
-## 1.1 Case-separated QA Matrix
+## 1.1 SLO-qualified와 SLO-degraded를 같이 보는 이유
 
-전체 aggregate에서 Performance가 1.000×로 보이는 이유는 C1/C2가 실제로 항상 동일해서가 아니다.
+Strict-p99 SLO는 그대로 유지한다. 다만 **SLO 미달 = 평가 제외**로 처리하지 않는다.
 
-Strict-p99 기준에서 현재 score 가능한 workload가 제한적이고, score 가능한 neutral workload에서는 C1-R2/C2-R2 모두 As-Is/HBM path로 수렴하기 때문이다. 따라서 아래처럼 **architecture가 유리하도록 설계된 case를 별도로 본다.**
+예를 들어 C1 Resource-pressure case에서는 workload 자체가 이미 SLO를 넘을 수 있다. 이 경우에도:
 
-> `SLO Stress`는 QA 별점에는 포함하지 않는다. 다만 해당 architecture mechanism이 실제로 무엇을 개선하고 무엇을 악화시키는지 보여주는 보조 결과로 남긴다.
+```text
+As-Is가 얼마나 느린가?
+C1은 그 상황을 얼마나 개선/악화시키는가?
+C2는 그 상황을 얼마나 개선/악화시키는가?
+```
 
-### C1-R2가 유리하도록 설계한 Case — Resource Pressure
+를 비교해야 architecture의 trade-off가 드러난다.
 
-| Case | Throughput | TTFT | TPOT | Resource | 판정 |
-|---|---:|---:|---:|---:|---|
-| `hbm_pressure_ramp_b64` | Raw token throughput **1.016×** As-Is | 0.999× | **4.97×** | RUI **0.933 vs 0.913**, HBM pressure 0.000 vs 0.009 | **Resource WIN / Performance SLO Stress** |
-| `hbm_bw_shock_b256` | Raw token throughput **1.016×** | 1.000× | **5.11×** | RUI 0.873 vs 0.917 | **Performance SLO Stress** |
-| `host_path_pressure_b64` | Raw token throughput 1.000× | **2.78×** | 1.000× | RUI **0.930 vs 0.819**, HBM pressure 0.000 vs 0.178 | **Resource WIN / Latency LOSS** |
-| **C1 Resource-pressure strict aggregate** | **N/A** | N/A | N/A | — | As-Is 자체가 strict p99 SLO를 만족하는 paired cell이 없어 **Performance 우위 판정 불가** |
+따라서 최종 QA 문서는 두 값을 같이 유지한다.
 
-현재 C1-R2의 명확한 장점은 **Resource Pressure 해소**다.  
-아직 strict-p99 기준의 **Performance WIN case는 확보하지 못했다.**
+- **SLO-qualified:** 실제 target SLO 안에서의 Max Sustainable Goodput / 절대 TTFT / TPOT
+- **SLO-degraded relative:** SLO 밖에서도 동일 load에서 As-Is 대비 상대 개선율
 
-### C2-R2가 유리하도록 설계한 Case — Data-near / Data-lifecycle
-
-| Case | Strict Goodput / As-Is | TTFT / As-Is | TPOT / As-Is | Resource | 판정 |
-|---|---:|---:|---:|---:|---|
-| `kv_b16_c32k_burst_chbm` | **0.958×** | **0.869×** | 2.586× | RUI 0.368 vs 0.382 | **TTFT 개선 / Goodput·TPOT Trade-off** |
-| `kv_b1_c32k_cold_cxl` | **1.000×** | 1.001× | 1.000× | 동일 | **Negative-control PASS** — 느린 CXL offload를 하지 않음 |
-| `kv_mispredict_dram_wait` | **0.986×** | 1.181× | 2.286× | RUI 동일 | **Near-neutral Goodput / Latency LOSS** |
-| `rag_8tib_b64_ssd_pim` | **SLO Stress** | Stress TTFT **0.818×** | Stress TPOT 0.996× | RUI 0.528 vs 0.657 | **Data-near Performance Benefit은 보이나 2s TTFT SLO 밖** |
-| `rag_1tib_b16` | **1.000×** | 1.000× | 1.000× | 동일 | **Neutral / No-regression** |
-| `agent_memory_long_lived` | **1.000×** | 1.001× | 1.000× | 동일 | **Neutral / No-regression** |
-| **C2 Data-near strict aggregate** | **0.979×** | — | — | — | As-Is와 근접하나 아직 **Performance WIN 아님** |
-| **C2 Data-lifecycle strict aggregate** | **0.993×** | — | — | — | 사실상 As-Is 수준 |
-
-### QA 관점에서 읽는 법
-
-| QA | C1-R2 유리 영역 | C2-R2 유리 영역 | 현재 증명 수준 |
-|---|---|---|---|
-| **Performance Throughput** | Resource-pressure가 SLO-feasible한 영역을 아직 확보하지 못함 | SSD-PIM RAG / near-memory KV가 후보이나 strict aggregate 0.979× | **추가 target scenario 필요** |
-| **Performance Latency — TTFT** | 현재 명확한 WIN 없음 | Custom-HBM KV burst에서 0.869×, 8 TiB RAG stress에서 0.818× | C2의 data-near 장점 일부 확인 |
-| **Performance Latency — TPOT** | Emergency offload에서 악화 | KV offload/deferred path에서 headroom 감소 | 둘 다 보완 필요 |
-| **Resource Utilization** | **명확한 강점** — aggregate RUI 0.859 | aggregate RUI 0.753 | C1-R2 우세 영역이 명확 |
-| **Modifiability** | 재산정 필요 | 재산정 필요 | R2 구현 기준으로 다시 측정 |
-
-따라서 **C1과 C2의 Performance가 실제로 같다고 결론 내리면 안 된다.**  
-현재 strict-p99 QA suite가 두 후보의 target-domain Performance 차이를 충분히 관찰하지 못하고 있다는 것이 더 정확한 해석이다.
+이 방식이면 128K/512K long-context, HBM pressure shock, 8 TiB RAG처럼 실제로 발생 가능한 overload/stress 상황도 평가에서 사라지지 않는다.
 
 ---
 
