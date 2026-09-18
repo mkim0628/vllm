@@ -15,11 +15,13 @@ GROUPS={
   'overall': {
     'kv_b16_c32k','kv_b1_c32k_cold_cxl',
     'host_path_pressure_b64','data_mix_shift_b64',
-    'kv_b16_c32k_burst_chbm','rag_8tib_b64_ssd_pim',
+    'rag_8tib_b64_ssd_pim',
+    'kv_mispredict_dram_wait','moe_expert_skew_b256',
   },
   'neutral_control': {'kv_b16_c32k','kv_b1_c32k_cold_cxl'},
   'c1_target': {'host_path_pressure_b64','data_mix_shift_b64'},
-  'c2_target': {'kv_b16_c32k_burst_chbm','rag_8tib_b64_ssd_pim'},
+  'shared_static_affinity': {'rag_8tib_b64_ssd_pim','moe_expert_skew_b256'},
+  'c2_dynamic_target': {'kv_mispredict_dram_wait','moe_expert_skew_b256'},
 }
 
 def geom(xs):
@@ -79,8 +81,8 @@ def evaluate(rows,candidate,names):
 # Two common changes: add a memory tier/capability, add a new AI-data/operation class.
 MODIFIABILITY={
   'C1-R2-emergency-resource': {
-    'new_tier_modules':2,  # Memory Registry + Resource/Performance cost logic
-    'new_data_class_modules':1,  # static capability/cost rule only
+    'new_tier_modules':3,  # Memory Registry + Data-Memory Affinity Registry + cost logic
+    'new_data_class_modules':2,  # Affinity Registry + static capability/cost rule
     'per_object_behavior_state_fields':0,
   },
   'C2-R2-path-aware': {
@@ -115,6 +117,20 @@ def main():
       y=dict(x); y['star']=mod_score(x); y['avg_modules_changed']=(x['new_tier_modules']+x['new_data_class_modules'])/2
       summary['modifiability'][c]=y
 
+    c1rows=[r for r in rows if r['candidate']=='C1-R2-emergency-resource']
+    summary['c1_static_affinity']={
+      'mean_override_count': statistics.mean(
+          r.get('static_affinity_override_count',0) for r in c1rows),
+      'mean_candidate_evals': statistics.mean(
+          r.get('static_affinity_candidate_evals',0) for r in c1rows),
+      'rag_mean_override_count': statistics.mean(
+          r.get('static_affinity_override_count',0) for r in c1rows
+          if r['scenario']=='rag_8tib_b64_ssd_pim'),
+      'moe_mean_override_count': statistics.mean(
+          r.get('static_affinity_override_count',0) for r in c1rows
+          if r['scenario']=='moe_expert_skew_b256'),
+    }
+
     out=Path(__file__).resolve().parent/'out_v2_representative'; out.mkdir(exist_ok=True)
     with (out/'representative_runs.csv').open('w',newline='',encoding='utf-8') as f:
       w=csv.DictWriter(f,fieldnames=sorted(rows[0].keys()))
@@ -127,14 +143,15 @@ def main():
     lines=[
       '# DP1 Representative QA Evaluation',
       '',
-      '> 6 representative scenarios, 5 seeds, 5 load points, 3 candidates = **450 cells**.',
+      '> 7 representative scenarios, 5 seeds, 5 load points, 3 candidates = **525 cells**.',
       '> Serving SLO is not used. All stars are based on paired ratios vs As-Is.',
       '',
       '## Representative suite',
       '',
       '- Neutral/Control: `kv_b16_c32k`, `kv_b1_c32k_cold_cxl`',
       '- C1 Target / Resource Dynamics: `host_path_pressure_b64`, `data_mix_shift_b64`',
-      '- C2 Target / Data-Operation: `kv_b16_c32k_burst_chbm`, `rag_8tib_b64_ssd_pim`',
+      '- Shared Static Affinity: `rag_8tib_b64_ssd_pim`, `moe_expert_skew_b256`',
+      '- C2 Dynamic Target: `kv_mispredict_dram_wait`, `moe_expert_skew_b256`',
       '',
       '## QA table',
       '',
@@ -144,16 +161,20 @@ def main():
     spec=[
       ('Performance Throughput — Overall','overall','throughput'),
       ('Performance Throughput — C1 Target','c1_target','throughput'),
-      ('Performance Throughput — C2 Target','c2_target','throughput'),
+      ('Performance Throughput — Static Affinity','shared_static_affinity','throughput'),
+      ('Performance Throughput — C2 Dynamic Target','c2_dynamic_target','throughput'),
       ('Performance Latency — TTFT — Overall','overall','ttft'),
       ('Performance Latency — TTFT — C1 Target','c1_target','ttft'),
-      ('Performance Latency — TTFT — C2 Target','c2_target','ttft'),
+      ('Performance Latency — TTFT — Static Affinity','shared_static_affinity','ttft'),
+      ('Performance Latency — TTFT — C2 Dynamic Target','c2_dynamic_target','ttft'),
       ('Performance Latency — TPOT — Overall','overall','tpot'),
       ('Performance Latency — TPOT — C1 Target','c1_target','tpot'),
-      ('Performance Latency — TPOT — C2 Target','c2_target','tpot'),
+      ('Performance Latency — TPOT — Static Affinity','shared_static_affinity','tpot'),
+      ('Performance Latency — TPOT — C2 Dynamic Target','c2_dynamic_target','tpot'),
       ('Resource Utilization — Overall','overall','resource'),
       ('Resource Utilization — C1 Target','c1_target','resource'),
-      ('Resource Utilization — C2 Target','c2_target','resource'),
+      ('Resource Utilization — Static Affinity','shared_static_affinity','resource'),
+      ('Resource Utilization — C2 Dynamic Target','c2_dynamic_target','resource'),
     ]
     for label,g,m in spec:
       a=summary['groups'][g][c1][m]; b=summary['groups'][g][c2][m]
@@ -171,7 +192,9 @@ def main():
       '## Notes',
       '',
       '- C1 Target uses host-path pressure and data-mix shift because these directly exercise cross-tier resource-state adaptation; simple HBM shock/ramp cases that cause no placement change are not representative of the C1 mechanism.',
+      f"- C1 Data-Memory Affinity Registry changed the resource-only preferred tier on average **{summary['c1_static_affinity']['mean_override_count']:.1f}** times/run; RAG **{summary['c1_static_affinity']['rag_mean_override_count']:.1f}**, MoE **{summary['c1_static_affinity']['moe_mean_override_count']:.1f}**.",
       '- `rag_8tib_b64_ssd_pim` is an architecture stress/reference for data-near GEMV, not a claim about realistic production vector-DB latency.',
+      '- Static Affinity scenarios validate optimizations available to both C1 and C2; C2 Dynamic Target is reserved for behavior-dependent differentiation.',
       '- Representative scenarios are selected by mechanism coverage, not by post-hoc winner selection.',
     ]
     (out/'dp1-v2-representative-qa.md').write_text('\n'.join(lines),encoding='utf-8')
