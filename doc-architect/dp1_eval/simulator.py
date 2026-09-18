@@ -383,6 +383,8 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         out["emergency_count"]=getattr(policy,"emergency_count",0)
         out["emergency_migrations"]=getattr(policy,"emergency_migrations",0)
         out["emergency_blocked_by_perf"]=getattr(policy,"emergency_blocked_by_perf",0)
+        out["static_affinity_candidate_evals"]=getattr(policy,"static_affinity_candidate_evals",0)
+        out["static_affinity_override_count"]=getattr(policy,"static_affinity_override_count",0)
     else:
         out["fallback_count"]=0
         out["fallback_reason"]={}
@@ -398,4 +400,6 @@ def run_sim(system:SystemSpec,sc:Scenario,seed:int,candidate:str,load_scale:floa
         out["emergency_count"]=0
         out["emergency_migrations"]=0
         out["emergency_blocked_by_perf"]=0
+        out["static_affinity_candidate_evals"]=0
+        out["static_affinity_override_count"]=0
     return out
