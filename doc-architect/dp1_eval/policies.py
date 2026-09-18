@@ -71,7 +71,7 @@ class C1MemoryCentric:
     def observe_telemetry(self,telemetry):
         self.monitor.observe(telemetry)
 
-    def observe_runtime(self,obj,rate):
+    def observe_runtime(self,obj,access_count,now_s=None):
         pass
 
     def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
@@ -106,39 +106,128 @@ class DataClassifier:
         return (obj.type_hint or obj.data_class,obj.classification_confidence)
 
 class RuntimeStateMonitor:
-    """C2: object/class behavior history, independent of HW Telemetry."""
-    def __init__(self):
+    """C2: online observation of *actual* object accesses, not hidden workload truth.
+
+    The evaluator samples once per simulated second. Production can use the same
+    counters at a finer interval (for example 100 ms~1 s).
+    """
+    def __init__(self,alpha_rate=.18,alpha_reuse=.25):
+        self.alpha_rate=alpha_rate
+        self.alpha_reuse=alpha_reuse
         self.rate_ewma=defaultdict(float)
         self.samples=defaultdict(int)
+        self.last_access_s={}
+        self.reuse_interval_ewma={}
+        self.first_seen_s={}
+        self.clock_s=0.0
 
-    def observe(self,obj:DataObject,rate:float):
-        k=obj.oid; a=.18
-        self.rate_ewma[k]=(1-a)*self.rate_ewma[k]+a*rate
+    def observe(self,obj:DataObject,access_count:float,now_s:float|None=None):
+        k=obj.oid
+        now=float(self.clock_s+1 if now_s is None else now_s)
+        self.clock_s=max(self.clock_s,now)
+        self.first_seen_s.setdefault(k,now)
+
+        sample_rate=max(0.0,float(access_count))
+        if self.samples[k]==0:
+            self.rate_ewma[k]=sample_rate
+        else:
+            a=self.alpha_rate
+            self.rate_ewma[k]=(1-a)*self.rate_ewma[k]+a*sample_rate
+
+        if sample_rate>0:
+            if k in self.last_access_s:
+                interval=max(1e-3,now-self.last_access_s[k])
+                if k not in self.reuse_interval_ewma:
+                    self.reuse_interval_ewma[k]=interval
+                else:
+                    a=self.alpha_reuse
+                    self.reuse_interval_ewma[k]=(1-a)*self.reuse_interval_ewma[k]+a*interval
+            self.last_access_s[k]=now
         self.samples[k]+=1
 
     def stats(self,obj:DataObject):
-        return self.rate_ewma[obj.oid],self.samples[obj.oid]
+        k=obj.oid
+        last=self.last_access_s.get(k)
+        first=self.first_seen_s.get(k,self.clock_s)
+        return {
+            "rate":self.rate_ewma[k],
+            "samples":self.samples[k],
+            "reuse_interval_s":self.reuse_interval_ewma.get(k,float("inf")),
+            "idle_s":float("inf") if last is None else max(0.0,self.clock_s-last),
+            "age_s":max(0.0,self.clock_s-first),
+        }
+
 
 class DataCharacteristicInterpreter:
-    def __init__(self,monitor:RuntimeStateMonitor):
+    """Fuse DataClass prior with online observed behavior.
+
+    Cold start is prior-dominated. As samples accumulate, the prior weight decays
+    and object-level observations dominate.
+    """
+    def __init__(self,monitor:RuntimeStateMonitor,reuse_horizon_s=5.0):
         self.monitor=monitor
+        self.reuse_horizon_s=reuse_horizon_s
 
     def interpret(self,cls:str,obj:DataObject):
         p=DATA_PRIORS.get(cls,DATA_PRIORS["TOOL_RESULT"]).copy()
-        rate,n=self.monitor.stats(obj)
+        st=self.monitor.stats(obj)
+        n=st["samples"]
         if n:
-            observed=clamp(rate/.35)
-            p["observed_hotness"]=observed
-            # Class prior dominates cold-start, then decays as Runtime State history accumulates.
+            observed_hotness=clamp(st["rate"]/.35)
+            p["observed_hotness"]=observed_hotness
             prior_w=max(.15,math.exp(-n/6.0))
-            p["hotness"]=clamp(prior_w*p["hotness"]+(1-prior_w)*observed)
-            p["reuse"]=clamp(max(.25,prior_w)*p["reuse"]+(1-max(.25,prior_w))*observed)
+            p["hotness"]=clamp(prior_w*p["hotness"]+(1-prior_w)*observed_hotness)
+
+            interval=st["reuse_interval_s"]
+            if math.isfinite(interval):
+                reuse_prob=1-math.exp(-self.reuse_horizon_s/max(1e-3,interval))
+                p["reuse"]=clamp(prior_w*p["reuse"]+(1-prior_w)*reuse_prob)
+                p["next_reuse_s"]=interval
+            else:
+                p["next_reuse_s"]=float("inf")
+
+            # Surviving for a long time is direct evidence that lifetime is not short.
+            lifetime_obs=clamp(st["age_s"]/60.0)
+            p["lifetime"]=clamp(prior_w*p["lifetime"]+(1-prior_w)*max(p["lifetime"],lifetime_obs))
+            p["idle_s"]=st["idle_s"]
         else:
             p["observed_hotness"]=p["hotness"]
+            p["next_reuse_s"]=float("inf")
+            p["idle_s"]=float("inf")
+
         if cls==obj.data_class:
             p["latency"]=obj.latency_sensitivity
             p["write"]=obj.write_ratio
         return p
+
+
+class HBMReliefEstimator:
+    """Small resource-only predictor used *only* by C2 fallback/deferred promotion.
+
+    This does not become C2's primary placement signal; it answers one question:
+    "if I stage in DRAM, is HBM likely to become safe before the next reuse?"
+    """
+    def __init__(self,window=8,low_watermark=.72):
+        self.hist=deque(maxlen=window)
+        self.low=low_watermark
+
+    def observe(self,telemetry:dict[str,Telemetry]):
+        h=telemetry["hbm"]
+        self.hist.append(max(h.capacity_util,h.bw_util))
+
+    def seconds_to_relief(self):
+        if not self.hist:
+            return float("inf")
+        current=self.hist[-1]
+        if current<=self.low:
+            return 0.0
+        if len(self.hist)<3:
+            return float("inf")
+        slope=(self.hist[-1]-self.hist[0])/max(1,len(self.hist)-1)
+        if slope>=-0.005:
+            return float("inf")
+        return max(0.0,(current-self.low)/(-slope))
+
 
 class MemoryTierAffinityEvaluator:
     def __init__(self,system:SystemSpec):
@@ -201,14 +290,15 @@ class MemoryTierAffinityEvaluator:
         return score
 
 class SafeFallbackSelector:
-    """Conservative path used when C2 classification/prediction is uncertain or infeasible."""
+    """Conservative C2 recovery including deferred HBM promotion through DRAM."""
     def __init__(self,system:SystemSpec):
         self.system=system
 
     def _headroom(self,m:MemorySpec,t:Telemetry,cap_mult:float):
         return m.capacity_bytes*cap_mult*(1-min(1,t.capacity_util))
 
-    def choose(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
+    def decide(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float,
+               characteristics:dict|None=None,seconds_to_hbm_relief:float=float("inf")):
         feasible=[m for m in self.system.memories.values()
                   if self._headroom(m,telemetry[m.name],cap_mult)>=obj.size_bytes]
         if not feasible:
@@ -216,8 +306,27 @@ class SafeFallbackSelector:
 
         if obj.data_class=="KV_CACHE":
             hbm=self.system.memories["hbm"]
-            if hbm in feasible and telemetry["hbm"].capacity_util<.88 and telemetry["hbm"].bw_util<.88:
-                return "hbm"
+            hbm_healthy=(hbm in feasible and telemetry["hbm"].capacity_util<.88
+                         and telemetry["hbm"].bw_util<.88)
+            if hbm_healthy:
+                return "hbm","immediate_hbm"
+
+            # Option A: stage cold/non-imminent KV in DRAM and wait for HBM relief.
+            dram=self.system.memories["dram"]
+            ch=characteristics or {}
+            next_reuse=float(ch.get("next_reuse_s",float("inf")))
+            promote_s=obj.size_bytes/max(1.0,min(dram.ext_bw,self.system.gpu_hbm_bw))
+            wait_path_s=seconds_to_hbm_relief+promote_s
+            dram_feasible=(dram in feasible)
+
+            # If promotion is expected to finish before the next reuse, waiting in DRAM
+            # adds no predicted critical-path delay and can beat remote execution.
+            if (dram_feasible and math.isfinite(seconds_to_hbm_relief)
+                    and seconds_to_hbm_relief<=30.0
+                    and next_reuse>wait_path_s+0.05):
+                return "dram","deferred_hbm_promotion"
+
+            # Option B: execute Attention where KV resides, if TPOT budget allows.
             off=[]
             for m in feasible:
                 if not m.attention_capable:
@@ -226,21 +335,25 @@ class SafeFallbackSelector:
                 if step<=.050:
                     off.append((step,m.name))
             if off:
-                return min(off)[1]
-            # Storage-only fallback: choose fastest path; simulator restores before decode.
-            return max(feasible,key=lambda m:m.ext_bw).name
+                return min(off)[1],"remote_attention"
+
+            # Option C: storage/staging tier; restore to HBM on next use.
+            # DRAM is preferred over flash because its restore path is predictable.
+            if dram_feasible:
+                return "dram","restore_on_access"
+            return max(feasible,key=lambda m:m.ext_bw).name,"restore_on_access"
 
         if obj.data_class=="RAG_DATA":
             ranked=[(self.system.rag_retrieval_s(obj.size_bytes,obj.batch_size,m.name,obj.retrieval_dim),m.name)
                     for m in feasible]
-            return min(ranked)[1]
+            return min(ranked)[1],"rag_cost_min"
 
-        # Generic safe path for long-lived state.
         preferred=["hbm","hbf","dram","cxl_pnm","ssd_pim","custom_hbm"]
         for name in preferred:
             if any(m.name==name for m in feasible):
-                return name
-        return feasible[0].name
+                return name,"generic_safe"
+        return feasible[0].name,"generic_safe"
+
 
 class C2DataCentric:
     name="C2-data-centric"
@@ -251,17 +364,49 @@ class C2DataCentric:
         self.interpreter=DataCharacteristicInterpreter(self.runtime)
         self.aff=MemoryTierAffinityEvaluator(system)
         self.fallback=SafeFallbackSelector(system)
+        self.hbm_relief=HBMReliefEstimator()
+        self.deferred_hbm=set()
+        self.deferred_stage_count=0
+        self.deferred_promotion_count=0
         self.decision_ops=0
         self.fallback_count=0
         self.fallback_reason=defaultdict(int)
 
     def observe_telemetry(self,telemetry):
-        pass
+        self.hbm_relief.observe(telemetry)
 
-    def observe_runtime(self,obj,rate):
-        self.runtime.observe(obj,rate)
+    def observe_runtime(self,obj,access_count,now_s=None):
+        self.runtime.observe(obj,access_count,now_s)
+
+    def should_reevaluate(self,obj:DataObject,telemetry:dict[str,Telemetry]):
+        if obj.oid not in self.deferred_hbm:
+            return False
+        h=telemetry["hbm"]
+        return h.capacity_util<=.72 and h.bw_util<=.72
+
+    def _fallback_place(self,obj,telemetry,cap_mult,ch,reason):
+        self.fallback_count+=1
+        self.fallback_reason[reason]+=1
+        tier,mode=self.fallback.decide(
+            obj,telemetry,cap_mult,ch,self.hbm_relief.seconds_to_relief())
+        if mode=="deferred_hbm_promotion":
+            if obj.oid not in self.deferred_hbm:
+                self.deferred_stage_count+=1
+            self.deferred_hbm.add(obj.oid)
+        elif tier!="dram":
+            self.deferred_hbm.discard(obj.oid)
+        return tier
 
     def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
+        # A staged object is promoted once HBM crosses the low watermark.
+        if obj.oid in self.deferred_hbm and self.should_reevaluate(obj,telemetry):
+            hbm=self.system.memories["hbm"]
+            headroom=hbm.capacity_bytes*cap_mult*(1-min(1,telemetry["hbm"].capacity_util))
+            if headroom>=obj.size_bytes:
+                self.deferred_hbm.discard(obj.oid)
+                self.deferred_promotion_count+=1
+                return "hbm"
+
         cls,confidence=self.classifier.classify(obj)
         ch=self.interpreter.interpret(cls,obj)
         scored=[]
@@ -278,12 +423,10 @@ class C2DataCentric:
             scored.append((score,m.name))
 
         if not scored:
-            self.fallback_count+=1; self.fallback_reason["no_capacity_candidate"]+=1
-            return self.fallback.choose(obj,telemetry,cap_mult)
+            return self._fallback_place(obj,telemetry,cap_mult,ch,"no_capacity_candidate")
 
         scored.sort(reverse=True)
-        best_score,best=scored[0]
-        gap=(best_score-scored[1][0]) if len(scored)>1 else 1.0
+        _,best=scored[0]
         selected=self.system.memories[best]
 
         reason=None
@@ -295,20 +438,19 @@ class C2DataCentric:
             if self.system.decode_step_s(obj.context_tokens,obj.batch_size,best)>.050:
                 reason="predicted_tpot_violation"
         elif cls=="RAG_DATA":
-            # If retrieval path is extremely slow, use the conservative cost-minimizing path.
             if self.system.rag_retrieval_s(obj.size_bytes,obj.batch_size,best,obj.retrieval_dim)>2.0:
                 reason="predicted_first_response_violation"
 
-        # Runtime mismatch catches high-confidence wrong hints after observations accumulate.
-        _,samples=self.runtime.stats(obj)
+        st=self.runtime.stats(obj)
         prior=DATA_PRIORS.get(cls,DATA_PRIORS["TOOL_RESULT"])["hotness"]
-        if confidence<.90 and samples>=4 and abs(ch["observed_hotness"]-prior)>.45:
+        if confidence<.90 and st["samples"]>=4 and abs(ch["observed_hotness"]-prior)>.45:
             reason=reason or "runtime_behavior_mismatch"
 
         if reason:
-            self.fallback_count+=1
-            self.fallback_reason[reason]+=1
-            return self.fallback.choose(obj,telemetry,cap_mult)
+            return self._fallback_place(obj,telemetry,cap_mult,ch,reason)
+
+        if best!="dram":
+            self.deferred_hbm.discard(obj.oid)
         return best
 
 
@@ -324,7 +466,7 @@ class AsIsHBMFirst:
     def observe_telemetry(self,telemetry):
         pass
 
-    def observe_runtime(self,obj,rate):
+    def observe_runtime(self,obj,access_count,now_s=None):
         pass
 
     def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
