@@ -880,8 +880,17 @@ class C1MemoryCentricR2(C1MemoryCentric):
                 min(obj.size_bytes,obj.access_bytes*obj.batch_size)/
                 max(1.0,m.ext_bw))
             ttft=prefill+transfer+migration
-            tpot=hbm_tpot
-            service=max(hbm_service,transfer/max(1,obj.output_tokens))
+
+            # LoRA/MoE remote accesses are on the decode critical path.
+            # Mirror the simulator's execution-cost model so the guard does not
+            # mistake resource relief for a free performance win.
+            if obj.data_class in ("LORA_ADAPTER","MOE_EXPERT") and m.name!="hbm":
+                remote_per_token=transfer/max(1,obj.output_tokens)
+                tpot=hbm_tpot+remote_per_token
+                service=max(hbm_service,tpot)
+            else:
+                tpot=hbm_tpot
+                service=max(hbm_service,transfer/max(1,obj.output_tokens))
 
         # Current resource pressure affects effective service cost, but no SLO is used.
         pressure=max(
@@ -892,7 +901,7 @@ class C1MemoryCentricR2(C1MemoryCentric):
             "tier":m.name,
             "service_s":service*pressure_mult,
             "ttft_s":ttft*pressure_mult,
-            "tpot_s":tpot,
+            "tpot_s":tpot*pressure_mult,
         }
 
     def _relative_cost(self,path,base):
