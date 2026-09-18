@@ -2,7 +2,7 @@
 
 > 목적: 23개 전체 시나리오의 평균으로 Architecture 차이가 희석되는 문제를 피하고, **각 구조의 핵심 mechanism을 대표하는 소수 시나리오**만으로 QA를 다시 본다.
 >
-> Source data: latest SLO-independent V2 raw run (`35335718071`).
+> Source run: GitHub Actions `35372527324` — representative evaluator completed successfully.
 >
 > 별도 evaluator: `run_v2_representative.py` — 6 scenarios × 5 seeds × 5 loads × 3 candidates = **450 cells**.
 >
@@ -59,7 +59,7 @@
 
 | QA | C1-R2 | C2-R2 | 정량 근거 — As-Is 대비 |
 |---|:---:|:---:|---|
-| **Performance Throughput — Overall** | **★★☆** | **★★☆** | C1 **0.963×** [0.932, 1.003], C2 **1.005×** [0.987, 1.024] |
+| **Performance Throughput — Overall** | **★★☆** | **★★☆** | C1 **0.963×** [0.929, 0.999], C2 **1.005×** [0.987, 1.024] |
 | **Performance Throughput — C1 Target** | **★★☆** | **★★☆** | C1 **0.988×** [0.972, 1.005], C2 **1.000×** [1.000, 1.000] |
 | **Performance Throughput — C2 Target** | **★★☆** | **★★☆** | C1 **0.905×** [0.818, 1.000], C2 **1.016×** [0.960, 1.075] |
 | **Performance Latency — TTFT — Overall** | **★★☆** | **★★★** | C1 **0.986×** [0.930, 1.044], C2 **0.534×** [0.342, 0.835] |
