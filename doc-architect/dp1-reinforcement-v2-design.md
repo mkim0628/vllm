@@ -11,8 +11,8 @@
 
 ## C1-R2
 
-> **Resource 상태를 보고 가장 좋은 Memory Tier를 선택한다.  
-> 단, HBM pressure가 Emergency 수준이어도 As-Is/현재 Path보다 성능이 크게 나빠지는 이동은 Performance Guard가 차단한다.**
+> **Resource 상태를 1차 기준으로 Memory Tier를 선택하되, Data-Memory Affinity Registry의 deterministic AI-data hint를 함께 사용한다.  
+> HBM pressure가 Emergency 수준이어도 As-Is/현재 Path보다 성능이 크게 나빠지는 이동은 Performance Guard가 차단한다.**
 
 ## C2-R2
 
@@ -34,37 +34,67 @@
 ```mermaid
 flowchart TB
 
-    subgraph RM["① Memory Resource Manager"]
+    subgraph IN["① Input"]
+        DD["Data Descriptor<br/>Type / Size / Required Op"]
         TC["Telemetry Collector<br/>Capacity / BW"]
-        RSM["Resource State Monitor<br/>Current + Near-future Pressure"]
-        MR["Memory Registry<br/>Capacity / BW / Latency / Capability"]
     end
 
-    subgraph PP["② Resource-aware Placement Planner"]
-        RUE["Resource Utility Evaluator<br/>Headroom + BW + Latency + Migration Cost"]
+    subgraph RM["② Memory Resource Manager"]
+        RSM["Resource State Monitor<br/>Current + Near-future Pressure"]
+        MR["Memory Registry<br/>Capacity / BW / Latency / Capability"]
+        AR["Data-Memory Affinity Registry<br/>Deterministic Data↔Tier Rules"]
+    end
+
+    subgraph PP["③ Resource-aware Placement Planner"]
+        CB["Candidate Builder<br/>Resource + Static Affinity"]
+        RUE["Resource Utility Evaluator<br/>Headroom + BW + Cost + Affinity"]
         PG["Performance Guard<br/>Candidate Path vs Current / HBM Path"]
         EPP["Emergency Pressure Policy<br/>High Watermark + Pressure Relief"]
     end
 
-    subgraph OUT["③ Placement Output"]
+    subgraph OUT["④ Placement Output"]
         PD["Placement Decision"]
     end
 
+    DD --> AR
     TC --> RSM
+
+    RSM --> CB
+    MR --> CB
+    AR --> CB
+
+    CB --> RUE
     RSM --> RUE
     MR --> RUE
+    AR --> RUE
 
     RUE --> PG
     RSM --> EPP
-    MR --> EPP
     PG --> EPP
 
     PG --> PD
-    EPP -. "Emergency일 때만 override" .-> PD
+    EPP -. "Emergency only" .-> PD
 ```
 
 
-## 2.1 Resource Utility Evaluator
+## 2.1 Data-Memory Affinity Registry
+
+C1도 AI Data에 대해 명백하게 고정할 수 있는 deterministic domain knowledge는 사용한다.
+
+예:
+
+- `RAG_DATA + GEMV` → SSD-PIM affinity 상승
+- `MOE_EXPERT` → HBM 우선, pressure 시 HBF spill affinity 상승
+- `LORA_ADAPTER` → HBM/HBF/DRAM 후보
+- Active `KV_CACHE` → HBM / Attention-capable memory 우선
+
+이 Registry는 object access history를 학습하거나 Hotness/Reuse/Lifetime을 예측하지 않는다. **정적인 Data↔Memory 적합성 rule을 관리**할 뿐이다.
+
+따라서 C1은 obvious한 AI-specific optimization을 지원하지만, 같은 Data Type 내부에서 object별 runtime behavior에 따라 placement를 달리하는 것은 C2의 책임이다.
+
+---
+
+## 2.2 Resource Utility Evaluator
 
 별도의 `Placement Stability Guard`는 두지 않는다.
 
@@ -79,7 +109,7 @@ Candidate Utility
 따라서 새 Tier가 조금 좋아졌다는 이유만으로 바로 migration하지 않는다.
 
 
-## 2.2 Performance Guard
+## 2.3 Performance Guard
 
 C1-R2도 C2-R2와 동일하게 **“옮길 수 있는가?”뿐 아니라 “옮기면 실제로 더 느려지는가?”**를 확인한다.
 
@@ -128,7 +158,7 @@ C2와의 차이는 **Guard의 원칙은 같지만 판단 정보가 다르다**�
 
 ---
 
-## 2.3 Emergency Pressure란?
+## 2.4 Emergency Pressure란?
 
 쉽게 말하면:
 
@@ -161,7 +191,7 @@ Emergency에서 정책 자체가 바뀐다는 것이 핵심이다.
 
 ---
 
-## 2.4 Minimum-cost Pressure Relief
+## 2.5 Minimum-cost Pressure Relief
 
 Emergency라고 해서 많은 Data를 한꺼번에 내리지 않는다.
 
@@ -471,9 +501,10 @@ NO_PHYSICAL_CAPACITY
 | | C1-R2 | C2-R2 |
 |---|---|---|
 | 핵심 판단 | Resource 상태 | Data + Operation + Resource |
-| Data Type | 사용 안 함 | Deterministic |
-| Runtime behavior | 사용 안 함 | Hotness / Reuse / Lifetime |
-| Data-near Compute | 제한적 | **핵심 장점** |
+| Data Type | **Deterministic descriptor 사용** | Deterministic |
+| Static Data-Memory Affinity | **사용** | 사용 가능 |
+| Runtime behavior | 사용 안 함 | **Hotness / Reuse / Lifetime** |
+| Data-near Compute | **Deterministic mapping까지 지원** | **Runtime behavior까지 결합** |
 | Migration Cost | Resource Utility 안에서 고려 | Path Cost 안에서 고려 |
 | High HBM Pressure | **Emergency Pressure Policy + Performance Guard** | Path Cost + Performance Guard |
 | Lifecycle 활용 | 없음 | **DRAM Stage / Deferred Promotion** |
@@ -524,8 +555,8 @@ Architecture selection은 **얻는 capability와 지불하는 complexity의 trad
 | Monitoring / State overhead | **낮음** | 높음 |
 | Prediction dependency | **낮음** | 높음 |
 | Resource pressure 대응 | **직접적** | Data context를 포함해 선택적 |
-| Data-specific optimization | 제한적 | **강함** |
-| Near-memory / PIM 활용 | 제한적 | **강함** |
+| Data-specific optimization | **Static rule 수준 지원** | **Runtime-adaptive까지 지원** |
+| Near-memory / PIM 활용 | **Deterministic use-case 지원** | **Behavior-aware 선택까지 확장** |
 | 새로운 AI Data별 정책 확장 | 공통 Resource 기준으로 단순 | **Data semantics를 반영 가능** |
 | 운영 단순성 / Robustness | **강점** | Guard가 필요 |
 | 최적화 potential | 제한적 | **강점** |
@@ -541,7 +572,7 @@ DP1은 일반적인 Memory Tier balancer가 아니라 **AI Data Placement archit
 - KV / RAG / Agent / LoRA / MoE의 Data behavior가 서로 다름
 - Memory Tier별 Compute Capability가 서로 다름
 - Placement가 Access/Execution Mode와 연결됨
-- Data-near Compute를 쓸지 말지를 Resource 상태만으로는 충분히 판단하기 어려움
+- C1도 deterministic Data-near use-case는 지원하지만, 같은 Data Type 내부의 runtime behavior 차이까지 반영하려면 C2가 필요함
 - Runtime Data behavior를 활용하면 Stage / Restore / Near-compute 같은 선택을 더 세밀하게 할 수 있음
 
 반대로 C1-R2의 장점도 명확하다.
