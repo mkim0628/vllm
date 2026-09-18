@@ -110,7 +110,7 @@ def scenarios():
     # Robustness/coverage: excluded from normal QA scoring by run_eval.
     add(Scenario("classifier_error","40% wrong type hints; validates C2 fallback/recovery.",{
         "KV_CACHE":.35,"RAG_DATA":.25,"AGENT_MEMORY":.20,"TOOL_RESULT":.10,"LORA_ADAPTER":.10},
-        131072,72,64,40,1.1,misclass_rate=.40,rag_index_total_gib=1024,
+        32768,72,16,40,.9,misclass_rate=.40,rag_index_total_gib=512,
         target_tiers=("hbm","custom_hbm","cxl_pnm","dram","hbf","ssd_pim")))
     add(Scenario("six_tier_capacity_stress","Capacity ladder intentionally exercises all six memories.",{
         "KV_CACHE":.30,"RAG_DATA":.25,"AGENT_MEMORY":.20,"TOOL_RESULT":.10,"LORA_ADAPTER":.08,"MOE_EXPERT":.07},
