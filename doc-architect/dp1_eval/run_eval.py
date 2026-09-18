@@ -18,6 +18,7 @@ CANDIDATES=("As-Is-HBM-first","C1-memory-centric","C2-data-centric")
 LOAD_SCALES=(0.25,0.50,0.75,1.00,1.25)
 ROBUSTNESS={
     "classifier_error":"fault injection: wrong DataDescriptor type hints",
+    "kv_mispredict_dram_wait":"recovery test: prediction error + HBM relief + DRAM deferred promotion",
     "six_tier_capacity_stress":"coverage stress: force all six tiers",
 }
 
@@ -135,6 +136,8 @@ def aggregate(rows,candidate,mod):
       "migration_count_mean":statistics.mean(r["migration_count"] for r in nominal),
       "decision_us_avg":statistics.mean(r["decision_us_avg"] for r in nominal),
       "fallback_count_mean":statistics.mean(r.get("fallback_count",0) for r in nominal),
+      "deferred_stage_count_mean":statistics.mean(r.get("deferred_stage_count",0) for r in nominal),
+      "deferred_promotion_count_mean":statistics.mean(r.get("deferred_promotion_count",0) for r in nominal),
       "stars":{
         "performance_throughput":throughput_star,
         "latency_first_response":star_first_response(ttft),
@@ -232,6 +235,8 @@ def write_report(path,summary):
       ("migration_count_mean","Migration decisions/run"),
       ("decision_us_avg","Placement decision proxy [us]"),
       ("fallback_count_mean","Fallback count/run"),
+      ("deferred_stage_count_mean","DRAM deferred-stage count/run"),
+      ("deferred_promotion_count_mean","Deferred HBM promotion count/run"),
     ]:
         lines.append(f"| {label} | {a['As-Is-HBM-first'][key]:.4f} | {a['C1-memory-centric'][key]:.4f} | {a['C2-data-centric'][key]:.4f} |")
 
@@ -248,7 +253,7 @@ def write_report(path,summary):
       "","## 4. Operation-aware cases","",
       "- **KV on CXL-PNM / Custom HBM:** Attention(QK/Softmax/AV/Causal Mask)은 memory-side에서 수행하고 FFN/model-weight path는 GPU에 남긴다. 매 token/layer activation round-trip과 external-link contention을 포함한다.",
       "- **RAG on SSD-PIM:** 현재 registry의 `QK_GEMM`은 local dot-product에만 사용한다. `TOPK` primitive가 없으므로 full in-storage search로 과대 가정하지 않고 score-result transfer를 포함한다.",
-      "- **C2 fallback:** low classifier confidence, low affinity margin, unsupported operation, predicted latency violation, runtime-behavior mismatch에서 SafeFallbackSelector로 전환한다.",
+      "- **C2 fallback:** low classifier confidence, unsupported operation, predicted latency violation, runtime-behavior mismatch에서 SafeFallbackSelector로 전환한다. HBM pressure가 내려갈 것으로 예측되고 next reuse가 더 늦으면 DRAM에 stage한 뒤 low-watermark에서 HBM으로 promotion하는 경로도 비교한다.",
       "","## 5. Scenario trade-offs","",
       "| Scenario | B | Ctx | C1/As-Is | C2/As-Is | C2/C1 | C1 TTFT | C2 TTFT | C1 TPOT | C2 TPOT |",
       "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
