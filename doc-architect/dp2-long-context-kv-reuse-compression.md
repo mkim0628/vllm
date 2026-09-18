@@ -94,57 +94,7 @@ Attention Processing Cost ↓
 - 단, 실제로 중요한 KV를 잘못 Evict할 경우 모델 출력 품질이 저하될 수 있음
 - 따라서 단순한 용량 확보가 아니라 **Accuracy 영향을 최소화하면서 최대한 많은 Token KV를 Evict하는 구조**가 필요
 
-### 2.4 Long Context에서는 Prefill이 TTFT의 지배적인 비용이 된다
-
-누적 Context가 길어지면 KV Capacity뿐 아니라 첫 Token을 생성하기 전에 전체 입력을 처리하는 Prefill 시간도 증가한다.
-
-```text
-Context Length 증가
-        ↓
-Prefill 연산량 증가
-        ↓
-TTFT 증가
-```
-
-따라서 Long Context Serving에서는 동일하거나 반복되는 Context에 대한 Prefill을 다시 수행하지 않는 것이 중요하다.
-
-### 2.5 Prefix Caching만으로는 중간에 반복되는 Chunk를 재사용할 수 없다
-
-Prefix Caching은 Prompt의 처음부터 Token Sequence가 일치하는 구간의 KV를 직접 재사용한다. 하지만 Agent/RAG Workload에서는 동일한 문서, File Read 결과 또는 Tool Result Chunk가 다른 순서나 다른 앞선 Context와 함께 사용될 수 있다.
-
-예를 들어 기존에는 다음 순서로 Chunk가 사용되었다고 하자.
-
-```text
-Cached Context:  Chunk 1 → Chunk 2 → Chunk 3
-New Prompt:      Chunk 3 → Chunk 2 → Chunk 1
-```
-
-각 Chunk의 내용은 같지만 새 Prompt에서의 위치와 앞선 Context가 달라진다. 따라서 중간 Chunk의 사전 계산 KV를 그대로 붙이면 Chunk 간 Cross-attention이 반영되지 않는다.
-
-이를 해결하려면:
-
-- 각 Chunk를 독립적으로 식별하고 KV를 조회한다.
-- Prefix에 포함된 Chunk는 그대로 재사용한다.
-- Prefix 밖에서 Hit한 Chunk는 저장 KV를 기반으로 사용하되, 새 Context 때문에 달라져야 하는 일부 Token KV를 Selective Recompute한다.
-- Cache Miss Chunk는 Full Prefill한다.
-
-### 2.6 Non-prefix KV Reuse는 Prefill을 줄이지만 KV 저장량을 증가시킨다
-
-더 많은 Chunk KV를 저장할수록 반복 Chunk의 Prefill을 피할 가능성은 커진다. 그러나 Long Context와 많은 재사용 Chunk가 결합되면 저장해야 할 KV Cache도 지속적으로 증가한다.
-
-```text
-Non-prefix KV 저장 확대
-        ├─ Prefill Reuse 증가
-        └─ KV Memory Footprint 증가
-
-Long Context × Chunk 수 × 동시 Request 수
-        ↓
-Given Memory Budget 초과
-```
-
-DP1이 HBM, DRAM, CXL Memory, SSD 등으로 KV를 적절히 배치하더라도 전체 Context의 KV 크기가 가용 Memory보다 커지면 배치만으로 해결할 수 없다. 이 경우 KV 자체의 크기를 줄여야 한다.
-
-### 2.7 본 문서에서 Eviction은 Token-level KV Reduction을 의미한다
+### 2.4 본 문서에서 Eviction은 Token-level KV Reduction을 의미한다
 
 본 DP에서 `KV Eviction`은 다음 동작이 아니다.
 
@@ -162,7 +112,7 @@ After:    50-token Chunk KV retained
 
 하위 Memory Tier로의 이동은 DP1의 Placement 문제이고, 본 DP의 Token eviction은 전체 Memory Footprint와 Attention 대상 KV 수를 실제로 줄인다. 이 과정은 Lossy할 수 있으므로 모델 Accuracy 검증이 필수다.
 
-### 2.8 문제 정의 및 핵심 질문
+### 2.5 문제 정의 및 핵심 질문
 
 > **Long Context 환경에서 Accuracy 영향을 최소화하면서 KV Capacity 및 처리 비용을 절감하기 위해, Attention 중요도에 기반하여 Eviction할 Token KV를 결정하는 구조가 필요하다. 동시에 Prefix가 아닌 위치에서 반복되는 Chunk KV를 Selective Recompute하여 재사용함으로써 Prefill과 TTFT를 줄여야 한다.**
 
