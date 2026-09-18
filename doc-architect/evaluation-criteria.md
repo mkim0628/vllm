@@ -1,6 +1,8 @@
-# 평가 기준 (DP1 · DP2 · DP3 공통)
+# 평가 기준 (DP1 · DP2 · DP3 · DP4 공통)
 
-> **세 DP가 같은 QA를 같은 기준으로 매기기 위한 문서다.** 후보 비교 문서(`dp*-…-results.md`)는 여기서 정의한 Reference Configuration과 별점 기준만 인용하고, 자체 기준을 만들지 않는다.
+> **DP1~DP4가 같은 QA를 같은 기준으로 매기기 위한 문서다.** 후보 비교 문서(`dp*-…-results.md`)는 여기서 정의한 Reference Configuration과 별점 기준만 인용하고, 자체 기준을 만들지 않는다.
+>
+> 최종 별점 QA는 네 가지로 고정한다: **Performance Throughput / Performance Latency / Resource Utilization / Modifiability**. 아래의 이동 바이트·에너지·Flexibility 등은 원인 분석을 위한 보조 metric이며 별도의 최종 QA 별점을 만들지 않는다.
 
 ---
 
@@ -141,7 +143,32 @@ TPS  = 배치 ÷ TPOT
 | ★★☆ | 0.5 ~ 1.0× SLO | 25 ~ 50 ms | 여유 없음 |
 | ★★★ | ≤ 0.5× SLO | ≤ 25 ms | 부하가 두 배가 되어도 SLO를 지킨다 |
 
-### 3.4 Efficiency — 토큰당 이동 바이트 (M-R1)
+### 3.4 Performance — Latency 최종 별점
+
+Performance Latency의 최종 별점은 TTFT와 TPOT 중 **더 낮은 별점**을 사용한다.
+
+```
+Latency Star = min(TTFT Star, TPOT Star)
+```
+
+이 규칙은 DP1~DP4에 동일하게 적용한다. E2E Latency는 원인 분석용 보조 지표로 함께 보고하되 최종 별점의 별도 축을 만들지 않는다.
+
+### 3.5 Resource Utilization
+
+DP마다 자원 종류는 다르므로(HBM/Memory Tier, GPU/CPU, Link 등) raw metric은 각 DP 문서에서 정의하되, 최종 별점은 공통의 **Resource Utilization Index (RUI, 0~1)** 로 정규화한다.
+
+- 각 DP는 문서에 정의된 resource metric을 0~1 utility로 변환하고 가중치를 명시한다.
+- 1.0은 목표 활용 상태, 0은 심한 saturation / capacity pressure / 자원 낭비를 뜻한다.
+- 원시 수치(HBM Capacity, BW, Tier, CPU/GPU/Link utilization)는 반드시 함께 보고한다.
+- 후보에 유리하도록 사후에 utility 함수나 가중치를 바꾸지 않는다.
+
+| 별점 | RUI | 근거 |
+|---|---:|---|
+| ★☆☆ | < 0.65 | saturation/pressure 또는 심한 자원 낭비가 반복됨 |
+| ★★☆ | 0.65 ~ 0.85 | 실용 가능하나 headroom/균형에 제약이 있음 |
+| ★★★ | ≥ 0.85 | 목표 utilization/headroom을 대부분의 평가 구간에서 유지 |
+
+### 3.6 Efficiency — 토큰당 이동 바이트 (M-R1)
 
 ```
 (결정 A/B 재배치 + Mode B 복원 바이트) ÷ SLO 만족 출력 토큰
@@ -154,7 +181,7 @@ TPS  = 배치 ÷ TPOT
 | ★★☆ | 10 MB ~ 1 GB/tok | — |
 | ★★★ | ≤ 10 MB/tok | 기준 셀의 세션 KV(40 GiB)의 1/4000 이하 |
 
-### 3.5 Efficiency — 토큰당 에너지 (M-R2)
+### 3.7 Efficiency — 토큰당 에너지 (M-R2)
 
 ```
 정적 = Σ(컴포넌트 TDP × 점유 시간)    동적 = Σ(링크 바이트 × 5.0 pJ/bit)
@@ -168,7 +195,7 @@ TPS  = 배치 ÷ TPOT
 
 > **절대값은 신뢰하지 말 것.** TDP는 첨두값이고 Attention 외 연산의 점유가 완전히 모델링되지 않았다. **정책 간 상대 비교로만 쓴다.** 측정에서 이동 에너지는 전체의 0.02% 미만이었다 — 에너지 차이는 거의 전부 **점유 시간** 차이에서 온다.
 
-### 3.6 Flexibility (M-F1)
+### 3.8 Flexibility (M-F1)
 
 **"지원했는가"가 아니라 "옳게 판단했는가".** 신규 메모리를 투입하고 오라클(실제로 Goodput이 늘었는가)과 정책의 판단(배치했는가)을 대조한다.
 
@@ -187,9 +214,14 @@ M-F1 정확도 = (TP+TN)/N    M-F1b 오용률 = FP/(FP+TN)    M-F1c 기회손실
 
 > **정확도만 보면 안 된다.** 아무것도 안 쓰는 정책은 오용률 0이지만 기회손실 1이다. 셋을 함께 읽는다. 오라클에 유익한 투입이 하나도 없으면(`oracle_has_positive: false`) 이 실험은 "회피 능력"만 재므로 Flexibility 측정으로 인용할 수 없다.
 
-### 3.7 Modifiability (ISO/IEC 25010)
+### 3.9 Modifiability (ISO/IEC 25010)
 
-변경 과제 4종(신규 메모리 / step 예산 조건 / 이동 예산 / 신규 재활성 모드)을 고정하고 두 단위로 잰다.
+DP1~DP4에서 동일한 변경 archetype 4종을 고정하고 두 단위로 잰다.
+
+1. **New Resource Type** — 신규 Memory/Compute/Link 등 resource type 추가
+2. **New Workload/Data/Operation Type** — DP가 해석해야 하는 신규 data/workload/operation 추가
+3. **New Constraint/SLO** — latency, capacity, movement budget 등 새 제약 추가
+4. **New Execution/Decision Mode** — 새 placement/eviction/migration/execution mode 추가
 
 - **Man-month** — COCOMO II **Reuse/Reengineering** 모델. 변경 비율(DM/CM/IM)을 입력으로 받으므로 LoC→노력 환산의 순환 논리를 피한다. SU(Software Understanding)는 측정된 순환복잡도에서 유도한다 (McCabe/NIST 구간: ≤10 → 20, 11~20 → 30, >20 → 40).
 - **토큰** — 읽어야 하는 코드 + 써야 하는 코드. 3.6 char/token 근사 (후보 간 비교에서 약분).
@@ -200,13 +232,13 @@ M-F1 정확도 = (TP+TN)/N    M-F1b 오용률 = FP/(FP+TN)    M-F1c 기회손실
 | ★★☆ | 0.25 ~ 1.0 PM | 20K ~ 50K | — |
 | ★★★ | ≤ 0.25 PM (5일 이하) | ≤ 20K | 한 사람이 한 주 안에 끝낸다 |
 
-> **두 단위가 다른 답을 낼 수 있다.** 측정에서 C2/C1 비가 Man-month 8.5배 vs 토큰 1.4배였다. 사람 비용은 복잡도에 초선형(SU + ESLOC^1.1)이고 AI 비용은 코드 크기에 거의 선형이다. **어느 쪽을 주 지표로 쓸지는 조직의 개발 방식에 달렸으며, 결과 문서에 명시해야 한다.**
+> **두 단위가 다른 답을 낼 수 있다.** 최종 별점은 DP1~DP4 공통으로 **Man-month 별점과 Token 별점 중 더 낮은 값**을 사용한다. 사람 비용은 복잡도에 초선형이고 AI 비용은 코드 크기에 거의 선형이므로 두 수치는 함께 보고한다.
 >
 > 현재 토큰 모델은 **시행 횟수를 반영하지 못한다** — 복잡한 코드는 한 번에 못 맞춰 재시도가 곱으로 붙는다.
 
 ---
 
-## 4. 측정 절차 (세 DP 공통)
+## 4. 측정 절차 (DP1~DP4 공통)
 
 1. **워크로드를 정책과 무관하게 먼저 생성한다.** 정책마다 난수 소비 순서가 달라지면 같은 seed라도 다른 입력을 보게 되어 짝지은 비교가 무효가 된다.
 2. **동일 seed에서 짝지어(paired) 비교하고, 95% 신뢰구간이 0을 지나면 "차이 없음"으로 판정한다.** 점 추정의 부호로 판정하지 않는다.
