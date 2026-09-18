@@ -64,17 +64,20 @@ def best_goodput_rows(rows,candidate,names):
 def paired_goodput_ratios(rows,candidate,names):
     base=best_goodput_rows(rows,"As-Is-HBM-first",names)
     cand=best_goodput_rows(rows,candidate,names)
-    vals=[]; infeasible=[]
+    vals=[]; infeasible=[]; extension=[]
+    # Ratio is defined only where As-Is has a sustainable p99-SLO point.
     for k,b in base.items():
-        c=cand[k]
-        if b["slo_goodput"]<=0 and c["slo_goodput"]<=0:
+        c=cand.get(k)
+        if c is None:
+            vals.append(0.0)
             infeasible.append(k)
-            continue
-        if b["slo_goodput"]<=0 and c["slo_goodput"]>0:
-            vals.append(10.0)
         else:
-            vals.append(c["slo_goodput"]/b["slo_goodput"])
-    return vals,infeasible
+            vals.append(c["slo_goodput"]/max(1e-9,b["slo_goodput"]))
+    # Candidate-only feasibility is a boundary extension, not a finite ratio.
+    for k in cand:
+        if k not in base:
+            extension.append(k)
+    return vals,infeasible,extension
 
 def aggregate(rows,candidate,mod):
     normal=normal_score_names(); heavy=heavy_score_names()
@@ -83,10 +86,10 @@ def aggregate(rows,candidate,mod):
     hrs=[r for r in rs if r["scenario"] in heavy]
 
     if candidate=="As-Is-HBM-first":
-        ratio=1.0; ratio_ci=[1.0,1.0]; throughput_star=2; infeasible=[]
+        ratio=1.0; ratio_ci=[1.0,1.0]; throughput_star=2; infeasible=[]; extension=[]
     else:
-        ratios,infeasible=paired_goodput_ratios(rows,candidate,heavy)
-        ratio=geom_mean(ratios) if ratios else 1.0
+        ratios,infeasible,extension=paired_goodput_ratios(rows,candidate,heavy)
+        ratio=geom_mean(ratios) if ratios else 0.0
         logs=[math.log(max(1e-9,x)) for x in ratios]
         lci=ci95(logs) if logs else [0.0,0.0]
         ratio_ci=[math.exp(lci[0]),math.exp(lci[1])]
@@ -115,6 +118,7 @@ def aggregate(rows,candidate,mod):
 
     return {
       "normal_runs":len(rs),"heavy_runs":len(hrs),"infeasible_heavy_cells":len(infeasible),
+      "feasibility_extension_heavy_cells":len(extension) if candidate!="As-Is-HBM-first" else 0,
       "token_throughput_mean":statistics.mean(r["token_throughput"] for r in nominal),
       "slo_goodput_mean":statistics.mean(r["slo_goodput"] for r in nominal),
       "goodput_ratio_vs_as_is_heavy":ratio,
