@@ -192,15 +192,14 @@
       ],
       "gpu_reachable": false,
       "supported_primitives": [
-        "QK_GEMM",
-        "AV_GEMM"
+        "GEMV"
       ],
       "compute_tflops_fp16": 2000000000000.0,
       "attention_bw_efficiency": 0.5,
       "write_amplification": 4.0,
       "endurance_budget_bytes": 1e+16,
       "provenance": "ext=SPEC PCIe 5.0 x4; latency=PUBLIC NVMe; int BW, WA, endurance = ASSUMED",
-      "note": "supported_primitives에 SOFTMAX가 없으므로 reactivation_mode_for()가 ATTENTION_OFFLOAD를 반환하지 않는다. 이것이 \"GEMV 지원 != Attention 지원\"을 타입으로 강제하는 지점이다 (설계 문서 §4.5). 지연이 us 급이라 계층당 왕복 × 계층 수가 대화형 경로 예산을 넘는다 (§4.3).\n",
+      "note": "SSD-PIM 연산은 GEMV로 제한하며 SSD에 저장된 Vector DB의 query-vector similarity 계산에만 사용한다. KV Decode Attention/Softmax/Causal Mask/FFN 실행 자원으로 사용하지 않는다. similarity score 생성 이후 ranking/top-k는 controller/host 후처리로 본다.\n",
       "units": {
         "capacity": "16.00 TiB",
         "ext_bw": "16.0 GB/s",
