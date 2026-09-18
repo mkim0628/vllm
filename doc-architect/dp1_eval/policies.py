@@ -489,3 +489,285 @@ class AsIsHBMFirst:
             if headroom>=obj.size_bytes:
                 return name
         return "ssd_pim"
+
+
+class C1MemoryCentricReinforced(C1MemoryCentric):
+    """C1-R: keep resource-centric placement, add migration stability only."""
+    name="C1-R-stable-resource"
+
+    def __init__(self,system:SystemSpec,min_residency_s=10,base_margin=.08):
+        super().__init__(system)
+        self.tick=0
+        self.min_residency_s=min_residency_s
+        self.base_margin=base_margin
+        self.current_tier={}
+        self.last_move_tick=defaultdict(lambda:-10**9)
+        self.suppressed_migrations=0
+
+    def observe_telemetry(self,telemetry):
+        self.tick+=1
+        super().observe_telemetry(telemetry)
+
+    def _scores(self,obj,telemetry,cap_mult):
+        states={n:self.monitor.state(n,t) for n,t in telemetry.items()}
+        cands=self.builder.build(self.system,states,obj,cap_mult)
+
+        # Current placement is already resident and must not be excluded merely
+        # because free headroom is smaller than object_size.
+        current=self.current_tier.get(obj.oid)
+        if current and current not in {m.name for m,_ in cands}:
+            m=self.system.memories[current]
+            if not (obj.data_class=="KV_CACHE" and current!="hbm" and not m.attention_capable):
+                cands.append((m,states[current]))
+
+        rawlogs=[]
+        for m,_ in cands:
+            if obj.data_class=="KV_CACHE" and m.attention_capable:
+                raw=m.int_bw
+            elif obj.data_class=="RAG_DATA" and m.retrieval_dot_capable:
+                raw=m.int_bw
+            else:
+                raw=m.ext_bw
+            rawlogs.append(math.log10(max(1,raw)))
+        lo=min(rawlogs); hi=max(rawlogs); den=max(.1,hi-lo)
+
+        scores={}
+        for (m,st),rawlog in zip(cands,rawlogs):
+            speed=(rawlog-lo)/den
+            cap=max(0,1-st.predicted_pressure)
+            bw=max(0,1-st.predicted_bw)
+            latency=1/(1+m.latency_s/2e-6)
+            sizecap=min(1,math.log2(max(2,m.capacity_bytes/obj.size_bytes))/8)
+            scores[m.name]=.30*cap+.24*bw+.32*speed+.09*latency+.05*sizecap
+            self.decision_ops+=1
+        return states,scores
+
+    def _migration_penalty(self,obj,src,dst):
+        if src==dst:
+            return 0.0
+        a=self.system.memories[src]; b=self.system.memories[dst]
+        transfer_s=obj.size_bytes/max(1.0,min(a.ext_bw,b.ext_bw))
+        return min(.20,(transfer_s/.5)*.05)
+
+    def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
+        states,scores=self._scores(obj,telemetry,cap_mult)
+        best=max(scores,key=scores.get)
+        cur=self.current_tier.get(obj.oid)
+
+        if cur is None or cur not in scores:
+            self.current_tier[obj.oid]=best
+            self.last_move_tick[obj.oid]=self.tick
+            return best
+
+        if best==cur:
+            return cur
+
+        cur_state=states[cur]
+        hard_pressure=max(cur_state.predicted_pressure,cur_state.predicted_bw)>=.92
+        residency=self.tick-self.last_move_tick[obj.oid]
+
+        if not hard_pressure and residency<self.min_residency_s:
+            self.suppressed_migrations+=1
+            return cur
+
+        low_pressure=max(cur_state.current_pressure,cur_state.current_bw)<=.75
+        margin=self.base_margin+(.03 if low_pressure else 0.0)
+        required_gain=margin+self._migration_penalty(obj,cur,best)
+        gain=scores[best]-scores[cur]
+
+        if not hard_pressure and gain<=required_gain:
+            self.suppressed_migrations+=1
+            return cur
+
+        self.current_tier[obj.oid]=best
+        self.last_move_tick[obj.oid]=self.tick
+        return best
+
+
+class C2DataCentricReinforced(C2DataCentric):
+    """C2-R: feasibility-first selection + stateful fallback/migration stability."""
+    name="C2-R-feasibility-stable"
+
+    def __init__(self,system:SystemSpec,min_residency_s=10,base_margin=.08,cooldown_s=10):
+        super().__init__(system)
+        self.tick=0
+        self.min_residency_s=min_residency_s
+        self.base_margin=base_margin
+        self.cooldown_s=cooldown_s
+        self.current_tier={}
+        self.last_move_tick=defaultdict(lambda:-10**9)
+        self.last_fallback_tick=defaultdict(lambda:-10**9)
+        self.mismatch_streak=defaultdict(int)
+        self.suppressed_migrations=0
+        self.feasibility_filtered=0
+        self.infeasible_stable_hold=0
+
+    def observe_telemetry(self,telemetry):
+        self.tick+=1
+        super().observe_telemetry(telemetry)
+
+    def should_reevaluate(self,obj:DataObject,telemetry:dict[str,Telemetry]):
+        # Deferred promotion has priority.
+        if obj.oid in self.deferred_hbm:
+            h=telemetry["hbm"]
+            return h.capacity_util<=.72 and h.bw_util<=.72
+
+        # Retry a fallback only after cooldown and enough new observations.
+        if obj.oid in self.fallback_watch:
+            if self.tick-self.last_fallback_tick[obj.oid] < self.cooldown_s:
+                return False
+            st=self.runtime.stats(obj)
+            return st["samples"]>=4 and st["samples"]%5==0
+        return False
+
+    def _capacity_feasible(self,obj,m,telemetry,cap_mult,current):
+        if m.name==current:
+            return telemetry[m.name].capacity_util<=1.0
+        headroom=m.capacity_bytes*cap_mult*(1-min(1,telemetry[m.name].capacity_util))
+        return headroom+1e-6>=obj.size_bytes
+
+    def _hard_feasible(self,cls,obj,m):
+        if cls=="KV_CACHE":
+            if m.name=="hbm":
+                return True
+            return m.attention_capable and self.system.decode_step_s(
+                obj.context_tokens,obj.batch_size,m.name)<=.050
+        return True
+
+    def _score(self,cls,ch,obj,m,telemetry):
+        a=self.aff.affinity(cls,ch,obj,m)
+        t=telemetry[m.name]
+        resource=.58*max(0,1-t.capacity_util)+.42*max(0,1-t.bw_util)
+        self.decision_ops+=1
+        return .76*a+.24*resource
+
+    def _migration_penalty(self,obj,src,dst):
+        if src==dst:
+            return 0.0
+        a=self.system.memories[src]; b=self.system.memories[dst]
+        transfer_s=obj.size_bytes/max(1.0,min(a.ext_bw,b.ext_bw))
+        return min(.25,(transfer_s/.5)*.06)
+
+    def _commit(self,obj,tier):
+        old=self.current_tier.get(obj.oid)
+        if old!=tier:
+            self.last_move_tick[obj.oid]=self.tick
+        self.current_tier[obj.oid]=tier
+        return tier
+
+    def _stable_fallback(self,obj,telemetry,cap_mult,ch,reason):
+        cur=self.current_tier.get(obj.oid)
+        if (cur is not None and
+                self.tick-self.last_fallback_tick[obj.oid] < self.cooldown_s):
+            self.suppressed_migrations+=1
+            return cur
+
+        self.last_fallback_tick[obj.oid]=self.tick
+        tier=super()._fallback_place(obj,telemetry,cap_mult,ch,reason)
+        return self._commit(obj,tier)
+
+    def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
+        # Complete deferred DRAM -> HBM promotion only at the low watermark.
+        if obj.oid in self.deferred_hbm:
+            h=telemetry["hbm"]
+            if h.capacity_util<=.72 and h.bw_util<=.72:
+                hbm=self.system.memories["hbm"]
+                headroom=hbm.capacity_bytes*cap_mult*(1-min(1,h.capacity_util))
+                if headroom>=obj.size_bytes:
+                    self.deferred_hbm.discard(obj.oid)
+                    self.fallback_watch.discard(obj.oid)
+                    self.deferred_promotion_count+=1
+                    return self._commit(obj,"hbm")
+            cur=self.current_tier.get(obj.oid)
+            if cur:
+                return cur
+
+        cls,confidence=self.classifier.classify(obj)
+        ch=self.interpreter.interpret(cls,obj)
+        cur=self.current_tier.get(obj.oid)
+
+        capacity_candidates=[
+            m for m in self.system.memories.values()
+            if self._capacity_feasible(obj,m,telemetry,cap_mult,cur)
+        ]
+        if not capacity_candidates:
+            return self._stable_fallback(
+                obj,telemetry,cap_mult,ch,"no_capacity_candidate")
+
+        hard_candidates=[m for m in capacity_candidates if self._hard_feasible(cls,obj,m)]
+        self.feasibility_filtered += len(capacity_candidates)-len(hard_candidates)
+
+        if cls=="RAG_DATA":
+            # Distinguish "all options are slower than SLO" from prediction error.
+            slo_candidates=[
+                m for m in hard_candidates
+                if self.system.rag_retrieval_s(
+                    obj.size_bytes,obj.batch_size,m.name,obj.retrieval_dim)<=2.0
+            ]
+            if slo_candidates:
+                hard_candidates=slo_candidates
+            elif hard_candidates:
+                # Stable minimum-cost hold: no repeated fallback storm.
+                best=min(
+                    hard_candidates,
+                    key=lambda m:self.system.rag_retrieval_s(
+                        obj.size_bytes,obj.batch_size,m.name,obj.retrieval_dim))
+                self.infeasible_stable_hold+=1
+                if cur in {m.name for m in hard_candidates}:
+                    cur_cost=self.system.rag_retrieval_s(
+                        obj.size_bytes,obj.batch_size,cur,obj.retrieval_dim)
+                    best_cost=self.system.rag_retrieval_s(
+                        obj.size_bytes,obj.batch_size,best.name,obj.retrieval_dim)
+                    if cur_cost<=best_cost*1.10:
+                        return cur
+                return self._commit(obj,best.name)
+
+        if not hard_candidates:
+            return self._stable_fallback(
+                obj,telemetry,cap_mult,ch,"hard_feasibility_empty")
+
+        scores={m.name:self._score(cls,ch,obj,m,telemetry) for m in hard_candidates}
+        best=max(scores,key=scores.get)
+
+        # Low classifier confidence: one conservative fallback, then cooldown.
+        if confidence<.65:
+            return self._stable_fallback(
+                obj,telemetry,cap_mult,ch,"low_classifier_confidence")
+
+        # Runtime mismatch must persist for 3 evaluations before causing a transition.
+        st=self.runtime.stats(obj)
+        prior=DATA_PRIORS.get(cls,DATA_PRIORS["TOOL_RESULT"])["hotness"]
+        mismatch=(confidence<.90 and st["samples"]>=4
+                  and abs(ch["observed_hotness"]-prior)>.45)
+        self.mismatch_streak[obj.oid] = (
+            self.mismatch_streak[obj.oid]+1 if mismatch else 0)
+        if self.mismatch_streak[obj.oid]>=3:
+            self.mismatch_streak[obj.oid]=0
+            return self._stable_fallback(
+                obj,telemetry,cap_mult,ch,"runtime_behavior_mismatch")
+
+        if cur is None or cur not in scores:
+            self.fallback_watch.discard(obj.oid)
+            return self._commit(obj,best)
+
+        if best==cur:
+            self.fallback_watch.discard(obj.oid)
+            return cur
+
+        current_pressure=max(
+            telemetry[cur].capacity_util,telemetry[cur].bw_util)
+        hard_pressure=current_pressure>=.92
+        residency=self.tick-self.last_move_tick[obj.oid]
+
+        if not hard_pressure and residency<self.min_residency_s:
+            self.suppressed_migrations+=1
+            return cur
+
+        gain=scores[best]-scores[cur]
+        margin=self.base_margin+self._migration_penalty(obj,cur,best)
+        if not hard_pressure and gain<=margin:
+            self.suppressed_migrations+=1
+            return cur
+
+        self.fallback_watch.discard(obj.oid)
+        return self._commit(obj,best)
