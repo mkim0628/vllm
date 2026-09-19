@@ -1284,22 +1284,6 @@ class C2DataCentricR2:
     def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
         current=self.current_tier.get(obj.oid)
 
-        # A staged object is promoted when its observed Data behavior becomes
-        # active again and HBM currently has physical headroom.
-        if obj.oid in self.deferred_hbm:
-            h=telemetry["hbm"]
-            hbm=self.system.memories["hbm"]
-            headroom=hbm.capacity_bytes*cap_mult*(1-min(1,h.capacity_util))
-            st=self.runtime.stats(obj)
-            active_now=st["idle_s"]<=1.0 or st["rate"]>=.20
-            if active_now and headroom>=obj.size_bytes:
-                self.deferred_hbm.discard(obj.oid)
-                self.deferred_promotion_count+=1
-                dummy=PlacementPath("hbm","hbm_direct",0,0,0,True,0)
-                return self._commit(obj,dummy)
-            if current:
-                return current
-
         cls=self.resolver.resolve(obj)
         ch=self.interpreter.interpret(cls,obj)
 
@@ -1340,30 +1324,11 @@ class C2DataCentricR2:
                 self.performance_bypass_count+=1
             best=baseline
 
-        # Data-centric lifecycle decision.  C2 may temporarily stage a KV
-        # object only from observed object behavior: long idle / long next reuse.
-        # Memory resource state is used only to verify that the selected tier
-        # physically has room.
-        if cls=="KV_CACHE" and best.tier=="hbm":
-            st=self.runtime.stats(obj)
-            next_reuse=float(ch.get("next_reuse_s",float("inf")))
-            idle=float(ch.get("idle_s",float("inf")))
-            dram=next((p for p in paths if p.tier=="dram"),None)
-            if (dram is not None and st["samples"]>=4
-                    and idle>=3.0 and next_reuse>=5.0):
-                # Stage only when the next expected reuse is far enough to
-                # amortize a deterministic restore/promotion path.
-                promote_s=obj.size_bytes/max(
-                    1.0,min(
-                        self.system.memories["dram"].ext_bw,
-                        self.system.gpu_hbm_bw))
-                if next_reuse>promote_s+.05:
-                    dram=PlacementPath(
-                        dram.tier,"dram_stage_wait",dram.service_s,
-                        dram.ttft_s,dram.tpot_s,True,dram.perf_cost)
-                    if obj.oid not in self.deferred_hbm:
-                        self.deferred_stage_count+=1
-                    self.deferred_hbm.add(obj.oid)
-                    return self._commit(obj,dram)
+        # Runtime Data behavior is reflected in MemoryTierAffinityEvaluator
+        # (hotness/reuse/lifetime) and therefore can differentiate objects of
+        # the same Data Type.  Do not force a DRAM stage here: a lifecycle move
+        # that is slower than the selected path would violate the same
+        # no-regret Performance Guard used for normal placement. Background
+        # migration hiding belongs to DP4 and is not assumed by this evaluator.
 
         return self._commit(obj,best)
