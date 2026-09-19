@@ -70,12 +70,13 @@ def severe_loss(summary,higher):
     return r>1.10 and lo>1.0
 
 def comparative_stars(c1,c2,higher):
-    # Architecture-comparison star: use a 1% deadband so small but real
-    # differences are visible. The better candidate gets 3 stars; the other
-    # gets 2 unless it also has a severe As-Is regression, in which case 1.
+    # Architecture-comparison star: use only a 0.5% deadband for simulation
+    # noise. Small but repeatable candidate differences should remain visible.
+    # The better candidate gets 3 stars; the other gets 2 unless it also has
+    # a severe As-Is regression, in which case 1.
     r1=c1['ratio']; r2=c2['ratio']
     rel=(r2/r1) if higher else (r1/r2)  # >1 means C2 is better
-    if abs(rel-1.0)<=.01:
+    if abs(rel-1.0)<=.005:
         return 2,2,rel
     c2_better=rel>1.0
     if c2_better:
@@ -137,8 +138,8 @@ def main():
       '',
       '## Comparative star rule',
       '',
-      '- C1/C2 차이가 1% 이내면 둘 다 ★★☆.',
-      '- 1%를 넘으면 더 좋은 후보는 ★★★, 다른 후보는 ★★☆.',
+      '- C1/C2 차이가 0.5% 이내면 simulation noise band로 보고 둘 다 ★★☆.',
+      '- 0.5%를 넘으면 더 좋은 후보는 ★★★, 다른 후보는 ★★☆.',
       '- 단, 뒤지는 후보가 As-Is 대비 severe regression까지 보이면 ★☆☆.',
       '- Modifiability는 average changed modules가 작은 쪽 ★★★; 25% 이상 큰 쪽은 ★☆☆.',
       '',
