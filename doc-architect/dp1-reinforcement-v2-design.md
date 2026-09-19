@@ -16,8 +16,8 @@
 
 ## C2-R2
 
-> **Data Type과 Runtime behavior를 이용해 각 Memory Tier에서 가능한 Placement/Execution Path의 비용을 비교한다.  
-> Data-near Compute가 As-Is보다 실제로 유리할 때만 사용한다.**
+> **Data Type과 object별 Runtime behavior를 1차 기준으로 Placement/Execution Path를 선택한다.  
+> 현재 Resource availability와 Memory capability는 feasibility/guard 조건으로만 사용하며, C1의 Resource trend/prediction을 그대로 사용하는 구조가 아니다.**
 
 중요한 전제:
 
@@ -26,6 +26,14 @@
 - DRAM/CXL/SSD 등 물리적으로 저장 가능한 Tier는 일반적으로 존재한다.
 - Serving SLO는 DP1 Placement Policy의 판단 기준으로 사용하지 않는다.
 - 모든 Candidate Path는 **Current/HBM Path 대비 상대 성능**으로 비교한다.
+
+후보 간 공통/고유 정보의 경계:
+
+- **공통:** Data Descriptor의 deterministic Data Type, Memory Registry, 현재 physical capacity / operation feasibility
+- **C1 고유:** Resource State Monitor의 Capacity/BW/Pressure trend 및 near-future prediction
+- **C2 고유:** Runtime State Monitor의 object별 Access/Reuse/Idle/Lifetime과 Data Characteristic prediction
+- C2가 C1의 Resource State Monitor를 포함하는 **superset 구조는 아니다**.
+
 
 ---
 
@@ -241,9 +249,9 @@ flowchart TB
         DCI["Data Characteristic Interpreter<br/>Hotness / Next Reuse / Lifetime"]
     end
 
-    subgraph MM["② Memory / Resource Model"]
+    subgraph MM["② Memory / Feasibility Model"]
         MR["Memory Registry<br/>Capacity / BW / Compute Capability"]
-        TM["Resource Telemetry<br/>Current / Predicted Pressure"]
+        RF["Resource Feasibility Check<br/>Current Capacity / Operation Feasibility"]
     end
 
     subgraph PP["③ Data-aware Placement Planner"]
@@ -263,15 +271,15 @@ flowchart TB
 
     DCI --> PB
     MR --> PB
-    TM --> PB
+    RF --> PB
 
     PB --> CE
     MR --> CE
-    TM --> CE
+    RF --> CE
 
     CE --> BG
     DCI --> LS
-    TM --> LS
+    RF --> LS
 
     BG --> DEC
     LS -. "Reuse / Relief 조건일 때만" .-> DEC
@@ -498,16 +506,17 @@ NO_PHYSICAL_CAPACITY
 
 # 8. C1-R2 vs C2-R2 — 한 눈 비교
 
-| | C1-R2 | C2-R2 |
+| | C1-R2 — Resource-centric | C2-R2 — Data-centric |
 |---|---|---|
-| 핵심 판단 | Resource 상태 | Data + Operation + Resource |
-| Data Type | **Deterministic descriptor 사용** | Deterministic |
-| Static Data-Memory Affinity | **사용** | 사용 가능 |
-| Runtime behavior | 사용 안 함 | **Hotness / Reuse / Lifetime** |
-| Data-near Compute | **Deterministic mapping까지 지원** | **Runtime behavior까지 결합** |
-| Migration Cost | Resource Utility 안에서 고려 | Path Cost 안에서 고려 |
-| High HBM Pressure | **Emergency Pressure Policy + Performance Guard** | Path Cost + Performance Guard |
-| Lifecycle 활용 | 없음 | **DRAM Stage / Deferred Promotion** |
+| **1차 판단 기준** | **Memory Resource State** | **Data Runtime Characteristics** |
+| Data Type | Descriptor에서 deterministic 사용 | Descriptor에서 deterministic 사용 |
+| Data Type의 역할 | Data-Memory Affinity Registry lookup | Data behavior 해석의 class context |
+| **Memory Resource Monitoring** | **Capacity/BW/Pressure trend + prediction** | 없음 — current availability는 feasibility만 확인 |
+| **Data Runtime Monitoring** | 없음 | **Access / Reuse / Idle / Lifetime** |
+| Static Data-Memory Affinity | **Registry로 명시적 관리** | 별도 Registry 없이 Data/Operation interpretation에 포함 |
+| Dynamic adaptation | **Resource 변화에 반응** | **Data behavior 변화에 반응** |
+| Data-near Compute | deterministic mapping 가능 | behavior-sensitive selection 가능 |
+| Lifecycle 활용 | Resource pressure 기반 migration | **Data reuse/lifetime 기반 Stage/Promotion** |
 | 실제 저장 공간 없음 | OOM / Admission Control | OOM / Admission Control |
 
 ---
@@ -549,17 +558,17 @@ Negative control:
 C1-R2와 C2-R2는 “성능 수치가 높은 쪽”만으로 선택하지 않는다.  
 Architecture selection은 **얻는 capability와 지불하는 complexity의 trade-off**로 판단한다.
 
-| | C1-R2 | C2-R2 |
+| | C1-R2 — Resource-centric | C2-R2 — Data-centric |
 |---|---|---|
-| Runtime complexity | **낮음** | 높음 |
-| Monitoring / State overhead | **낮음** | 높음 |
-| Prediction dependency | **낮음** | 높음 |
-| Resource pressure 대응 | **직접적** | Data context를 포함해 선택적 |
-| Data-specific optimization | **Static rule 수준 지원** | **Runtime-adaptive까지 지원** |
-| Near-memory / PIM 활용 | **Deterministic use-case 지원** | **Behavior-aware 선택까지 확장** |
-| 새로운 AI Data별 정책 확장 | 공통 Resource 기준으로 단순 | **Data semantics를 반영 가능** |
-| 운영 단순성 / Robustness | **강점** | Guard가 필요 |
-| 최적화 potential | 제한적 | **강점** |
+| 주 모니터링 대상 | **Memory Resource** | **Data Object** |
+| 동적 관찰 값 | Capacity / BW / Pressure | Access / Reuse / Idle / Lifetime |
+| 예측 대상 | **Resource pressure / load trend** | **Hotness / Next Reuse / Lifetime** |
+| Data knowledge | Static Affinity Registry | Runtime Data Characterization |
+| Resource 변화 대응 | **강점** | current feasibility 수준 |
+| Data behavior 변화 대응 | 제한적 | **강점** |
+| Runtime state overhead | Memory-tier 수에 비례 | Data-object 수에 비례 |
+| Data-near / PIM | deterministic use-case 지원 | behavior-aware 선택 지원 |
+| Modifiability | 상대적으로 단순 | 상대적으로 복잡 |
 
 ### Decision
 
@@ -572,8 +581,9 @@ DP1은 일반적인 Memory Tier balancer가 아니라 **AI Data Placement archit
 - KV / RAG / Agent / LoRA / MoE의 Data behavior가 서로 다름
 - Memory Tier별 Compute Capability가 서로 다름
 - Placement가 Access/Execution Mode와 연결됨
-- C1도 deterministic Data-near use-case는 지원하지만, 같은 Data Type 내부의 runtime behavior 차이까지 반영하려면 C2가 필요함
-- Runtime Data behavior를 활용하면 Stage / Restore / Near-compute 같은 선택을 더 세밀하게 할 수 있음
+- C1은 **Resource 상태의 변화**를 더 깊게 관찰하고 예측하며, C2는 **Data object의 behavior 변화**를 더 깊게 관찰하고 예측함
+- 두 후보는 서로의 superset/subset이 아니라 **최적화의 중심축이 Resource인가 Data인가**가 다름
+- C2는 같은 Data Type 내부의 runtime behavior 차이를 활용해 Stage / Promotion / placement를 세밀하게 결정할 수 있음
 
 반대로 C1-R2의 장점도 명확하다.
 
@@ -583,7 +593,7 @@ DP1은 일반적인 Memory Tier balancer가 아니라 **AI Data Placement archit
 - Prediction error에 덜 민감함
 - Resource balancing 문제만 풀 때는 충분히 실용적임
 
-따라서 C1-R2는 **Simple / Robust baseline**, C2-R2는 **Feature-rich / Optimization-oriented final candidate**로 정리한다.
+따라서 C1-R2는 **Resource-centric candidate**, C2-R2는 **Data-centric candidate**로 병렬 비교한다. 최종 선택은 DP1에서 어떤 변화 축을 더 중요한 최적화 대상으로 둘지에 따라 결정한다.
 
 ---
 
