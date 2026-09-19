@@ -364,7 +364,6 @@ class C2DataCentric:
         self.interpreter=DataCharacteristicInterpreter(self.runtime)
         self.aff=MemoryTierAffinityEvaluator(system)
         self.fallback=SafeFallbackSelector(system)
-        self.hbm_relief=HBMReliefEstimator()
         self.deferred_hbm=set()
         self.fallback_watch=set()
         self.deferred_stage_count=0
@@ -374,7 +373,9 @@ class C2DataCentric:
         self.fallback_reason=defaultdict(int)
 
     def observe_telemetry(self,telemetry):
-        self.hbm_relief.observe(telemetry)
+        # C2 does not maintain Resource-State trends. Current availability is
+        # consumed only as a placement feasibility check in place().
+        pass
 
     def observe_runtime(self,obj,access_count,now_s=None):
         self.runtime.observe(obj,access_count,now_s)
@@ -798,38 +799,62 @@ class DataMemoryAffinityRegistry:
     implied by the class) plus Memory Registry capability.
     """
 
+    def __init__(self,system:SystemSpec):
+        self.system=system
+
     def affinity(self,obj:DataObject,m:MemorySpec):
         cls=obj.data_class
 
         if cls=="RAG_DATA":
-            # Vector similarity is a deterministic GEMV use-case.  If the tier
-            # exposes in-storage GEMV, prefer data-near retrieval.  HBF/DRAM are
-            # reasonable read-mostly capacity tiers otherwise.
+            # Vector similarity path is also deterministic: compare retrieval
+            # cost from Data Descriptor + Memory capability only.
+            cost=self.system.rag_retrieval_s(
+                obj.size_bytes,obj.batch_size,m.name,obj.retrieval_dim)
+            costs=[
+                self.system.rag_retrieval_s(
+                    obj.size_bytes,obj.batch_size,x.name,obj.retrieval_dim)
+                for x in self.system.memories.values()
+            ]
+            best=max(1e-9,min(costs))
+            perf=max(-.25,min(1.0,2.0-best/max(1e-9,cost)))
             if m.retrieval_dot_capable:
-                return 1.00
-            if m.name=="hbf":
-                return .55
-            if m.name=="dram":
-                return .30
-            if m.name=="hbm":
-                return .15
-            return .05
+                perf=min(1.0,perf+.15)
+            elif m.name=="hbf":
+                perf=min(1.0,perf+.05)
+            return perf
 
         if cls=="KV_CACHE":
-            # Active KV is appendable and decode-critical.  C1 deliberately
-            # avoids dynamic hot/cold inference; storage-only HBF/SSD is not
-            # preferred without an explicit sealed/read-only descriptor.
+            # Decode placement is a representative deterministic affinity:
+            # context/batch + memory capability are descriptor/static facts.
+            # C1 therefore knows which HBM / near-memory Attention path is
+            # intrinsically cheaper without observing per-object hotness/reuse.
             if m.name=="hbm":
-                return .90
-            if m.attention_capable:
-                return .55
-            if m.name=="dram":
+                step=self.system.decode_step_s(
+                    obj.context_tokens,obj.batch_size,"hbm")
+            elif m.attention_capable:
+                step=self.system.decode_step_s(
+                    obj.context_tokens,obj.batch_size,m.name)
+            else:
+                # Active KV is appendable/decode-critical; storage-only tiers
+                # are not preferred without an explicit sealed/read-only flag.
+                if m.name=="ssd_pim":
+                    return -1.00
+                if m.name=="hbf":
+                    return -.55
+                if m.name=="dram":
+                    return -.40
                 return -.30
-            if m.name=="hbf":
-                return -.45
-            if m.name=="ssd_pim":
-                return -1.00
-            return -.20
+
+            feasible_steps=[
+                self.system.decode_step_s(
+                    obj.context_tokens,obj.batch_size,x.name)
+                for x in self.system.memories.values()
+                if x.name=="hbm" or x.attention_capable
+            ]
+            best=max(1e-9,min(feasible_steps))
+            # 1.0 for the best deterministic decode path; smoothly lower for
+            # slower paths. This is static affinity, not runtime prediction.
+            return max(-.25,min(1.0,2.0-best/max(1e-9,step)))
 
         if cls=="MOE_EXPERT":
             # Large immutable/read-mostly weights: HBF is the preferred spill
@@ -892,7 +917,7 @@ class C1MemoryCentricR2(C1MemoryCentric):
                  performance_margin=.02,max_perf_regression=.10):
         super().__init__(system)
         self.current_tier={}
-        self.affinity_registry=DataMemoryAffinityRegistry()
+        self.affinity_registry=DataMemoryAffinityRegistry(system)
         self.static_affinity_candidate_evals=0
         self.static_affinity_override_count=0
         self.emergency_high=emergency_high
@@ -1151,9 +1176,11 @@ class C2DataCentricR2:
         self.runtime.observe(obj,access_count,now_s)
 
     def should_reevaluate(self,obj:DataObject,telemetry:dict[str,Telemetry]):
+        # Re-evaluation is driven by Data lifecycle state; current HBM
+        # availability is only a feasibility condition, not a predicted signal.
         if obj.oid in self.deferred_hbm:
-            h=telemetry["hbm"]
-            return h.capacity_util<=.72 and h.bw_util<=.72
+            st=self.runtime.stats(obj)
+            return st["samples"]>0 and st["samples"]%5==0
         return False
 
     def _headroom_ok(self,obj,m,telemetry,cap_mult,current):
@@ -1218,17 +1245,12 @@ class C2DataCentricR2:
                 tpot=hbm_tpot
                 service=max(hbm_service,transfer/max(1,obj.output_tokens))
 
-        # Resource pressure is part of end-to-end path cost. No absolute SLO
-        # threshold is embedded in the policy.
-        pressure=max(telemetry[m.name].capacity_util,telemetry[m.name].bw_util)
-        pressure_mult=1.0+max(0.0,pressure-.75)*2.0
-        ttft_eff=ttft*pressure_mult
-        service_eff=service*pressure_mult
-        tpot_eff=tpot*pressure_mult
-
+        # C2 is Data-centric: resource telemetry is not converted into a
+        # placement score. Current capacity is checked separately by
+        # _headroom_ok(); path cost here is Data/Operation cost only.
         self.decision_ops+=1
         return PlacementPath(
-            m.name,mode,service_eff,ttft_eff,tpot_eff,True,service_eff)
+            m.name,mode,service,ttft,tpot,True,service)
 
     def _baseline_path(self,paths):
         by={p.tier:p for p in paths}
@@ -1262,12 +1284,15 @@ class C2DataCentricR2:
     def place(self,obj:DataObject,telemetry:dict[str,Telemetry],cap_mult:float):
         current=self.current_tier.get(obj.oid)
 
-        # Deferred DRAM staging is promoted only when HBM has actually recovered.
+        # A staged object is promoted when its observed Data behavior becomes
+        # active again and HBM currently has physical headroom.
         if obj.oid in self.deferred_hbm:
             h=telemetry["hbm"]
             hbm=self.system.memories["hbm"]
             headroom=hbm.capacity_bytes*cap_mult*(1-min(1,h.capacity_util))
-            if h.capacity_util<=.72 and h.bw_util<=.72 and headroom>=obj.size_bytes:
+            st=self.runtime.stats(obj)
+            active_now=st["idle_s"]<=1.0 or st["rate"]>=.20
+            if active_now and headroom>=obj.size_bytes:
                 self.deferred_hbm.discard(obj.oid)
                 self.deferred_promotion_count+=1
                 dummy=PlacementPath("hbm","hbm_direct",0,0,0,True,0)
@@ -1315,31 +1340,24 @@ class C2DataCentricR2:
                 self.performance_bypass_count+=1
             best=baseline
 
-        # Resource pressure may justify a near-equal offload path, but never an
-        # unbounded latency sacrifice.
-        hp=max(
-            telemetry["hbm"].capacity_util,
-            telemetry["hbm"].bw_util)
-        if hp>=.90 and best.tier=="hbm":
-            off=[
-                p for p in paths
-                if p.tier!="hbm" and self._relative_cost(p,baseline)<=1.10
-            ]
-            if off:
-                best=min(off,key=ranked_cost)
-
-        # Lifecycle-aware temporary staging remains a C2-only capability. It is
-        # allowed only when HBM relief is predicted before the next reuse.
-        if cls=="KV_CACHE" and best.tier=="hbm" and hp>=.90:
-            dram=next((p for p in paths if p.tier=="dram"),None)
-            relief=self.hbm_relief.seconds_to_relief()
+        # Data-centric lifecycle decision.  C2 may temporarily stage a KV
+        # object only from observed object behavior: long idle / long next reuse.
+        # Memory resource state is used only to verify that the selected tier
+        # physically has room.
+        if cls=="KV_CACHE" and best.tier=="hbm":
+            st=self.runtime.stats(obj)
             next_reuse=float(ch.get("next_reuse_s",float("inf")))
-            if dram is not None and math.isfinite(relief) and relief<=30.0:
+            idle=float(ch.get("idle_s",float("inf")))
+            dram=next((p for p in paths if p.tier=="dram"),None)
+            if (dram is not None and st["samples"]>=4
+                    and idle>=3.0 and next_reuse>=5.0):
+                # Stage only when the next expected reuse is far enough to
+                # amortize a deterministic restore/promotion path.
                 promote_s=obj.size_bytes/max(
                     1.0,min(
                         self.system.memories["dram"].ext_bw,
                         self.system.gpu_hbm_bw))
-                if next_reuse>relief+promote_s+.05:
+                if next_reuse>promote_s+.05:
                     dram=PlacementPath(
                         dram.tier,"dram_stage_wait",dram.service_s,
                         dram.ttft_s,dram.tpot_s,True,dram.perf_cost)
