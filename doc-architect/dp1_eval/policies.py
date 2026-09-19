@@ -1053,12 +1053,26 @@ class C1MemoryCentricR2(C1MemoryCentric):
         current=self.current_tier.get(obj.oid)
         cands=self.builder.build(self.system,states,obj,cap_mult)
 
+        # C1 static Data-Memory Affinity includes the *execution path* implied
+        # by placement.  For KV this means HBM-direct, near-memory Attention,
+        # and storage-tier restore-to-HBM are all deterministic candidates.
+        # The legacy CandidateBuilder filters storage-only KV tiers, so R2 adds
+        # them back when physical headroom exists and lets static path cost +
+        # Performance Guard decide.
+        if obj.data_class=="KV_CACHE":
+            existing={m.name for m,_ in cands}
+            for m in self.system.memories.values():
+                if m.name in existing:
+                    continue
+                st=states[m.name]
+                headroom=m.capacity_bytes*cap_mult*(1-min(1,st.current_pressure))
+                if headroom+1e-6>=obj.size_bytes:
+                    cands.append((m,st))
+
         # Current placement remains a legal keep option.
         if current and current not in {m.name for m,_ in cands}:
             m=self.system.memories[current]
-            if not (obj.data_class=="KV_CACHE" and
-                    current!="hbm" and not m.attention_capable):
-                cands.append((m,states[current]))
+            cands.append((m,states[current]))
 
         if not cands:
             return current or "hbm"
