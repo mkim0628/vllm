@@ -364,6 +364,7 @@ class C2DataCentric:
         self.interpreter=DataCharacteristicInterpreter(self.runtime)
         self.aff=MemoryTierAffinityEvaluator(system)
         self.fallback=SafeFallbackSelector(system)
+        self.hbm_relief=HBMReliefEstimator()
         self.deferred_hbm=set()
         self.fallback_watch=set()
         self.deferred_stage_count=0
@@ -373,9 +374,7 @@ class C2DataCentric:
         self.fallback_reason=defaultdict(int)
 
     def observe_telemetry(self,telemetry):
-        # C2 does not maintain Resource-State trends. Current availability is
-        # consumed only as a placement feasibility check in place().
-        pass
+        self.hbm_relief.observe(telemetry)
 
     def observe_runtime(self,obj,access_count,now_s=None):
         self.runtime.observe(obj,access_count,now_s)
@@ -1148,7 +1147,6 @@ class C2DataCentricR2:
         self.runtime=RuntimeStateMonitor()
         self.interpreter=DataCharacteristicInterpreter(self.runtime)
         self.aff=MemoryTierAffinityEvaluator(system)
-        self.hbm_relief=HBMReliefEstimator()
         self.performance_margin=performance_margin
         self.current_tier={}
         self.current_mode={}
@@ -1170,7 +1168,9 @@ class C2DataCentricR2:
         self.infeasible_stable_hold=0
 
     def observe_telemetry(self,telemetry):
-        self.hbm_relief.observe(telemetry)
+        # Data-centric R2 does not maintain Resource-State trends.
+        # Current capacity is checked only as feasibility in place().
+        pass
 
     def observe_runtime(self,obj,access_count,now_s=None):
         self.runtime.observe(obj,access_count,now_s)
