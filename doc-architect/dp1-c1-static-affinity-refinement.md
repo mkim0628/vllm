@@ -194,21 +194,20 @@ Runtime expert popularity를 보지 않으므로 "hot expert는 HBM, cold expert
 
 이 refinement 후 비교는 다음이 된다.
 
-| | C1 — Resource-centric + Data-Memory Affinity | C2 — Dynamic Data-centric |
+| | C1 — Resource-centric Placement | C2 — Data-centric Placement |
 |---|---|---|
-| Data Type | Descriptor에서 deterministic 사용 | deterministic 사용 |
-| Static AI rule | **사용** | 사용 가능 |
-| Resource State | **핵심** | 사용 |
-| Runtime access monitoring | 없음 | **있음** |
-| Hotness prediction | 없음 | **있음** |
-| Reuse / next-reuse | 없음 | **있음** |
-| Lifetime / idle tracking | 없음 | **있음** |
-| Object별 adaptive placement | 제한적 | **핵심** |
-| SSD-PIM RAG GEMV | **가능** | 가능 |
-| HBF read-mostly spill | **가능** | 가능 |
-| 같은 Data Type 안에서 hot/cold 구분 | 불가 | **가능** |
-| Dynamic promotion/demotion | Resource pressure 기반 | **Data behavior + Resource 기반** |
-| Complexity / state overhead | **낮음** | 높음 |
+| 1차 판단 기준 | **Memory Resource State** | **Data Runtime Characteristics** |
+| Data Type | Descriptor에서 deterministic 사용 | Descriptor에서 deterministic 사용 |
+| Data Type의 역할 | Static Data-Memory Affinity lookup key | Runtime behavior 해석의 Data Class context |
+| Memory Resource Monitoring | **있음 — Capacity/BW/Pressure trend + near-future prediction** | **없음 — 기본 current availability는 feasibility constraint로만 사용** |
+| Data Runtime Monitoring | 없음 | **있음 — object별 Access/Reuse/Idle/Lifetime** |
+| Static Data-Memory Affinity | **핵심 보조 정보** | 별도 Registry가 아니라 Data/Operation 해석에 포함 |
+| Hotness / Reuse / Lifetime prediction | 없음 | **핵심** |
+| SSD-PIM RAG GEMV | **Deterministic rule로 가능** | Data/Operation 특성으로 가능 |
+| HBF read-mostly spill | **Deterministic rule로 가능** | Runtime behavior까지 반영 가능 |
+| 같은 Data Type 내부 object 구분 | 불가 | **가능** |
+| Dynamic adaptation | **Resource state 변화에 반응** | **Data behavior 변화에 반응** |
+| Complexity / state overhead | Resource monitor 중심 | Data-object monitor 중심 |
 
 이렇게 해야 C2의 진짜 차별점은 단순한 "AI Data Type을 안다"가 아니라:
 
@@ -229,21 +228,27 @@ C2 = Data까지 봄
 
 그러면 SSD-PIM RAG처럼 obvious한 deterministic mapping까지 C2가 독점해서 C1이 지나치게 약한 strawman이 된다.
 
-제안 비교는 더 공정하다.
+제안 비교는 더 공정하다. 두 후보를 **서로의 superset/subset으로 두지 않고, 관찰하는 동적 상태 자체가 다르다.**
 
 ```text
-C1
-Resource State
-+ Static AI Domain Knowledge
+C1 — Resource-centric
+Memory Resource State
+  - Capacity / BW / Pressure
+  - Trend / Near-future prediction
++ Data-Memory Affinity Registry
+  - deterministic static hint
 
 vs
 
-C2
-Resource State
-+ Static AI Domain Knowledge
-+ Runtime Data Behavior
-+ Dynamic Data/Operation-aware Adaptation
+C2 — Data-centric
+Data Runtime State
+  - Access / Reuse / Idle / Lifetime
+  - Hotness / Next Reuse prediction
++ Data Type / Memory Capability
+  - deterministic context / feasibility
 ```
+
+C2도 실제 배치를 위해 현재 capacity나 operation capability를 확인하지만, 이는 **feasibility constraint**다. C1처럼 Resource State의 trend/prediction을 1차 placement signal로 쓰는 구조가 아니다.
 
 따라서 C2가 추가 complexity를 지불할 이유도 더 명확해진다.
 
@@ -265,10 +270,12 @@ C2가 증명해야 하는 것은:
 
 ```text
 C1. Resource-centric Placement
-    + Data-Memory Affinity
+    - Resource State Monitoring
+    - Data-Memory Affinity Registry
 
-C2. Dynamic Data-centric Placement
-    + Runtime Behavior Adaptation
+C2. Data-centric Placement
+    - Data Runtime State Monitoring
+    - Data Characteristic Interpretation
 ```
 
 별도 "C1.5"를 만드는 것보다 두 후보의 철학을 그대로 유지하면서 C1을 현실적인 baseline으로 강화하는 편이 비교 구조가 더 깔끔하다.
