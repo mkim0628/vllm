@@ -40,6 +40,9 @@ jobs:
       - name: Run representative QA evaluator
         working-directory: doc-architect/dp1_eval
         run: python run_v2_representative.py
+      - name: Run overall tradeoff QA evaluator
+        working-directory: doc-architect/dp1_eval
+        run: python run_v2_tradeoff.py
       - name: Upload baseline results
         uses: actions/upload-artifact@v4
         with:
@@ -65,3 +68,8 @@ jobs:
         with:
           name: dp1-v2-representative-qa
           path: doc-architect/dp1_eval/out_v2_representative/
+      - name: Upload overall tradeoff QA results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dp1-v2-overall-tradeoff-qa
+          path: doc-architect/dp1_eval/out_v2_tradeoff/
