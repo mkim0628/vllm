@@ -7,7 +7,7 @@ This simulator is a migration-oriented rewrite of the legacy
 ## Reused from the old simulator
 
 - `model.py`: heterogeneous-memory physical model and Llama-3.1-70B cost model
-- `scenarios.py`: multi-AI-data workload/scenario definitions and deterministic traces
+- `scenarios.py`: multi-AI-data workload/scenario definitions and deterministic traces; obsolete classifier-error cases are converted to behavior-prediction stress cases
 - `configs/`: B200 8-GPU, memory-tier and model configuration
 - same-trace comparison: C1/C2 see the same `(scenario, seed, load)` trace
 - TTFT/TPOT and migration-cost accounting style
@@ -94,3 +94,7 @@ out/results_summary.json
 The simulator has workload ground truth (`DataObject.data_class`) so it can compute
 physical access cost and generate C2 type-aware metadata. C1 policy code does **not**
 receive that field through its registry. This separation is deliberate and tested.
+
+### Scenario change from the legacy evaluator
+
+The old C2 included a DataClassifier and therefore had `classifier_error` / `misclass_rate` fault injection. The current C2 registry is type-aware, so type misclassification is no longer the relevant failure mode. The port replaces that case with abrupt hotness/behavior shifts to measure prediction lag, mis-placement and thrashing.
