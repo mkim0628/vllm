@@ -192,7 +192,8 @@ Data Object Registry는 두 후보에 모두 존재하지만 **registry의 역�
 
 # 5. Common Components
 
-C1/C2 모두 다음 공통 component를 사용한다.
+C1/C2는 Event, Migration Scheduler, Resource Manager, Selector/Executor boundary를 공통으로 사용한다.  
+단, **Data Object Registry는 이름만 공통이며 C1/C2의 schema와 책임은 다르다.**
 
 ## 5.1 Event Source
 
@@ -453,7 +454,7 @@ flowchart TD
     DOR -->|"location / size / tier"| DEM
 
     RTA -->|"resource trend"| DMA
-    DEM -->|"eviction candidates"| DMA
+    DEM -->|"victim candidates<br/>(type-agnostic eviction)"| DMA
 
     DMA -->|"tier affinity hint"| DTS
     DMA -->|"data affinity hint"| MDS
@@ -564,7 +565,7 @@ pressure를 해소하기 위해 source tier에서
 HBM pressure
    ↓
 Data Object Registry
-  location / size / tier / type
+  location / size / tier
    ↓
 evictable objects
    ├─ KV block B1
@@ -601,7 +602,7 @@ basic lifecycle state
 - lifetime characteristic
 - hotness / future reuse prediction
 
-따라서 C1의 victim 선택은 다음처럼 동작한다.
+따라서 C1의 victim 선택은 **data type과 무관하게 eviction policy**로 다음처럼 동작한다.
 
 ~~~text
 Resource pressure
@@ -1069,8 +1070,8 @@ sequenceDiagram
 - **promotion과 demotion 모두 자연스럽게 지원**
   - cold prediction → demotion
   - renewed hotness / reuse prediction → promotion
-- **공통 Data Object Registry 사용**
-  - data type별 object identity/location 관리를 C1과 공유하면서 behavior logic만 별도로 확장 가능
+- **Type-aware Data Object Registry**
+  - C1과 동일한 Registry를 공유하는 것이 아니라, C2는 data type/class별 metadata를 관리하는 별도 abstraction을 사용
 
 ## 한계
 
@@ -1391,8 +1392,8 @@ behavior_driven/
 
 중요한 원칙은 다음과 같다.
 
-> **Data Object Registry는 C1/C2 공통 object metadata authority이고,  
-> C1/C2의 차이는 Registry 자체가 아니라 그 위에 쌓이는 decision logic이다.**
+> **C1과 C2의 Data Object Registry는 이름만 같고 abstraction은 다르다.**  
+> **C1 Registry는 type-agnostic placement bookkeeping이고, C2 Registry는 type-aware AI Data metadata registry다.**
 
 ---
 
@@ -1420,19 +1421,51 @@ MigrationScheduler.on_event(event)
   → asynchronously trigger evaluate()
 ~~~
 
-## 22.3 Data Object Registry
+## 22.3 Data Object Registry Interfaces
+
+C1/C2는 Registry interface도 동일하다고 가정하지 않는다.
+
+### C1 Placement Registry
 
 ~~~text
-DataObjectRegistry
-  get(object_id) -> DataObjectRecord
-  get_by_tier(tier) -> list[DataObjectRecord]
-  get_migratable(resource_id) -> list[DataObjectRecord]
-  update_location(object_id, location)
+C1DataObjectRegistry
+  get(object_id) -> C1DataObjectRecord
+  get_by_tier(tier) -> list[C1DataObjectRecord]
+  get_movable(resource_id) -> list[C1DataObjectRecord]
+
+C1DataObjectRecord
+  object_id
+  size_bytes
+  current_tier
+  current_location
+  movable / pin state
 ~~~
 
-DP1 decision 단계에서는 Registry를 read-mostly로 사용한다.
-실제 migration 완료 후 authoritative location update는
-공통 migration control plane의 commit 결과와 동기화되어야 한다.
+C1 Registry는 **data_type field를 요구하지 않는다.**
+Eviction Manager는 위 generic metadata에 eviction policy를 적용해 victim을 고른다.
+
+### C2 Type-aware AI Data Registry
+
+~~~text
+C2DataObjectRegistry
+  get(object_id) -> C2DataObjectRecord
+  get_by_type(data_type) -> list[C2DataObjectRecord]
+  get_class_metadata(data_type) -> DataClassMetadata
+
+C2DataObjectRecord
+  object_id
+  data_type
+  size_bytes
+  current_tier
+  current_location
+  class_metadata
+  behavior_metadata_ref
+~~~
+
+C2 Registry는 data type/class별 특징을 Behavior Monitor와 Predictor가 사용할 수 있게 제공한다.
+
+두 Registry 모두 실제 migration 완료 후 location 변경은
+공통 migration control plane의 authoritative commit 결과와 동기화되어야 한다.
 
 ## 22.4 Common Policy Interface
 
