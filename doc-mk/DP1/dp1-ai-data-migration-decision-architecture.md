@@ -171,8 +171,8 @@ tool-call 시점의 세밀한 KV lifecycle 제어는 별도 구조에서 보완�
 | 공통 trigger | Event → Migration Scheduler | Event → Migration Scheduler |
 | 핵심 decision signal | Memory resource state | Per-data runtime behavior |
 | 동적 관찰 대상 | Capacity / BW / Load / pressure trend | Reuse / access / lifetime / tool-related behavior |
-| Data Object Registry 사용 | 위치·크기·현재 tier 등 object state 조회 | object identity/class/metadata와 behavior 연결 |
-| AI Data 정보 활용 | Data class / operation 단위 static hint | Object/class 단위 runtime behavior |
+| Data Object Registry 사용 | **Type-agnostic placement metadata**: object ID, 위치, 크기, 현재 tier 등만 관리 | **Type-aware data registry**: object ID + data type별 metadata/특징 관리 |
+| AI Data 정보 활용 | Registry는 data type을 모르며, eviction policy는 generic placement metadata로 대상 선택. Static affinity는 별도 Mapper에서 반영 | Registry 자체가 KV/Agent Memory/LoRA/MoE/Vector Index 등 data type별 특징을 관리하고 behavior 분석에 활용 |
 | 주요 목적 | 빠른 pressure 대응과 전체 pool utilization | Fine-grained data-tier matching |
 | 대표 비용 | 낮은 decision overhead | Monitoring / characterization / prediction overhead |
 
@@ -181,8 +181,12 @@ tool-call 시점의 세밀한 KV lifecycle 제어는 별도 구조에서 보완�
 > **C1은 "메모리 상태가 어떻게 변하는가"를 중심으로 결정하고,  
 > C2는 "데이터가 앞으로 어떻게 사용될 것인가"를 중심으로 결정한다.**
 
-Data Object Registry는 두 후보에 모두 존재한다.
-차이는 Registry의 존재 여부가 아니라 **Registry의 정보를 어떻게 decision에 사용하는가**다.
+Data Object Registry는 두 후보에 모두 존재하지만 **registry의 역할과 schema 자체가 다르다.**
+
+- **C1 Registry:** data type을 모르는 type-agnostic placement registry. 위치·크기·현재 tier 등 generic metadata만 관리한다.
+- **C2 Registry:** data type별 특징을 관리하는 type-aware AI Data registry. KV Cache / Agent Memory / LoRA / MoE / Vector Index 등 class별 metadata를 가진다.
+
+즉 C1/C2 차이는 단순히 "같은 Registry를 다르게 사용"하는 수준이 아니라, **Registry abstraction 자체의 정보 모델이 다르다.**
 
 ---
 
@@ -234,53 +238,83 @@ C2 Data Behavior Monitor
 
 Migration Scheduler가 resource/data 특성을 직접 분석하지는 않는다.
 
-## 5.3 Data Object Registry
+## 5.3 Data Object Registry — C1/C2에서 abstraction이 다름
 
-C1/C2가 공통으로 참조하는 AI Data object metadata 저장소다.
+C1과 C2 모두 "Data Object Registry"라는 이름의 저장소가 있지만,
+동일한 schema를 공유하는 것으로 보지 않는다.
+
+### C1 — Type-agnostic Placement Registry
+
+C1 Registry는 **data type을 해석하지 않는다.**
+eviction에 필요한 generic placement metadata만 관리한다.
 
 ~~~text
-DataObjectRecord
+C1DataObjectRecord
  ├─ object_id
- ├─ data_type
  ├─ size_bytes
  ├─ current_tier
- ├─ current_resource
- ├─ logical_owner / scope
- ├─ lifecycle state
- └─ data-class metadata reference
+ ├─ current_resource / location
+ ├─ pin / movable state
+ └─ basic lifecycle state
 ~~~
 
-최소한 다음 정보를 제공한다.
+핵심적으로 다음 질문에만 답한다.
 
-- object identity
-- data type / class
-- 현재 위치
-- 현재 memory tier
-- object size
-- migration 가능한 object인지 판단하기 위한 기본 metadata
+~~~text
+"어디에 있는가?"
+"얼마나 큰가?"
+"지금 이동 가능한가?"
+~~~
 
-### C1에서의 사용
+Data Eviction Manager는 이 정보를 조회한 뒤
+LRU / age / size / pressure-relief 같은 **generic eviction policy**로 victim을 선택한다.
 
 ~~~text
 Data Eviction Manager
-  → Data Object Registry 조회
-  → 현재 위치 / 크기 / tier / class 확인
-  → eviction candidate 생성
+  → C1 Data Object Registry 조회
+  → 위치 / 크기 / tier / movable state 확인
+  → eviction policy 적용
+  → victim candidate 생성
 ~~~
 
-C1에서 Registry는 **dynamic behavior predictor가 아니다.**
-최근 access count, reuse probability 등을 이용해 object를 예측 분류하지 않는다.
+C1 Registry는 KV Cache인지 LoRA인지 MoE Expert인지 구분하지 않는다.
+C1의 Data-Memory Affinity는 Registry가 아니라 **별도의 Data-Memory Affinity Mapper**에서
+대표적인 operation/data characteristic을 static hint로 반영한다.
 
-### C2에서의 사용
+### C2 — Type-aware AI Data Registry
+
+C2 Registry는 object identity뿐 아니라 **data type별 의미와 특징을 관리한다.**
 
 ~~~text
-Data Behavior Monitor
-  ↔ Data Object Registry
-  → behavior event를 stable object identity / data class와 연결
+C2DataObjectRecord
+ ├─ object_id
+ ├─ data_type
+ ├─ current_tier / location
+ ├─ size_bytes
+ ├─ class_metadata
+ └─ behavior_metadata_ref
 ~~~
 
-C2에서는 Registry가 KV Cache / Agent Memory / LoRA / MoE / Vector Index 등의
-data-class metadata와 runtime behavior를 연결하는 기준점이 된다.
+예:
+
+~~~text
+Data Object Registry
+ ├─ KV Cache
+ │   └─ KV-specific metadata
+ ├─ Agent Memory
+ │   └─ lifetime / session metadata
+ ├─ LoRA Adapter
+ │   └─ adapter metadata
+ ├─ MoE Expert
+ │   └─ expert metadata
+ ├─ Vector Index Cache
+ │   └─ index metadata
+ └─ Data Class Metadata
+~~~
+
+따라서 C2에서는 Data Behavior Monitor가
+Registry의 type-specific metadata와 runtime event를 함께 사용해
+각 data class의 access/reuse/lifetime behavior를 해석한다.
 
 ## 5.4 Resource Manager
 
@@ -373,8 +407,8 @@ Dynamic signal
 Static hint
   = Data Type / Operation ↔ Memory Affinity
 
-Object metadata
-  = Data Object Registry
+Generic placement metadata
+  = Type-agnostic Data Object Registry
 ~~~
 
 중요한 점은 static affinity가 C2의 behavior prediction과 다르다는 것이다.
@@ -399,7 +433,7 @@ flowchart TD
     MDS["Migration Data<br/>Selector"]
     ME["Migration Executor<br/>(common migration boundary)"]
 
-    DOR["Data Object Registry<br/>location / size / tier / type"]
+    DOR["Data Object Registry<br/>location / size / tier"]
 
     RM["Resource Manager"]
     TC["Telemetry Collector"]
@@ -416,7 +450,7 @@ flowchart TD
     RSM --> DEM
 
     DEM -->|"object metadata query"| DOR
-    DOR -->|"location / size / tier / type"| DEM
+    DOR -->|"location / size / tier"| DEM
 
     RTA -->|"resource trend"| DMA
     DEM -->|"eviction candidates"| DMA
@@ -443,8 +477,9 @@ Event
   → Migration Executor boundary
 ~~~
 
-Data Eviction Manager는 별도로 Data Object Registry를 조회하여
-실제 object의 위치·크기·현재 tier 정보를 얻는다.
+Data Eviction Manager는 별도로 **type-agnostic Data Object Registry**를 조회하여
+실제 object의 위치·크기·현재 tier 정보를 얻고,
+그 generic metadata 위에서 eviction policy를 적용한다.
 
 ---
 
@@ -544,35 +579,55 @@ Data Eviction Manager는 최종 target tier를 정하지 않는다.
 기본 정책은 LRU / age / size / pin state / migration eligibility 등
 낮은 비용의 heuristic을 사용할 수 있다.
 
-## 8.5 Data Object Registry
+## 8.5 Data Object Registry — Type-agnostic
 
-C1에서도 Data Object Registry는 필수다.
+C1의 Data Object Registry는 **AI Data type을 모르는 generic placement bookkeeping**이다.
 
-C1이 per-object future behavior를 예측하지 않을 뿐,
-어떤 object를 이동할지 결정하려면 최소한 다음 정보가 필요하다.
+어떤 object를 eviction 대상으로 검토하려면 최소한 다음 정보만 있으면 된다.
 
 ~~~text
 object_id
-data_type
 size
 current location
 current tier
-migration eligibility
-static metadata reference
+pin / movable state
+basic lifecycle state
 ~~~
 
-따라서 C1의 의미는 "Data 정보를 사용하지 않는다"가 아니라
+의도적으로 다음 정보는 C1 Registry에 넣지 않는다.
 
-> **dynamic per-object behavior를 주요 decision signal로 사용하지 않는다**
+- KV Cache / Agent Memory / LoRA / MoE / Vector Index 같은 data type
+- type-specific reuse characteristic
+- lifetime characteristic
+- hotness / future reuse prediction
 
-로 정의해야 한다.
+따라서 C1의 victim 선택은 다음처럼 동작한다.
+
+~~~text
+Resource pressure
+  ↓
+C1 Data Object Registry
+  위치 / 크기 / tier 조회
+  ↓
+Eviction Policy
+  LRU / age / size / pressure relief
+  ↓
+Victim selection
+~~~
+
+즉 C1의 Registry는 **"무슨 종류의 AI Data인가?"를 판단하는 곳이 아니라
+"어디에 있고 얼마나 큰 object인가?"를 알려주는 곳**이다.
 
 ## 8.6 Data-Memory Affinity Mapper
 
 C1에서 AI Data 특성을 보완하는 핵심 component다.
 
-Data object의 runtime access history를 예측하지 않고,
-대표적인 data type / operation 특성을 static metadata로 제공한다.
+Data Object Registry의 type 정보를 사용하는 것이 아니라,
+별도의 configuration / function / operation hint를 통해
+대표적인 data/operation 특성을 static metadata로 제공한다.
+
+즉 C1의 Registry는 type-agnostic이고,
+**Data-Memory Affinity Mapper만 별도로 static affinity hint를 안다.**
 
 ~~~text
 DataMemoryAffinity
@@ -668,7 +723,7 @@ sequenceDiagram
     RTA->>RTA: detect current / projected pressure
 
     DEM->>DOR: query candidate object metadata
-    DOR-->>DEM: location / size / tier / type
+    DOR-->>DEM: location / size / tier / movable state
     DEM->>DEM: generate eviction candidates
 
     RTA->>AM: resource-side migration need
@@ -699,8 +754,8 @@ sequenceDiagram
   - 특정 tier pressure를 빠르게 해소하고 idle capacity를 활용하기 쉬움.
 - **Modifiability가 상대적으로 높음**
   - 새로운 memory resource 추가 시 Registry / affinity mapping 확장으로 대응 가능.
-- **AI Data 특성을 완전히 무시하지 않음**
-  - Data Object Registry + 대표적인 Data/Operation 특성을 static hint로 반영.
+- **Registry와 Affinity 역할 분리**
+  - Registry는 위치/크기/tier만 관리하고, 대표적인 Data/Operation 특성은 별도의 Affinity Mapper가 static hint로 반영.
 
 ## 한계
 
@@ -853,7 +908,9 @@ DataBehaviorState
 Behavior Monitor는 Data Object Registry를 이용해
 event를 logical object identity와 data class에 연결한다.
 
-## 13.3 Data Object Registry
+## 13.3 Data Object Registry — Type-aware
+
+C2의 Registry는 C1과 달리 **AI Data type별 특징을 관리하는 type-aware registry**다.
 
 C2의 Registry는 다음 역할을 한다.
 
@@ -1064,8 +1121,8 @@ Data + Target Tier              Data + Target Tier
 정리하면:
 
 > **공통 = Event → Migration Scheduler → candidate-specific decision pipeline**  
-> **C1 = Resource pressure가 migration을 주도하고 Data Object Registry + static affinity가 object 선택을 보정**  
-> **C2 = Data의 future behavior가 migration을 주도하고 Data Object Registry가 behavior를 object/class와 연결**
+> **C1 = Resource pressure가 migration을 주도하고 type-agnostic Registry의 위치/크기 정보에 eviction policy를 적용하며, static affinity는 별도 Mapper가 보정**  
+> **C2 = Data의 future behavior가 migration을 주도하고 type-aware Registry가 object를 data class별 특징/metadata와 연결**
 
 ---
 
@@ -1292,9 +1349,9 @@ vllm/v1/data_migration/
 │   ├── events.py
 │   ├── base.py
 │   │
-│   ├── data_object_registry.py     # C1/C2 common
-│   │
 │   ├── resource_driven/
+│   │   ├── data_object_registry.py # type-agnostic: location/size/tier
+
 │   │   ├── state_monitor.py
 │   │   ├── trend_analyzer.py
 │   │   ├── eviction_manager.py
@@ -1303,6 +1360,7 @@ vllm/v1/data_migration/
 │   │   └── data_selector.py
 │   │
 │   └── behavior_driven/
+│       ├── data_object_registry.py # type-aware: data-class metadata
 │       ├── behavior_monitor.py
 │       ├── trend_analyzer.py
 │       ├── predictor.py
@@ -1426,41 +1484,61 @@ policy_metadata
 
 ---
 
-# 23. Important Boundary: Data Object Registry vs Behavior Prediction
+# 23. Important Boundary: C1 Registry vs C2 Registry
 
-C1과 C2 모두 Data Object Registry가 있으므로,
-"Registry가 있는가 없는가"로 후보를 구분하면 안 된다.
+C1과 C2 모두 Data Object Registry라는 이름을 사용하지만,
+**동일한 Registry abstraction이 아니다.**
 
-## 23.1 C1 Registry usage
+## 23.1 C1 Registry — Type-agnostic placement bookkeeping
 
 ~~~text
-"이 object는 KV Cache다"
-"현재 CXL tier에 있다"
+"object B17은 CXL0에 있다"
 "크기는 256 MB다"
-"현재 migration 가능한 상태다"
+"현재 movable 상태다"
 ~~~
 
-- object identity / type / location / size 중심
-- static metadata 중심
-- runtime future behavior를 예측하지 않음
+- object ID
+- location / tier
+- size
+- movable / pin state
+- basic lifecycle
 
-## 23.2 C2 Registry + behavior usage
+C1 Registry는 다음을 모른다.
 
 ~~~text
-"이 object는 KV Cache B17이다"
-"현재 CXL tier에 있다"
-+
-"최근 reuse interval이 짧아지고 있다"
-"future reuse probability가 높다"
+B17이 KV Cache인지
+LoRA인지
+MoE Expert인지
+future reuse가 높은지
 ~~~
 
-- Registry의 object metadata
-- Behavior Monitor의 runtime history
-- Trend Analyzer / Predictor의 dynamic inference
+Victim 선택은 Registry의 generic metadata를 입력으로
+Eviction Policy가 수행한다.
 
-즉:
+## 23.2 C2 Registry — Type-aware AI Data metadata
 
-> **C1도 Data Object를 안다. C2는 Data Object의 future behavior까지 추론한다.**
+~~~text
+"B17은 KV Cache다"
+"KV-specific metadata는 ..."
+"A3는 LoRA Adapter다"
+"E5는 MoE Expert다"
+~~~
+
+그리고 Behavior Monitor가 runtime history를 결합한다.
+
+~~~text
+type-specific metadata
++ access / reuse / lifetime history
+        ↓
+Behavior Trend / Prediction
+~~~
+
+따라서 차이는 다음과 같다.
+
+> **C1 Registry = 어디에 있고 얼마나 큰가를 관리**  
+> **C2 Registry = 어떤 종류의 AI Data이며 그 type-specific 특징이 무엇인지까지 관리**
+
+C2는 그 위에 runtime behavior prediction까지 추가한다.
 
 ---
 
@@ -1494,7 +1572,8 @@ C1과 C2가 비슷해 보이지 않도록 이 경계를 명확히 유지해야 �
 - 시간에 따라 계속 바뀜
 - history와 prediction이 필요
 
-따라서 **C1에 Data Object Registry와 Affinity Mapper를 모두 두어도 C2와 동일해지는 것은 아니다.**
+따라서 **C1의 type-agnostic Registry + 별도 Affinity Mapper**와
+**C2의 type-aware Registry + Behavior Monitor/Predictor**는 구조적으로 구분된다.
 
 ---
 
@@ -1514,8 +1593,9 @@ C1 or C2
 
 ~~~text
 Resource pressure is the primary signal.
-Data Object Registry identifies candidate objects.
-Static AI Data characteristics refine the decision.
+Type-agnostic Data Object Registry provides location/size/tier.
+Eviction Policy selects victims from generic metadata.
+Static AI Data characteristics are refined separately by the Affinity Mapper.
 ~~~
 
 주요 특성:
@@ -1524,15 +1604,17 @@ Static AI Data characteristics refine the decision.
 - low decision overhead
 - fast pressure response
 - strong global pool utilization orientation
-- common Data Object Registry
-- static AI data hints
+- type-agnostic placement Registry
+- eviction-policy-based victim selection
+- static AI data hints are handled separately by Affinity Mapper
 - Agent-aware KV lifecycle은 별도 구조에서 보완
 
 ## C2 — AI Data Behavior-driven
 
 ~~~text
 Future data usage is the primary signal.
-Data Object Registry anchors object identity/class.
+Type-aware Data Object Registry manages object identity and data-class metadata.
+Behavior analysis predicts future usage.
 Resource state constrains the decision.
 ~~~
 
@@ -1558,8 +1640,9 @@ DP1 상세 설계에서 다음 항목은 별도 페이지/문서로 구체화한
 1. **Migration Event Model**
    - 어떤 event가 C1/C2 evaluation을 trigger하는지
    - event coalescing / debounce / priority
-2. **Data Object Registry Schema**
-   - common field와 data-class-specific metadata 분리
+2. **C1/C2 Data Object Registry Schema**
+   - C1: type-agnostic location / size / tier / movable state
+   - C2: type-aware data-class metadata + behavior metadata reference
    - location update ownership
 3. **C1 Data-Memory Affinity Table**
    - KV / Agent Memory / LoRA / MoE / Vector Index별 static hint 정의
