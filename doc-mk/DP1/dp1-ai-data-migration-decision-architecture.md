@@ -49,6 +49,8 @@ AI Data마다 reuse pattern, lifetime, access frequency, bandwidth sensitivity, 
 1. **C1 — Resource State-driven Migration + Static Data-Memory Affinity**
 2. **C2 — AI Data Behavior-driven Migration**
 
+그리고 두 후보 모두 공통적으로 **Event-driven Migration Scheduler**를 entry point로 사용한다.
+
 ---
 
 # 2. DP1과 공통 Migration Architecture의 관계
@@ -56,28 +58,46 @@ AI Data마다 reuse pattern, lifetime, access frequency, bandwidth sensitivity, 
 배경 문서 **doc-mk/vllm-ai-data-migration-architecture.md**는
 migration decision 이후의 실제 data movement 구조를 정의한다.
 
-공통 architecture의 핵심 경계는 다음과 같다.
+현재 DP1의 상위 흐름은 다음처럼 본다.
 
 ~~~text
-DP1 Decision Plane
-  WHAT to move?
-  WHERE to move?
-        │
-        │ MigrationIntent
-        ▼
+Runtime Event
+    │
+    ▼
+DP1 Migration Scheduler
+    │  asynchronous event dispatch
+    ▼
+C1 or C2 Decision Pipeline
+    │
+    │ MigrationDecision / MigrationIntent
+    ▼
 Migration Control Plane
-  HOW to move?
-  WHEN to execute?
-  HOW to keep consistency?
-        │
-        ▼
+    │
+    ▼
 Transfer Data Plane
-  actual byte movement
 ~~~
 
-즉 DP1은 **MigrationCoordinator 위에서 동작하는 decision architecture**다.
+DP1의 책임은 다음과 같다.
 
-DP1이 생성하는 결과는 최종적으로 다음과 같은 MigrationIntent로 변환된다.
+~~~text
+WHEN to evaluate migration?
+  → Event + Migration Scheduler
+
+WHAT to move?
+WHERE to move?
+  → C1 / C2 decision pipeline
+~~~
+
+반면 공통 migration subsystem의 책임은 다음과 같다.
+
+~~~text
+HOW to move?
+HOW to order / execute transfer?
+HOW to keep consistency?
+HOW to commit / rollback?
+~~~
+
+따라서 DP1이 생성한 decision은 최종적으로 다음과 같은 MigrationIntent로 변환된다.
 
 ~~~text
 MigrationIntent
@@ -91,7 +111,10 @@ MigrationIntent
 ~~~
 
 DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
-그 부분은 공통 **MigrationCoordinator → MigrationExecutor → TransferHandler** 구조가 담당한다.
+그 부분은 공통 **MigrationCoordinator → MigrationPlanner → execution-side scheduler/queue → MigrationExecutor → TransferHandler** 구조가 담당한다.
+
+> **주의:** 본 문서의 **DP1 Migration Scheduler**는 Event를 받아 migration decision cycle을 시작하는 orchestration component다.  
+> 배경 architecture의 execution-side scheduler/queue와 역할이 다르다.
 
 ---
 
@@ -99,8 +122,11 @@ DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
 
 ## 3.1 In Scope
 
+- runtime event 기반 migration decision trigger
+- Migration Scheduler를 통한 비동기 decision pipeline 호출
 - memory resource state monitoring
 - resource pressure / trend 분석
+- Data Object Registry 기반 object 위치/크기/tier 조회
 - migration 대상 data 후보 선택
 - destination memory tier 선택
 - AI Data별 static affinity 반영
@@ -141,10 +167,12 @@ tool-call 시점의 세밀한 KV lifecycle 제어는 별도 구조에서 보완�
 
 | 구분 | C1 | C2 |
 |---|---|---|
-| 구조명 | Resource State-driven Migration + Static Data-Memory Affinity | AI Data Behavior-driven Migration |
+| 구조명 | Resource State-driven Migration + Data-Memory Affinity | AI Data Behavior-driven Migration |
+| 공통 trigger | Event → Migration Scheduler | Event → Migration Scheduler |
 | 핵심 decision signal | Memory resource state | Per-data runtime behavior |
 | 동적 관찰 대상 | Capacity / BW / Load / pressure trend | Reuse / access / lifetime / tool-related behavior |
-| AI Data 정보 활용 | Data class 단위 static hint | Object/class 단위 runtime behavior |
+| Data Object Registry 사용 | 위치·크기·현재 tier 등 object state 조회 | object identity/class/metadata와 behavior 연결 |
+| AI Data 정보 활용 | Data class / operation 단위 static hint | Object/class 단위 runtime behavior |
 | 주요 목적 | 빠른 pressure 대응과 전체 pool utilization | Fine-grained data-tier matching |
 | 대표 비용 | 낮은 decision overhead | Monitoring / characterization / prediction overhead |
 
@@ -153,18 +181,108 @@ tool-call 시점의 세밀한 KV lifecycle 제어는 별도 구조에서 보완�
 > **C1은 "메모리 상태가 어떻게 변하는가"를 중심으로 결정하고,  
 > C2는 "데이터가 앞으로 어떻게 사용될 것인가"를 중심으로 결정한다.**
 
+Data Object Registry는 두 후보에 모두 존재한다.
+차이는 Registry의 존재 여부가 아니라 **Registry의 정보를 어떻게 decision에 사용하는가**다.
+
 ---
 
 # 5. Common Components
 
 C1/C2 모두 다음 공통 component를 사용한다.
 
-## 5.1 Memory Manager
+## 5.1 Event Source
 
-AI Data의 allocation / load / free 등 runtime lifecycle event를 발생시킨다.
-Memory Manager 자체가 migration policy를 결정하지는 않는다.
+migration 판단이 필요한 runtime state change를 Event로 전달한다.
 
-## 5.2 Resource Manager
+구체적인 Event type은 구현에 따라 달라질 수 있지만,
+DP1 관점에서는 다음처럼 추상화한다.
+
+~~~text
+MigrationEvent
+ ├─ event_type
+ ├─ timestamp
+ ├─ related_resource
+ ├─ related_data_ref
+ └─ optional_metadata
+~~~
+
+Event는 policy logic을 직접 수행하지 않는다.
+
+## 5.2 Migration Scheduler
+
+Migration Scheduler는 DP1 decision plane의 **entry / orchestration component**다.
+
+역할:
+
+- Event 수신
+- Event를 비동기로 처리
+- C1 또는 C2의 monitoring / analysis pipeline을 실행하도록 trigger
+- 중복/과도한 decision invocation을 조정할 수 있는 entry point 제공
+- 최종 migration decision이 생성되면 공통 migration subsystem으로 넘김
+
+핵심 흐름:
+
+~~~text
+Event
+  ↓
+Migration Scheduler
+  ↓ async event push
+C1 Resource State Monitor
+or
+C2 Data Behavior Monitor
+~~~
+
+Migration Scheduler가 resource/data 특성을 직접 분석하지는 않는다.
+
+## 5.3 Data Object Registry
+
+C1/C2가 공통으로 참조하는 AI Data object metadata 저장소다.
+
+~~~text
+DataObjectRecord
+ ├─ object_id
+ ├─ data_type
+ ├─ size_bytes
+ ├─ current_tier
+ ├─ current_resource
+ ├─ logical_owner / scope
+ ├─ lifecycle state
+ └─ data-class metadata reference
+~~~
+
+최소한 다음 정보를 제공한다.
+
+- object identity
+- data type / class
+- 현재 위치
+- 현재 memory tier
+- object size
+- migration 가능한 object인지 판단하기 위한 기본 metadata
+
+### C1에서의 사용
+
+~~~text
+Data Eviction Manager
+  → Data Object Registry 조회
+  → 현재 위치 / 크기 / tier / class 확인
+  → eviction candidate 생성
+~~~
+
+C1에서 Registry는 **dynamic behavior predictor가 아니다.**
+최근 access count, reuse probability 등을 이용해 object를 예측 분류하지 않는다.
+
+### C2에서의 사용
+
+~~~text
+Data Behavior Monitor
+  ↔ Data Object Registry
+  → behavior event를 stable object identity / data class와 연결
+~~~
+
+C2에서는 Registry가 KV Cache / Agent Memory / LoRA / MoE / Vector Index 등의
+data-class metadata와 runtime behavior를 연결하는 기준점이 된다.
+
+## 5.4 Resource Manager
 
 전체 memory resource에 대한 공통 정보를 관리한다.
 
@@ -198,18 +316,18 @@ resource의 relatively static capability를 관리한다.
 - compute capability
 - transfer capability
 
-## 5.3 Destination Tier Selector
+## 5.5 Destination Tier Selector
 
 주어진 migration candidate에 대해 destination memory resource/tier를 결정한다.
 
-## 5.4 Migration Data Selector
+## 5.6 Migration Data Selector
 
 실제로 이동할 data object를 선택한다.
 
-## 5.5 Migration Executor
+## 5.7 Migration Executor Boundary
 
-DP1이 선택한 source / target / data object 정보를
-공통 migration architecture로 전달한다.
+PPT의 Migration Executor는 DP1에서 결정된 source / target / data object를
+공통 migration architecture로 넘기는 execution boundary로 본다.
 
 ~~~text
 Destination Tier Selector
@@ -229,12 +347,12 @@ MigrationCoordinator
 MigrationExecutor
 ~~~
 
-PPT의 Migration Executor는 DP1 내부에서 실제 copy를 직접 수행하는 의미가 아니라,
-배경 architecture의 migration execution path로 연결되는 **execution boundary**로 본다.
+즉 PPT의 단순 구조에서는 Selector 다음에 Migration Executor를 직접 그리지만,
+상세 구현에서는 공통 Migration Control Plane을 거쳐 실제 transfer가 수행된다.
 
 ---
 
-# 6. Candidate 1 — Resource State-driven Migration + Static Data-Memory Affinity
+# 6. Candidate 1 — Resource State-driven Migration + Data-Memory Affinity
 
 ## 6.1 Design Intent
 
@@ -246,7 +364,7 @@ C1의 기본 원칙은 다음과 같다.
 다만 순수 resource-only 구조는
 "어떤 data를 어느 memory에 두는 것이 기본적으로 적합한가"를 전혀 구분하지 못한다.
 
-이를 보완하기 위해 **Data-Memory Affinity Mapper**를 추가한다.
+이를 보완하기 위해 **Data-Memory Affinity Mapper**를 둔다.
 
 ~~~text
 Dynamic signal
@@ -254,11 +372,14 @@ Dynamic signal
 
 Static hint
   = Data Type / Operation ↔ Memory Affinity
+
+Object metadata
+  = Data Object Registry
 ~~~
 
 중요한 점은 static affinity가 C2의 behavior prediction과 다르다는 것이다.
 
-- C1: data class에 대한 **미리 정의된 특성**
+- C1: data class / operation에 대한 **미리 정의된 특성**
 - C2: 실제 runtime에서 관찰한 **object별 동적 behavior**
 
 ---
@@ -267,52 +388,86 @@ Static hint
 
 ~~~mermaid
 flowchart TD
-    MM["Memory Manager"]
+    EV["Event"]
+    MS["Migration Scheduler"]
+
     RSM["Resource State Monitor"]
     RTA["Resource-based<br/>Trend Analyzer"]
     DEM["Data Eviction<br/>Manager"]
     DMA["Data-Memory<br/>Affinity Mapper"]
     DTS["Destination Tier<br/>Selector"]
     MDS["Migration Data<br/>Selector"]
-    ME["Migration Executor<br/>(common migration subsystem)"]
+    ME["Migration Executor<br/>(common migration boundary)"]
+
+    DOR["Data Object Registry<br/>location / size / tier / type"]
 
     RM["Resource Manager"]
     TC["Telemetry Collector"]
     MR["Memory Registry"]
-    REQ["Request Queue"]
 
-    MM -->|"Data Load / Allocation Event"| RSM
+    EV --> MS
+    MS -. "Event push (async)" .-> RSM
 
     RM --> TC
     RM --> MR
     TC -->|"capacity / BW / load"| RSM
-    MR -->|"resource capability"| RSM
 
     RSM --> RTA
     RSM --> DEM
-    REQ --> RTA
 
-    RTA -->|"pressure / trend"| DMA
+    DEM -->|"object metadata query"| DOR
+    DOR -->|"location / size / tier / type"| DEM
+
+    RTA -->|"resource trend"| DMA
     DEM -->|"eviction candidates"| DMA
 
     DMA -->|"tier affinity hint"| DTS
     DMA -->|"data affinity hint"| MDS
 
-    MR -->|"available tier / capability"| DTS
+    MR -->|"memory capability"| DTS
     MR -->|"resource constraints"| MDS
 
     DTS --> ME
     MDS --> ME
 ~~~
 
+구조의 핵심 path는 다음과 같다.
+
+~~~text
+Event
+  → Migration Scheduler
+  → Resource State Monitor
+  → Resource-based Trend Analyzer / Data Eviction Manager
+  → Data-Memory Affinity Mapper
+  → Destination Tier Selector / Migration Data Selector
+  → Migration Executor boundary
+~~~
+
+Data Eviction Manager는 별도로 Data Object Registry를 조회하여
+실제 object의 위치·크기·현재 tier 정보를 얻는다.
+
 ---
 
 # 8. C1 Component Responsibilities
 
-## 8.1 Resource State Monitor
+## 8.1 Migration Scheduler
 
-Telemetry Collector와 Memory Registry 정보를 사용해
-현재 resource state를 normalized state로 만든다.
+C1에서 Event를 받으면 Resource State Monitor의 evaluation cycle을 비동기로 시작한다.
+
+~~~text
+Event arrives
+  ↓
+Migration Scheduler
+  ↓ async
+Resource State Monitor refresh/evaluate
+~~~
+
+이렇게 하면 resource monitoring/decision logic이
+request execution path에서 직접 동기 호출되는 구조를 피할 수 있다.
+
+## 8.2 Resource State Monitor
+
+Telemetry Collector 정보를 사용해 현재 resource state를 normalized state로 만든다.
 
 ~~~text
 ResourceState
@@ -338,14 +493,14 @@ HBM free capacity
 
 따라서 C1은 현재 pressure뿐 아니라 near-future pressure에 선제적으로 반응할 수 있다.
 
-## 8.2 Resource-based Trend Analyzer
+## 8.3 Resource-based Trend Analyzer
 
-Resource State와 Request Queue를 보고
+Resource State의 시간 변화와 pending demand를 보고
 resource pressure가 어느 방향으로 변할지를 분석한다.
 
 ~~~text
 Current HBM free = 20 GB
-Queued Prefill demand = +14 GB
+Expected near-term demand = +14 GB
 Recent allocation rate = +3 GB/s
 
 => near-term HBM pressure expected
@@ -363,13 +518,18 @@ MigrationNeed
  └─ reason = projected capacity pressure
 ~~~
 
-## 8.3 Data Eviction Manager
+## 8.4 Data Eviction Manager
 
 pressure를 해소하기 위해 source tier에서
 이동 가능한 data candidate set을 만든다.
 
+이때 Data Object Registry를 조회한다.
+
 ~~~text
 HBM pressure
+   ↓
+Data Object Registry
+  location / size / tier / type
    ↓
 evictable objects
    ├─ KV block B1
@@ -378,12 +538,36 @@ evictable objects
    └─ Expert E17
 ~~~
 
-이 단계는 최종 선택이 아니라 **candidate generation**이다.
+Data Eviction Manager는 최종 target tier를 정하지 않는다.
+역할은 **source-side candidate generation**이다.
 
 기본 정책은 LRU / age / size / pin state / migration eligibility 등
 낮은 비용의 heuristic을 사용할 수 있다.
 
-## 8.4 Data-Memory Affinity Mapper
+## 8.5 Data Object Registry
+
+C1에서도 Data Object Registry는 필수다.
+
+C1이 per-object future behavior를 예측하지 않을 뿐,
+어떤 object를 이동할지 결정하려면 최소한 다음 정보가 필요하다.
+
+~~~text
+object_id
+data_type
+size
+current location
+current tier
+migration eligibility
+static metadata reference
+~~~
+
+따라서 C1의 의미는 "Data 정보를 사용하지 않는다"가 아니라
+
+> **dynamic per-object behavior를 주요 decision signal로 사용하지 않는다**
+
+로 정의해야 한다.
+
+## 8.6 Data-Memory Affinity Mapper
 
 C1에서 AI Data 특성을 보완하는 핵심 component다.
 
@@ -393,6 +577,7 @@ Data object의 runtime access history를 예측하지 않고,
 ~~~text
 DataMemoryAffinity
  ├─ data_type
+ ├─ operation_class
  ├─ latency_sensitivity
  ├─ bandwidth_sensitivity
  ├─ capacity_preference
@@ -407,25 +592,25 @@ DataMemoryAffinity
 
 | Data class | Static characteristic 예 | Affinity hint 예 |
 |---|---|---|
-| KV Cache | attention에서 반복 접근, latency/BW sensitive | active/hot KV는 upper tier 선호 |
+| KV Cache | attention에서 반복 접근, latency/BW sensitive | active KV는 upper tier 선호 |
 | Agent Memory | 상대적으로 long-lived, large-capacity 가능 | capacity-rich tier 허용 |
-| LoRA Adapter | read-mostly, adapter별 reuse 편차 | frequently selected adapter는 upper tier 선호 |
-| MoE Expert | expert별 activation 편차 존재 | hot expert는 BW-rich tier 선호 |
-| Vector Index Cache | large footprint, access granularity 상이 | capacity와 lookup latency trade-off 반영 |
+| LoRA Adapter | read-mostly | 자주 쓰이는 deployment profile은 upper tier 선호 가능 |
+| MoE Expert | weight footprint가 크고 access가 selective | bandwidth-rich tier 우선순위 부여 가능 |
+| Vector Index Cache | large footprint, lookup-oriented | capacity와 lookup latency trade-off 반영 |
 
 위 표는 **runtime hotness prediction 결과가 아니라 static policy hint**다.
 
-따라서 같은 KV Cache class 안에서 B1은 hot하고 B2는 cold하다는 차이까지는
-C1이 직접 알지 못한다.
+따라서 같은 KV Cache class 안에서
+B1과 B2의 실제 future reuse 차이까지 C1이 직접 예측하지 않는다.
 
-## 8.5 Destination Tier Selector
+## 8.7 Destination Tier Selector
 
 다음 정보를 결합해 target tier를 선택한다.
 
 ~~~text
 resource trend
 + available capacity
-+ topology/capability
++ memory capability
 + static data-memory affinity
 ~~~
 
@@ -437,7 +622,7 @@ candidate target tier
   ∩ preferred(data-memory affinity)
 ~~~
 
-## 8.6 Migration Data Selector
+## 8.8 Migration Data Selector
 
 Eviction candidate 중 실제 migration object를 결정한다.
 
@@ -445,13 +630,14 @@ Eviction candidate 중 실제 migration object를 결정한다.
 
 - migration eligibility
 - object size
+- current tier/location
 - pin state
 - basic age/LRU
 - source pressure relief 효과
 - static data-memory affinity
 - target feasibility
 
-C1에서는 runtime per-object behavior prediction을 하지 않으므로
+C1에서는 runtime per-object future behavior prediction을 하지 않으므로
 selection logic은 상대적으로 단순하게 유지한다.
 
 ---
@@ -460,23 +646,30 @@ selection logic은 상대적으로 단순하게 유지한다.
 
 ~~~mermaid
 sequenceDiagram
-    participant MM as Memory Manager
+    participant E as Event Source
+    participant MS as Migration Scheduler
     participant TC as Telemetry Collector
     participant RSM as Resource State Monitor
     participant RTA as Resource Trend Analyzer
     participant DEM as Data Eviction Manager
+    participant DOR as Data Object Registry
     participant AM as Data-Memory Affinity Mapper
     participant DTS as Destination Tier Selector
     participant MDS as Migration Data Selector
     participant MC as MigrationCoordinator
 
+    E->>MS: Migration Event
+    MS-->>RSM: async event push / evaluate
+
     TC->>RSM: capacity / BW / load telemetry
-    MM->>RSM: allocation / load event
     RSM->>RTA: normalized resource state
     RSM->>DEM: pressure state
 
     RTA->>RTA: detect current / projected pressure
-    DEM->>DEM: generate migration candidates
+
+    DEM->>DOR: query candidate object metadata
+    DOR-->>DEM: location / size / tier / type
+    DEM->>DEM: generate eviction candidates
 
     RTA->>AM: resource-side migration need
     DEM->>AM: candidate data objects
@@ -497,20 +690,22 @@ sequenceDiagram
 ## 장점
 
 - **낮은 Decision Overhead**
-  - per-object behavior history와 predictor가 없어 runtime hot path가 단순함.
+  - per-object behavior history와 predictor가 없어 decision pipeline이 단순함.
+- **Event 기반 비동기 처리**
+  - runtime event 발생 시 Migration Scheduler가 decision cycle을 시작하고 request path와 결합도를 낮출 수 있음.
 - **Resource State 변화에 즉시 반응**
-  - capacity/BW/load pressure가 발생하면 바로 migration trigger 가능.
+  - capacity/BW/load pressure가 발생하면 migration evaluation trigger 가능.
 - **전체 Memory Pool Utilization 관리에 유리**
   - 특정 tier pressure를 빠르게 해소하고 idle capacity를 활용하기 쉬움.
 - **Modifiability가 상대적으로 높음**
-  - 새로운 memory resource 추가 시 registry/affinity mapping 확장으로 대응 가능.
+  - 새로운 memory resource 추가 시 Registry / affinity mapping 확장으로 대응 가능.
 - **AI Data 특성을 완전히 무시하지 않음**
-  - 대표적인 Data/Operation 특성을 static hint로 반영.
+  - Data Object Registry + 대표적인 Data/Operation 특성을 static hint로 반영.
 
 ## 한계
 
 - **Data별 실제 접근 특성 반영 한계**
-  - 같은 data class 내부 object별 hot/cold 차이를 직접 모델링하지 않음.
+  - 같은 data class 내부 object별 hot/cold 차이를 직접 예측하지 않음.
 - **동일 Resource State에서 서로 다른 Data Access Pattern 구분 한계**
   - 동일한 HBM pressure라도 어떤 object가 곧 다시 사용될지는 알기 어려움.
 - **Static hint의 granularity 한계**
@@ -528,7 +723,7 @@ DP1 C1에 동적 behavior predictor를 추가하기보다
 
 C2의 기본 원칙은 다음과 같다.
 
-> **각 AI Data의 runtime access/reuse/lifetime behavior를 관찰하고,
+> **각 AI Data의 runtime reuse/access/lifetime behavior를 관찰하고,
 > 향후 사용 가능성을 예측하여 data별 migration을 결정한다.**
 
 Resource state는 여전히 constraint로 사용하지만,
@@ -540,6 +735,9 @@ Primary signal
 
 Constraint
   = Resource Capacity / BW / Load
+
+Object identity / class
+  = Data Object Registry
 ~~~
 
 ---
@@ -548,22 +746,14 @@ Constraint
 
 ~~~mermaid
 flowchart TD
-    MM["Memory Manager"]
+    EV["Event"]
+    MS["Migration Scheduler"]
+
     DBM["Data Behavior<br/>Monitor"]
-    DCA["Data Class<br/>Adapter"]
     BTA["Behavior-based<br/>Trend Analyzer"]
     FBP["Future Behavior<br/>Predictor"]
 
-    DTS["Destination Tier<br/>Selector"]
-    MDS["Migration Data<br/>Selector"]
-    ME["Migration Executor<br/>(common migration subsystem)"]
-
-    REQ["Request Queue"]
-
-    RM["Resource Manager"]
-    TC["Telemetry Collector"]
-    MR["Memory Registry"]
-
+    DOR["Data Object Registry"]
     KV["KV Cache"]
     AM["Agent Memory"]
     LA["LoRA Adapter"]
@@ -571,20 +761,27 @@ flowchart TD
     IDX["Vector Index Cache"]
     META["Data Class Metadata"]
 
-    MM -->|"Data Load / Allocation Event"| DBM
-    REQ --> BTA
+    DTS["Destination Tier<br/>Selector"]
+    MDS["Migration Data<br/>Selector"]
+    ME["Migration Executor<br/>(common migration boundary)"]
 
-    DBM -->|"access / reuse / lifetime"| BTA
-    DBM -->|"data affinity info"| DCA
+    RM["Resource Manager"]
+    TC["Telemetry Collector"]
+    MR["Memory Registry"]
 
-    DCA --> KV
-    DCA --> AM
-    DCA --> LA
-    DCA --> MOE
-    DCA --> IDX
-    DCA --> META
+    EV --> MS
+    MS -. "Event push (async)" .-> DBM
 
+    DBM -->|"object / behavior association"| DOR
+    DBM -->|"data affinity / behavior info"| BTA
     BTA --> FBP
+
+    DOR --> KV
+    DOR --> AM
+    DOR --> LA
+    DOR --> MOE
+    DOR --> IDX
+    DOR --> META
 
     RM --> TC
     RM --> MR
@@ -594,18 +791,48 @@ flowchart TD
 
     TC -->|"current resource state"| DTS
     TC -->|"current resource state"| MDS
-    MR -->|"resource capability"| DTS
-    MR -->|"resource capability"| MDS
+    MR -->|"memory capability"| DTS
+    MR -->|"resource constraints"| MDS
 
     DTS --> ME
     MDS --> ME
 ~~~
 
+구조의 핵심 path는 다음과 같다.
+
+~~~text
+Event
+  → Migration Scheduler
+  → Data Behavior Monitor
+  → Behavior-based Trend Analyzer
+  → Future Behavior Predictor
+  → Destination Tier Selector / Migration Data Selector
+  → Migration Executor boundary
+~~~
+
+Data Object Registry는 Data Behavior Monitor가 관찰한 behavior를
+stable data object / data class와 연결하는 공통 metadata anchor다.
+
 ---
 
 # 13. C2 Component Responsibilities
 
-## 13.1 Data Behavior Monitor
+## 13.1 Migration Scheduler
+
+C2에서 Event를 받으면 Data Behavior Monitor의 evaluation cycle을 비동기로 시작한다.
+
+~~~text
+Event
+  ↓
+Migration Scheduler
+  ↓ async
+Data Behavior Monitor
+~~~
+
+C1과 entry pattern은 동일하다.
+후속 pipeline만 resource-driven과 behavior-driven으로 달라진다.
+
+## 13.2 Data Behavior Monitor
 
 각 data object의 runtime behavior signal을 수집한다.
 
@@ -623,43 +850,58 @@ DataBehaviorState
  └─ data-specific signals
 ~~~
 
-모든 data type에 동일한 signal이 존재하지 않으므로
-data-specific 정보는 Data Class Adapter를 통해 정규화한다.
+Behavior Monitor는 Data Object Registry를 이용해
+event를 logical object identity와 data class에 연결한다.
 
-## 13.2 Data Class Adapter
+## 13.3 Data Object Registry
 
-KV Cache, Agent Memory, LoRA, MoE Expert, Vector Index Cache 등
-서로 다른 data semantics를 generic behavior model에 연결하는 adapter다.
+C2의 Registry는 다음 역할을 한다.
+
+- data object identity 관리
+- object의 type/class 관리
+- 현재 location / tier / size metadata 관리
+- KV Cache / Agent Memory / LoRA / MoE / Vector Index 등의 data-class metadata 연결
+- Data Behavior Monitor가 수집한 event를 올바른 object에 귀속시키는 lookup 기준 제공
 
 ~~~text
-KVDataBehaviorAdapter
-  block access / prefix reuse / request ownership
-        │
-        ▼
-GenericBehaviorFeatures
-
-LoRADataBehaviorAdapter
-  adapter selection frequency / active sessions
-        │
-        ▼
-GenericBehaviorFeatures
-
-MoEDataBehaviorAdapter
-  expert activation frequency
-        │
-        ▼
-GenericBehaviorFeatures
+Data Object Registry
+ ├─ KV Cache objects
+ ├─ Agent Memory objects
+ ├─ LoRA Adapter objects
+ ├─ MoE Expert objects
+ ├─ Vector Index Cache objects
+ └─ Data Class Metadata
 ~~~
 
-Migration policy와 predictor가 각 data type 내부 구현을 직접 알지 않도록 한다.
+기존 문서의 별도 **Data Class Adapter**는 현재 PPT 구조에서는
+독립 top-level component로 두지 않는다.
 
-## 13.3 Behavior-based Trend Analyzer
+필요한 data-class별 normalization/interpretation은
+Data Object Registry의 data-class metadata 또는
+Data Behavior Monitor 내부 adapter/plugin으로 구현할 수 있다.
+
+즉 architecture view에서는 다음처럼 단순화한다.
+
+~~~text
+Data-specific runtime event
+        │
+        ▼
+Data Behavior Monitor
+        │
+        ├─ Data Object Registry lookup
+        └─ data-class metadata reference
+        │
+        ▼
+normalized behavior information
+~~~
+
+## 13.4 Behavior-based Trend Analyzer
 
 시간에 따른 behavior 변화를 분석한다.
 
 - access frequency increasing / decreasing
 - reuse interval shortening / lengthening
-- session 종료에 따른 future reuse 감소
+- session/lifetime 변화
 - expert activation frequency trend
 - adapter popularity trend
 
@@ -673,7 +915,7 @@ BehaviorTrend
  └─ confidence
 ~~~
 
-## 13.4 Future Behavior Predictor
+## 13.5 Future Behavior Predictor
 
 현재 behavior trend로부터 near-future data value를 예측한다.
 
@@ -698,10 +940,10 @@ expected_remaining_lifetime  = long
 - rule/threshold
 - exponential moving average
 - reuse-distance model
-- Markov/state transition
+- state transition model
 - lightweight ML predictor
 
-## 13.5 Destination Tier Selector / Migration Data Selector
+## 13.6 Destination Tier Selector / Migration Data Selector
 
 예측 결과와 resource state를 함께 사용한다.
 
@@ -711,6 +953,8 @@ Predicted Data Behavior
 Current Resource State
           +
 Memory Capability
+          +
+Current Object Location
           │
           ▼
 Data Object × Memory Tier matching
@@ -724,9 +968,10 @@ C2는 같은 data class 내부 object들도 서로 다른 tier로 migration할 �
 
 ~~~mermaid
 sequenceDiagram
-    participant MM as Memory Manager
+    participant E as Event Source
+    participant MS as Migration Scheduler
     participant DBM as Data Behavior Monitor
-    participant DCA as Data Class Adapter
+    participant DOR as Data Object Registry
     participant BTA as Behavior Trend Analyzer
     participant FBP as Future Behavior Predictor
     participant RM as Resource Manager
@@ -734,11 +979,13 @@ sequenceDiagram
     participant MDS as Migration Data Selector
     participant MC as MigrationCoordinator
 
-    MM->>DBM: allocation / access / lifecycle events
-    DBM->>DCA: data-specific behavior
-    DCA-->>DBM: normalized behavior features
+    E->>MS: Migration / data behavior event
+    MS-->>DBM: async event push
 
-    DBM->>BTA: behavior history
+    DBM->>DOR: lookup object identity / class / current location
+    DOR-->>DBM: object metadata + data-class metadata
+
+    DBM->>BTA: normalized behavior / affinity information
     BTA->>FBP: behavior trend
     FBP->>FBP: predict future reuse / lifetime / hotness
 
@@ -765,6 +1012,8 @@ sequenceDiagram
 - **promotion과 demotion 모두 자연스럽게 지원**
   - cold prediction → demotion
   - renewed hotness / reuse prediction → promotion
+- **공통 Data Object Registry 사용**
+  - data type별 object identity/location 관리를 C1과 공유하면서 behavior logic만 별도로 확장 가능
 
 ## 한계
 
@@ -782,50 +1031,41 @@ anti-thrashing mechanism이 중요하다.
 # 16. C1 vs C2 — Decision Flow Comparison
 
 ~~~text
-C1
-Resource Telemetry
-      │
-      ▼
-Resource State / Trend
-      │
-      ├── pressure?
-      │
-      ▼
-Eviction Candidate
-      │
-      ▼
-Static Data-Memory Affinity
-      │
-      ▼
-Data + Target Tier
-      │
-      ▼
-MigrationIntent
-
-
-C2
-Per-Data Runtime Events
-      │
-      ▼
-Behavior Monitor
-      │
-      ▼
-Behavior Trend
-      │
-      ▼
-Future Behavior Prediction
-      │
-      ├── constrained by Resource State
-      │
-      ▼
-Data + Target Tier
-      │
-      ▼
-MigrationIntent
+Common Entry
+Event
+  │
+  ▼
+Migration Scheduler
+  │
+  ├───────────────────────────────┐
+  │                               │
+  ▼                               ▼
+C1                              C2
+Resource State Monitor          Data Behavior Monitor
+  │                               │
+  ▼                               ├── Data Object Registry
+Resource Trend                    │
++ Eviction Manager                ▼
+  │                            Behavior Trend
+  ├── Data Object Registry        │
+  │                               ▼
+  ▼                            Future Behavior
+Static Data-Memory                Prediction
+Affinity                          │
+  │                               │
+  ▼                               ▼
+Data + Target Tier              Data + Target Tier
+  │                               │
+  └───────────────┬───────────────┘
+                  ▼
+            MigrationIntent
 ~~~
 
-> **C1 = Resource pressure가 migration을 주도하고 data 특성은 static hint로 보정**  
-> **C2 = Data의 future behavior가 migration을 주도하고 resource state는 실행 가능 범위를 제약**
+정리하면:
+
+> **공통 = Event → Migration Scheduler → candidate-specific decision pipeline**  
+> **C1 = Resource pressure가 migration을 주도하고 Data Object Registry + static affinity가 object 선택을 보정**  
+> **C2 = Data의 future behavior가 migration을 주도하고 Data Object Registry가 behavior를 object/class와 연결**
 
 ---
 
@@ -836,24 +1076,26 @@ MigrationIntent
 ## 17.1 C1 Demotion
 
 ~~~text
-HBM pressure rising
+Event
+  → Migration Scheduler
+  → HBM pressure rising
   → free capacity required
-  → eviction candidates
+  → Data Object Registry에서 candidate 조회
   → lower tier selection
   → demotion
 ~~~
 
 ## 17.2 C1 Promotion
 
-resource state만으로는 promotion trigger가 약하다.
+resource state만으로는 promotion trigger가 상대적으로 약하다.
 
 가능한 trigger:
 
-- lower tier read가 반복되어 upper-tier bandwidth 여유가 있을 때
-- request queue상 soon-to-be-used data가 식별될 때
-- static affinity상 upper tier 선호 data가 lower tier에 있고 upper tier pressure가 낮아졌을 때
+- upper-tier capacity/pressure가 충분히 회복된 event
+- static affinity상 upper tier 선호 object가 lower tier에 존재
+- explicit demand/event로 해당 object가 다시 필요해짐
 
-다만 object별 future reuse 판단이 필요해질수록 C2 영역에 가까워진다.
+다만 object별 future reuse를 지속 예측하기 시작하면 C2 영역에 가까워진다.
 
 ## 17.3 C2 Demotion / Promotion
 
@@ -868,24 +1110,28 @@ reuse / access trend ↑
 → promotion
 ~~~
 
-C2는 data behavior 자체가 promotion trigger를 제공한다.
+C2는 data behavior 자체가 promotion/demotion의 강한 signal을 제공한다.
 
 ---
 
 # 18. QA Trade-off
 
-PPT의 정성 평가를 문서에 그대로 정리하면 다음과 같다.
+현재 PPT의 정성 평가를 문서에 정리하면 다음과 같다.
 
 | QA | C1 Resource State + Affinity | C2 Data Behavior-driven | 해석 |
 |---|---:|---:|---|
-| Performance Efficiency — Throughput | ●●○ | ●●○ | C1은 decision이 가볍고, C2는 fine-grained placement 이점과 monitoring/prediction overhead가 상쇄 가능 |
+| Performance Efficiency — Throughput | ●●○ | ●●○ | C1은 decision이 가볍고, C2는 fine-grained migration 이점과 monitoring/prediction overhead가 상쇄 가능 |
 | Performance Efficiency — Latency (TTFT, TPOT) | ●●○ | ●●● | C2는 hot data를 적절한 tier에 둘 수 있어 steady-state latency에 유리할 가능성. 단 prediction miss 시 반대 가능 |
 | Resource Utilization | ●●● | ●●○ | C1은 pool pressure를 직접 기준으로 전체 memory capacity 활용에 유리. C2는 data-optimal decision이 resource-global optimum과 항상 같지는 않음 |
-| Modifiability | ●●● | ●●○ | C1은 static affinity 확장 중심. C2는 data class별 monitor/adapter/feature/predictor 변경 영향이 큼 |
+| Modifiability | ●●● | ●●○ | C1은 static affinity 확장 중심. C2는 behavior feature/predictor 변경 영향이 큼 |
 
 > 위 점수는 **architecture-level qualitative hypothesis**이며 측정 결과가 아니다.
 > PPT의 00 TPS / 00 ms / 00%는 아직 simulation/benchmark 값이 들어가지 않은 placeholder이므로
 > 실제 수치 평가는 별도의 QA simulation 문서에서 정의해야 한다.
+
+Event-driven Migration Scheduler와 공통 Data Object Registry는
+두 후보에 동일하게 추가되므로 **C1/C2 간 QA 차이를 만드는 핵심 요인으로 보지 않는다.**
+차이는 Scheduler 이후 decision pipeline에서 발생한다.
 
 ---
 
@@ -900,7 +1146,8 @@ request/s
 output token/s
 migration decision/s
 migration bytes/s
-scheduler overhead
+event handling overhead
+migration scheduler queue delay
 predictor overhead
 ~~~
 
@@ -914,7 +1161,18 @@ TTFT
 TPOT
 migration-induced stall
 promotion wait time
+event-to-decision latency
 decision latency
+~~~
+
+Event 기반 구조에서는 다음 구간을 별도로 보는 것이 좋다.
+
+~~~text
+T_event_to_decision
+ = T_event_queue
+ + T_monitor
+ + T_analysis
+ + T_selection
 ~~~
 
 C2에서는 prediction hit/miss를 구분해야 한다.
@@ -949,14 +1207,19 @@ Hot-tier Useful Residency
 
 변경 시 영향을 받는 module 수와 interface 변경 범위를 본다.
 
+- 신규 event type 추가
 - 신규 memory tier 추가
 - 신규 AI data class 추가
+- Data Object Registry schema 확장
 - predictor 변경
 - affinity rule 변경
 - telemetry metric 추가
 
-C1은 신규 data type 추가 시 affinity metadata 추가로 대응 가능한 범위가 넓다.
-C2는 신규 data type별 Data Class Adapter / behavior feature / predictor input 검토가 필요하다.
+C1은 신규 data type 추가 시
+Registry metadata + affinity metadata 추가로 대응 가능한 범위가 넓다.
+
+C2는 신규 data type별
+behavior feature / interpretation / predictor input 검토가 필요하다.
 
 ---
 
@@ -964,31 +1227,56 @@ C2는 신규 data type별 Data Class Adapter / behavior feature / predictor inpu
 
 DP1은 기존 vLLM **Scheduler → Executor → Worker** call path를 대체하지 않는다.
 
+현재 구조에서는 request path의 특정 지점이 migration logic을 동기 호출하는 형태보다,
+runtime Event를 DP1 Migration Scheduler에 전달하고
+별도의 decision cycle을 비동기로 실행하는 구조를 사용한다.
+
 ~~~text
-                    DP1 Decision Plane
-                           │
-             ┌─────────────┴─────────────┐
-             │                           │
-             ▼                           ▼
-    C1 Resource Policy          C2 Behavior Policy
-             │                           │
-             └─────────────┬─────────────┘
-                           │ MigrationIntent
-                           ▼
-                MigrationCoordinator
-                           │
-                    MigrationPlanner
-                           │
-                  MigrationScheduler
-                           │
-                  MigrationExecutor
-                           │
-                     Worker side
-                           │
-                  Transfer Handlers
-                           │
-                  HBM/DRAM/CXL/SSD
+Runtime / vLLM Event
+        │
+        ▼
+DP1 Migration Scheduler
+        │
+        ├───────────────┬───────────────┐
+        │               │
+        ▼               ▼
+C1 Resource         C2 Behavior
+Decision Pipeline   Decision Pipeline
+        │               │
+        └───────┬───────┘
+                │
+                ▼
+         MigrationDecision
+                │
+                ▼
+         MigrationIntent
+                │
+                ▼
+      MigrationCoordinator
+                │
+         MigrationPlanner
+                │
+     execution-side queue/scheduler
+                │
+       MigrationExecutor
+                │
+          Worker side
+                │
+       Transfer Handlers
+                │
+       HBM/DRAM/CXL/SSD
 ~~~
+
+여기서 두 scheduler를 구분한다.
+
+| Component | 역할 |
+|---|---|
+| **DP1 Migration Scheduler** | Event-driven decision orchestration. C1/C2 monitor/analysis pipeline을 시작 |
+| **Execution-side Migration Scheduler/Queue** | 이미 결정된 MigrationPlan의 실행 순서/priority/bandwidth를 관리 |
+
+---
+
+# 21. Recommended Module Boundary
 
 구현 관점에서는 다음 package boundary가 적절하다.
 
@@ -996,11 +1284,15 @@ DP1은 기존 vLLM **Scheduler → Executor → Worker** call path를 대체하�
 vllm/v1/data_migration/
 ├── coordinator.py
 ├── planner.py
-├── scheduler.py
+├── execution_scheduler.py          # execution-side migration queue
 ├── ...
 │
-├── policy/                         # DP1 decision layer
+├── decision/                       # DP1 decision layer
+│   ├── migration_scheduler.py      # Event-driven DP1 Migration Scheduler
+│   ├── events.py
 │   ├── base.py
+│   │
+│   ├── data_object_registry.py     # C1/C2 common
 │   │
 │   ├── resource_driven/
 │   │   ├── state_monitor.py
@@ -1015,13 +1307,7 @@ vllm/v1/data_migration/
 │       ├── trend_analyzer.py
 │       ├── predictor.py
 │       ├── destination_selector.py
-│       ├── data_selector.py
-│       └── adapters/
-│           ├── kv_cache.py
-│           ├── agent_memory.py
-│           ├── lora.py
-│           ├── moe.py
-│           └── vector_index.py
+│       └── data_selector.py
 │
 ├── resource/
 │   ├── registry.py
@@ -1031,25 +1317,76 @@ vllm/v1/data_migration/
     └── executor.py
 ~~~
 
-Decision policy는 바뀔 수 있지만,
-migration lifecycle / consistency / transfer mechanism은 공통으로 유지한다.
+Data-class별 세부 logic이 필요하면
+Data Object Registry의 metadata provider 또는
+Data Behavior Monitor plugin으로 확장할 수 있다.
+
+~~~text
+behavior_driven/
+└── plugins/
+    ├── kv_cache.py
+    ├── agent_memory.py
+    ├── lora.py
+    ├── moe.py
+    └── vector_index.py
+~~~
+
+중요한 원칙은 다음과 같다.
+
+> **Data Object Registry는 C1/C2 공통 object metadata authority이고,  
+> C1/C2의 차이는 Registry 자체가 아니라 그 위에 쌓이는 decision logic이다.**
 
 ---
 
-# 21. Recommended Interfaces
+# 22. Recommended Interfaces
 
-## 21.1 Common Policy Interface
+## 22.1 Event Input
 
 ~~~text
-class MigrationDecisionPolicy:
-    evaluate(
-        resource_snapshot,
-        request_state,
-        data_state,
-    ) -> list[MigrationDecision]
+MigrationEvent
+ ├─ event_id
+ ├─ event_type
+ ├─ timestamp
+ ├─ resource_id?
+ ├─ data_ref?
+ └─ metadata
 ~~~
 
-## 21.2 MigrationDecision
+## 22.2 Migration Scheduler
+
+~~~text
+MigrationScheduler.on_event(event)
+
+  → enqueue / coalesce event
+  → select decision pipeline
+  → asynchronously trigger evaluate()
+~~~
+
+## 22.3 Data Object Registry
+
+~~~text
+DataObjectRegistry
+  get(object_id) -> DataObjectRecord
+  get_by_tier(tier) -> list[DataObjectRecord]
+  get_migratable(resource_id) -> list[DataObjectRecord]
+  update_location(object_id, location)
+~~~
+
+DP1 decision 단계에서는 Registry를 read-mostly로 사용한다.
+실제 migration 완료 후 authoritative location update는
+공통 migration control plane의 commit 결과와 동기화되어야 한다.
+
+## 22.4 Common Policy Interface
+
+~~~text
+MigrationDecisionPolicy.evaluate(
+    event,
+    resource_snapshot,
+    data_object_registry,
+) -> list[MigrationDecision]
+~~~
+
+## 22.5 MigrationDecision
 
 ~~~text
 MigrationDecision
@@ -1063,10 +1400,11 @@ MigrationDecision
  └─ policy_metadata
 ~~~
 
-## 21.3 C1 Policy Metadata
+## 22.6 C1 Policy Metadata
 
 ~~~text
 policy_metadata
+ ├─ trigger_event
  ├─ pressure_type
  ├─ pressure_score
  ├─ predicted_pressure
@@ -1074,10 +1412,11 @@ policy_metadata
  └─ eviction_reason
 ~~~
 
-## 21.4 C2 Policy Metadata
+## 22.7 C2 Policy Metadata
 
 ~~~text
 policy_metadata
+ ├─ trigger_event
  ├─ behavior_class
  ├─ reuse_score
  ├─ predicted_hotness
@@ -1087,7 +1426,45 @@ policy_metadata
 
 ---
 
-# 22. Important Boundary: Static Affinity vs Dynamic Behavior
+# 23. Important Boundary: Data Object Registry vs Behavior Prediction
+
+C1과 C2 모두 Data Object Registry가 있으므로,
+"Registry가 있는가 없는가"로 후보를 구분하면 안 된다.
+
+## 23.1 C1 Registry usage
+
+~~~text
+"이 object는 KV Cache다"
+"현재 CXL tier에 있다"
+"크기는 256 MB다"
+"현재 migration 가능한 상태다"
+~~~
+
+- object identity / type / location / size 중심
+- static metadata 중심
+- runtime future behavior를 예측하지 않음
+
+## 23.2 C2 Registry + behavior usage
+
+~~~text
+"이 object는 KV Cache B17이다"
+"현재 CXL tier에 있다"
++
+"최근 reuse interval이 짧아지고 있다"
+"future reuse probability가 높다"
+~~~
+
+- Registry의 object metadata
+- Behavior Monitor의 runtime history
+- Trend Analyzer / Predictor의 dynamic inference
+
+즉:
+
+> **C1도 Data Object를 안다. C2는 Data Object의 future behavior까지 추론한다.**
+
+---
+
+# 24. Important Boundary: Static Affinity vs Dynamic Behavior
 
 C1과 C2가 비슷해 보이지 않도록 이 경계를 명확히 유지해야 한다.
 
@@ -1096,18 +1473,18 @@ C1과 C2가 비슷해 보이지 않도록 이 경계를 명확히 유지해야 �
 ~~~text
 "KV Cache는 generally latency/BW sensitive"
 "Agent Memory는 capacity-rich tier도 허용 가능"
-"MoE Expert는 hot일 경우 BW-rich tier가 좋음"
+"MoE Expert weight는 bandwidth-rich tier가 유리할 수 있음"
 ~~~
 
 - design-time / configuration-time 지식
-- data class 수준
+- data class / operation 수준
 - request마다 다시 학습하지 않음
 - runtime access history가 없어도 동작
 
 ## C2 dynamic behavior
 
 ~~~text
-"KV block B17이 최근 500 ms 동안 여러 번 재사용됨"
+"KV block B17의 최근 reuse가 증가 중"
 "Expert E5의 activation frequency가 증가 중"
 "LoRA A3의 active session이 종료되어 reuse 가능성이 낮아짐"
 ~~~
@@ -1117,36 +1494,51 @@ C1과 C2가 비슷해 보이지 않도록 이 경계를 명확히 유지해야 �
 - 시간에 따라 계속 바뀜
 - history와 prediction이 필요
 
-따라서 **C1에 Affinity Mapper를 추가해도 C2와 동일해지는 것은 아니다.**
+따라서 **C1에 Data Object Registry와 Affinity Mapper를 모두 두어도 C2와 동일해지는 것은 아니다.**
 
 ---
 
-# 23. Design Decision Summary
+# 25. Design Decision Summary
+
+## 공통 Entry Structure
+
+~~~text
+Event
+  ↓
+Migration Scheduler
+  ↓ asynchronous decision trigger
+C1 or C2
+~~~
 
 ## C1 — Resource State-driven + Data-Memory Affinity
 
 ~~~text
-Resource pressure is the primary trigger.
+Resource pressure is the primary signal.
+Data Object Registry identifies candidate objects.
 Static AI Data characteristics refine the decision.
 ~~~
 
 주요 특성:
 
+- event-driven / asynchronous entry
 - low decision overhead
 - fast pressure response
 - strong global pool utilization orientation
+- common Data Object Registry
 - static AI data hints
 - Agent-aware KV lifecycle은 별도 구조에서 보완
 
 ## C2 — AI Data Behavior-driven
 
 ~~~text
-Future data usage is the primary trigger.
+Future data usage is the primary signal.
+Data Object Registry anchors object identity/class.
 Resource state constrains the decision.
 ~~~
 
 주요 특성:
 
+- event-driven / asynchronous entry
 - data/object-specific migration
 - dynamic behavior monitoring
 - future behavior prediction
@@ -1159,30 +1551,36 @@ MigrationCoordinator / MigrationPlanner / MigrationExecutor 구조를 재사용�
 
 ---
 
-# 24. Follow-up Items
+# 26. Follow-up Items
 
 DP1 상세 설계에서 다음 항목은 별도 페이지/문서로 구체화한다.
 
-1. **C1 Data-Memory Affinity Table**
+1. **Migration Event Model**
+   - 어떤 event가 C1/C2 evaluation을 trigger하는지
+   - event coalescing / debounce / priority
+2. **Data Object Registry Schema**
+   - common field와 data-class-specific metadata 분리
+   - location update ownership
+3. **C1 Data-Memory Affinity Table**
    - KV / Agent Memory / LoRA / MoE / Vector Index별 static hint 정의
-2. **C1 Resource Trend Function**
+4. **C1 Resource Trend Function**
    - pressure score / threshold / look-ahead window
-3. **C1 Eviction Candidate Policy**
+5. **C1 Eviction Candidate Policy**
    - LRU / size-aware / pressure-relief-aware
-4. **C2 Behavior Feature Schema**
+6. **C2 Behavior Feature Schema**
    - data class별 observable 정의
-5. **C2 Future Behavior Predictor**
+7. **C2 Future Behavior Predictor**
    - rule-based vs history-based predictor
-6. **C2 Anti-thrashing**
+8. **C2 Anti-thrashing**
    - confidence / hysteresis / cooldown / migration budget
-7. **QA별 quantitative evaluation criteria**
-   - TPS, TTFT/TPOT, utilization, decision overhead 기준
-8. **Simulation workload**
+9. **QA별 quantitative evaluation criteria**
+   - TPS, TTFT/TPOT, utilization, event-to-decision latency 기준
+10. **Simulation workload**
    - KV reuse skew / LoRA popularity / MoE expert skew / memory pressure 변화 시나리오
 
 ---
 
-# 25. References
+# 27. References
 
 - **doc-mk/vllm-ai-data-migration-architecture.md**
 - **doc-mk/vllm-call-path-analysis.md**
