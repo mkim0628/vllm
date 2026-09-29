@@ -14,7 +14,7 @@ This simulator is a migration-oriented rewrite of the legacy
 
 ## Replaced for the current DP1
 
-The old evaluator was placement-centric. The current DP1 is runtime **migration**.
+The old `dp1_eval` was placement-centric, while old `dp1_sim` was KV/agent-turn-centric with explicit Prefill-complete / tool-idle decision points. The current DP1 is generic runtime **AI Data migration**, so those old policy boundaries are not copied.
 Therefore the old `place(obj, ...)` interface is not reused.
 
 ```text
@@ -98,3 +98,13 @@ receive that field through its registry. This separation is deliberate and teste
 ### Scenario change from the legacy evaluator
 
 The old C2 included a DataClassifier and therefore had `classifier_error` / `misclass_rate` fault injection. The current C2 registry is type-aware, so type misclassification is no longer the relevant failure mode. The port replaces that case with abrupt hotness/behavior shifts to measure prediction lag, mis-placement and thrashing.
+
+
+## What was not ported from legacy `dp1_sim`
+
+- `PlacementPolicy.place()` and initial-placement scoring
+- KV-only `SessionBlockSet` / agent tool turn decision points
+- tool execution time prediction as a DP1 signal
+- `DataClassifier` misclassification fault injection
+
+The reusable parts are the heterogeneous-memory cost assumptions, transfer-cost accounting, deterministic trace principle, and QA measurement patterns. Agent tool lifecycle-aware KV residency belongs to a separate DP rather than this generic migration simulator.
