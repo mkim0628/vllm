@@ -161,6 +161,7 @@ class SimContext:
     placements: dict[int, str]
     occupancy: Counter
     capacity_mult: float
+    effective_capacity: dict[str, float]
     static_affinity_hints: dict[int, dict]
 
 
@@ -293,12 +294,18 @@ def run_sim(
     for oid, tier in placements.items():
         occupancy[tier] += objects[oid].size_bytes
 
+    initial_caps = {
+        name: mem.capacity_bytes
+        * effective_capacity_mult(sc, 0, name)
+        for name, mem in system.memories.items()
+    }
     ctx = SimContext(
         system,
         objects,
         placements,
         occupancy,
         sc.capacity_mult,
+        initial_caps,
         static_hints(objs),
     )
     policy = _policy(system, candidate, priors)
@@ -381,11 +388,13 @@ def run_sim(
                 placements.pop(oid, None)
 
         telemetry = {}
+        current_caps = {}
         for name, mem in system.memories.items():
             capm = effective_capacity_mult(sc, t, name)
             effective_cap = max(
                 1.0, mem.capacity_bytes * capm
             )
+            current_caps[name] = effective_cap
             cap_util = (
                 occupancy[name] / effective_cap
                 if capm > 0
@@ -400,6 +409,8 @@ def run_sim(
                 bw_util=bw_util,
             )
             capacity_util_samples[name].append(cap_util)
+
+        ctx.effective_capacity = current_caps
 
         if (
             telemetry.get("hbm", Telemetry()).capacity_util
@@ -450,12 +461,9 @@ def run_sim(
                 continue
 
             obj = objects[d.object_id]
-            dst_cap = (
-                system.memories[d.target_tier].capacity_bytes
-                * effective_capacity_mult(
-                    sc, t, d.target_tier
-                )
-            )
+            dst_cap = ctx.effective_capacity[
+                d.target_tier
+            ]
             if (
                 occupancy[d.target_tier]
                 + obj.size_bytes
