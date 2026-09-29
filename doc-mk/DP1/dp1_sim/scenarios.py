@@ -58,8 +58,8 @@ def scenarios():
                  target_tiers=("hbm","custom_hbm","cxl_pnm")))
     add(Scenario("kv_b16_c32k_burst_chbm","Burst at a batch/context where HBM headroom is tight and Custom-HBM Attention can still meet TPOT.",{"KV_CACHE":1},32768,64,16,30,1.45,
                  phase="arrival_burst",hbm_capacity_mult=.12,latency_sensitivity_override=.75,target_tiers=("hbm","custom_hbm","cxl_pnm")))
-    add(Scenario("kv_mispredict_dram_wait","C2 prediction/classification error while HBM is pressured, then pressure relaxes; tests DRAM stage-and-wait promotion.",{"KV_CACHE":1},32768,64,16,24,.35,
-                 phase="hbm_relief",misclass_rate=.50,hbm_capacity_mult=.12,
+    add(Scenario("kv_hbm_relief_behavior_recovery","HBM starts pressured and then recovers; tests whether C2 can promote behaviorally hot KV while C1 remains resource-triggered.",{"KV_CACHE":1},32768,64,16,24,.35,
+                 phase="hbm_relief",hbm_capacity_mult=.12,
                  latency_sensitivity_override=.55,target_tiers=("dram","hbm","custom_hbm","cxl_pnm")))
     add(Scenario("kv_b64_c128k_cold","Cold/latency-tolerant KV; CXL-PNM attention offload can be useful.",{"KV_CACHE":1},131072,64,64,24,.85,
                  phase="cold_kv",target_tiers=("hbm","cxl_pnm","custom_hbm")))
@@ -110,10 +110,11 @@ def scenarios():
         131072,72,64,44,1.1,phase="data_mix_shift",rag_index_total_gib=1024,
         target_tiers=("hbm","custom_hbm","cxl_pnm","dram","hbf","ssd_pim")))
 
-    # Robustness/coverage: excluded from normal QA scoring by run_eval.
-    add(Scenario("classifier_error","40% wrong type hints; validates C2 fallback/recovery.",{
+    # Current-architecture robustness: C2 is type-aware, so old classifier-error
+    # injection is obsolete. Use an abrupt behavior shift to stress prediction lag.
+    add(Scenario("behavior_flip_stress","Abrupt per-object hotness inversion; stresses C2 prediction lag/thrashing while C1 reacts only to resource pressure.",{
         "KV_CACHE":.35,"RAG_DATA":.25,"AGENT_MEMORY":.20,"TOOL_RESULT":.10,"LORA_ADAPTER":.10},
-        32768,72,16,40,.9,misclass_rate=.40,rag_index_total_gib=512,
+        32768,72,16,40,.9,phase="hotness_flip",rag_index_total_gib=512,
         target_tiers=("hbm","custom_hbm","cxl_pnm","dram","hbf","ssd_pim")))
     add(Scenario("six_tier_capacity_stress","Capacity ladder intentionally exercises all six memories.",{
         "KV_CACHE":.30,"RAG_DATA":.25,"AGENT_MEMORY":.20,"TOOL_RESULT":.10,"LORA_ADAPTER":.08,"MOE_EXPERT":.07},
