@@ -130,12 +130,12 @@ class DestinationTierSelectorC1:
         self.system = system
         self.affinity = affinity
 
-    def select(self, rec, source: str, states, occupancy, capacity_mult, hint):
+    def select(self, rec, source: str, states, occupancy, capacity_by_tier, hint):
         candidates = []
         for name, mem in self.system.memories.items():
             if name == source:
                 continue
-            cap = mem.capacity_bytes * capacity_mult
+            cap = capacity_by_tier.get(name, mem.capacity_bytes)
             free = max(0.0, cap - occupancy.get(name, 0.0))
             if free + 1e-6 < rec.size_bytes:
                 continue
@@ -192,7 +192,9 @@ class C1ResourceDrivenMigration:
         for source, pressure in self.trend.pressure_sources(states):
             if source not in ctx.occupancy:
                 continue
-            cap = self.system.memories[source].capacity_bytes * ctx.capacity_mult
+            cap = ctx.effective_capacity.get(
+                source, self.system.memories[source].capacity_bytes
+            )
             target_util = 0.72
             required = max(
                 0.0, ctx.occupancy.get(source, 0.0) - target_util * cap
@@ -206,7 +208,7 @@ class C1ResourceDrivenMigration:
             for rec in self.selector.select(candidates, required):
                 hint = ctx.static_affinity_hints.get(rec.object_id, {})
                 dst = self.destination.select(
-                    rec, source, states, ctx.occupancy, ctx.capacity_mult, hint
+                    rec, source, states, ctx.occupancy, ctx.effective_capacity, hint
                 )
                 if dst is not None:
                     decisions.append(
@@ -324,7 +326,7 @@ class DestinationTierSelectorC2:
         self.system = system
 
     def select(
-        self, rec, predicted: float, telemetry, occupancy, capacity_mult
+        self, rec, predicted: float, telemetry, occupancy, capacity_by_tier
     ):
         pref = [
             x
@@ -336,7 +338,7 @@ class DestinationTierSelectorC2:
         feasible = []
         for rank, name in enumerate(pref):
             mem = self.system.memories[name]
-            cap = mem.capacity_bytes * capacity_mult
+            cap = capacity_by_tier.get(name, mem.capacity_bytes)
             if (
                 cap - occupancy.get(name, 0.0) + 1e-6
                 < rec.size_bytes
@@ -415,7 +417,7 @@ class C2BehaviorDrivenMigration:
                 pred,
                 telemetry,
                 ctx.occupancy,
-                ctx.capacity_mult,
+                ctx.effective_capacity,
             )
             if dst is None or dst == rec.tier:
                 continue
