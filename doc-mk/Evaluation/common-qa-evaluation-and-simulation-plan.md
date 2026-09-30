@@ -170,7 +170,7 @@ Common Benchmark Profile 기준으로 최종 숫자를 freeze한다.
 
 ### Metric
 
-**Max Sustainable Throughput under SLO**
+**Max SLO Goodput**
 
 단위:
 
@@ -181,15 +181,24 @@ output token/s
 정의:
 
 ~~~text
-load / concurrency를 증가시키면서
+각 load / concurrency point에서
 
-TTFT_P99 <= TTFT_SLO
-AND
-TPOT_P99 <= TPOT_SLO
+SLO(TTFT, TPOT)를 만족한 request의
+output token만 Goodput으로 인정한다.
 
-를 만족하는 구간에서 얻을 수 있는
-최대 output token throughput
+SLO Goodput(load)
+=
+SLO를 만족한 request의 output tokens
+/ measurement time
+
+Max SLO Goodput
+=
+load / concurrency sweep에서 측정한
+SLO Goodput의 최대값
 ~~~
+
+즉 단순 Throughput과 달리 SLO를 위반한 request의 output token은
+Goodput 계산에서 제외한다.
 
 초기 relative 기준:
 
@@ -205,7 +214,7 @@ Phase 0의 H100 vLLM baseline을 실측한 뒤 다음 식으로 freeze한다.
 
 ~~~text
 T_ref = H100 Common Benchmark Profile의
-        Max Sustainable Throughput under SLO
+        Max SLO Goodput (output token/s)
 
 ★      < 0.90 * T_ref
 ★★     0.90 * T_ref ~ 1.10 * T_ref
@@ -216,54 +225,44 @@ T_ref = H100 Common Benchmark Profile의
 
 ---
 
-# 5. Why "Max Sustainable Throughput under SLO"?
+# 5. Why "Max SLO Goodput"?
 
-여기서 **Max는 SLO 자체에 붙는 표현이 아니다.**
+QA1에서는 단순 Throughput이 아니라 **Goodput**을 사용한다.
 
-정확한 의미는:
+- **Throughput**: SLO 만족 여부와 관계없이 실제 처리한 전체 output token/s
+- **SLO Goodput**: SLO를 만족한 request의 output token만 인정한 token/s
+- **Max SLO Goodput**: load / concurrency sweep에서 얻은 SLO Goodput 중 최대값
 
-> **SLO를 만족하면서 낼 수 있는 최대 지속 Throughput**
+예:
 
-이다.
+| Offered Load | Throughput | SLO 만족 비율 | SLO Goodput |
+|---:|---:|---:|---:|
+| 낮음 | 500 tok/s | 100% | 500 tok/s |
+| 중간 | 1,000 tok/s | 100% | 1,000 tok/s |
+| 높음 | 1,400 tok/s | 98% | 1,372 tok/s |
+| 과부하 | 1,700 tok/s | 50% | 850 tok/s |
 
-SLO는 다음과 같은 **constraint**다.
+단순 Throughput만 보면 과부하 구간의 1,700 tok/s가 가장 높다.
+하지만 절반의 request가 SLO를 위반하므로 실제 유효 처리량은 850 tok/s다.
 
-~~~text
-TTFT_P99 <= 2 s
-TPOT_P99 <= 50 ms
-~~~
-
-Throughput은 별도의 **performance metric**이다.
-
-예를 들어 동일 시스템에서:
-
-| Offered Load | Throughput | TTFT | TPOT | SLO |
-|---:|---:|---:|---:|---|
-| 낮음 | 500 tok/s | 0.5 s | 20 ms | PASS |
-| 중간 | 1,000 tok/s | 1.2 s | 35 ms | PASS |
-| 높음 | 1,400 tok/s | 1.9 s | 48 ms | PASS |
-| 과부하 | 1,600 tok/s | 8.0 s | 120 ms | FAIL |
-
-이 시스템의 throughput capability를 대표하는 값은
+따라서 QA1은 다음을 사용한다.
 
 ~~~text
-1,400 tok/s
+Goodput(load)
+=
+SLO를 만족한 request의 output tokens
+/ measurement time
+
+Max SLO Goodput
+=
+max_load Goodput(load)
 ~~~
 
-이다.
+여기서 **Max**가 필요한 이유는 Goodput도 load / concurrency에 따라 달라지기 때문이다.
+낮은 부하에서는 SLO를 잘 만족하지만 처리량 자체가 낮고,
+부하를 높이면 Goodput이 증가하다가 saturation 이후 SLO violation 때문에 다시 감소할 수 있다.
 
-500 tok/s도 SLO를 만족하지만,
-그 값은 시스템의 최대 serving capacity를 나타내지 않는다.
-
-따라서 단순한 "SLO Throughput"보다
-
-~~~text
-Max Sustainable Throughput under SLO
-~~~
-
-이라고 표현하는 것이 명확하다.
-
----
+따라서 **Max SLO Goodput은 시스템이 실제 SLO를 지키면서 제공할 수 있는 최대 유효 처리량**을 의미한다.
 
 # 6. QA2 — Performance / Latency
 
@@ -395,6 +394,8 @@ TPOT P99 <= 50 ms
 
 Phase 0에서 H100 실측 후
 Throughput 별점의 absolute TPS threshold를 freeze한다.
+
+> QA1의 TPS는 raw Throughput이 아니라 **Max SLO Goodput의 output token/s**를 의미한다.
 
 ---
 
@@ -627,7 +628,7 @@ Calibrated Projection [C]
 - KV usage
 
 Load / concurrency sweep으로
-**Max Sustainable Throughput under SLO**를 찾는다.
+**Max SLO Goodput**을 찾는다.
 
 이 결과로 QA1의 TPS absolute threshold를 freeze한다.
 
@@ -817,7 +818,7 @@ C1/C2는 반드시 동일 initial state와 동일 runtime trace를 사용한다.
 
 ## Performance
 
-- Max Sustainable Throughput under SLO
+- Max SLO Goodput
 - TTFT P99
 - TPOT P99
 - migration-induced stall
@@ -879,7 +880,7 @@ Projection uncertainty = ±x%
 1. **Common QA criteria 문서 freeze**
 2. **A100/H100 vLLM baseline harness 작성**
 3. **Load/concurrency sweep**
-4. **H100 Max Sustainable Throughput under SLO 측정**
+4. **H100 Max SLO Goodput 측정**
 5. **QA1 absolute TPS 별점 threshold freeze**
 6. **HW microbenchmark 작성/실행**
 7. **vLLM runtime trace collector 작성**
