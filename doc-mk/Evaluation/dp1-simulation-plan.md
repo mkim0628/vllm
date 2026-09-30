@@ -412,6 +412,26 @@ Projected DP1 Impact [C]
 - contention
 - write behavior
 
+## 11.1 Collected B Parameters (2026-09 기준)
+
+전체 값과 조건은 `doc-mk/DP1/dp1_sim/configs/hw_catalog.json`에 `{value, level, source, condition, rel_uncertainty, assumed}`로 기록한다.
+`assumed=true` 항목은 QA 표의 uncertainty 문구에 자동으로 나열된다.
+
+| Tier / HW | 값 | Level | Source |
+|---|---|---|---|
+| A100 SXM4 80GB | HBM2e 2,039 GB/s, BF16 dense 312 TFLOPS, PCIe Gen4 x16 (실효 ~25 GB/s/dir) | B3 / B2 | NVIDIA A100 datasheet |
+| H100 SXM5 80GB | HBM3 3.35 TB/s, BF16 dense 989 TFLOPS, PCIe Gen5 x16 (실효 ~50 GB/s/dir) | B3 / B2 | NVIDIA H100 datasheet |
+| H100 PCIe 80GB | 2.0 TB/s, BF16 dense 756 TFLOPS | B3 | NVIDIA H100 PCIe datasheet |
+| B200 | 180 GB HBM3e, 8 TB/s, BF16 dense 2.25 PFLOPS | B3 | NVIDIA HGX B200 |
+| CXL Type-3 expander | latency ≈ 2.2× local 8-ch DDR5 (~250 ns), ASIC device BW ≈ 1ch DDR5-4800급 (~30 GB/s, ±30%) | B2 | Sun et al., *Demystifying CXL Memory with Genuine CXL-Ready Systems and Devices*, MICRO'23 |
+| CXL-PNM | 512 GB LPDDR5X, 1.1 TB/s internal | B3 | Park et al., *An LPDDR-based CXL-PNM Platform for TCO-efficient Inference of Transformer-based LLMs*, HPCA'24 (legacy config의 400 GB/s와 불일치 → 표기) |
+| HBF | ≤512 GB/package (8/16-Hi), read BW grade 0.4–3.0 TB/s, Gen1 ~1.6 TB/s; write BW / latency / endurance 미공개 → assumed | B3 | OCP HBF Technical Specification v1 (Sandisk + SK hynix, 2026-08-03, FMS 2026) |
+| NVMe SSD | Gen4 ~7 GB/s, Gen5 ~13-14 GB/s seq read, ~80 µs | B3 | vendor spec (PM9A3 / PM1743 class) |
+| Custom HBM | 2× GPU HBM 용량/BW, GPU FP16의 20%, PCIe5 x16 경유 | B3 (user rule) | legacy `memories_default.json` |
+
+A100/H100의 PCIe 실효 BW, launch latency, DMA 간섭, KV capacity는 B 값을 초기값으로만 쓰고
+`measure/01_transfer_microbench.py`, `measure/02_step_profile.py` 실측(A)으로 대체한다.
+
 ---
 
 # 12. A100 / H100 Calibration & Cross-validation
@@ -571,33 +591,38 @@ Diagnostic metric은 QA Score의 직접 대체가 아니라 후보 구조 차이
 
 # 15. Current Simulator Assets
 
-현재 branch:
-
-~~~text
-claude/vllm-call-path-analysis-qxulkr
-~~~
-
-DP1 simulator:
-
 ~~~text
 doc-mk/DP1/dp1_sim/
-├── README.md
-├── events.py
-├── registry.py
-├── policies.py
-├── simulator.py
-├── run_eval.py
-├── test_sim.py
-├── model.py
-├── scenarios.py
-└── configs/
+├── README.md                 두 simulator 개요 / 평가 규칙
+├── configs/hw_catalog.json   B evidence (spec / paper / assumed)
+├── measured/<gpu>/           A evidence (measure/ 스크립트 결과; 사용자 A100/H100)
+├── evidence.py               A/B/C 값 + EvidenceTrail
+├── hw.py                     catalog + 실측 → ServingHW (A가 B를 override)
+├── perf_model.py             vLLM step-time model + NNLS calibration
+├── workload.py               공통 workload JSONL (실측 client와 sim이 공유)
+├── serving_sim.py            request-level continuous batching + tier migration DES
+├── policies_serving.py       B0 / B1 / C1 / C2 decision pipeline
+├── shadow.py                 Phase 4 Shadow Mode (실제 trace 위 C1/C2 overlay)
+├── calibrate.py              Phase 1/6 fit, A100→H100 blind cross-validation
+├── qa.py                     QA1-3 rating (criteria 문서 threshold)
+├── run_dp1.py                CLI (workload / sweep / calibrate / crossval / validate / shadow)
+├── test_dp1.py               pipeline tests (GPU 불필요)
+├── measure/                  A100/H100에서 실행할 측정 스크립트 + runbook
+└── (legacy) run_eval.py, simulator.py, policies.py, scenarios.py, model.py
 ~~~
 
-기존 claude/dp1-ai-data-placement branch의 doc-architect/dp1_eval, doc-architect/dp1_sim, doc-architect/configs에서 재사용 가능한 model / scenario / HW configuration을 가져오고, policy와 event flow는 현재 DP1 구조에 맞게 변경했다.
+Phase ↔ 코드:
 
-현재 simulator는 **실행 코드 준비 단계**이며 향후 실제 vLLM trace-replay 구조로 확장한다.
-
----
+| Phase | 코드 | Evidence |
+|---|---|---|
+| 1 vLLM baseline | `measure/03_serve_sweep.sh MODE=common` | A |
+| 2 HW microbenchmark | `measure/01_transfer_microbench.py` | A |
+| 3 trace collector | `measure/collect_trace.py` (metrics + NVML + KV events), `measure/dp1_client.py` | A |
+| 4 shadow | `run_dp1.py shadow` | A+C |
+| 5 partial real migration | `03_serve_sweep.sh OFFLOAD_GIB=… KV_BYTES=…` + `run_dp1.py validate` (B1 vs vLLM native offload) | A |
+| 6 A100/H100 cross-val | `02_step_profile.py`, `run_dp1.py calibrate / crossval` | A → error band |
+| 7 unsupported HW | `run_dp1.py sweep --tiers cxl_mem,hbf,… [--step-model-from h100_sxm5_80g]` | B+C (±validated band) |
+| 8 QA table | `run_dp1.py sweep` → `qa_table.md` | per cell |
 
 # 16. Implementation Roadmap
 

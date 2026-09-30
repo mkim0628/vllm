@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "_note": "DP1 serving-simulation HW catalog. Every number is {value, level, source, condition, rel_uncertainty, assumed}. Level A values are NOT stored here: they are loaded from measured/*.json produced by measure/ scripts and override the B entries with the same key (see hw.py:apply_measurements). Units: bytes, bytes/s, FLOP/s, seconds.",
+
+  "gpus": {
+    "a100_sxm4_80g": {
+      "hbm_capacity_bytes": {"value": 85899345920, "level": "B3", "source": "NVIDIA A100 datasheet (80GB HBM2e); 81920 MiB as reported by nvidia-smi"},
+      "hbm_bw": {"value": 2.039e12, "level": "B3", "source": "NVIDIA A100 80GB SXM datasheet: 2,039 GB/s"},
+      "bf16_dense_flops": {"value": 312e12, "level": "B3", "source": "NVIDIA A100 datasheet: BF16 Tensor Core 312 TFLOPS dense (624 sparse)"},
+      "nvlink_bw_per_dir": {"value": 300e9, "level": "B3", "source": "NVLink3 600 GB/s bidirectional per GPU"},
+      "host_link_bw_per_dir": {"value": 25.0e9, "level": "B2", "source": "PCIe Gen4 x16 = 32 GB/s/dir theoretical; pinned cudaMemcpy typically 24-26 GB/s", "rel_uncertainty": 0.15, "condition": "pinned host memory, >=16MiB transfers"},
+      "host_link_latency_s": {"value": 1.0e-5, "level": "B2", "source": "cudaMemcpyAsync launch+completion overhead, typical 5-15 us", "rel_uncertainty": 0.5, "assumed": true},
+      "pcie_gen": 4
+    },
+    "a100_pcie_80g": {
+      "hbm_capacity_bytes": {"value": 85899345920, "level": "B3", "source": "NVIDIA A100 PCIe 80GB datasheet"},
+      "hbm_bw": {"value": 1.935e12, "level": "B3", "source": "NVIDIA A100 80GB PCIe datasheet: 1,935 GB/s"},
+      "bf16_dense_flops": {"value": 312e12, "level": "B3", "source": "NVIDIA A100 datasheet"},
+      "nvlink_bw_per_dir": {"value": 300e9, "level": "B3", "source": "NVLink bridge 600 GB/s bidirectional (2-GPU pairs only)"},
+      "host_link_bw_per_dir": {"value": 25.0e9, "level": "B2", "source": "PCIe Gen4 x16 practical", "rel_uncertainty": 0.15},
+      "host_link_latency_s": {"value": 1.0e-5, "level": "B2", "source": "typical", "rel_uncertainty": 0.5, "assumed": true},
+      "pcie_gen": 4
+    },
+    "h100_sxm5_80g": {
+      "hbm_capacity_bytes": {"value": 85520809984, "level": "B3", "source": "NVIDIA H100 SXM5 80GB HBM3; 81559 MiB as reported by nvidia-smi"},
+      "hbm_bw": {"value": 3.35e12, "level": "B3", "source": "NVIDIA H100 SXM datasheet: 3.35 TB/s"},
+      "bf16_dense_flops": {"value": 989.4e12, "level": "B3", "source": "NVIDIA H100 SXM datasheet: BF16 1,979 TFLOPS with sparsity -> 989 dense"},
+      "nvlink_bw_per_dir": {"value": 450e9, "level": "B3", "source": "NVLink4 900 GB/s bidirectional per GPU"},
+      "host_link_bw_per_dir": {"value": 50.0e9, "level": "B2", "source": "PCIe Gen5 x16 = 64 GB/s/dir theoretical; pinned cudaMemcpy typically 45-55 GB/s", "rel_uncertainty": 0.2, "condition": "pinned host memory, >=16MiB transfers"},
+      "host_link_latency_s": {"value": 1.0e-5, "level": "B2", "source": "typical", "rel_uncertainty": 0.5, "assumed": true},
+      "pcie_gen": 5
+    },
+    "h100_pcie_80g": {
+      "hbm_capacity_bytes": {"value": 85520809984, "level": "B3", "source": "NVIDIA H100 PCIe 80GB"},
+      "hbm_bw": {"value": 2.0e12, "level": "B3", "source": "NVIDIA H100 PCIe datasheet: 2.0 TB/s"},
+      "bf16_dense_flops": {"value": 756e12, "level": "B3", "source": "NVIDIA H100 PCIe datasheet: BF16 1,513 TFLOPS sparse -> 756 dense"},
+      "nvlink_bw_per_dir": {"value": 300e9, "level": "B3", "source": "NVLink bridge 600 GB/s bidirectional"},
+      "host_link_bw_per_dir": {"value": 50.0e9, "level": "B2", "source": "PCIe Gen5 x16 practical", "rel_uncertainty": 0.2},
+      "host_link_latency_s": {"value": 1.0e-5, "level": "B2", "source": "typical", "rel_uncertainty": 0.5, "assumed": true},
+      "pcie_gen": 5
+    },
+    "h200_sxm_141g": {
+      "hbm_capacity_bytes": {"value": 141e9, "level": "B3", "source": "NVIDIA H200 datasheet: 141 GB HBM3e"},
+      "hbm_bw": {"value": 4.8e12, "level": "B3", "source": "NVIDIA H200 datasheet: 4.8 TB/s"},
+      "bf16_dense_flops": {"value": 989.4e12, "level": "B3", "source": "same Hopper die as H100 SXM"},
+      "nvlink_bw_per_dir": {"value": 450e9, "level": "B3", "source": "NVLink4"},
+      "host_link_bw_per_dir": {"value": 50.0e9, "level": "B2", "source": "PCIe Gen5 x16 practical", "rel_uncertainty": 0.2},
+      "host_link_latency_s": {"value": 1.0e-5, "level": "B2", "source": "typical", "rel_uncertainty": 0.5, "assumed": true},
+      "pcie_gen": 5
+    },
+    "b200_sxm_180g": {
+      "hbm_capacity_bytes": {"value": 180e9, "level": "B3", "source": "NVIDIA HGX B200: 180 GB HBM3e per GPU (legacy configs/clusters.json used 192 GiB)", "rel_uncertainty": 0.07},
+      "hbm_bw": {"value": 8.0e12, "level": "B3", "source": "NVIDIA B200: 8 TB/s"},
+      "bf16_dense_flops": {"value": 2.25e15, "level": "B3", "source": "NVIDIA B200: BF16 4.5 PFLOPS sparse -> 2.25 dense"},
+      "nvlink_bw_per_dir": {"value": 900e9, "level": "B3", "source": "NVLink5 1.8 TB/s bidirectional"},
+      "host_link_bw_per_dir": {"value": 50.0e9, "level": "B2", "source": "PCIe Gen5 x16 practical (Gen6 hosts would double this)", "rel_uncertainty": 0.25},
+      "host_link_latency_s": {"value": 1.0e-5, "level": "B2", "source": "typical", "rel_uncertainty": 0.5, "assumed": true},
+      "pcie_gen": 5
+    }
+  },
+
+  "tiers": {
+    "dram": {
+      "_role": "Host DRAM reached over each GPU's PCIe link. The measurable HBM<->DRAM path of Phase 2/5.",
+      "gpu_path": "host_link",
+      "capacity_bytes": {"value": 1099511627776, "level": "B3", "source": "placeholder 1 TiB; replaced by measure/00_env_check.sh MemTotal (A)", "assumed": true},
+      "device_bw": {"value": 409.6e9, "level": "B3", "source": "DDR5-6400 x 8 channels = 409.6 GB/s per socket (JEDEC)"},
+      "latency_s": {"value": 1.0e-7, "level": "B3", "source": "local DDR5 idle latency ~100 ns"},
+      "gpu_attention_capable": false
+    },
+    "cxl_mem": {
+      "_role": "CXL Type-3 memory expander (no compute). GPU reaches it through the CPU root complex, so GPU<->CXL = min(GPU PCIe link, sum of device BW).",
+      "gpu_path": "host_link",
+      "devices": {"value": 4, "level": "B3", "source": "assumed 4 x8 expanders interleaved per socket", "assumed": true},
+      "capacity_bytes": {"value": 274877906944, "level": "B3", "source": "per device 256 GiB class (e.g. Samsung CMM-D 128/256 GB E3.S)", "assumed": true},
+      "device_bw": {"value": 30e9, "level": "B2", "source": "Sun et al., 'Demystifying CXL Memory with Genuine CXL-Ready Systems and Devices', MICRO'23: ASIC CXL device (1ch DDR5-4800, 38.4 GB/s theor.) reaches a large fraction of its channel BW; FPGA devices substantially lower", "condition": "Intel SPR host, sequential read, per device", "rel_uncertainty": 0.3},
+      "latency_s": {"value": 2.5e-7, "level": "B2", "source": "Sun et al. MICRO'23: CXL memory latency ~2.2x local 8-ch DDR5 (-> ~250 ns); Pond (ASPLOS'23) reports +70-90 ns over NUMA-local for direct-attached", "rel_uncertainty": 0.3},
+      "gpu_attention_capable": false
+    },
+    "cxl_pnm": {
+      "_role": "CXL memory with near-memory compute (Samsung CXL-PNM class).",
+      "gpu_path": "host_link",
+      "devices": {"value": 1, "level": "B3", "source": "assumed 1 per scale-up domain", "assumed": true},
+      "capacity_bytes": {"value": 549755813888, "level": "B3", "source": "Park et al., 'An LPDDR-based CXL-PNM Platform for TCO-efficient Inference of Transformer-based LLMs', HPCA'24: 512 GB LPDDR5X"},
+      "internal_bw": {"value": 1.1e12, "level": "B3", "source": "Park et al. HPCA'24: 1.1 TB/s. NOTE legacy configs/memories_default.json used 400 GB/s (DDR5-equivalent) - flagged discrepancy", "rel_uncertainty": 0.3},
+      "device_bw": {"value": 50e9, "level": "B3", "source": "CXL 2.0/3.0 over PCIe Gen5 x16 = 64 GB/s/dir theoretical; ~80% efficiency assumed", "assumed": true, "rel_uncertainty": 0.2},
+      "latency_s": {"value": 3.0e-7, "level": "B3", "source": "assumed similar to CXL expander", "assumed": true, "rel_uncertainty": 0.4},
+      "compute_flops": {"value": 3.28e12, "level": "B3", "source": "user-provided FP32 1.64 TFLOPS x2 for FP16 (legacy config)", "assumed": true},
+      "gpu_attention_capable": true
+    },
+    "hbf": {
+      "_role": "High Bandwidth Flash on the GPU package (UCIe). GPU-direct read, NAND write.",
+      "gpu_path": "direct",
+      "stacks_per_gpu": {"value": 1, "level": "B3", "source": "assumed 1 HBF stack per GPU", "assumed": true},
+      "capacity_bytes": {"value": 512e9, "level": "B3", "source": "OCP HBF Technical Specification v1 (Sandisk + SK hynix, released 2026-08-03 at FMS 2026): up to 512 GB per package, 8-Hi/16-Hi NAND"},
+      "read_bw": {"value": 1.6e12, "level": "B3", "source": "Sandisk HBF: Gen1 read up to 1.6 TB/s per stack; OCP spec grades 0.4-3.0 TB/s", "rel_uncertainty": 0.5},
+      "write_bw": {"value": 50e9, "level": "B3", "source": "not in public spec; NAND program BW assumption (legacy config)", "assumed": true, "rel_uncertainty": 0.8},
+      "latency_s": {"value": 5.0e-6, "level": "B3", "source": "not in public spec; NAND read ~us-class assumed", "assumed": true, "rel_uncertainty": 1.0},
+      "gpu_attention_capable": false
+    },
+    "custom_hbm": {
+      "_role": "User-defined memory node beside the GPU node (legacy DP1 design): 1 per domain, behind CPU over PCIe5 x16, attention-capable.",
+      "gpu_path": "host_link",
+      "devices": {"value": 1, "level": "B3", "source": "user rule: 1 per 8-GPU domain", "assumed": true},
+      "capacity_bytes": {"value": 412316860416, "level": "B3", "source": "user rule: 2x paired GPU HBM capacity (legacy memories_default.json)", "assumed": true},
+      "internal_bw": {"value": 16e12, "level": "B3", "source": "user rule: 2x paired GPU HBM BW", "assumed": true},
+      "device_bw": {"value": 50e9, "level": "B3", "source": "PCIe Gen5 x16 practical, shared by whole domain", "rel_uncertainty": 0.2},
+      "latency_s": {"value": 2.0e-6, "level": "B3", "source": "2-hop via CPU (legacy config)", "assumed": true},
+      "compute_flops": {"value": 450e12, "level": "B3", "source": "user rule: 20% of paired GPU dense FP16", "assumed": true},
+      "gpu_attention_capable": true
+    },
+    "nvme_ssd": {
+      "_role": "Local NVMe (GPUDirect Storage-less path: SSD->host->GPU).",
+      "gpu_path": "host_link",
+      "devices": {"value": 2, "level": "B3", "source": "assumed 2 drives", "assumed": true},
+      "capacity_bytes": {"value": 7.68e12, "level": "B3", "source": "7.68 TB enterprise NVMe class"},
+      "device_bw": {"value": 6.9e9, "level": "B3", "source": "PCIe Gen4 enterprise NVMe seq read ~6.9-7 GB/s (e.g. Samsung PM9A3); Gen5 ~13-14 GB/s (e.g. PM1743)", "rel_uncertainty": 0.3},
+      "latency_s": {"value": 8.0e-5, "level": "B3", "source": "NVMe 4KiB random read ~70-90 us", "rel_uncertainty": 0.3},
+      "gpu_attention_capable": false
+    }
+  },
+
+  "models": {
+    "llama_3_1_70b": {
+      "hf_id": "meta-llama/Llama-3.1-70B-Instruct",
+      "params": 70.6e9, "layers": 80, "hidden": 8192, "heads": 64, "kv_heads": 8, "head_dim": 128, "dtype_bytes": 2,
+      "source": "HF config.json (B3)"
+    },
+    "llama_3_1_8b": {
+      "hf_id": "meta-llama/Llama-3.1-8B-Instruct",
+      "params": 8.03e9, "layers": 32, "hidden": 4096, "heads": 32, "kv_heads": 8, "head_dim": 128, "dtype_bytes": 2,
+      "source": "HF config.json (B3). Fallback when only 1 GPU is available."
+    }
+  },
+
+  "serving_defaults": {
+    "gpu_memory_utilization": 0.90,
+    "activation_reserve_bytes_per_gpu": {"value": 6e9, "level": "B3", "source": "profile_run peak activations + CUDA graphs; replaced by vLLM log 'Available KV cache memory' (A)", "assumed": true, "rel_uncertainty": 0.5},
+    "block_size": 16,
+    "max_num_seqs": 256,
+    "max_num_batched_tokens": 8192,
+    "copy_interference": {"value": 0.03, "level": "B3", "source": "assumed step slowdown while a PCIe DMA is in flight; replaced by measure/01_transfer_microbench.py interference test (A)", "assumed": true, "rel_uncertainty": 1.0}
+  }
+}
