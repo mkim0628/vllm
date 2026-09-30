@@ -3,6 +3,7 @@
 > 대상: **DP1 — AI Data Migration**
 >
 > 이 문서는 DP1의 실제 평가/시뮬레이션 방법만 정의한다.
+> 시나리오 matrix는 **doc-mk/Evaluation/dp1-evaluation-scenarios.md**를 따른다.
 > QA 정의와 별점 기준은 별도 문서
 > **doc-mk/Evaluation/qa-evaluation-criteria.md**를 따른다.
 >
