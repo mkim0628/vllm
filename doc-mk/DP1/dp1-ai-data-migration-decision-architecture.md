@@ -395,7 +395,7 @@ Memory Registry는 이를 등록·조회하는 **MemoryBackendRegistry** 역할�
 - memory type
 - compute capability
 - transfer capability
-- granularity / access model / persistence / endurance (§5.8.3)
+- granularity / access path / write BW / endurance / shared link (§5.8.3)
 
 ## 5.5 Destination Tier Selector
 
@@ -499,33 +499,43 @@ Memory Registry가 기존에 관리하던 relatively static 정보를 plug-in이
 
 ~~~text
 MemoryDescriptor
- ├─ resource_id                  # e.g. "gpu0_hbm", "cxl0", "ssd0"
- ├─ memory_class                 # 분류 라벨 (정보용; decision 분기에는 사용 금지)
+ ├─ resource_id                  # e.g. "hbm", "custom_hbm", "cxl_pnm", "ssd_pim"
+ ├─ medium                       # 분류 라벨 (정보용; decision 분기에는 사용 금지)
  ├─ capacity_bytes
- ├─ nominal_read_bw / nominal_write_bw
- ├─ nominal_latency
- ├─ granularity                  # 이동/할당 최소 단위, alignment
- ├─ access_model                 # byte-addressable | block | page-fault
- ├─ persistence                  # volatile | persistent
- ├─ endurance / write_cost       # SSD/HBF류의 write amplification, wear 제약
- ├─ topology                     # 연결 관계, direct/staged path
- ├─ capability_flags             # 아래 참조
+ ├─ ext_bw / int_bw              # 외부(GPU/Host 방향) BW vs 메모리 내부 BW — 비대칭이 핵심
+ ├─ write_bw?                    # read와 다를 때만 (e.g. HBF)
+ ├─ latency
+ ├─ access_path[]                # hop 목록: "gpu->host:pcie5_x16", "host->dev:cxl" ...
+ ├─ gpu_reachable                # GPU 직접 접근 가능 여부
+ ├─ shared_link_group?           # 같은 물리 링크를 공유하는 memory/GPU 묶음 (contention domain)
+ ├─ scope                        # per_gpu | per_scaleup_domain  (용량/BW 합산 단위)
+ ├─ granularity? / alignment?    # 이동/할당 최소 단위 (config에는 아직 없음 — 확장 field)
+ ├─ supported_primitives[]       # near-data compute: QK_GEMM, SOFTMAX, AV_GEMM, GEMV ...
+ ├─ compute_flops? / attn_bw_eff?
+ ├─ write_amplification / endurance_budget?
+ ├─ tdp_watts
+ ├─ capability_flags             # 아래 참조 (위 수치에서 파생 가능한 분류 어휘)
+ ├─ provenance                   # SPEC | PUBLIC | ASSUMED  + 근거
  └─ tier_rank_hint?              # optional: 운영자 override
 ~~~
 
+> field 정의는 `dp1_sim/configs/memories_default.json`, `clusters.json`의 실제 항목에서 역으로 도출했다 (§5.8.10 참조).
+> 즉 시뮬레이터가 이미 쓰는 memory spec schema가 곧 MemoryDescriptor의 초안이다.
+
 `capability_flags`는 **Selector가 사용하는 어휘**다. memory 이름 대신 flag로 후보를 거른다.
 
-| capability flag | 의미 | 대표 memory |
-|---|---|---|
-| `gpu_direct_access` | GPU가 직접 load/store 또는 P2P 접근 가능 | HBM, ScHBM, (CXL-P2P) |
-| `host_staged_only` | Host를 경유해야 접근 가능 | SSD, 일부 HBF |
-| `high_bw` | nominal BW가 상위 구간 | HBM, ScHBM, HBF |
-| `large_capacity` | 용량 우선 tier | DRAM, CXL, HBF, SSD |
-| `persistent` | 비휘발 | SSD, HBF |
-| `byte_addressable` | byte 단위 접근 | HBM, DRAM, CXL |
-| `near_data_compute` | memory 측 연산 가능 (PNM/PIM) | CXL-PNM, SSD-PIM |
-| `write_limited` | write budget 제약 (endurance) | SSD, HBF |
-| `bw_asymmetric` | read/write BW 비대칭 | HBF, SSD |
+| capability flag | 의미 | 파생 규칙(config 기준) | 해당 memory (dp1_sim) |
+|---|---|---|---|
+| `gpu_direct_access` | GPU가 직접 load/store 가능 | `gpu_reachable == true` | HBM, HBF |
+| `host_staged_only` | Host/CPU를 경유해야 접근 | `gpu_reachable == false` | DRAM, Custom HBM, CXL-PNM, SSD-PIM |
+| `high_bw` | 외부 BW가 상위 구간 | `ext_bw` 기준 | HBM (8 TB/s), HBF (1 TB/s) |
+| `large_capacity` | 용량 우선 tier | `capacity` 기준 | DRAM 1 TiB, HBF 2 TiB, SSD-PIM 16 TiB |
+| `bw_asymmetric` | 내부 BW ≫ 외부 BW | `int_bw / ext_bw` ≥ 임계 | Custom HBM (254x), SSD-PIM (12x), DRAM/CXL-PNM (6x) |
+| `write_limited` | write BW/endurance 제약 | `write_bw` 또는 `endurance_budget` 존재 | HBF (50 GB/s, 100 PB), SSD-PIM (10 PB) |
+| `near_data_compute` | memory 측 연산 가능 | `supported_primitives` ≠ ∅ | Custom HBM, CXL-PNM (attention), SSD-PIM (GEMV) |
+| `shared_link` | 물리 링크를 다른 자원과 공유 | `shared_link_group` 존재 | Custom HBM (도메인 8 GPU가 PCIe5 x16 1가닥 공유) |
+
+> flag는 가능한 한 **수치 field에서 파생**한다 (수동 지정 최소화). 수치가 없을 때만 plug-in이 직접 선언한다.
 
 > `near_data_compute`는 DP1에서 **"존재 여부"만 노출**한다.
 > 해당 memory에서 연산을 수행할지(compute placement)는 DP2/DP4의 책임이며,
@@ -535,9 +545,15 @@ MemoryDescriptor
 
 ~~~text
 tier_rank(resource)
-  = f(nominal_latency, nominal_bw, capacity, access_model)   # 기본 derivation
+  = f(ext_bw, latency, capacity, gpu_reachable)   # 기본 derivation (GPU 관점 접근 BW = ext_bw)
     overridden by tier_rank_hint (있을 때만)
 ~~~
+
+주의: **tier order는 total order가 아니다.** dp1_sim 값 기준으로
+DRAM(64 GB/s, 200 ns)과 CXL-PNM(63 GB/s, 300 ns), Custom HBM(63 GB/s, 2 µs)은 `ext_bw`가 사실상 같고,
+HBF(1 TB/s, 5 µs)는 BW는 높지만 latency가 DRAM보다 25배 나쁘다.
+따라서 `tier_order()`는 단일 순서가 아니라 **partial order + 동순위 그룹**을 반환하고,
+동순위 그룹 안의 선택은 Selector가 capability/affinity로 결정한다.
 
 이를 통해 "Promotion/Demotion" (§17)의 방향 판단도 `HBM > DRAM > SSD` 고정 순서가 아니라
 `MemoryBackendRegistry.tier_order()`를 사용한다. 신규 memory는 descriptor 값에 따라 자동으로 순서에 삽입된다.
@@ -555,6 +571,7 @@ MemoryTelemetry
  ├─ queue_depth
  ├─ observed_latency (optional)
  ├─ transfer_inflight_bytes
+ ├─ shared_link_util             # shared_link_group의 현재 점유율 (e.g. PCIe5 x16 공유 링크)
  ├─ error / throttle state       # thermal throttle, wear, link degrade
  └─ extension: dict              # vendor-specific metric (decision plane은 무시 가능)
 ~~~
@@ -573,7 +590,7 @@ Destination Tier Selector의 feasibility 판단에 필요하다.
 MemoryTransferBinding
  ├─ resource_id
  ├─ supported_peers[]            # 직접/경유 가능한 상대 resource
- ├─ path_type                    # direct | staged(via host)
+ ├─ path_type                    # direct | staged(via host)  ← descriptor.access_path / gpu_reachable에서 파생
  ├─ handler_key                  # TransferHandlerRegistry.resolve(src_type, dst_type) 용 key
  ├─ est_transfer_bw / est_setup_cost
  └─ constraints                  # alignment, max transfer size, async 지원 여부
@@ -605,7 +622,7 @@ MemoryTransferBinding
 | 상황 | 필요한 변경 | 이유 |
 |---|---|---|
 | 기존 flag로 표현 불가한 capability | capability flag vocabulary에 **추가** (기존 flag 의미 변경 금지) | vocabulary는 append-only |
-| 신규 memory의 새로운 access model | `access_model` enum 확장 + Selector feasibility 규칙 1줄 | feasibility 판단 입력 부족 |
+| 신규 memory의 새로운 접근 경로(hop) 유형 | `access_path` hop 종류 추가 + Selector feasibility 규칙 1줄 | feasibility 판단 입력 부족 |
 | Affinity Table이 memory 이름을 key로 가짐 | capability class key로 마이그레이션 | §8.7 규칙 위반 |
 
 ### 5.8.7 Backend I/F의 설계 원칙
@@ -651,6 +668,47 @@ Memory Backend I/F (Memory 측 추상화)       Data Object Registry (Data 측 �
 신규 memory → Backend plug-in               신규 data type → C1: Registry meta + Affinity
                                                          C2: class metadata + behavior plugin
 ~~~
+
+### 5.8.10 Reference Instance — `dp1_sim/configs` 매핑
+
+시뮬레이터의 `memories_default.json` / `clusters.json`이 이미 memory별 spec을 보유하므로,
+이를 MemoryDescriptor의 **reference instance**로 사용한다 (B200 8-GPU 도메인 기준, 값은 config 원문).
+
+| resource_id | capacity | ext_bw | int_bw | latency | gpu_reachable | access_path | primitives | write 제약 | capability_flags |
+|---|---|---|---|---|---|---|---|---|---|
+| `hbm` | 192 GiB/GPU (도메인 ×8) | 8 TB/s/GPU | = ext | 300 ns | ✅ | on-package | — | — | `gpu_direct_access` `high_bw` |
+| `custom_hbm` | 384 GiB | 63 GB/s | 16 TB/s | 2 µs | ❌ | gpu→host:pcie5_x16, host→dev:pcie5_x16 | QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK | — | `host_staged_only` `bw_asymmetric(254x)` `near_data_compute` `shared_link` |
+| `cxl_pnm` | 512 GiB | 63 GB/s | 400 GB/s | 300 ns | ❌ | gpu→cpu:pcie, cpu→dev:cxl | 위와 동일 (3.28 TFLOPS) | — | `host_staged_only` `bw_asymmetric(6x)` `near_data_compute` |
+| `dram` | 1 TiB | 64 GB/s | 400 GB/s | 200 ns | ❌ | gpu→cpu:pcie | — | — | `host_staged_only` `large_capacity` `bw_asymmetric(6x)` |
+| `hbf` | 2 TiB | 1 TB/s | 1 TB/s | 5 µs | ✅ | direct | — | write_bw 50 GB/s, WA 3.0, endurance 100 PB | `gpu_direct_access` `high_bw` `large_capacity` `write_limited` |
+| `ssd_pim` | 16 TiB | 16 GB/s | 200 GB/s | 60 µs | ❌ | gpu→cpu:pcie, cpu→dev:nvme | GEMV (2 TFLOPS) | WA 4.0, endurance 10 PB | `host_staged_only` `large_capacity` `bw_asymmetric(12x)` `write_limited` `near_data_compute` |
+
+이 표에서 얻은 설계 시사점:
+
+1. **`ext_bw`와 `int_bw`를 분리해야 한다.** Custom HBM은 내부 16 TB/s지만 외부 63 GB/s(254배 차)라서,
+   단일 `bandwidth` 값으로 tier를 정렬하면 Selector가 오판한다.
+   migration 비용은 `ext_bw`, near-data 실행은 `int_bw` 기준이다.
+2. **`gpu_reachable`과 `access_path`가 transfer feasibility를 결정한다.**
+   GPU 직접 접근이 불가한 4종은 모두 Host 경유이며, 이동 경로(hop)와 비용은 descriptor에서 파생된다.
+3. **Read/Write 비대칭과 endurance는 별도 field다.** HBF는 read 1 TB/s이지만 write 50 GB/s(20배 차)이고,
+   HBF/SSD-PIM은 write amplification과 endurance budget이 있어 **demotion 대상 선택 시 write 비용**을 반영해야 한다 (§17.1).
+4. **공유 링크(`shared_link_group`)가 1급 개념이다.** `clusters.json`의 topology note처럼
+   Custom HBM은 GPU 8장당 1대이며 PCIe5 x16 한 가닥을 도메인 전체가 공유한다.
+   → Telemetry에 `shared_link_util`이 필요하고, 동시 migration은 같은 link group 안에서 budget을 공유해야 한다.
+5. **`scope`(per_gpu vs per_scaleup_domain)** 로 합산 단위를 표현한다. DP1의 단위는 scale-up 도메인 1개이며
+   (`clusters.json` note), HBM은 GPU 수만큼 합산(8×B200 = 1.5 TiB / 64 TB/s)되는 반면 Custom HBM은 도메인당 1대다.
+   `apply_cluster()`가 하는 "GPU 스펙으로 HBM/Custom HBM 값 재계산"은
+   Backend 쪽에서 `descriptor()`가 **cluster context로 재계산**하는 책임으로 옮겨진다.
+6. **Descriptor만 바꿔 memory를 교체/추가할 수 있다.** 같은 시스템에 B200→Vera Rubin(HBM4, 384 GB / 28 TB/s)을
+   적용하면 `hbm`과 `custom_hbm`(페어링 GPU 상대 스펙: 용량 ×2, 내부 BW ×2, 연산 ×20%)의 descriptor 값만 달라지고
+   decision plane 코드는 그대로다 — 쟁점 2의 수용 기준이 된다.
+7. **`provenance`(SPEC/PUBLIC/ASSUMED)를 descriptor에 유지한다.** config에 이미 값마다 근거 태그가 있으며,
+   ASSUMED 값으로 내린 decision은 신뢰도를 낮춰 해석해야 한다.
+
+> **ScHBM 주의:** 슬라이드의 ScHBM(scale-attached HBM)은 현재 config에 별도 항목이 없다.
+> `clusters.json`의 `scale_attached: false` flag와 `custom_hbm`이 가장 가까운 대응이며,
+> ScHBM은 scale-up fabric에 붙어 GPU 도메인 간 공유될 수 있어 `scope`/`shared_link_group` 표현이 필요할 가능성이 있다.
+> 이는 **"신규 memory = plug-in 1개"** 원칙의 첫 검증 대상이며, config에 항목을 추가해도 decision plane이 바뀌지 않는지 `test_sim.py`로 확인한다 (§26 follow-up).
 
 ---
 
@@ -2052,6 +2110,8 @@ DP1 상세 설계에서 다음 항목은 별도 페이지/문서로 구체화한
    - tier ordering(rank) 산정 규칙과 수동 override 정책
    - conformance test suite (신규 memory plug-in 인증 기준)
    - 기존 kv_offload backend(LocalCPUBackend/LocalDiskBackend)의 adapter wrapping 방안
+   - `dp1_sim`: `memories_default.json`을 MemoryDescriptor로 로드하는 adapter 추가, ScHBM 항목 추가 시 policy 코드 무변경 검증 (test_sim.py)
+   - shared_link_group 단위 migration budget 모델링
 
 ---
 
