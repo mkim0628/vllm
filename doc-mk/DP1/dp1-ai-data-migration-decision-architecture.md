@@ -7,6 +7,10 @@
 > 이미 존재하는 AI Data를 **언제, 무엇을, 어느 memory tier로 이동할지** 결정하는 DP1 구조를 정의한다.
 >
 > DP1은 **initial placement**가 아니라 **runtime data migration decision**이 대상이다.
+>
+> 설계 쟁점은 두 가지다.
+> - **쟁점 1:** 메모리 특성 · 데이터 특성을 aware한 migration decision (C1 / C2, §6~§19)
+> - **쟁점 2:** 신규 메모리 확장 시 기존 구조 변경 최소화 — **공통 Memory Backend I/F (Plug-in)** (§5.8)
 
 ---
 
@@ -51,6 +55,26 @@ AI Data마다 reuse pattern, lifetime, access frequency, bandwidth sensitivity, 
 
 그리고 두 후보 모두 공통적으로 **Event-driven Migration Scheduler**를 entry point로 사용한다.
 
+## 1.1 두 가지 설계 쟁점
+
+| 쟁점 | 질문 | 해결 구조 | 문서 위치 |
+|---|---|---|---|
+| **쟁점 1** | 메모리 특성 / 데이터 특성을 aware한 migration으로 추론 성능을 어떻게 최적화할 것인가 | C1 / C2 Decision Pipeline | §6 ~ §19 |
+| **쟁점 2** | ScHBM, CXL-PNM, HBF, SSD-PIM 등 신규 메모리가 들어와도 기존 구조 변경을 어떻게 최소화할 것인가 | **공통 Memory Backend I/F (Plug-in)** | **§5.8** |
+
+쟁점 1만 다루면 decision plane이 memory 종류를 직접 알게 되어,
+신규 memory가 추가될 때마다 Selector/Monitor/Eviction 로직을 수정해야 한다.
+따라서 DP1은 **"Data Migration 알고리즘"(C1/C2)과 "Memory 추상화 I/F"(§5.8)를 분리된 두 축**으로 설계한다.
+
+~~~text
+              Decision Plane (C1 / C2)           ← 쟁점 1: 무엇을/언제/어디로
+                       │
+         ┌─────────────▼─────────────┐
+         │ Common Memory Backend I/F │            ← 쟁점 2: 신규 memory는 plug-in으로 편입
+         └─────────────┬─────────────┘
+   HBM · ScHBM · DRAM · CXL-PNM · HBF · SSD · SSD-PIM · + New
+~~~
+
 ---
 
 # 2. DP1과 공통 Migration Architecture의 관계
@@ -75,6 +99,18 @@ Migration Control Plane
     │
     ▼
 Transfer Data Plane
+~~~
+
+C1/C2 decision pipeline이 memory를 참조하는 경로는 **공통 Memory Backend I/F** 하나다.
+
+~~~text
+C1 or C2 Decision Pipeline
+    │ MemoryDescriptor / MemoryTelemetry / MemoryTransferBinding
+    ▼
+Common Memory Backend I/F (Plug-in)  ◄── 신규 memory 등록 지점 (§5.8)
+    │ handler_key
+    ▼
+TransferHandlerRegistry (공통 migration subsystem)
 ~~~
 
 DP1의 책임은 다음과 같다.
@@ -127,6 +163,8 @@ DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
 - memory resource state monitoring
 - resource pressure / trend 분석
 - Data Object Registry 기반 object 위치/크기/tier 조회
+- **공통 Memory Backend I/F 정의** — MemoryDescriptor / MemoryTelemetry / MemoryTransferBinding / plug-in 등록 규약 (§5.8)
+- 신규 memory 편입 시 decision plane 무변경 원칙 및 편입 절차
 - migration 대상 data 후보 선택
 - destination memory tier 선택
 - AI Data별 static affinity 반영
@@ -139,7 +177,8 @@ DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
 
 - initial data placement
 - 실제 byte transfer mechanism
-- source pin / version check / atomic location commit
+- 개별 memory backend 구현체(vendor driver) 및 TransferHandler 구현 — 공통 migration architecture 소관
+- allocation reserve/release, source pin / version check / atomic location commit
 - migration failure rollback
 - Prefill execution resource 선택 — DP2
 - Agent tool-call lifecycle에 따른 KV residency 관리 — 별도 DP
@@ -323,9 +362,13 @@ Registry의 type-specific metadata와 runtime event를 함께 사용해
 
 ~~~text
 Resource Manager
- ├─ Telemetry Collector
- └─ Memory Registry
+ ├─ Telemetry Collector            # Backend의 MemoryTelemetry 집계
+ └─ Memory Registry                # MemoryBackend plug-in 등록부 (§5.8)
 ~~~
+
+Resource Manager는 개별 memory를 직접 알지 않고,
+**공통 Memory Backend I/F(§5.8)로 등록된 plug-in**을 통해서만 memory 정보를 얻는다.
+신규 memory가 추가되어도 Resource Manager 자체는 변경하지 않는다.
 
 ### Telemetry Collector
 
@@ -342,6 +385,8 @@ runtime dynamic state를 수집한다.
 ### Memory Registry
 
 resource의 relatively static capability를 관리한다.
+각 항목은 Backend plug-in이 제공하는 **MemoryDescriptor**(§5.8.3)에서 채워지며,
+Memory Registry는 이를 등록·조회하는 **MemoryBackendRegistry** 역할을 한다.
 
 - capacity
 - nominal bandwidth
@@ -350,10 +395,12 @@ resource의 relatively static capability를 관리한다.
 - memory type
 - compute capability
 - transfer capability
+- granularity / access model / persistence / endurance (§5.8.3)
 
 ## 5.5 Destination Tier Selector
 
 주어진 migration candidate에 대해 destination memory resource/tier를 결정한다.
+memory 후보는 **Memory Backend I/F의 capability_flags / telemetry / transfer binding**으로만 조회·필터링한다 (§5.8).
 
 ## 5.6 Migration Data Selector
 
@@ -384,6 +431,226 @@ MigrationExecutor
 
 즉 PPT의 단순 구조에서는 Selector 다음에 Migration Executor를 직접 그리지만,
 상세 구현에서는 공통 Migration Control Plane을 거쳐 실제 transfer가 수행된다.
+
+---
+
+## 5.8 Common Memory Backend Interface (Plug-in) — 설계 쟁점 2
+
+> **설계 쟁점 2:** 신규 메모리(ScHBM, CXL-PNM, HBF, SSD-PIM 등)가 확장될 때 **기존 구조 변경을 최소화**한다.
+
+### 5.8.1 문제: As-Is는 Tier가 코드에 고정되어 있다
+
+기존 vLLM/KV Offload 구조는 memory를 `HBM / CPU DRAM / Disk SSD` 세 tier로 가정하고,
+tier마다 backend가 별도로 고정되어 있다 (예: `LocalCPUBackend`, `LocalDiskBackend`).
+
+~~~text
+As-Is
+  data type별 정책 ──(tier 이름 직접 참조)──► CPU backend / Disk backend
+  신규 memory 추가 = 정책·backend·transfer 경로를 data type마다 수정
+~~~
+
+이 상태에서 C1/C2의 Selector, Monitor, Eviction Manager가 `if tier == "CXL"` 식으로 memory를 직접 알면,
+**Migration Layer를 도입해도 신규 memory마다 decision plane 전체를 수정**하게 되어 쟁점 2를 해결하지 못한다.
+
+따라서 DP1은 "무엇을 어디로 옮길지"의 decision 구조(C1/C2)와 별개로,
+**decision plane이 memory를 바라보는 유일한 창구인 공통 Memory Backend I/F**를 정의한다.
+
+### 5.8.2 위치와 책임
+
+~~~text
+┌───────────────────────────────────────────────────────────┐
+│ Decision Plane (C1 / C2)                                  │
+│   Resource State Monitor · Destination Tier Selector ·    │
+│   Migration Data Selector · Data Eviction Manager         │
+└───────────────┬───────────────────────────────────────────┘
+                │ MemoryDescriptor / MemoryTelemetry 조회 (capability 기반)
+┌───────────────▼───────────────────────────────────────────┐
+│ Resource Manager                                          │
+│   Memory Registry  = MemoryBackendRegistry (plug-in 등록부)│
+│   Telemetry Collector = Backend telemetry 집계            │
+├───────────────────────────────────────────────────────────┤
+│ Common Memory Backend I/F  (Plug-in contract)             │
+│   ① Descriptor   : 정적 capability                        │
+│   ② Telemetry    : 동적 상태                              │
+│   ③ Transfer Binding : 공통 TransferHandler 연결          │
+└───┬─────┬─────┬──────┬─────┬─────┬──────┬────────┬────────┘
+   HBM  ScHBM DRAM CXL-PNM HBF  SSD SSD-PIM   + New
+                │
+                ▼ MemoryTransferBinding
+      TransferHandlerRegistry (공통 migration subsystem)
+~~~
+
+책임 경계:
+
+| 구분 | Memory Backend I/F가 하는 일 | 하지 않는 일 |
+|---|---|---|
+| **Memory 정보 제공** | 자신의 capability / 현재 상태 / transfer 방식을 표준 형식으로 노출 | 어떤 data를 둘지 판단 (→ C1/C2) |
+| **Memory 이름 은닉** | decision plane에 `memory_type` 분기를 요구하지 않음 | data type(KV/LoRA/MoE) 해석 |
+| **Transfer 연결** | 공통 TransferHandler를 선택할 수 있는 binding 정보 제공 | byte copy 자체 수행 (→ 공통 migration subsystem) |
+| **Allocation 단위 노출** | 이동 가능한 최소 단위(granularity)와 정렬 제약 제공 | 신규 data placement 결정 (initial placement는 out of scope) |
+
+> 공통 Migration architecture의 의존성 규칙 7 — "MemoryTopology와 MemoryResourceRegistry는 data type을 모른다" — 와 일치한다.
+> Memory Backend I/F는 **memory를 data-type-agnostic하게 기술**하고,
+> data type 인지는 C1의 Affinity Mapper 또는 C2의 Type-aware Registry가 담당한다.
+
+### 5.8.3 ① MemoryDescriptor — 정적 capability
+
+Memory Registry가 기존에 관리하던 relatively static 정보를 plug-in이 **자기 기술(self-describing)** 하도록 표준화한다.
+
+~~~text
+MemoryDescriptor
+ ├─ resource_id                  # e.g. "gpu0_hbm", "cxl0", "ssd0"
+ ├─ memory_class                 # 분류 라벨 (정보용; decision 분기에는 사용 금지)
+ ├─ capacity_bytes
+ ├─ nominal_read_bw / nominal_write_bw
+ ├─ nominal_latency
+ ├─ granularity                  # 이동/할당 최소 단위, alignment
+ ├─ access_model                 # byte-addressable | block | page-fault
+ ├─ persistence                  # volatile | persistent
+ ├─ endurance / write_cost       # SSD/HBF류의 write amplification, wear 제약
+ ├─ topology                     # 연결 관계, direct/staged path
+ ├─ capability_flags             # 아래 참조
+ └─ tier_rank_hint?              # optional: 운영자 override
+~~~
+
+`capability_flags`는 **Selector가 사용하는 어휘**다. memory 이름 대신 flag로 후보를 거른다.
+
+| capability flag | 의미 | 대표 memory |
+|---|---|---|
+| `gpu_direct_access` | GPU가 직접 load/store 또는 P2P 접근 가능 | HBM, ScHBM, (CXL-P2P) |
+| `host_staged_only` | Host를 경유해야 접근 가능 | SSD, 일부 HBF |
+| `high_bw` | nominal BW가 상위 구간 | HBM, ScHBM, HBF |
+| `large_capacity` | 용량 우선 tier | DRAM, CXL, HBF, SSD |
+| `persistent` | 비휘발 | SSD, HBF |
+| `byte_addressable` | byte 단위 접근 | HBM, DRAM, CXL |
+| `near_data_compute` | memory 측 연산 가능 (PNM/PIM) | CXL-PNM, SSD-PIM |
+| `write_limited` | write budget 제약 (endurance) | SSD, HBF |
+| `bw_asymmetric` | read/write BW 비대칭 | HBF, SSD |
+
+> `near_data_compute`는 DP1에서 **"존재 여부"만 노출**한다.
+> 해당 memory에서 연산을 수행할지(compute placement)는 DP2/DP4의 책임이며,
+> DP1은 이 flag를 destination 후보 제약 정보로만 쓴다.
+
+**Tier rank는 hard-coded enum이 아니라 descriptor에서 파생한다.**
+
+~~~text
+tier_rank(resource)
+  = f(nominal_latency, nominal_bw, capacity, access_model)   # 기본 derivation
+    overridden by tier_rank_hint (있을 때만)
+~~~
+
+이를 통해 "Promotion/Demotion" (§17)의 방향 판단도 `HBM > DRAM > SSD` 고정 순서가 아니라
+`MemoryBackendRegistry.tier_order()`를 사용한다. 신규 memory는 descriptor 값에 따라 자동으로 순서에 삽입된다.
+
+### 5.8.4 ② MemoryTelemetry — 동적 상태
+
+Telemetry Collector는 backend별 telemetry를 **동일 schema**로 집계한다 (§5.4, §8.2의 `ResourceState` 입력).
+
+~~~text
+MemoryTelemetry
+ ├─ resource_id
+ ├─ timestamp
+ ├─ used_bytes / free_bytes
+ ├─ read_bw_util / write_bw_util
+ ├─ queue_depth
+ ├─ observed_latency (optional)
+ ├─ transfer_inflight_bytes
+ ├─ error / throttle state       # thermal throttle, wear, link degrade
+ └─ extension: dict              # vendor-specific metric (decision plane은 무시 가능)
+~~~
+
+- **Pull**(`telemetry()`)과 **Push**(`subscribe()`)를 모두 허용하되, 지원하지 않는 metric은 `None`으로 둔다.
+- Resource State Monitor는 `None` metric을 **graceful degradation** (사용 가능한 metric만으로 pressure 계산) 한다.
+  → 신규 memory가 일부 metric만 제공해도 C1 pipeline이 동작한다.
+- `extension` field는 vendor 고유 metric 전달용이며, core decision logic은 의존하지 않는다.
+
+### 5.8.5 ③ MemoryTransferBinding — 공통 Transfer Handler 연결
+
+DP1은 transfer를 수행하지 않지만, **"이 memory와 저 memory 사이를 옮길 수 있는가 / 비용이 어떤가"**는
+Destination Tier Selector의 feasibility 판단에 필요하다.
+
+~~~text
+MemoryTransferBinding
+ ├─ resource_id
+ ├─ supported_peers[]            # 직접/경유 가능한 상대 resource
+ ├─ path_type                    # direct | staged(via host)
+ ├─ handler_key                  # TransferHandlerRegistry.resolve(src_type, dst_type) 용 key
+ ├─ est_transfer_bw / est_setup_cost
+ └─ constraints                  # alignment, max transfer size, async 지원 여부
+~~~
+
+- `handler_key`로 **공통 migration subsystem의 TransferHandler**(CudaP2P / HostDMA / CXL / NVMe / VendorCustom)에 연결된다.
+- 신규 memory에 기존 handler로 처리 불가한 경로가 있으면 **VendorCustomMemoryHandler 1개만 추가**하고 `handler_key`로 등록한다.
+- Selector는 `est_transfer_bw / est_setup_cost`를 feasibility와 cost 계산에만 사용한다.
+
+### 5.8.6 신규 Memory 편입 절차 — 변경 범위
+
+예: **ScHBM** 또는 **CXL-PNM**을 신규 도입하는 경우.
+
+~~~text
+추가하는 것
+  1. resource/backends/<new_memory>.py   # MemoryBackend 구현 (descriptor/telemetry/binding)
+  2. (필요 시) TransferHandler 1개        # 기존 handler로 불가한 경로가 있을 때만
+  3. 운영 config: resource 등록, (선택) tier_rank_hint
+
+변경하지 않는 것
+  - C1: Resource State Monitor, Trend Analyzer, Eviction Manager, Affinity Mapper, Selector
+  - C2: Behavior Monitor, Predictor, Selector, Type-aware Registry
+  - Migration Scheduler / Event 구조
+  - Affinity Table (capability class key 사용 시)
+~~~
+
+조건부로 수정이 필요한 경우 (**예외**이며 설계 리뷰 대상):
+
+| 상황 | 필요한 변경 | 이유 |
+|---|---|---|
+| 기존 flag로 표현 불가한 capability | capability flag vocabulary에 **추가** (기존 flag 의미 변경 금지) | vocabulary는 append-only |
+| 신규 memory의 새로운 access model | `access_model` enum 확장 + Selector feasibility 규칙 1줄 | feasibility 판단 입력 부족 |
+| Affinity Table이 memory 이름을 key로 가짐 | capability class key로 마이그레이션 | §8.7 규칙 위반 |
+
+### 5.8.7 Backend I/F의 설계 원칙
+
+1. **Capability-driven**: decision plane은 `resource_id`/`memory_class` 문자열이 아니라 `capability_flags`와 수치 field로 판단한다.
+2. **Self-describing**: memory 특성은 plug-in이 선언한다. 중앙 enum/if-else에 memory를 열거하지 않는다.
+3. **Data-type-agnostic**: Backend는 KV/LoRA/MoE를 모른다 (공통 migration 의존성 규칙 7).
+4. **Append-only vocabulary**: capability flag와 telemetry field는 추가만 허용해 기존 plug-in 호환성을 유지한다.
+5. **Graceful degradation**: optional metric/flag 부재 시 보수적 기본값으로 동작한다.
+6. **Single window**: `decision/` → memory 접근은 Backend I/F 하나로만 허용한다 (import 금지 규칙 §21).
+7. **Read-only for decision plane**: decision plane은 descriptor/telemetry를 조회만 한다. allocation reserve/release와 location commit은 공통 migration control plane 소유다.
+
+### 5.8.8 C1/C2 공통 적용 방식
+
+| 소비 컴포넌트 | 사용하는 Backend I/F 정보 |
+|---|---|
+| Resource State Monitor (C1) | MemoryTelemetry → `ResourceState` 정규화 |
+| Resource-based Trend Analyzer (C1) | MemoryTelemetry 시계열, nominal BW (pressure 정규화 기준) |
+| Data Eviction Manager (C1) | `tier_order()`, descriptor.granularity, write_limited |
+| Data-Memory Affinity Mapper (C1) | affinity table(capability class) ↔ descriptor.capability_flags 매핑 |
+| Destination Tier Selector (C1/C2) | capability_flags, free capacity, TransferBinding(est cost) |
+| Migration Data Selector (C1/C2) | granularity, constraints, TransferBinding |
+| Data Behavior Monitor / Predictor (C2) | 직접 사용하지 않음. Selector가 prediction 결과에 memory 제약을 결합 |
+
+→ Memory I/F는 **C1/C2 후보 선택(Q1/Q2)과 독립적으로** 확정 가능한 공통 설계 요소다.
+
+### 5.8.9 Data Object Registry와의 관계
+
+~~~text
+Memory Backend I/F (Memory 측 추상화)       Data Object Registry (Data 측 추상화)
+  "각 memory는 어떤 capability를 가지고        "각 data object는 어디에 있고,
+   지금 어떤 상태인가"                          (C2) 어떤 종류이며 어떻게 쓰이는가"
+        └────────── Selector에서 결합: data ↔ memory matching ──────────┘
+~~~
+
+- 두 추상화는 **서로를 직접 참조하지 않는다.** 결합은 Selector(Destination Tier / Migration Data)에서만 일어난다.
+- Registry의 `current_tier`/`current_location`은 Backend I/F의 `resource_id`를 가리키는 opaque key이며,
+  tier 의미(rank, capability)는 항상 Backend I/F를 통해 해석한다.
+- 이 분리로 "신규 memory 추가"(memory 축)와 "신규 data type 추가"(data 축)가 서로 영향을 주지 않는 **직교 확장성**을 확보한다.
+
+~~~text
+          memory 축 (쟁점 2)                         data 축 (쟁점 1)
+신규 memory → Backend plug-in               신규 data type → C1: Registry meta + Affinity
+                                                         C2: class metadata + behavior plugin
+~~~
 
 ---
 
@@ -438,13 +705,18 @@ flowchart TD
 
     RM["Resource Manager"]
     TC["Telemetry Collector"]
-    MR["Memory Registry"]
+    MR["Memory Registry<br/>(Backend Registry)"]
+    MBI["Common Memory Backend I/F<br/>(Plug-in)"]
+    MEMS["HBM / ScHBM / DRAM / CXL-PNM<br/>HBF / SSD / SSD-PIM / + New"]
 
     EV --> MS
     MS -. "Event push (async)" .-> RSM
 
     RM --> TC
     RM --> MR
+    MR --> MBI
+    MBI -->|"plug-in"| MEMS
+    MBI -->|"MemoryTelemetry"| TC
     TC -->|"capacity / BW / load"| RSM
 
     RSM --> RTA
@@ -678,6 +950,11 @@ candidate target tier
   ∩ preferred(data-memory affinity)
 ~~~
 
+여기서 "tier"와 "memory capability"는 **Memory Backend I/F(§5.8)의 MemoryDescriptor**로만 조회한다.
+Affinity Table도 `HBM`, `CXL` 같은 memory 이름이 아니라
+`capability class`(예: `high_bw`, `large_capacity`, `persistent`, `near_data_compute`)를 key로 갖는다.
+따라서 신규 memory는 Descriptor가 해당 capability class에 매핑되기만 하면 Affinity Table 수정 없이 후보에 포함된다.
+
 ## 8.8 Migration Data Selector
 
 Eviction candidate 중 실제 migration object를 결정한다.
@@ -823,7 +1100,9 @@ flowchart TD
 
     RM["Resource Manager"]
     TC["Telemetry Collector"]
-    MR["Memory Registry"]
+    MR["Memory Registry<br/>(Backend Registry)"]
+    MBI["Common Memory Backend I/F<br/>(Plug-in)"]
+    MEMS["HBM / ScHBM / DRAM / CXL-PNM<br/>HBF / SSD / SSD-PIM / + New"]
 
     EV --> MS
     MS -. "Event push (async)" .-> DBM
@@ -841,6 +1120,9 @@ flowchart TD
 
     RM --> TC
     RM --> MR
+    MR --> MBI
+    MBI -->|"plug-in"| MEMS
+    MBI -->|"MemoryTelemetry"| TC
 
     FBP -->|"predicted behavior"| DTS
     FBP -->|"predicted behavior"| MDS
@@ -1273,6 +1555,10 @@ Hot-tier Useful Residency
 - affinity rule 변경
 - telemetry metric 추가
 
+**신규 memory tier 추가**는 C1/C2 공통으로 Memory Backend I/F(§5.8)가 흡수한다.
+측정 기준은 "신규 memory 1종 추가 시 `decision/` 하위 변경 파일 수 = 0, 추가 파일 = Backend plug-in 1 + Descriptor 1 (+ TransferHandler 1)"이다.
+기존 구조(Selector/Monitor/Registry schema) 수정이 필요하면 Memory Interface 추상화가 부족한 것으로 판단한다.
+
 C1은 신규 data type 추가 시
 Registry metadata + affinity metadata 추가로 대응 가능한 범위가 넓다.
 
@@ -1325,6 +1611,18 @@ Decision Pipeline   Decision Pipeline
        HBM/DRAM/CXL/SSD
 ~~~
 
+Decision plane이 memory를 바라보는 경로는 다음과 같이 공통 Memory Backend I/F 하나로 제한한다.
+
+~~~text
+C1/C2 Decision Pipeline
+        │  MemoryDescriptor / MemoryTelemetry (capability 기반 조회)
+        ▼
+Common Memory Backend I/F (Plug-in)      ← 신규 memory는 여기에 등록
+        │  MemoryTransferBinding
+        ▼
+TransferHandlerRegistry (공통 migration subsystem)
+~~~
+
 여기서 두 scheduler를 구분한다.
 
 | Component | 역할 |
@@ -1369,12 +1667,24 @@ vllm/v1/data_migration/
 │       └── data_selector.py
 │
 ├── resource/
-│   ├── registry.py
-│   └── telemetry.py
+│   ├── registry.py                 # MemoryBackendRegistry (plug-in 등록부)
+│   ├── descriptor.py               # MemoryDescriptor / capability flags
+│   ├── telemetry.py                # MemoryTelemetry / Telemetry Collector
+│   ├── backend.py                  # MemoryBackend (abstract plug-in contract)
+│   └── backends/                   # memory별 plug-in (신규 memory는 여기에만 추가)
+│       ├── hbm.py
+│       ├── dram.py
+│       ├── cxl.py                  # CXL-PNM 포함 (compute capability flag)
+│       ├── hbf.py
+│       ├── ssd.py                  # SSD-PIM 포함
+│       └── <new_memory>.py
 │
 └── worker/
     └── executor.py
 ~~~
+
+`decision/`은 `resource/backends/`를 **import하지 않는다.**
+`decision/`이 보는 것은 `resource/backend.py`, `descriptor.py`, `telemetry.py`의 추상 type뿐이다.
 
 Data-class별 세부 logic이 필요하면
 Data Object Registry의 metadata provider 또는
@@ -1515,6 +1825,34 @@ policy_metadata
  └─ lifetime_state
 ~~~
 
+## 22.8 Common Memory Backend Interface
+
+C1/C2가 공통으로 사용하며, Memory Registry에 plug-in 형태로 등록된다. (상세: §5.8)
+
+~~~text
+MemoryBackend  (plug-in contract)
+  descriptor() -> MemoryDescriptor              # static capability
+  telemetry()  -> MemoryTelemetry               # dynamic state (pull) 
+  subscribe(cb: Callable[[MemoryTelemetry], None])   # dynamic state (push, optional)
+  transfer_binding() -> MemoryTransferBinding   # 공통 TransferHandler와의 연결 정보
+  health() -> HealthState
+
+MemoryBackendRegistry                           # = Memory Registry의 plug-in 등록부
+  register(backend: MemoryBackend)
+  unregister(resource_id)
+  get(resource_id) -> MemoryBackend
+  list(filter: CapabilityFilter) -> list[MemoryBackend]
+  tier_order() -> list[resource_id]             # descriptor에서 파생된 rank 순서
+~~~
+
+Decision plane 사용 규칙:
+
+~~~text
+Resource State Monitor / Selector / Eviction Manager
+  → MemoryBackendRegistry.list(CapabilityFilter) 로만 memory를 조회
+  → resource_id / memory_type 문자열 비교(if type == "CXL") 금지
+~~~
+
 ---
 
 # 23. Important Boundary: C1 Registry vs C2 Registry
@@ -1622,6 +1960,21 @@ Migration Scheduler
 C1 or C2
 ~~~
 
+## 공통 Memory Interface Structure (쟁점 2)
+
+~~~text
+C1 / C2 decision pipeline
+  ↓  (Tier 이름이 아니라 MemoryDescriptor / MemoryTelemetry로만 memory를 본다)
+Common Memory Backend I/F  — Descriptor · Telemetry · Transfer Binding
+  ↓  plug-in 등록
+HBM / ScHBM / DRAM / CXL-PNM / HBF / SSD / SSD-PIM / + New
+~~~
+
+- decision plane은 memory 종류를 모르고 capability/telemetry만 소비한다.
+- 신규 memory는 Backend plug-in 1개 + Descriptor 1개 + (필요 시) TransferHandler 1개 추가로 편입한다.
+- C1/C2 Selector, Monitor, Registry schema는 신규 memory 추가 시 변경하지 않는 것을 목표로 한다.
+- 이 I/F는 C1/C2 **공통**이므로 후보 선택(Q1/Q2)과 독립적으로 확정할 수 있다.
+
 ## C1 — Resource State-driven + Data-Memory Affinity
 
 ~~~text
@@ -1693,6 +2046,12 @@ DP1 상세 설계에서 다음 항목은 별도 페이지/문서로 구체화한
    - TPS, TTFT/TPOT, utilization, event-to-decision latency 기준
 10. **Simulation workload**
    - KV reuse skew / LoRA popularity / MoE expert skew / memory pressure 변화 시나리오
+11. **Memory Backend I/F 상세 (§5.8, §22.8)**
+   - MemoryDescriptor / MemoryTelemetry / MemoryTransferBinding field 확정
+   - capability flag vocabulary (v1 필수/선택 분리) 및 version 정책
+   - tier ordering(rank) 산정 규칙과 수동 override 정책
+   - conformance test suite (신규 memory plug-in 인증 기준)
+   - 기존 kv_offload backend(LocalCPUBackend/LocalDiskBackend)의 adapter wrapping 방안
 
 ---
 
