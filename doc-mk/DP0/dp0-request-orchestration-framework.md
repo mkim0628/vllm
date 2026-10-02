@@ -97,8 +97,8 @@ llm-d와 NVIDIA Dynamo는 이 fleet 수준 조율(inter-instance orchestration)�
 
 | 수준 | 정의 | 담당 |
 |---|---|---|
-| **cluster level (inter-instance)** | 요청을 어느 vLLM 인스턴스(pod)가 처리할지, P/D pod 짝짓기, 인스턴스 간 KV 공유, 상태 수집 | orchestrator |
-| **node level (intra-instance)** | 한 인스턴스 안의 batch/block/memory tier 결정, 인스턴스 내부 resource 선택 | vLLM 내부 |
+| **cluster level (inter-instance)** — 서버 간(클러스터) 결정 | 요청을 어느 vLLM 인스턴스(pod)가 처리할지, P/D pod 짝짓기, 인스턴스 간 KV 공유, 상태 수집 | orchestrator |
+| **node level (intra-instance)** — 서버 내부 결정 | 한 인스턴스 안의 batch/block/memory tier 결정, 인스턴스 내부 resource 선택 | vLLM 내부 |
 
 경계는 물리 서버가 아니라 **vLLM 인스턴스**다. 한 인스턴스가 여러 GPU/노드를 쓰더라도 그 내부는 node level이다.
 
@@ -106,9 +106,9 @@ llm-d와 NVIDIA Dynamo는 이 fleet 수준 조율(inter-instance orchestration)�
 
 | plane | 책임 |
 |---|---|
-| **Substrate** | 요청 경로, discovery, 배포 |
-| **State** | KV index, worker 메트릭, 이벤트 |
-| **Decision** | filter·score·pick, P/D 결정, admission |
+| **Substrate** (기반: 요청이 지나가는 길) | 요청 경로, discovery(서버 발견), 배포 |
+| **State** (상태: 판단 재료 수집) | KV index(어느 서버에 어떤 캐시가 있는지 색인), worker 메트릭(상태 수치), 이벤트 |
+| **Decision** (판단: 어디로 보낼지 결정) | filter·score·pick(후보 서버에 점수를 매겨 고르는 단계), P/D 결정, admission(과부하 시 대기·거절 판단) |
 
 ## 2.3 6개 기능 블록과 OSS 대응
 
@@ -176,6 +176,16 @@ llm-d와 NVIDIA Dynamo는 이 fleet 수준 조율(inter-instance orchestration)�
 
 > 이기종 메모리의 node level 이득(새 tier의 hit, tier 간 이동)이 cluster level 결정에서 *보존*되는가? 즉 orchestrator가 node의 새 상태를 볼 수 있고(입력 해상도), node에 새 지시를 내릴 수 있고(출력 해상도), 그 결정이 지연·신선도 면에서 쓸 만한가?
 
+**요구사항 (별도 문서)**
+
+이 DP의 기능 요구사항·품질 속성(QA)·제약사항은 [`dp0-requirements.md`](dp0-requirements.md)에 정의한다(단일 출처). 한 줄 요약:
+
+| 구분 | ID | 한 줄 요약 |
+|---|---|---|
+| 기능 | F1~F6 | 요청 라우팅, 메모리 상태 수집, P/D 분리 결정·조율, 요청별 노드 지시 전달, 흐름 제어, 서버 발견·확장 |
+| 품질(QA) | Q1~Q4 | Throughput(SLO Goodput), Latency(TTFT·결정 경로 추가 시간), Modifiability(변경 용이성), Scalability(서버를 늘릴 때의 확장성) |
+| 제약 | C1~C6 | vLLM 고정, 실험 환경(GPU 8장 서버 2대), 정확도 불변, OSS 업스트림 추적, 서버 내부 DP와의 접점 계약 고정, 정책 P1~P5 표현 가능 |
+
 ---
 
 # 4. 공통 구조 (후보와 무관하게 고정)
@@ -235,14 +245,14 @@ flowchart LR
 |---|---|---|---|---|
 | ① | **입력 해상도** (결정이 보는 상태) | tier 가중치는 정적 스칼라. 기본 `gpu 1.0 / cpu 0.8 / shared_storage 0.4 / object_store 0.2` (`pkg/kvcache/backend.go`). | host 0.75, disk 0.25 (`lib/kv-router/src/scheduling/config.rs` `default_host_cache_hit_weight`/`default_disk_cache_hit_weight`); device는 별도 `overlap_score_credit` 계수 | hit의 실제 이득 = 재계산 절감 − tier 전송 비용(대역폭·경합)인데 부하가 반영되지 않음 → TTFT, Goodput |
 | ② | **출력 해상도** (node에 내릴 지시) | 헤더 4종(`x-prefiller-host-port`, `x-encoder-hosts-ports`, `x-kv-cache-source-host-port`, `x-data-parallel-host-port`; `pkg/common/routing/common.go`) + PreRequest 단계에서 요청 body(`kv_transfer_params`) 변경 가능(aggregated 경로에서 ext-proc 응답 body·Content-Length 갱신 확인 [A]). 단 P/D·P2P 경로에서는 pd-sidecar가 `kv_transfer_params`를 덮어씀 [C]. body 변경은 `openai`/`vllm-http` 파서에서만 유효하고 `vllm-grpc`/`passthrough`에서는 no-op | 요청별 router config override(`RouterConfigOverride`). vLLM 쪽 수신부(`kv_load_tiers`/`max_load_tokens`/`KvHintsEnvelope`)는 있으나 Dynamo 쪽 일반 송신 경로는 없음([Dynamo 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/dynamo/dynamo-architecture-analysis.md) §8.2) [C] | vLLM 쪽 `max_*`는 experimental. **실제 vLLM에서 tier 선택이 바뀌는 효과는 미확인** |
-| ③ | **결정 지연** | Envoy ext-proc gRPC hop 존재 | 기본 경로에서는 Frontend 프로세스 안(단 GAIE 모드는 ext-proc 존재, `docs/fern/pages/reference/components/gateway-api-routing.mdx`) | **구조(프로세스 경계, hop 수) 차이**이며 구현 언어 때문이 아님. **미측정** |
+| ③ | **결정 지연** (hop = 추가 네트워크 호출 1회) | Envoy ext-proc gRPC hop 존재 (라우터가 별도 의사결정 프로세스에 원격 질의하는 추가 호출 1회) | 기본 경로에서는 Frontend 프로세스 안(단 GAIE 모드는 ext-proc 존재, `docs/fern/pages/reference/components/gateway-api-routing.mdx`) | **구조(프로세스 경계, hop 수) 차이**이며 구현 언어 때문이 아님. **미측정** |
 | ④ | **상태 신선도** | speculative indexing은 **기본 비활성**이며 켰을 때 TTL 기본 2s (`pkg/epp/framework/plugins/requestcontrol/dataproducer/preciseprefixcache/prerequest.go` `defaultSpeculativeTTL`) | replica 간 active-sequence 동기화(`DYN_ROUTER_REPLICA_SYNC`)는 best-effort | stale-hit 비율 → hit 가치 오판 |
 | ⑤ | **admission/큐잉** | Flow Control (`pkg/epp/flowcontrol`, 기본 off) | 큐 임계값(`DYN_ROUTER_QUEUE_THRESHOLD`) + `fcfs`/`lcfs`/`wspt` (`RouterQueuePolicy`) | 과부하 시 Goodput |
-| ⑥ | **P/D 분리 결정** (가장 큰 레버) | `prefix-based-pd-decider`: 정적 임계값 `nonCachedTokens`(코드 기본 0=비활성, 문서 예 8, deploy 예 16) | `ConditionalDisaggPolicyKind` 3종(`isl_bounding`/`prefill_load`/`isl_or_load`) + AIC 기반 prefill 시간 예측 | P/D 전환점 → TTFT/Goodput |
+| ⑥ | **P/D 분리 결정** (Prefill/Decode를 서로 다른 서버에서 나눠 실행할지 정하는 것; 가장 큰 레버) | `prefix-based-pd-decider`: 정적 임계값 `nonCachedTokens`(코드 기본 0=비활성, 문서 예 8, deploy 예 16) | `ConditionalDisaggPolicyKind` 3종(`isl_bounding`/`prefill_load`/`isl_or_load`) + AIC 기반 prefill 시간 예측 | P/D 전환점 → TTFT/Goodput |
 
 근거 수준: 위 표는 전부 코드·문서 읽기 [C]/[B]. 성능 수치는 측정하지 않았다.
 
-> **"이득 보존"**: node level에서 이득이 있어도 orchestrator가 node의 새 상태를 못 보거나(①) 못 쓰면(②, ⑥) cluster level에서 그 이득이 손실된다.
+> **"이득 보존"** (서버 내부에서 얻은 성능 이득이 서버 간 요청 배분 단계에서 사라지지 않게 하는 것): node level에서 이득이 있어도 orchestrator가 node의 새 상태를 못 보거나(①) 못 쓰면(②, ⑥) cluster level에서 그 이득이 손실된다.
 
 ## 5.2 천장 vs 실현, 그리고 정직한 결론
 
@@ -265,8 +275,8 @@ flowchart LR
 
 | 후보 | 이름 | 소유 범위 |
 |---|---|---|
-| **후보 1** | OSS 확장 (Adopt & Extend) | OSS가 substrate/state/decision 파이프라인을 소유. 1a llm-d(대표), 1b Dynamo(민감도 확인용) |
-| **후보 2** | 자체 구현 (Build) | 우리가 decision plane + state plane 소유. **설계안이며 구현되지 않았다. 구현량은 추정.** |
+| **후보 1** (1안) | OSS 확장 (Adopt & Extend; 기성품을 가져다 확장) | OSS가 substrate/state/decision 파이프라인을 소유. 1a llm-d(대표), 1b Dynamo(민감도 확인용) |
+| **후보 2** (2안) | 자체 구현 (Build; 직접 개발) | 우리가 decision plane + state plane 소유. **설계안이며 구현되지 않았다. 구현량은 추정.** |
 
 색 규칙(아래 다이어그램 공통): 후보 1 = 청록, 후보 2 = 주황, 외부 고정 vLLM = 회색, 우리가 바꾸는 지점(★) = 굵은 테두리.
 
@@ -332,7 +342,7 @@ flowchart LR
 | ★ | C Data Layer | P2 | **C**(근사) | `customMetrics` + `endpoint-attribute-scorer`. prefix scorer와 별도로 가산되므로 근사다 | `pkg/epp/framework/plugins/datalayer/extractor/metrics/factories.go`, `.../scorer/endpointattribute/README.md` [C] |
 | ★ | B Scheduler | P3 | **P** [A, 끝단까지] | 외부 Go 모듈로 Scorer 구현(`fwksched.Scorer`, `fwkplugin.ConsumerPlugin`). 초기 프로브(v1)는 기본 `DataKey`를 써서 실제 파이프라인에서는 tier 데이터를 못 받아 점수가 전부 0이었다. precise producer 이름을 파라미터로 받는 v2가 정상이다. **단위 테스트 통과만으로는 부족했다** | [llm-d 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/llm-d/llm-d-architecture-analysis.md) §8.5 (E7c, E7d) |
 | ★ | B ProfileHandler | P4 | **P** [A, 끝단 E8] (이전 F 판정 정정) | `deciderPlugin`이 unexported인 것은 사실이나, exported 타입 `disagg.Handler`를 embed한 ProfileHandler wrapper가 `Pick`만 재정의해 비용 기반 P/D 결정을 한다. 취약점: `Handler`의 관찰된 동작에 의존(업스트림이 바꾸면 깨짐). 보완: 업스트림에 `deciderPlugin` export 제안(F-light) | `pkg/epp/framework/plugins/scheduling/profilehandler/disagg/decider_plugin.go#L28`, [llm-d 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/llm-d/llm-d-architecture-analysis.md) §8.6 |
-| ★ | E pd-sidecar | P5 | aggregated/decoder-only **P** [A] / **P/D·P2P F** [C] | aggregated 경로: PreRequest에서 `MutatePayloadMap`으로 `kv_transfer_params` body 변경. P/D·P2P 경로: sidecar가 `kv_transfer_params`를 덮어쓰므로 sidecar patch 필요 | `pkg/sidecar/proxy/connector_nixlv2.go`, `connector_p2p.go`, [llm-d 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/llm-d/llm-d-architecture-analysis.md) §8.7 |
+| ★ | E pd-sidecar (같은 서버에 붙어 실행되는 보조 프로세스) | P5 | aggregated/decoder-only **P** [A] / **P/D·P2P F** [C] | aggregated 경로: PreRequest에서 `MutatePayloadMap`으로 `kv_transfer_params` body 변경. P/D·P2P 경로: sidecar가 `kv_transfer_params`를 덮어쓰므로 sidecar patch 필요 | `pkg/sidecar/proxy/connector_nixlv2.go`, `connector_p2p.go`, [llm-d 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/llm-d/llm-d-architecture-analysis.md) §8.7 |
 
 **배포 형태(후보 1a의 운영 비용).** 외부 plugin(P3, P4, P5-aggregated)을 쓰려면 **자체 `main`에서 `Register` + `NewRunner().Run`을 호출하는 별도 바이너리/이미지**를 빌드해야 한다. in-tree 등록 함수가 private이므로 공식 EPP 이미지를 그대로 쓸 수 없고, 모듈은 Go 1.26.6이 필요하다 [A]. 즉 "fork 불필요"이지만 "자체 EPP 이미지의 빌드·배포·upstream 추종"은 우리 몫이다.
 
@@ -492,10 +502,10 @@ flowchart LR
 
 | QA | 지표 |
 |---|---|
-| Throughput | Max SLO Goodput (output token/s) |
-| Latency | TTFT |
-| Modifiability | 변경 시나리오 S1~S6에서의 변경 비용 |
-| Scalability | 인스턴스·노드 수 증가 시 orchestrator의 처리·확장 능력 |
+| Throughput | Max SLO Goodput (서비스 목표(SLO)를 지키면서 낼 수 있는 최대 처리량, output token/s) |
+| Latency | TTFT (첫 응답까지 걸리는 시간) |
+| Modifiability | 변경 용이성: 변경 시나리오 S1~S6에서의 변경 비용 |
+| Scalability | 서버를 늘릴 때의 확장성: 인스턴스·노드 수 증가 시 orchestrator의 처리·확장 능력 |
 
 사용자 과제의 QA 목록은 performance throughput/latency, resource utilization, functional correctness, modifiability, scalability다. 이 중 아래 2개는 DP0에서 제외한다.
 
