@@ -1,4 +1,4 @@
-"""DP1 QA evaluation following doc-mk/Evaluation/qa-evaluation-criteria.md.
+"""DP1 QA evaluation following doc-mk/Evaluation/qa-evaluation-criteria.md (rules: .claude/skills/evaluation/SKILL.md).
 
 Candidates: Baseline-static (Common Reference Baseline, As-Is proxy), C1, C2.
 Evidence: all numbers are simulation outputs driven by config parameters -> [B+C], never [A].
@@ -14,7 +14,7 @@ import math
 import statistics
 from pathlib import Path
 
-from model import DATA_PRIORS, load_system
+from model import DATA_PRIORS, load_profile
 from scenarios import common_benchmark, scenarios
 from simulator import run_sim
 
@@ -124,9 +124,13 @@ def qa_table(ps):
 def main():
     ap = argparse.ArgumentParser()
     here = Path(__file__).resolve().parent
-    ap.add_argument("--out-dir", type=Path, default=here / "out_qa")
+    ap.add_argument("--system", default=None, help="profile id in configs/systems.json (default: SYS-4)")
+    ap.add_argument("--out-dir", type=Path, default=None)
     args = ap.parse_args()
-    system = load_system(here / "configs", "b200_8gpu", "llama_3_1_70b")
+    system, sys_id, _ = load_profile(here / "configs", args.system)
+    if args.out_dir is None:
+        args.out_dir = here / "out_qa" / sys_id
+    print("system:", sys_id)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     result = {}
     for label, scs in (("common_benchmark", common_benchmark()), ("dp1_stress_benchmark", scenarios())):

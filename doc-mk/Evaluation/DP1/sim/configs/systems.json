@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "_note": "Evaluation system profiles. A profile = one cluster (clusters.json) + a subset of memories (memories_default.json). Values are NOT redefined here; they come from the two config files, so provenance tags (SPEC/PUBLIC/ASSUMED) live there. Human-readable spec: doc-mk/Evaluation/system-specs.md",
+  "default": "SYS-4",
+  "profiles": {
+    "SYS-1": {
+      "name": "B200x8 + host DRAM (As-Is class)",
+      "cluster": "b200_8gpu",
+      "memories": ["hbm", "dram"],
+      "purpose": "Today's vLLM-class hierarchy (HBM + CPU DRAM). Lower bound for heterogeneity benefit."
+    },
+    "SYS-2": {
+      "name": "B200x8 + DRAM + CXL-PNM",
+      "cluster": "b200_8gpu",
+      "memories": ["hbm", "dram", "cxl_pnm"],
+      "purpose": "Adds a capacity tier with near-memory attention (host-staged)."
+    },
+    "SYS-3": {
+      "name": "B200x8 + DRAM + HBF",
+      "cluster": "b200_8gpu",
+      "memories": ["hbm", "dram", "hbf"],
+      "purpose": "Adds a GPU-reachable high-BW / high-latency / write-limited tier."
+    },
+    "SYS-4": {
+      "name": "B200x8 + all six memories",
+      "cluster": "b200_8gpu",
+      "memories": ["hbm", "custom_hbm", "cxl_pnm", "dram", "hbf", "ssd_pim"],
+      "purpose": "Full heterogeneous hierarchy (primary DP1 target)."
+    },
+    "SYS-5": {
+      "name": "Vera Rubin x8 + all six memories",
+      "cluster": "vera_rubin_8gpu",
+      "memories": ["hbm", "custom_hbm", "cxl_pnm", "dram", "hbf", "ssd_pim"],
+      "purpose": "Next-gen GPU (HBM4, 384 GB, 28 TB/s) with the same memory set; cHBM scales with the paired GPU."
+    }
+  }
+}

@@ -142,7 +142,7 @@ class SystemSpec:
         gpu_compute=flops/(self.gpu_compute_flops*self.gpu_compute_eff)
         return data_path+gpu_compute+m.latency_s
 
-def load_system(config_dir:Path,cluster_name="b200_8gpu",model_name="llama_3_1_70b"):
+def load_system(config_dir:Path,cluster_name="b200_8gpu",model_name="llama_3_1_70b",memory_names=None):
     mr=json.loads((config_dir/"memories_default.json").read_text())
     cr=json.loads((config_dir/"clusters.json").read_text())
     mod=json.loads((config_dir/"models.json").read_text())
@@ -152,6 +152,8 @@ def load_system(config_dir:Path,cluster_name="b200_8gpu",model_name="llama_3_1_7
 
     mems={}
     for m in mr["memories"]:
+        if memory_names is not None and m["name"] not in memory_names:
+            continue
         cap=float(m["capacity_bytes"])
         ext=float(m["ext_bw_bytes_per_s"])
         internal=float(m["int_bw_bytes_per_s"])
@@ -220,3 +222,11 @@ class DataObject:
         p=DATA_PRIORS[self.data_class]["hotness"]
         v=p*self.hotness_mult*(self.phase_mult if self.phase_time is not None and t>=self.phase_time else 1.0)
         return clamp(v)
+
+
+def load_profile(config_dir:Path,profile_id:str|None=None,model_name="llama_3_1_70b"):
+    """Load an evaluation system profile (configs/systems.json): cluster + memory subset."""
+    sp=json.loads((config_dir/"systems.json").read_text())
+    pid=profile_id or sp["default"]
+    prof=sp["profiles"][pid]
+    return load_system(config_dir,prof["cluster"],model_name,memory_names=set(prof["memories"])),pid,prof

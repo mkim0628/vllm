@@ -580,7 +580,7 @@ claude/vllm-call-path-analysis-qxulkr
 DP1 simulator:
 
 ~~~text
-doc-mk/DP1/dp1_sim/
+doc-mk/Evaluation/DP1/sim/
 ├── README.md
 ├── events.py
 ├── registry.py

@@ -64,7 +64,7 @@ as DP1. C1/C2 only act after runtime events.
 ## Run
 
 ```bash
-cd doc-mk/DP1/dp1_sim
+cd doc-mk/Evaluation/DP1/sim
 python test_sim.py
 python run_eval.py --quick
 python run_eval.py

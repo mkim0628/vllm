@@ -615,12 +615,12 @@ MemoryDescriptor
  └─ tier_rank_hint?              # optional: 운영자 override
 ~~~
 
-> field 정의는 `dp1_sim/configs/memories_default.json`, `clusters.json`의 실제 항목에서 역으로 도출했다 (§5.8.10 참조).
+> field 정의는 `Evaluation/DP1/sim/configs/memories_default.json`, `clusters.json`의 실제 항목에서 역으로 도출했다 (§5.8.10 참조).
 > 즉 시뮬레이터가 이미 쓰는 memory spec schema가 곧 MemoryDescriptor의 초안이다.
 
 `capability_flags`는 **Selector가 사용하는 어휘**다. memory 이름 대신 flag로 후보를 거른다.
 
-| capability flag | 의미 | 파생 규칙(config 기준) | 해당 memory (dp1_sim) |
+| capability flag | 의미 | 파생 규칙(config 기준) | 해당 memory (Evaluation/DP1/sim) |
 |---|---|---|---|
 | `gpu_direct_access` | GPU가 직접 load/store 가능 | `gpu_reachable == true` | HBM, HBF |
 | `host_staged_only` | Host/CPU를 경유해야 접근 | `gpu_reachable == false` | DRAM, Custom HBM, CXL-PNM, SSD-PIM |
@@ -645,7 +645,7 @@ tier_rank(resource)
     overridden by tier_rank_hint (있을 때만)
 ~~~
 
-주의: **tier order는 total order가 아니다.** dp1_sim 값 기준으로
+주의: **tier order는 total order가 아니다.** Evaluation/DP1/sim 값 기준으로
 DRAM(64 GB/s, 200 ns)과 CXL-PNM(63 GB/s, 300 ns), Custom HBM(63 GB/s, 2 µs)은 `ext_bw`가 사실상 같고,
 HBF(1 TB/s, 5 µs)는 BW는 높지만 latency가 DRAM보다 25배 나쁘다.
 따라서 `tier_order()`는 단일 순서가 아니라 **partial order + 동순위 그룹**을 반환하고,
@@ -768,7 +768,7 @@ Memory Backend I/F (Memory 측 추상화)       Data Object Registry (Data 측 �
                                                          C2: class metadata + behavior plugin
 ~~~
 
-### 5.8.10 Reference Instance — `dp1_sim/configs` 매핑
+### 5.8.10 Reference Instance — `Evaluation/DP1/sim/configs` 매핑
 
 시뮬레이터의 `memories_default.json` / `clusters.json`이 이미 memory별 spec을 보유하므로,
 이를 MemoryDescriptor의 **reference instance**로 사용한다 (B200 8-GPU 도메인 기준, 값은 config 원문).
@@ -835,7 +835,7 @@ DP1은 transfer를 수행하지 않지만(§2), 이기종 memory 환경에서 **
 
 ### 5.9.1 이동 경로가 대부분 multi-hop이다
 
-`dp1_sim/configs` 기준 6종 memory 중 4종(Custom HBM, CXL-PNM, DRAM, SSD-PIM)이 `gpu_reachable=false`이며 Host를 경유한다 (§5.8.10).
+`Evaluation/DP1/sim/configs` 기준 6종 memory 중 4종(Custom HBM, CXL-PNM, DRAM, SSD-PIM)이 `gpu_reachable=false`이며 Host를 경유한다 (§5.8.10).
 
 ~~~text
 HBM → DRAM         : gpu→cpu:pcie                       (1 hop)
@@ -2376,19 +2376,19 @@ DP1 상세 설계에서 다음 항목은 별도 페이지/문서로 구체화한
    - tier ordering(rank) 산정 규칙과 수동 override 정책
    - conformance test suite (신규 memory plug-in 인증 기준)
    - 기존 kv_offload backend(LocalCPUBackend/LocalDiskBackend)의 adapter wrapping 방안
-   - `dp1_sim`: `memories_default.json`을 MemoryDescriptor로 로드하는 adapter 추가, ScHBM 항목 추가 시 policy 코드 무변경 검증 (test_sim.py)
+   - `Evaluation/DP1/sim`: `memories_default.json`을 MemoryDescriptor로 로드하는 adapter 추가, ScHBM 항목 추가 시 policy 코드 무변경 검증 (test_sim.py)
    - shared_link_group 단위 migration budget 모델링
 12. **MigrationAction 정렬 및 상세**
    - ~~공통 migration architecture의 `MigrationIntent`에 `action` field 추가~~ → 반영 완료 (공통 문서 §1.1, §7.1, §23.1)
    - `DROP` 허용 조건(replica / recomputable)을 C1/C2 Registry schema에 반영
    - `REPLICATE` replica 수명/일관성 정책, `REMAP` 적용 가능 memory(CXL shared pool 등) 정의
-   - `dp1_sim`에 `DROP` 반영 완료 (`run_eval.py --drop-study`, replica는 외부 write-through로 생성, 비용 미청구).
+   - `Evaluation/DP1/sim`에 `DROP` 반영 완료 (`run_eval.py --drop-study`, replica는 외부 write-through로 생성, 비용 미청구).
      예비 결과(replica 50%, KV 시나리오, 3 seed×3 load): DROP이 발생한 run은 C1 21/135, C2 42/135이며, 발생 시 migration GiB 중앙값 감소 C1 −42 / C2 −178 (전체 migration의 약 1%). latency는 중앙값 변화 없음, 일부 run에서 tail 악화(DROP target이 정책 선호 tier와 다름). 즉 효과는 작고, replica 용량 점유가 dynamics를 바꾸므로 `drop_on` vs `drop_off` 비교만 action 효과로 해석해야 한다.
 13. **Transfer Handler 설계 (§5.9)**
    - staged 합성(export/import) 기본 경로 + direct override 등록 규약
    - chunk pipelining 크기, bounce buffer budget, traffic class별 rate limit
    - 실측 BW/latency 보고 → estimate 보정 loop 정의
-   - `dp1_sim`: multi-hop 전송 시간, 공유 링크 contention, write-limited 매체 비용 모델 반영 여부 검토
+   - `Evaluation/DP1/sim`: multi-hop 전송 시간, 공유 링크 contention, write-limited 매체 비용 모델 반영 여부 검토
 
 ---
 
