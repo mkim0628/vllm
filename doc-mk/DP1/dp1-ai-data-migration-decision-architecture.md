@@ -2269,6 +2269,8 @@ DP1 상세 설계에서 다음 항목은 별도 페이지/문서로 구체화한
    - ~~공통 migration architecture의 `MigrationIntent`에 `action` field 추가~~ → 반영 완료 (공통 문서 §1.1, §7.1, §23.1)
    - `DROP` 허용 조건(replica / recomputable)을 C1/C2 Registry schema에 반영
    - `REPLICATE` replica 수명/일관성 정책, `REMAP` 적용 가능 memory(CXL shared pool 등) 정의
+   - `dp1_sim`에 `DROP` 반영 완료 (`run_eval.py --drop-study`, replica는 외부 write-through로 생성, 비용 미청구).
+     예비 결과(replica 50%, KV 시나리오, 3 seed×3 load): DROP이 발생한 run은 C1 21/135, C2 42/135이며, 발생 시 migration GiB 중앙값 감소 C1 −42 / C2 −178 (전체 migration의 약 1%). latency는 중앙값 변화 없음, 일부 run에서 tail 악화(DROP target이 정책 선호 tier와 다름). 즉 효과는 작고, replica 용량 점유가 dynamics를 바꾸므로 `drop_on` vs `drop_off` 비교만 action 효과로 해석해야 한다.
 13. **Transfer Handler 설계 (§5.9)**
    - staged 합성(export/import) 기본 경로 + direct override 등록 규약
    - chunk pipelining 크기, bounce buffer budget, traffic class별 rate limit

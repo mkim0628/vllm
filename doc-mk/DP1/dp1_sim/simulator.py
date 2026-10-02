@@ -265,11 +265,43 @@ def static_hints(objs) -> dict[int, dict]:
     return out
 
 
-def _policy(system, candidate, priors):
+REPLICA_TIER_ORDER = ("dram", "cxl_pnm", "hbf")
+
+
+def maybe_assign_replica(
+    system, obj, primary_tier, replicas, occupancy, sc, t, seed, fraction
+):
+    """Common external write-through of sealed-KV replicas (NOT a DP1 decision).
+
+    Same role as initial_external_placement: deterministic, identical for C1/C2 and
+    for drop on/off, so the DROP study isolates the *action* effect. The replica
+    occupies capacity in its tier. Replica creation cost is not charged (see README).
+    Only KV_CACHE objects are eligible; the simulator treats them as sealed/immutable.
+    """
+    if fraction <= 0 or obj.data_class != "KV_CACHE":
+        return None
+    if random.Random(seed * 131 + obj.oid).random() >= fraction:
+        return None
+    for tier in REPLICA_TIER_ORDER:
+        if (
+            tier == primary_tier
+            or tier not in system.memories
+            or tier in sc.disabled_tiers
+        ):
+            continue
+        cap = system.memories[tier].capacity_bytes * effective_capacity_mult(sc, t, tier)
+        if occupancy[tier] + obj.size_bytes <= 0.90 * cap:
+            occupancy[tier] += obj.size_bytes
+            replicas[obj.oid] = tier
+            return tier
+    return None
+
+
+def _policy(system, candidate, priors, drop_enabled=False):
     if candidate == "C1-resource-driven":
-        return C1ResourceDrivenMigration(system)
+        return C1ResourceDrivenMigration(system, drop_enabled)
     if candidate == "C2-behavior-driven":
-        return C2BehaviorDrivenMigration(system, priors)
+        return C2BehaviorDrivenMigration(system, priors, drop_enabled)
     raise ValueError(candidate)
 
 
@@ -280,6 +312,8 @@ def run_sim(
     candidate: str,
     priors: dict,
     load_scale: float = 1.0,
+    replica_fraction: float = 0.0,
+    drop_enabled: bool = False,
 ) -> dict:
     from scenarios import generate_trace
 
@@ -308,8 +342,16 @@ def run_sim(
         initial_caps,
         static_hints(objs),
     )
-    policy = _policy(system, candidate, priors)
+    policy = _policy(system, candidate, priors, drop_enabled)
     scheduler = MigrationScheduler()
+    replicas: dict[int, str] = {}
+    replica_gib_created = 0.0
+    for oid in sorted(placements):
+        o = objects[oid]
+        if maybe_assign_replica(
+            system, o, placements[oid], replicas, occupancy, sc, 0, seed, replica_fraction
+        ):
+            replica_gib_created += o.size_bytes / 1024**3
     migration_debt = defaultdict(float)
     prev_ext_bytes = Counter()
 
@@ -324,6 +366,7 @@ def run_sim(
                     "size_bytes": o.size_bytes,
                     "tier": tier,
                     "data_type": o.data_class,
+                    "replica_tier": replicas.get(oid),
                 },
             )
         )
@@ -336,6 +379,8 @@ def run_sim(
     migration_bytes = 0.0
     migration_time_total = 0.0
     direction_count = Counter()
+    drop_count = 0
+    drop_bytes_avoided = 0.0
     tier_accesses = Counter()
     capacity_util_samples = defaultdict(list)
     hbm_pressure_seconds = 0
@@ -356,6 +401,10 @@ def run_sim(
                     t,
                 )
                 allocated.add(o.oid)
+                if maybe_assign_replica(
+                    system, o, tier, replicas, occupancy, sc, t, seed, replica_fraction
+                ):
+                    replica_gib_created += o.size_bytes / 1024**3
                 scheduler.push(
                     MigrationEvent(
                         EventType.ALLOCATED,
@@ -365,6 +414,7 @@ def run_sim(
                             "size_bytes": o.size_bytes,
                             "tier": tier,
                             "data_type": o.data_class,
+                            "replica_tier": replicas.get(o.oid),
                         },
                     )
                 )
@@ -379,6 +429,9 @@ def run_sim(
                 tier = placements.get(oid)
                 if tier is not None:
                     occupancy[tier] -= objects[oid].size_bytes
+                rt = replicas.pop(oid, None)
+                if rt is not None:
+                    occupancy[rt] -= objects[oid].size_bytes
                 scheduler.push(
                     MigrationEvent(
                         EventType.FREED, float(t), oid
@@ -461,11 +514,34 @@ def run_sim(
                 continue
 
             obj = objects[d.object_id]
+
+            if d.action == "DROP":
+                # No transfer: free the source copy, replica becomes authoritative.
+                # Invalid unless the named replica really exists (stale decision).
+                if replicas.get(d.object_id) != d.target_tier:
+                    continue
+                occupancy[d.source_tier] -= obj.size_bytes
+                placements[d.object_id] = d.target_tier
+                del replicas[d.object_id]
+                policy.on_migration_committed(d, float(t))
+                drop_count += 1
+                drop_bytes_avoided += obj.size_bytes
+                direction_count[d.direction] += 1
+                continue
+
             dst_cap = ctx.effective_capacity[
                 d.target_tier
             ]
+            # A replica already sitting at the target is freed when the new
+            # primary copy lands there (MOVE re-copies; only DROP exploits it).
+            replica_at_target = (
+                obj.size_bytes
+                if replicas.get(d.object_id) == d.target_tier
+                else 0.0
+            )
             if (
                 occupancy[d.target_tier]
+                - replica_at_target
                 + obj.size_bytes
                 > dst_cap
             ):
@@ -480,7 +556,9 @@ def run_sim(
                 t,
             )
             occupancy[d.source_tier] -= obj.size_bytes
-            occupancy[d.target_tier] += obj.size_bytes
+            occupancy[d.target_tier] += obj.size_bytes - replica_at_target
+            if replica_at_target:
+                del replicas[d.object_id]
             placements[d.object_id] = d.target_tier
             policy.on_migration_committed(
                 d, float(t)
@@ -591,6 +669,11 @@ def run_sim(
         "promotion_count": direction_count["promotion"],
         "demotion_count": direction_count["demotion"],
         "rebalance_count": direction_count["rebalance"],
+        "replica_fraction": replica_fraction,
+        "drop_enabled": drop_enabled,
+        "replica_gib_created": replica_gib_created,
+        "drop_count": drop_count,
+        "drop_gib_avoided": drop_bytes_avoided / (1024**3),
         "decision_overhead_ms": (
             scheduler.stats.decision_overhead_us / 1e3
         ),

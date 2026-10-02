@@ -16,19 +16,30 @@ class C1ObjectRecord:
     tier: str
     location: str
     movable: bool = True
+    # Generic placement bookkeeping (not a data-type field): tier holding a valid
+    # replica of this object, if any. Needed for the DROP action.
+    replica_tier: str | None = None
 
 
 class C1DataObjectRegistry:
     def __init__(self):
         self._records: dict[int, C1ObjectRecord] = {}
 
-    def add(self, object_id: int, size_bytes: float, tier: str, movable: bool = True) -> None:
+    def add(
+        self,
+        object_id: int,
+        size_bytes: float,
+        tier: str,
+        movable: bool = True,
+        replica_tier: str | None = None,
+    ) -> None:
         self._records[object_id] = C1ObjectRecord(
             object_id=object_id,
             size_bytes=float(size_bytes),
             tier=tier,
             location=tier,
             movable=movable,
+            replica_tier=replica_tier,
         )
 
     def remove(self, object_id: int) -> None:
@@ -44,9 +55,21 @@ class C1DataObjectRegistry:
         r = self._records[object_id]
         r.tier = tier
         r.location = tier
+        if r.replica_tier == tier:  # primary now sits where the replica was
+            r.replica_tier = None
+
+    def drop_to_replica(self, object_id: int) -> None:
+        """DROP commit: the replica becomes the authoritative copy."""
+        r = self._records[object_id]
+        assert r.replica_tier is not None
+        r.tier = r.location = r.replica_tier
+        r.replica_tier = None
 
     def __iter__(self):
         return iter(self._records.values())
+
+    def __len__(self):
+        return len(self._records)
 
 
 @dataclass
@@ -61,6 +84,7 @@ class C2ObjectRecord:
     class_metadata: dict[str, float | str] = field(default_factory=dict)
     behavior_metadata: dict[str, float] = field(default_factory=dict)
     movable: bool = True
+    replica_tier: str | None = None
 
 
 class C2DataObjectRegistry:
@@ -75,6 +99,7 @@ class C2DataObjectRegistry:
         tier: str,
         class_metadata: dict | None = None,
         movable: bool = True,
+        replica_tier: str | None = None,
     ) -> None:
         self._records[object_id] = C2ObjectRecord(
             object_id=object_id,
@@ -84,6 +109,7 @@ class C2DataObjectRegistry:
             location=tier,
             class_metadata=dict(class_metadata or {}),
             movable=movable,
+            replica_tier=replica_tier,
         )
 
     def remove(self, object_id: int) -> None:
@@ -102,6 +128,17 @@ class C2DataObjectRegistry:
         r = self._records[object_id]
         r.tier = tier
         r.location = tier
+        if r.replica_tier == tier:
+            r.replica_tier = None
+
+    def drop_to_replica(self, object_id: int) -> None:
+        r = self._records[object_id]
+        assert r.replica_tier is not None
+        r.tier = r.location = r.replica_tier
+        r.replica_tier = None
 
     def __iter__(self):
         return iter(self._records.values())
+
+    def __len__(self):
+        return len(self._records)

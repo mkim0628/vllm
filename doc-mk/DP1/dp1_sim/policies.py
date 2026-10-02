@@ -35,6 +35,9 @@ class MigrationDecision:
     reason: str
     score: float
     direction: str
+    # MOVE copies bytes source->target. DROP frees the source copy and promotes the
+    # already-existing replica at target_tier to authoritative (no transfer).
+    action: str = "MOVE"
 
 
 class ResourceStateMonitor:
@@ -161,8 +164,9 @@ class C1ResourceDrivenMigration:
     name = "C1-resource-driven"
     decision_cost_us = 14.0
 
-    def __init__(self, system):
+    def __init__(self, system, drop_enabled: bool = False):
         self.system = system
+        self.drop_enabled = drop_enabled
         self.registry = C1DataObjectRegistry()
         self.monitor = ResourceStateMonitor()
         self.trend = ResourceBasedTrendAnalyzer()
@@ -174,7 +178,12 @@ class C1ResourceDrivenMigration:
 
     def on_event(self, ev: MigrationEvent, ctx):
         if ev.type is EventType.ALLOCATED:
-            self.registry.add(ev.object_id, ev.metadata["size_bytes"], ev.metadata["tier"])
+            self.registry.add(
+                ev.object_id,
+                ev.metadata["size_bytes"],
+                ev.metadata["tier"],
+                replica_tier=ev.metadata.get("replica_tier"),
+            )
             self.eviction.on_moved(ev.object_id, ev.now_s)
             return [], 2.0
         if ev.type is EventType.FREED:
@@ -207,6 +216,31 @@ class C1ResourceDrivenMigration:
             candidates = self.eviction.candidates(source, ev.now_s)
             for rec in self.selector.select(candidates, required):
                 hint = ctx.static_affinity_hints.get(rec.object_id, {})
+                # DROP: zero-transfer demotion when a valid replica already exists.
+                # Same feasibility rule as a MOVE target (target must be less
+                # pressured than the source); uses only generic registry metadata.
+                rt = rec.replica_tier
+                if (
+                    self.drop_enabled
+                    and source == "hbm"
+                    and rt is not None
+                    and rt != source
+                    and rt in states
+                    and states[rt].predicted_pressure
+                    < states[source].predicted_pressure
+                ):
+                    decisions.append(
+                        MigrationDecision(
+                            rec.object_id,
+                            source,
+                            rt,
+                            reason="resource_pressure",
+                            score=pressure,
+                            direction="demotion",
+                            action="DROP",
+                        )
+                    )
+                    continue
                 dst = self.destination.select(
                     rec, source, states, ctx.occupancy, ctx.effective_capacity, hint
                 )
@@ -226,7 +260,10 @@ class C1ResourceDrivenMigration:
     def on_migration_committed(
         self, decision: MigrationDecision, now_s: float
     ) -> None:
-        self.registry.move(decision.object_id, decision.target_tier)
+        if decision.action == "DROP":
+            self.registry.drop_to_replica(decision.object_id)
+        else:
+            self.registry.move(decision.object_id, decision.target_tier)
         self.eviction.on_moved(decision.object_id, now_s)
 
 
@@ -325,6 +362,15 @@ class DestinationTierSelectorC2:
     def __init__(self, system):
         self.system = system
 
+    def preferred(self, rec) -> tuple[str, ...]:
+        return tuple(
+            x
+            for x in TYPE_TIER_PREFERENCE.get(
+                rec.data_type, tuple(self.system.memories)
+            )
+            if x in self.system.memories
+        )
+
     def select(
         self, rec, predicted: float, telemetry, occupancy, capacity_by_tier
     ):
@@ -364,8 +410,9 @@ class C2BehaviorDrivenMigration:
     name = "C2-behavior-driven"
     decision_cost_us = 38.0
 
-    def __init__(self, system, priors: dict[str, dict]):
+    def __init__(self, system, priors: dict[str, dict], drop_enabled: bool = False):
         self.system = system
+        self.drop_enabled = drop_enabled
         self.priors = priors
         self.registry = C2DataObjectRegistry()
         self.monitor = DataBehaviorMonitor()
@@ -385,6 +432,7 @@ class C2BehaviorDrivenMigration:
                 ev.metadata["size_bytes"],
                 ev.metadata["tier"],
                 class_metadata=self.priors.get(dt, {}),
+                replica_tier=ev.metadata.get("replica_tier"),
             )
             self.monitor.observe_alloc(ev.object_id, ev.now_s)
             return [], 3.0
@@ -433,6 +481,19 @@ class C2BehaviorDrivenMigration:
                 if rec.tier == "hbm"
                 else "rebalance"
             )
+            action = "MOVE"
+            # DROP: HBM demotion with a valid lower-tier replica. The replica tier
+            # must be acceptable to the same destination rules (type preference
+            # list, not overloaded); no capacity is needed since it already exists.
+            rt = rec.replica_tier
+            if (
+                self.drop_enabled
+                and direction == "demotion"
+                and rt is not None
+                and rt in self.destination.preferred(rec)
+                and telemetry[rt].capacity_util < 0.95
+            ):
+                dst, action = rt, "DROP"
             decisions.append(
                 MigrationDecision(
                     rec.object_id,
@@ -441,6 +502,7 @@ class C2BehaviorDrivenMigration:
                     reason="predicted_behavior",
                     score=pred,
                     direction=direction,
+                    action=action,
                 )
             )
         return decisions, self.decision_cost_us * max(1, len(self.registry))
@@ -448,5 +510,8 @@ class C2BehaviorDrivenMigration:
     def on_migration_committed(
         self, decision: MigrationDecision, now_s: float
     ) -> None:
-        self.registry.move(decision.object_id, decision.target_tier)
+        if decision.action == "DROP":
+            self.registry.drop_to_replica(decision.object_id)
+        else:
+            self.registry.move(decision.object_id, decision.target_tier)
         self.last_migration[decision.object_id] = now_s

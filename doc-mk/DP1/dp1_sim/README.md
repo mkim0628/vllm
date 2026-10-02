@@ -77,6 +77,42 @@ out/results_runs.csv
 out/results_summary.json
 ```
 
+## DROP action study (MigrationAction.DROP only)
+
+`MigrationDecision.action` is `MOVE` (default, unchanged) or `DROP`. DROP frees the
+source copy and promotes an already-existing replica to authoritative: **no byte
+transfer, no destination capacity needed**. REPLICATE / REMAP / RECLASSIFY are not modeled.
+
+Replicas come from a common external write-through (same role as initial placement,
+identical for C1/C2 and for drop on/off): a deterministic `replica_fraction` of KV_CACHE
+objects get a replica in the first of `dram, cxl_pnm, hbf` with room. KV is treated as
+sealed/immutable, so replicas never go stale. Replicas **occupy capacity** in their tier.
+
+- C1 sees only a generic `replica_tier` registry field (no data type) and converts an
+  HBM-demotion victim to DROP when the replica tier is less pressured than HBM.
+- C2 converts an HBM demotion to DROP when the replica tier is in the type's preference
+  list and not overloaded.
+- Only HBM demotions are converted; victim ordering/destination logic is unchanged.
+
+```bash
+python run_eval.py --drop-study [--quick] [--replica-fraction 0.5]
+```
+
+Variants (KV-bearing scenarios only): `move_only_no_replica` (old baseline),
+`replica_drop_off` (control: same replicas, DROP unused), `replica_drop_on`.
+**Compare `drop_on` vs `drop_off`** for the action effect; `drop_off` vs `move_only`
+shows the capacity side-effect of holding replicas (it changes dynamics, so it is not
+a no-op control against the old baseline).
+
+New result columns: `replica_fraction, drop_enabled, replica_gib_created, drop_count,
+drop_gib_avoided`. `migration_count/gib/time` count transfers only (DROP excluded);
+`promotion/demotion/rebalance_count` count decisions by direction (DROP is a demotion).
+Default runs (`replica_fraction=0`, `drop_enabled=False`) reproduce the pre-change
+results exactly.
+
+Known limits: replica creation cost is not charged (favors DROP); only KV is eligible;
+a DROP can leave data in the replica tier rather than the policy's preferred tier.
+
 ## Current metrics
 
 - SLO goodput proxy
