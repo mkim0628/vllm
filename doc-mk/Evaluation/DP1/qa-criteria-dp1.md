@@ -1,18 +1,46 @@
-# DP1 QA Criteria (DP1 보조 평가 기준)
+# DP1 QA Criteria (DP1 별점 기준)
 
-> 이 문서는 [`../qa-evaluation-criteria.md`](../qa-evaluation-criteria.md)(공통 QA1~4, 별점, Evidence)를 **대체하지 않는다.**
-> 공통 별점은 그대로 산출하고 결과에 계속 표기한다. 이 문서는 (1) DP1의 집계 규칙과 (2) 같은 공통 별점 안에 있는 후보를 구분하기 위한 **세부 tier**, (3) C1 vs C2 직접 비교 방법을 정의한다.
-> 구간 값은 `sim/dp1_rating.json`(version `dp1-rating-v1`), 계산은 `sim/dp1_rating.py`이다.
+> **DP1의 공식 별점은 이 문서의 기준(§A)으로 산정한다.** 공통 기준(`../qa-evaluation-criteria.md`)의 별점도 **참고용으로 항상 함께 표기**한다 (DP 간 비교 가능성 유지).
+> 공통 문서는 수정하지 않았다. 공통 문서의 규칙 2("같은 QA에는 DP 간 동일한 rating rule")와 달라지므로 이 편차는 **의도된 DP1 전용 결정**이며, 별점 옆에 어느 기준의 별점인지 표기한다.
+> 구간 값은 `sim/dp1_rating.json`(version `dp1-rating-v2`), 계산은 `sim/dp1_rating.py`이다.
 
-## 0. 왜 만들었나
+## A. DP1 별점 기준 (공식)
+
+**기준점:** DP1 Common Reference Baseline (Baseline-static: As-Is proxy, migration 없음). DP1은 "Baseline보다 얼마나 나은가"가 설계 정당화의 핵심이므로 **절대 threshold가 아니라 Baseline 대비 효과 크기**로 별점을 매긴다. 별점 척도는 공통과 같은 ★~★★★이다. 집계 대상은 **comparison-valid 시나리오**(Baseline이 SLO를 만족)이다.
+
+| QA | 지표 | ★ | ★★ | ★★★ |
+|---|---|---|---|---|
+| QA1 Throughput | Max SLO Goodput의 Baseline 대비 ratio (시나리오 간 geometric mean) | < 0.97 | 0.97 ~ 1.30 | >= 1.30 |
+| QA2 Latency | Baseline 대비 latency improvement factor: (TTFT, TPOT) x (P50, P95, P99) 6개 improvement(= Baseline / 후보)의 geometric mean | < 0.95 | 0.95 ~ 1.25 | >= 1.25 |
+| QA3 Utilization | Useful utilization의 Baseline 대비 변화 (pp, 임시 정의: `HBM occupancy x SLO 만족 비율`) | < -5 pp | -5 ~ +15 pp | >= +15 pp |
+| QA4 Modifiability | 공통 기준 그대로 (변경 module 수) | 공통 | 공통 | 공통 |
+
+**근거 (이 구간을 고른 이유):**
+
+- ★★ 구간이 "Baseline과 같은 수준"이다. 하한 0.97 / 0.95 / -5pp는 측정 잡음(seed 5개 paired CI 약 ±2~10%)보다 작은 열세는 열세로 보지 않는다는 뜻이다.
+- ★★★ 상한 1.30은 **migration layer의 설계·운영 복잡도를 정당화하려면 static Baseline 대비 30% 이상의 goodput 이득이 있어야 한다**는 DP1의 판단이다. 공통 기준의 1.10(10%)은 시스템 구성(SYS-1~5)에 따라 같은 후보의 ratio가 1.01~1.26으로 흔들리는 범위 안에 있어 DP1에서는 "robust한 이득"으로 보기 어렵다. QA2 1.25 / QA3 +15pp도 같은 취지의 "눈에 띄는 개선" 수준이다.
+- 공통 기준의 절대 threshold(QA2 ≤2 s/≤50 ms, QA3 65%/85%)는 DP1 simulation에서 모든 후보가 SLO 안에 들어가거나 HBM 점유가 workload 크기로 정해져 후보를 가르지 못했다. 그래서 DP1은 Baseline 대비 상대 효과로 본다.
+
+**공개해야 할 사실 (필수 표기):**
+
+1. 이 구간은 **첫 결과를 본 뒤에 정했다** (`defined_after_first_look`). 특히 QA1 상단 1.30은 결과(C1 x1.26, C2 x1.44) 사이에 놓여 별점을 가르는 값이므로, **별점 차이는 이 경계 선택에 의존한다.** 결과 문서에 경계 민감도(§C)를 반드시 함께 싣는다.
+2. 별점 경계를 바꾸면 version을 올리고 모든 결과를 재계산한다.
+3. QA2의 상대 latency는 모든 후보가 SLO 안에 있어도 개선 비율이 크게 보일 수 있다 (예: P50 99 ms -> 51 ms). 절대값을 반드시 병기한다.
+4. 새 benchmark / 다른 DP에서 같은 구간이 타당한지 재확인하기 전까지 **탐색적 기준**이다.
+
+## B. 보조 지표 (같은 별 안의 차이를 보기 위한 세부 tier와 직접 비교)
+
+아래는 §A 별점을 대체하지 않는 진단 지표이다.
+
+### B.0 왜 만들었나
 
 공통 별점은 구간이 거칠다. 예: QA1은 ratio ≥ 1.10이면 전부 ★★★이고, QA3는 < 65%이면 전부 ★이다. 첫 통합 결과에서 C1(x1.18, 39%)과 C2(x1.33, 50%)가 같은 별로 보였다. 또 QA2를 시나리오 간 worst-case로 집계하면 "Baseline도 SLO를 못 맞추는 시나리오" 하나가 값을 정해 후보 차이가 사라졌다.
 
-**공통 룰은 DP2~DP4에 영향을 주므로 바꾸지 않는다.** DP1 안에서만 보조 척도를 둔다.
+**공통 룰은 DP2~DP4에 영향을 주므로 바꾸지 않는다.** DP1 안에서만 별도 기준을 둔다.
 
-> **공개해야 할 사실:** 이 구간은 첫 통합 결과(공통 별점)를 본 뒤에 정의했다 (`defined_after_first_look: true`). 즉 blind하게 정한 값이 아니다. 그래서 (a) 별점 산정에는 쓰지 않고 보조로만 쓰며, (b) 새 benchmark나 다른 DP에서 구간이 타당한지 재확인하기 전까지 탐색적(exploratory) 지표로 취급한다. 구간을 바꾸면 version을 올리고 이전 결과를 다시 계산한다.
+> 아래 세부 tier 구간도 첫 통합 결과(공통 별점)를 본 뒤에 정의했다 (`defined_after_first_look: true`). 즉 blind하게 정한 값이 아니다. 그래서 (a) 별점 산정에는 쓰지 않고 보조로만 쓰며, (b) 새 benchmark나 다른 DP에서 구간이 타당한지 재확인하기 전까지 탐색적(exploratory) 지표로 취급한다. 구간을 바꾸면 version을 올리고 이전 결과를 다시 계산한다.
 
-## 1. 집계 규칙
+### B.1 집계 규칙
 
 | 항목 | 규칙 |
 |---|---|
@@ -23,7 +51,7 @@
 | QA3 | comparison-valid 시나리오 평균 (임시 정의: `HBM occupancy x SLO 만족 비율`) |
 | 유의성 | 후보 간 차이가 CI 이내이거나 1% 미만이면 tie |
 
-## 2. 세부 tier (공통 별점의 하위 구간)
+### B.2 세부 tier (공통 별점의 하위 구간)
 
 ### QA1 — ratio (vs Baseline)
 
@@ -69,7 +97,7 @@
 
 Baseline 대비 차이는 pp(percentage point)로 병기한다.
 
-## 3. C1 vs C2 직접 비교 (head-to-head)
+### B.3 C1 vs C2 직접 비교 (head-to-head)
 
 지금까지의 모든 값은 "Baseline 대비 몇 배"였다. 직접 비교는 **같은 시나리오·같은 seed·같은 trace에서 C2와 C1을 서로 비교**한 값이다.
 
@@ -80,18 +108,18 @@ Baseline 대비 차이는 pp(percentage point)로 병기한다.
 
 직접 비교가 필요한 이유: 두 후보가 모두 Baseline을 이기면 같은 별로 보여도, 서로의 우열은 이 비교로만 보인다.
 
-## 4. 결과 문서 표기 규칙
+## C. 결과 문서 표기 규칙
 
-- 공통 최종 QA 표(별점 + 값)는 그대로 둔다.
-- 그 아래에 "DP1 세부 평가" 표를 추가한다: 세부 tier + 값 + (comparison-valid n) + C1 vs C2 직접 비교.
-- 별점이 같아도 값이 다르면 **항상 값을 병기**한다.
-- 세부 tier는 별점 산정에 쓰지 않는다 (보조). 결론에서 후보 우열을 말할 때는 직접 비교 결과를 근거로 쓰고, 이 문서의 한계(§0 공개 사항)를 함께 적는다.
+- 최종 QA 표는 **DP1 기준 별점(§A)** 이다. 값(ratio, 개선 배율, pp)과 집계 n을 병기한다.
+- **공통 기준 별점**은 별도 표로 항상 함께 싣는다 (참고, DP 간 비교용).
+- 별점 경계 **민감도 표**(QA1 상단 경계를 1.10~1.50으로 움직였을 때 별점)를 함께 싣는다.
+- 세부 tier와 C1 vs C2 직접 비교(§B)는 보조 진단이다. 결론에서 후보 우열을 말할 때 직접 비교를 근거로 쓰고 §A의 한계를 함께 적는다.
 
-## 5. 재현
+## D. 재현
 
 ~~~text
 cd doc-mk/Evaluation/DP1/sim
 python3 loop_run.py --final                                   # SYS-1~5 qa_result.json (P50/P95 포함)
-python3 dp1_rating.py ../results/data/SYS-4/qa_result.json    # 세부 tier + head-to-head -> dp1_rating.json
+python3 dp1_rating.py ../results/data/SYS-4/qa_result.json    # DP1 별점 + 세부 tier + head-to-head + 민감도 -> dp1_rating.json
 python3 ../../tools/gen_dp1_result.py                         # 결과 문서 생성
 ~~~

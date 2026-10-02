@@ -457,9 +457,41 @@
  "scope": {
   "combined_n": 16
  },
+ "sensitivity_combined_qa1": {
+  "1.1": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605"
+  },
+  "1.2": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605"
+  },
+  "1.25": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605"
+  },
+  "1.3": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605"
+  },
+  "1.4": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605"
+  },
+  "1.5": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605"
+  }
+ },
  "sets": {
   "combined": {
    "Baseline-static": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 16,
     "qa1": {
      "ci95": 0.0,
@@ -503,6 +535,7 @@
        "worst": 3041794.2246869244
       }
      },
+     "latency_improvement_geomean": 1.0,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -517,6 +550,12 @@
     }
    },
    "C1-resource-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 16,
     "qa1": {
      "ci95": 0.002945919947218413,
@@ -560,6 +599,7 @@
        "worst": 3041794.230953591
       }
      },
+     "latency_improvement_geomean": 1.0856608156600474,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -574,6 +614,12 @@
     }
    },
    "C2-behavior-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 16,
     "qa1": {
      "ci95": 0.020822001051351083,
@@ -617,6 +663,7 @@
        "worst": 3041794.4232869246
       }
      },
+     "latency_improvement_geomean": 1.3469404463898438,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -633,6 +680,12 @@
   },
   "common_benchmark": {
    "Baseline-static": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 3,
     "qa1": {
      "ci95": 0.0,
@@ -676,6 +729,7 @@
        "worst": 301.00636246248524
       }
      },
+     "latency_improvement_geomean": 1.0,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 4,
@@ -690,6 +744,12 @@
     }
    },
    "C1-resource-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 3,
     "qa1": {
      "ci95": 0.0,
@@ -733,6 +793,7 @@
        "worst": 239.41600933189332
       }
      },
+     "latency_improvement_geomean": 1.008538284831138,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -747,6 +808,12 @@
     }
    },
    "C2-behavior-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 3,
     "qa1": {
      "ci95": 0.0,
@@ -790,6 +857,7 @@
        "worst": 144.33332480153072
       }
      },
+     "latency_improvement_geomean": 1.5350887823910606,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -806,6 +874,12 @@
   },
   "dp1_dynamic_benchmark": {
    "Baseline-static": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 3,
     "qa1": {
      "ci95": 0.0,
@@ -849,6 +923,7 @@
        "worst": 2723.8818064949337
       }
      },
+     "latency_improvement_geomean": 1.0,
      "tpot_tier": 2,
      "tpot_tier_max": 4,
      "ttft_tier": 2,
@@ -863,6 +938,12 @@
     }
    },
    "C1-resource-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 3,
     "qa1": {
      "ci95": 0.01951354346108696,
@@ -906,6 +987,7 @@
        "worst": 1879.8060946570133
       }
      },
+     "latency_improvement_geomean": 1.4675258238357511,
      "tpot_tier": 3,
      "tpot_tier_max": 4,
      "ttft_tier": 4,
@@ -920,6 +1002,12 @@
     }
    },
    "C2-behavior-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 3,
     "qa1": {
      "ci95": 0.033029799125267906,
@@ -963,6 +1051,7 @@
        "worst": 967.2130673128958
       }
      },
+     "latency_improvement_geomean": 1.8987093070421008,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 3,
@@ -979,6 +1068,12 @@
   },
   "dp1_stress_benchmark": {
    "Baseline-static": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 10,
     "qa1": {
      "ci95": 0.0,
@@ -1022,6 +1117,7 @@
        "worst": 3041794.2246869244
       }
      },
+     "latency_improvement_geomean": 1.0,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -1036,6 +1132,12 @@
     }
    },
    "C1-resource-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 10,
     "qa1": {
      "ci95": 0.0023816372855170274,
@@ -1079,6 +1181,7 @@
        "worst": 3041794.230953591
       }
      },
+     "latency_improvement_geomean": 1.0139749334424264,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -1093,6 +1196,12 @@
     }
    },
    "C2-behavior-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 10,
     "qa1": {
      "ci95": 0.02885280368406859,
@@ -1136,6 +1245,7 @@
        "worst": 3041794.4232869246
       }
      },
+     "latency_improvement_geomean": 1.1683684946847395,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -1151,5 +1261,5 @@
    }
   }
  },
- "version": "dp1-rating-v1"
+ "version": "dp1-rating-v2"
 }

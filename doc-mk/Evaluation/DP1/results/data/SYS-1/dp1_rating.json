@@ -264,9 +264,41 @@
  "scope": {
   "combined_n": 8
  },
+ "sensitivity_combined_qa1": {
+  "1.1": {
+   "C1-resource-driven": "\u2605\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605\u2605"
+  },
+  "1.2": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605\u2605"
+  },
+  "1.25": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605\u2605"
+  },
+  "1.3": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605\u2605"
+  },
+  "1.4": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605"
+  },
+  "1.5": {
+   "C1-resource-driven": "\u2605\u2605",
+   "C2-behavior-driven": "\u2605\u2605"
+  }
+ },
  "sets": {
   "combined": {
    "Baseline-static": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 8,
     "qa1": {
      "ci95": 0.0,
@@ -310,6 +342,7 @@
        "worst": 9566.819927946868
       }
      },
+     "latency_improvement_geomean": 1.0,
      "tpot_tier": 1,
      "tpot_tier_max": 4,
      "ttft_tier": 1,
@@ -324,6 +357,12 @@
     }
    },
    "C1-resource-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 8,
     "qa1": {
      "ci95": 0.059885385624012036,
@@ -367,6 +406,7 @@
        "worst": 9566.83132794687
       }
      },
+     "latency_improvement_geomean": 1.073232165945375,
      "tpot_tier": 1,
      "tpot_tier_max": 4,
      "ttft_tier": 1,
@@ -381,6 +421,12 @@
     }
    },
    "C2-behavior-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605\u2605",
+     "qa1_ci_straddles_edge": true,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605\u2605"
+    },
     "n": 8,
     "qa1": {
      "ci95": 0.11553633729903116,
@@ -424,6 +470,7 @@
        "worst": 9226.145706794243
       }
      },
+     "latency_improvement_geomean": 1.1160990890311866,
      "tpot_tier": 1,
      "tpot_tier_max": 4,
      "ttft_tier": 1,
@@ -440,6 +487,12 @@
   },
   "dp1_dynamic_benchmark": {
    "Baseline-static": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 6,
     "qa1": {
      "ci95": 0.0,
@@ -483,6 +536,7 @@
        "worst": 9566.819927946868
       }
      },
+     "latency_improvement_geomean": 1.0,
      "tpot_tier": 1,
      "tpot_tier_max": 4,
      "ttft_tier": 1,
@@ -497,6 +551,12 @@
     }
    },
    "C1-resource-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 6,
     "qa1": {
      "ci95": 0.08330255806350347,
@@ -540,6 +600,7 @@
        "worst": 9566.83132794687
       }
      },
+     "latency_improvement_geomean": 1.0988460866911691,
      "tpot_tier": 1,
      "tpot_tier_max": 4,
      "ttft_tier": 1,
@@ -554,6 +615,12 @@
     }
    },
    "C2-behavior-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605\u2605"
+    },
     "n": 6,
     "qa1": {
      "ci95": 0.17010281597347024,
@@ -597,6 +664,7 @@
        "worst": 9226.145706794243
       }
      },
+     "latency_improvement_geomean": 1.1602380607513945,
      "tpot_tier": 1,
      "tpot_tier_max": 4,
      "ttft_tier": 1,
@@ -613,6 +681,12 @@
   },
   "dp1_stress_benchmark": {
    "Baseline-static": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 2,
     "qa1": {
      "ci95": 0.0,
@@ -656,6 +730,7 @@
        "worst": 52.35954031128688
       }
      },
+     "latency_improvement_geomean": 1.0,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -670,6 +745,12 @@
     }
    },
    "C1-resource-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 2,
     "qa1": {
      "ci95": 0.0,
@@ -713,6 +794,7 @@
        "worst": 52.364386977953544
       }
      },
+     "latency_improvement_geomean": 0.9999173965525284,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -727,6 +809,12 @@
     }
    },
    "C2-behavior-driven": {
+    "dp1_star": {
+     "qa1": "\u2605\u2605",
+     "qa1_ci_straddles_edge": false,
+     "qa2": "\u2605\u2605",
+     "qa3": "\u2605\u2605"
+    },
     "n": 2,
     "qa1": {
      "ci95": 0.0,
@@ -770,6 +858,7 @@
        "worst": 53.33236767599051
       }
      },
+     "latency_improvement_geomean": 0.9935041611182622,
      "tpot_tier": 4,
      "tpot_tier_max": 4,
      "ttft_tier": 5,
@@ -785,5 +874,5 @@
    }
   }
  },
- "version": "dp1-rating-v1"
+ "version": "dp1-rating-v2"
 }

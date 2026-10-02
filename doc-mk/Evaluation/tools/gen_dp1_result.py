@@ -66,6 +66,38 @@ def final_table(res, key="qa_feasible"):
     return "\n".join(rows)
 
 
+def dp1_star_table(sysid=PRIMARY):
+    rt = RT[sysid]
+    rows = ["| Set (n, comparison-valid) | QA | Baseline (T_ref) | C1 | C2 |", "|---|---|---|---|---|"]
+    for key, name in [("common_benchmark", "Common"), ("dp1_stress_benchmark", "DP1 Stress"), ("dp1_dynamic_benchmark", "DP1 Dynamic"), ("combined", "**Combined**")]:
+        if key not in rt["sets"]:
+            continue
+        g = rt["sets"][key]; n = g[B]["n"]
+        def c1(c):
+            x = g[c]; return f"**{x['dp1_star']['qa1']}** x{x['qa1']['ratio']:.3f}±{x['qa1']['ci95']:.3f}" + (" (CI가 경계에 걸침)" if x["dp1_star"]["qa1_ci_straddles_edge"] and c != B else "")
+        def c2(c):
+            x = g[c]; l = x["qa2"]["latency"]
+            return f"**{x['dp1_star']['qa2']}** x{x['qa2']['latency_improvement_geomean']:.2f} (TTFT P50/P95/P99 {l['ttft_p50_ms']['median']:,.0f}/{l['ttft_p95_ms']['median']:,.0f}/{l['ttft_p99_ms']['median']:,.0f} ms, TPOT {l['tpot_p50_ms']['median']:.1f}/{l['tpot_p95_ms']['median']:.1f}/{l['tpot_p99_ms']['median']:.1f} ms)"
+        def c3(c):
+            x = g[c]; return f"**{x['dp1_star']['qa3']}** {x['qa3']['useful_util']*100:.0f}% ({x['qa3']['delta_pp_vs_baseline']:+.0f}pp)"
+        rows.append(f"| {name} ({n}) | QA1 Throughput | {c1(B)} [B+C] | {c1(C1)} [B+C] | {c1(C2)} [B+C] |")
+        rows.append(f"| | QA2 Latency | {c2(B)} [B+C] | {c2(C1)} [B+C] | {c2(C2)} [B+C] |")
+        rows.append(f"| | QA3 Utilization (임시 정의) | {c3(B)} [B+C] | {c3(C1)} [B+C] | {c3(C2)} [B+C] |")
+    rows.append("| **QA4 Modifiability** | | — | ★★★ [C] | ★★ [C] |")
+    return "\n".join(rows)
+
+
+def sensitivity_table(sysid=PRIMARY):
+    rt = RT[sysid]["sensitivity_combined_qa1"]
+    g = RT[sysid]["sets"]["combined"]
+    rows = ["| QA1 ★★★ 경계 (하한 0.97 고정) | C1 (x%.3f) | C2 (x%.3f) | C1과 C2가 구분되는가 |" % (g[C1]["qa1"]["ratio"], g[C2]["qa1"]["ratio"]), "|---|---|---|---|"]
+    for edge, v in rt.items():
+        diff = "구분됨" if v[C1] != v[C2] else "동일"
+        mark = " **(채택)**" if abs(float(edge) - 1.30) < 1e-9 else ""
+        rows.append(f"| >= {float(edge):.2f}{mark} | {v[C1]} | {v[C2]} | {diff} |")
+    return "\n".join(rows)
+
+
 def fine_table(sysid=PRIMARY):
     rt = RT[sysid]
     rows = ["| Set (n, comparison-valid) | 항목 | Baseline | C1 | C2 | C2 / C1 직접 비교 |", "|---|---|---|---|---|---|"]
@@ -129,12 +161,14 @@ def scenario_catalog():
 
 
 def cross_sys():
-    rows = ["| SYS | 구성 | QA1 combined C1 | QA1 combined C2 | C1 win/tie/loss | C2 win/tie/loss | dynamic set: C1 / C2 win |", "|---|---|---|---|---|---|---|"]
+    rows = ["| SYS | 구성 | 공통 QA1 combined C1 / C2 | **DP1 별점 (QA1/QA2/QA3) C1** | **DP1 별점 C2** | C1 win/tie/loss | C2 win/tie/loss | dynamic: C1 / C2 win |", "|---|---|---|---|---|---|---|---|"]
     prof = json.load(open(SIM / "configs" / "systems.json"))["profiles"]
     for s in SYSIDS:
         r = R[s]; q = r["combined"]["qa_feasible"]; t = r["combined"]["tally"]
         dyn = r["dp1_dynamic_benchmark"]["tally"]
-        rows.append(f"| {s} | {prof[s]['name']} | {ratio_cell(q, C1)} | {ratio_cell(q, C2)} | "
+        dg = RT[s]["sets"]["combined"]
+        ds = lambda c: " / ".join(dg[c]["dp1_star"][k] for k in ("qa1", "qa2", "qa3"))
+        rows.append(f"| {s} | {prof[s]['name']} | {ratio_cell(q, C1)} / {ratio_cell(q, C2)} | {ds(C1)} | {ds(C2)} | "
                     f"{len(t[C1]['win'])}/{len(t[C1]['tie'])}/{len(t[C1]['loss'])} | {len(t[C2]['win'])}/{len(t[C2]['tie'])}/{len(t[C2]['loss'])} | "
                     f"{len(dyn[C1]['win'])} / {len(dyn[C2]['win'])} (of {len(r['dp1_dynamic_benchmark']['per_scenario'])}) |")
     return "\n".join(rows)
@@ -205,11 +239,11 @@ status: draft
 
 | 항목 | 정의 / formula | 출처 |
 |---|---|---|
-| QA1 Max SLO Goodput | load sweep(x0.5~2.0) 중 SLO를 만족한 output token/s의 최대값. 시나리오별로 Baseline 대비 비율을 구하고 시나리오 간 **geometric mean**으로 집계. 별점은 criteria §4.3 (< 0.90 ★, 0.90~1.10 ★★, >= 1.10 ★★★) | criteria §4 |
-| QA2 Latency | Max goodput load point의 TTFT P99 / TPOT P99. 시나리오 중 **worst-case**로 집계, 별점은 criteria §5 (≤2 s & ≤50 ms ★★★ / ≤4 s & ≤100 ms ★★ / 그 외 ★) | criteria §5 |
-| QA3 Useful Utilization | `avg HBM occupancy x (SLO 만족 token / served token)`. 별점은 criteria §6 (< 65% ★, 65~85% ★★, >= 85% ★★★) | **임시 정의** (criteria에 formula 없음) |
+| QA1 Max SLO Goodput | load sweep(x0.5~2.0) 중 SLO를 만족한 output token/s의 최대값. 시나리오별 Baseline 대비 비율의 **geometric mean**. **DP1 별점:** < 0.97 ★ / 0.97~1.30 ★★ / >= 1.30 ★★★. 공통 별점(참고): criteria §4.3 (0.90 / 1.10) | criteria §4 + `DP1/qa-criteria-dp1.md` |
+| QA2 Latency | Max goodput load point의 TTFT/TPOT P50/P95/P99. **DP1 별점:** 6개 improvement factor(Baseline / 후보)의 geometric mean, < 0.95 ★ / 0.95~1.25 ★★ / >= 1.25 ★★★. 공통 별점(참고): P99 worst-case, criteria §5 (≤2 s & ≤50 ms ★★★ / ≤4 s & ≤100 ms ★★) | criteria §5 + DP1 criteria |
+| QA3 Useful Utilization | `avg HBM occupancy x (SLO 만족 token / served token)`. **DP1 별점:** Baseline 대비 변화 < -5 pp ★ / -5~+15 pp ★★ / >= +15 pp ★★★. 공통 별점(참고): criteria §6 (65% / 85%) | **임시 정의** + DP1 criteria |
 | QA4 Modifiability | 신규 memory / data type / policy / event 추가 시 변경 module 수 (§5) | criteria §7, architecture argument [C] |
-| 집계 범위 | "feasible" = Baseline goodput > 0 (comparison-valid + saturated). Combined는 3개 set 합산. "discriminating" = comparison-valid만 | 본 평가 정의 |
+| 집계 범위 | **DP1 별점은 comparison-valid만** 집계. 공통 별점(참고)은 "feasible" = Baseline goodput > 0 (comparison-valid + saturated). Combined는 3개 set 합산 | 본 평가 정의 |
 | Diagnostic | migration 횟수/bytes/time, decision overhead, tier별 access, SLO 만족률 | DP1 전용 |
 
 # 3. 벤치마크 / 시나리오
@@ -226,17 +260,34 @@ Fit label: **V** = comparison-valid (Baseline이 SLO 만족), **I** = infeasible
 
 # 4. 결과
 
-## 4.1 최종 QA 표 (SYS-4, Common + DP1 Stress + DP1 Dynamic 통합)
+## 4.1 최종 QA 표 — **DP1 기준 별점** (SYS-4, Common + DP1 Stress + DP1 Dynamic 통합)
 
-집계는 Baseline goodput > 0인 시나리오(V + S)이다. QA2 worst-case는 Baseline 자체가 SLO를 못 맞추는 시나리오가 지배할 수 있어 별점이 모두 ★로 나올 수 있다 (set별 값 참조).
+DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) §A, Baseline 대비 효과 크기). 집계는 **comparison-valid 시나리오**(Baseline이 SLO를 만족)만 대상으로 한다. 공통 기준 별점은 4.1a에 참고로 싣는다.
+
+{dp1_star_table()}
+
+> QA1 = Baseline 대비 goodput ratio(± 95% CI), 별 경계 0.97 / 1.30. QA2 = TTFT/TPOT x P50/P95/P99 6개 improvement factor의 geometric mean (>1이면 Baseline보다 빠름), 경계 0.95 / 1.25. QA3 = Baseline 대비 변화(pp), 경계 -5 / +15.
+> **이 경계는 첫 결과를 본 뒤 정한 값이다.** 아래 4.1b에서 경계에 따른 별점 변화를 확인할 수 있다.
+
+## 4.1a 공통 기준 별점 (참고, DP 간 비교용)
+
+[`qa-evaluation-criteria.md`](../../qa-evaluation-criteria.md)의 기준 그대로이다. 집계는 Baseline goodput > 0인 시나리오(V + S)이고 QA2는 worst-case이다. Baseline 자체가 SLO를 못 맞추는 시나리오가 worst-case를 지배하면 별점이 모두 ★로 나올 수 있다.
 
 {final_table(P)}
 
 (n = 집계된 시나리오 수. ratio의 ± 값은 95% CI)
 
-## 4.1b DP1 세부 평가 (보조 척도, [`qa-criteria-dp1.md`](../qa-criteria-dp1.md))
+## 4.1b QA1 별점 경계 민감도 (SYS-4, Combined)
 
-공통 별점은 위 표 그대로이며, 아래는 같은 별 안의 차이를 보기 위한 **보조** 기준이다 (구간은 첫 결과를 본 뒤 정의했으므로 탐색적 지표, 문서 §0 참조). 집계는 **comparison-valid 시나리오만** 대상으로 한다 (Baseline도 SLO를 못 맞추는 시나리오 제외).
+DP1 별점의 차이가 경계 선택에 얼마나 의존하는지 보인다. 하한(0.97)은 고정하고 ★★★ 경계만 움직였다.
+
+{sensitivity_table()}
+
+C1(x1.258)과 C2(x1.442) 사이에 경계가 있을 때(약 1.26~1.44)에만 둘의 QA1 별점이 갈린다. 경계가 1.25 이하이면 둘 다 ★★★, 1.45 이상이면 둘 다 ★★이다.
+
+## 4.1c DP1 세부 평가 (보조 진단, [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) §B)
+
+아래는 별점이 아니라 같은 별 안의 차이를 보기 위한 **진단** 지표이다 (구간은 첫 결과를 본 뒤 정의, 문서 §B.0 참조). 집계는 **comparison-valid 시나리오만** 대상으로 한다 (Baseline도 SLO를 못 맞추는 시나리오 제외).
 
 {fine_table()}
 
@@ -306,12 +357,13 @@ SYS-1~SYS-5, 3개 set 전체에서 **어느 후보도 Baseline 미만(loss)인 �
 6. **임시 정의:** QA3 formula, tie 판정의 1% material 임계, "saturated" fit label(모든 후보 CI 이내 동일).
 7. **QA2 집계가 worst-case**라 Baseline 자체가 SLO를 못 맞추는 시나리오가 있는 set에서는 모든 후보가 ★로 나온다 (Stress set).
 8. **SYS-5의 Custom HBM**은 평가 중 loader 수정 후의 값이며, 이전 first-pass 결과(SYS-5)와 비교할 수 없다.
-9. **DP1 세부 tier(4.1b)는 첫 결과를 본 뒤 정의한 구간**이다 (`defined_after_first_look`). 탐색적 지표이며 별점 산정에는 쓰지 않았다. 새 benchmark에서 같은 구간으로 재확인해야 한다. 4.1b의 집계는 comparison-valid 시나리오만 대상으로 하므로 4.1(feasible 전체)과 n이 다르다.
+9. **DP1 별점 기준(4.1)은 공통 룰(criteria rule 2: 같은 QA는 DP 간 같은 룰)과 의도적으로 다르며, 첫 결과를 본 뒤 정의했다** (`defined_after_first_look`). 공통 별점은 4.1a에 병기한다. 후보 간 ★ 차이는 QA1 ★★★ 경계(1.30)에 의존한다. 4.1b의 sensitivity에서 경계가 약 1.26~1.44일 때만 C1/C2가 갈리고 1.25 이하에서는 같으며 1.50이면 둘 다 ★★이다. 새 benchmark로 같은 경계를 재확인해야 한다. 집계는 comparison-valid 시나리오만 대상으로 하므로 feasible 전체 기준 값과 n이 다르다.
 
 # 7. 결론
 
 - **현재 simulator 기준으로 C1, C2는 모든 시스템·모든 benchmark에서 Baseline 이상이다** (loss 0). first-pass의 Baseline 미만 결과는 정책 결함(P: serving 비용 무시, migration budget 없음)과 benchmark 부적합(B)에서 왔고 iteration 1~3에서 해소되었다.
 - **이득은 "static 배치가 runtime에 stale해지는" 조건에서만 확인된다.** Common과 feasible Stress에서는 둘 다 Baseline과 동률이다. SYS-4 Dynamic에서 C2는 6/6, C1은 3/6 시나리오에서 유의하게 이긴다. 그 외는 parity다. 이것은 일반 이득 주장이 아니다.
+- **DP1 별점(4.1, 공식):** Combined 기준 Baseline ★★/★★/★★, C1 ★★/★★★/★★, C2 ★★★/★★★/★★★ (QA1/QA2/QA3). 공통 별점은 동일하지만 DP1 기준에서는 C2가 높다. 단 이 차이는 QA1 ★★★ 경계(1.30) 선택에 의존한다(6. 한계 9).
 - **C2 vs C1 (직접 비교, 4.1b):** 공통 별점은 같아 보여도(QA1 ★★★ 둘 다) comparison-valid 13개 기준 C2/C1 goodput은 x1.147±0.096로 **C2가 유의하게 높다** (C2 우세 2 / tie 11 / C1 우세 0). 우세 2개는 모두 Dynamic KV 시나리오다. Latency는 P99 tier가 같고 P95/P50에서 C2가 낫다 (Combined P95 x1.16, P50 x1.30). Utilization은 C2 58% 대 C1 43% (+15pp). 반면 C1은 훨씬 적은 byte를 옮기고(4.3) Modifiability가 우위다 (★★★ vs ★★). 같은 data class 안의 hot/cold 구분이 필요한 workload에서는 C1이 구조적으로 이기지 못한다. **Common과 feasible Stress에서는 둘 다 Baseline과 동률이고 C2/C1도 tie다.**
 - **다음 단계:** (1) Destination Tier Selector의 serving-cost 입력, link-time migration budget, C2 benefit-vs-cost gating, C1 promotion 경로를 설계 문서에 반영한다 (loop-log '설계 문서에 미치는 영향'). (2) vLLM trace 수집과 HBM↔DRAM 실측으로 access-cost 모델의 오차를 [A]로 확인하고, 오차를 넣은 estimator로 재평가한다. (3) budget 파라미터 근거 확보. (4) 개정 구조(Backend I/F, snapshot)를 simulator에 반영한다.
 

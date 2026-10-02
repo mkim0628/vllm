@@ -138,16 +138,47 @@ def latency_order(group):
     return res
 
 
+def dp1_star(value, edges):
+    return "★" * (1 + sum(1 for e in edges if value >= e))
+
+
+def add_dp1_stars(group):
+    """DP1 official stars (relative to Baseline-static). QA2 = geometric mean of the six improvement factors
+    (TTFT/TPOT x P50/P95/P99); QA3 = utilization change in percentage points."""
+    cfg = CFG["dp1_star"]
+    for c, x in group.items():
+        imp = x["qa2"]["improvement_vs_baseline"]
+        l_all = geomean([imp[f"{m}_{p}_ms"] for m in ("ttft", "tpot") for p in cfg["qa2_percentiles"]])
+        x["qa2"]["latency_improvement_geomean"] = l_all
+        x["dp1_star"] = dict(
+            qa1=dp1_star(x["qa1"]["ratio"], cfg["qa1_ratio_edges"]),
+            qa2=dp1_star(l_all, cfg["qa2_latency_improvement_edges"]),
+            qa3=dp1_star(x["qa3"]["delta_pp_vs_baseline"], cfg["qa3_delta_pp_edges"]),
+            qa1_ci_straddles_edge=any(abs(x["qa1"]["ratio"] - e) <= x["qa1"]["ci95"] for e in cfg["qa1_ratio_edges"]),
+        )
+    return group
+
+
+def star_sensitivity(group):
+    """QA1 stars of C1/C2 when the top (3-star) edge is moved (lower edge fixed)."""
+    cfg = CFG["dp1_star"]; lo = cfg["qa1_ratio_edges"][0]
+    out = {}
+    for top in cfg["sensitivity_qa1_top_edge"]:
+        out[str(top)] = {c: dp1_star(group[c]["qa1"]["ratio"], [lo, top]) for c in (C1, C2)}
+    return out
+
+
 def rate(res):
     out = dict(version=CFG["version"], defined_after_first_look=CFG["defined_after_first_look"], sets={}, h2h={})
     for lab in SETS:
         scen = valid_scenarios(res, [lab])
         if scen:
-            out["sets"][lab] = rate_group(res, scen)
+            out["sets"][lab] = add_dp1_stars(rate_group(res, scen))
             out["h2h"][lab] = head_to_head(res, scen)
             out["h2h"][lab]["latency_order"] = latency_order(out["sets"][lab])
     scen = valid_scenarios(res, SETS)
-    out["sets"]["combined"] = rate_group(res, scen)
+    out["sets"]["combined"] = add_dp1_stars(rate_group(res, scen))
+    out["sensitivity_combined_qa1"] = star_sensitivity(out["sets"]["combined"])
     out["h2h"]["combined"] = head_to_head(res, scen)
     out["h2h"]["combined"]["latency_order"] = latency_order(out["sets"]["combined"])
     out["scope"] = {"combined_n": len(scen)}
@@ -166,6 +197,8 @@ def main():
             print(f"  {c[:8]:8s} QA1 T{x['qa1']['tier']}/{x['qa1']['tier_max']} x{x['qa1']['ratio']:.3f} | QA2 TTFT-tier {x['qa2']['ttft_tier']}/{x['qa2']['ttft_tier_max']} TPOT-tier {x['qa2']['tpot_tier']}/{x['qa2']['tpot_tier_max']} | QA3 T{x['qa3']['tier']}/{x['qa3']['tier_max']} {x['qa3']['useful_util']*100:.0f}%")
         h = out["h2h"][lab]
         lo = h["latency_order"]
+        for c in (BASE, C1, C2):
+            ds = g[c]["dp1_star"]; print(f"  {c[:8]:8s} DP1 stars QA1 {ds['qa1']} QA2 {ds['qa2']} (L x{g[c]['qa2']['latency_improvement_geomean']:.2f}) QA3 {ds['qa3']} ({g[c]['qa3']['delta_pp_vs_baseline']:+.0f}pp)")
         print(f"  C2/C1 goodput x{h['geomean_goodput_ratio_C2_over_C1']:.3f}±{h['geomean_ci95']:.3f}  C2 {h['tally']['C2']} / tie {h['tally']['tie']} / C1 {h['tally']['C1']} | latency: " + ", ".join(f"{p} C2/C1 x{lo[p]['C2_over_C1']:.2f} ({lo[p]['verdict']})" for p in ("p99","p95","p50")) + f" -> {lo['overall']} (by {lo['decided_by']})")
 
 
