@@ -3,7 +3,7 @@ date: 2026-10-02
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
 sys_ids: [SYS-4, SYS-1, SYS-2, SYS-3, SYS-5]
-git_rev: 0c45c91 (dirty)
+git_rev: 42b1b82 (dirty)
 evidence: { QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[C]" }
 status: draft
 ---
@@ -15,13 +15,64 @@ status: draft
 > 이 문서의 모든 simulation 수치는 Evidence [B+C]이며 [A] 실측이 아니다. 표는 `tools/gen_dp1_result.py`가 `results/data/SYS-*/qa_result.json`에서 생성했다.
 > 이 문서는 [`2026-10-02_first-pass_superseded.md`](2026-10-02_first-pass_superseded.md)를 대체한다.
 
+# 0. 최종 요약
+
+> 발표용 요약이다. 근거 수치는 4장, 한계는 6장. 이 요약의 별점은 **DP1 기준 별점**(`qa-criteria-dp1.md`)이며 SYS-4, Common+Stress+Dynamic 통합(comparison-valid 13개)이다. 공통 기준 별점은 4.1a.
+
+## 0.1 QA별 후보 비교
+
+| QA | 지표 (DP1 기준) | Baseline | C1 | C2 | 우세 |
+|---|---|---|---|---|---|
+| QA1 Throughput [B] | Baseline 대비 goodput x | ★★ x1.00 | ★★ x1.26 | ★★★ x1.44 | C2 |
+| QA2 Latency [B] | TTFT/TPOT 6지표 개선 배수 | ★★ x1.00 | ★★★ x1.41 | ★★★ x1.65 | 동률 |
+| QA3 Utilization [B] | useful 활용률 (링크 점유 반영) | ★★ 35% | ★★ 42% (+7pp) | ★★ 49% (+14pp) | 동률 |
+| QA4 Modifiability [C] | 변경 module 수 (논증) | — | ★★★ | ★★ | C1 |
+| **별 합계** | | — | **10** | **10** | |
+
+## 0.2 Trade-off
+
+- **C2가 앞서는 QA:** QA1. **C1이 앞서는 QA:** QA4.
+- C2는 성능 QA(QA1~QA3)에서 이득을 얻는 대신 **migration 비용**과 **구조 복잡도(QA4)**를 치른다. combined 평균으로 C2는 migration 1,239 GiB(C1 110 GiB), migration 링크 점유 9.5%(C1 1.3%), decision overhead 105 ms/run(C1 3 ms)이고, 신규 AI data type 추가 시 변경 module이 4개(C1 1~2개)다.
+- 이득은 static 배치가 stale해지는 Dynamic 시나리오에 집중된다. Common과 feasible Stress에서는 두 후보 모두 Baseline과 동률이다.
+
+## 0.3 선택과 근거
+
+1. **QA 우선순위:** QA1 > QA2 > QA3 > QA4 (proposal - owner must confirm before the result is presented). 근거: DP1의 1차 목적은 이기종 메모리에서 SLO를 만족하는 처리량(QA1)과 지연(QA2)을 높이는 것이다. 활용률(QA3)은 그 결과 지표이고, 확장성(QA4)은 구조 비용이다.
+2. **별 합계:** C1 10개, C2 10개 (차이 0개).
+3. **선택 규칙:** 합계 차이가 2개 이상이면 합계, 1개 이하(동점 포함)이면 QA 우선순위를 위에서부터 내려가며 처음으로 별이 갈리는 QA가 결정한다 (`tools/dp_selection.py`).
+4. **결과: C2 선택.** 별 합계 차이 0개(동점 또는 근접)여서 QA 우선순위로 결정, QA1에서 차이가 나는 후보가 선택됨.
+5. **결정 민감도:** 우선순위를 뒤집으면(QA4 > QA3 > QA2 > QA1) C1 후보가 선택된다(QA4에서 갈림). 즉 이 선택은 "성능 QA를 확장성보다 우선한다"는 우선순위 판단에 의존한다.
+6. **별점 자체의 취약점:** QA1 ★★★ 경계(1.30)와 QA3 ★★★ 경계(+15pp)는 첫 결과를 본 뒤 정했다. C1의 QA1(x1.26)과 C2의 QA3(+14pp)는 경계 근처다. 4.1b에서 경계에 따른 결과를 보인다. 수치 차이(C2/C1 goodput x1.15)는 경계와 무관하다.
+
+## 0.4 선택한 구조의 부족한 부분과 보완 설계
+
+선택된 구조(C2)에서 평가가 드러낸 약점과 보완 택틱이다. 택틱 상세는 `DP1/DP1-complement-design-tactics.pptx`.
+
+| # | 약점 (평가 근거) | 보완 택틱 | 개선 대상 | 검증 상태 |
+|---|---|---|---|---|
+| W1 | QA4: 신규 AI data type 추가 시 변경 module 4개 (QA4 ★★) | type 특성(class metadata, feature 선택, tier 선호)을 descriptor로 외부화하고, descriptor가 없는 class는 type-agnostic 경로(C1)로 처리 | QA4 | [C] 논증, 미구현 |
+| W2 | migration 비용: C2 1,239 GiB, 링크 점유 9.5% | link-time budget + 이득/비용 gating(simulator 구현·적용됨), traffic class 우선순위(demand > prefetch > demotion), replica가 있으면 DROP 우선 | QA1·QA3 | budget/gating [B] 구현됨, class 우선순위·DROP 우선은 [C] |
+| W3 | 예측 의존: C2는 predictor가 틀리면 잘못된 migration (오차 e=0.6까지는 우위 유지, 4.6) | 신뢰도 gating(낮으면 C1의 resource-pressure 트리거로 대체), 이득 미실현 시 자동 중단(do-no-harm guard), hysteresis | QA1 안정성 | [C], 오차 모델은 lognormal 한 종류만 확인 |
+| W4 | decision overhead 105 ms/run (C1 3 ms) | event coalescing(구현됨), 점진 feature 갱신, decision을 critical path 밖에서 비동기 실행 | QA2 | coalescing [B], 나머지 [C] |
+
+## 0.5 대표 benchmark
+
+전체 32개 중 아래만 본문에서 설명한다. 선택 규칙: Common은 첫 시나리오, Stress는 C2-C1 goodput 격차가 가장 큰 시나리오(격차가 모두 0이면 이름순 첫 시나리오), Dynamic은 격차가 가장 큰/가장 작은 시나리오 (comparison-valid만 대상). 나머지는 4.2.
+
+| Set | 시나리오 | C1 goodput (vs Baseline) | C2 goodput (vs Baseline) |
+|---|---|---|---|
+| Common | `cb_kv_8k_b32` | x1.00 (tie) | x1.00 (tie) |
+| DP1 Stress | `agent_memory_long_lived` | x1.00 (tie) | x1.00 (tie) |
+| DP1 Dynamic | `dyn_kv_hotset_recency_shift` | x1.11 (tie) | x2.62 (win) |
+| DP1 Dynamic | `dyn_cold_resident_chat_wave` | x1.83 (win) | x1.70 (win) |
+
 # 1. 시스템 환경
 
 | 항목 | 값 |
 |---|---|
 | SYS id | **SYS-4** (primary, B200x8 + 6개 memory 전부), SYS-1 (HBM+DRAM, As-Is class), SYS-2 (+CXL-PNM), SYS-3 (+HBF), SYS-5 (Vera Rubin x8 + 6개 memory) |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
-| Git revision | 0c45c91 (dirty) |
+| Git revision | 42b1b82 (dirty) |
 | Seeds / loads | seeds 11, 23, 37, 53, 71 (5회) / load x0.5, x1.0, x1.5, x2.0, 95% CI t=2.776 |
 | Tie 판정 | goodput 상대 차이 < 1% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
 | 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final` (SYS-1~5), 단일: `python3 qa_eval.py --system SYS-4` |
@@ -36,7 +87,7 @@ status: draft
 |---|---|---|
 | QA1 Max SLO Goodput | load sweep(x0.5~2.0) 중 SLO를 만족한 output token/s의 최대값. 시나리오별 Baseline 대비 비율의 **geometric mean**. **DP1 별점:** < 0.97 ★ / 0.97~1.30 ★★ / >= 1.30 ★★★. 공통 별점(참고): criteria §4.3 (0.90 / 1.10) | criteria §4 + `DP1/qa-criteria-dp1.md` |
 | QA2 Latency | Max goodput load point의 TTFT/TPOT P50/P95/P99. **DP1 별점:** 6개 improvement factor(Baseline / 후보)의 geometric mean, < 0.95 ★ / 0.95~1.25 ★★ / >= 1.25 ★★★. 공통 별점(참고): P99 worst-case, criteria §5 (≤2 s & ≤50 ms ★★★ / ≤4 s & ≤100 ms ★★) | criteria §5 + DP1 criteria |
-| QA3 Useful Utilization | `avg HBM occupancy x (SLO 만족 token / served token)`. **DP1 별점:** Baseline 대비 변화 < -5 pp ★ / -5~+15 pp ★★ / >= +15 pp ★★★. 공통 별점(참고): criteria §6 (65% / 85%) | **임시 정의** + DP1 criteria |
+| QA3 Useful Utilization | `avg HBM occupancy x (SLO 만족 token / served token) x (1 - migration 링크 점유율)` (v3: migration 시간은 serving 시간이 아니므로 차감, 이전 정의에는 마지막 항이 없었다). **DP1 별점:** Baseline 대비 변화 < -5 pp ★ / -5~+15 pp ★★ / >= +15 pp ★★★. 공통 별점(참고): criteria §6 (65% / 85%) | **임시 정의** + DP1 criteria |
 | QA4 Modifiability | 신규 memory / data type / policy / event 추가 시 변경 module 수 (§5) | criteria §7, architecture argument [C] |
 | 집계 범위 | **DP1 별점은 comparison-valid만** 집계. 공통 별점(참고)은 "feasible" = Baseline goodput > 0 (comparison-valid + saturated). Combined는 3개 set 합산 | 본 평가 정의 |
 | Diagnostic | migration 횟수/bytes/time, decision overhead, tier별 access, SLO 만족률 | DP1 전용 |
@@ -96,16 +147,16 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 |---|---|---|---|---|
 | Common (3) | QA1 Throughput | **★★** x1.000±0.000 [B+C] | **★★** x1.000±0.000 [B+C] | **★★** x1.000±0.000 [B+C] |
 | | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 99/299/329 ms, TPOT 4.1/5.0/5.1 ms) [B+C] | **★★★** x1.27 (TTFT P50/P95/P99 51/197/250 ms, TPOT 4.0/4.6/4.8 ms) [B+C] | **★★★** x1.44 (TTFT P50/P95/P99 37/108/263 ms, TPOT 3.9/4.0/4.8 ms) [B+C] |
-| | QA3 Utilization (임시 정의) | **★★** 44% (+0pp) [B+C] | **★★** 41% (-3pp) [B+C] | **★★★** 59% (+15pp) [B+C] |
+| | QA3 Utilization (임시 정의) | **★★** 44% (+0pp) [B+C] | **★★** 40% (-4pp) [B+C] | **★★** 52% (+8pp) [B+C] |
 | DP1 Stress (4) | QA1 Throughput | **★★** x1.000±0.000 [B+C] | **★★** x1.000±0.000 [B+C] | **★★** x1.000±0.000 [B+C] |
 | | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 52/176/192 ms, TPOT 5.9/9.6/9.9 ms) [B+C] | **★★** x1.10 (TTFT P50/P95/P99 52/116/146 ms, TPOT 5.5/8.3/9.1 ms) [B+C] | **★★★** x1.32 (TTFT P50/P95/P99 52/65/108 ms, TPOT 5.4/5.6/6.6 ms) [B+C] |
-| | QA3 Utilization (임시 정의) | **★★** 36% (+0pp) [B+C] | **★★** 37% (+1pp) [B+C] | **★★** 40% (+4pp) [B+C] |
+| | QA3 Utilization (임시 정의) | **★★** 36% (+0pp) [B+C] | **★★** 36% (+0pp) [B+C] | **★★** 37% (+1pp) [B+C] |
 | DP1 Dynamic (6) | QA1 Throughput | **★★** x1.000±0.000 [B+C] | **★★★** x1.643±0.285 [B+C] | **★★★** x2.211±0.078 [B+C] |
 | | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 1,721/2,174/2,174 ms, TPOT 50.3/62.1/62.1 ms) [B+C] | **★★★** x1.75 (TTFT P50/P95/P99 669/1,686/2,023 ms, TPOT 39.0/54.2/60.3 ms) [B+C] | **★★★** x2.03 (TTFT P50/P95/P99 230/1,696/2,112 ms, TPOT 32.3/53.8/61.7 ms) [B+C] |
-| | QA3 Utilization (임시 정의) | **★★** 30% (+0pp) [B+C] | **★★★** 48% (+18pp) [B+C] | **★★★** 69% (+39pp) [B+C] |
+| | QA3 Utilization (임시 정의) | **★★** 30% (+0pp) [B+C] | **★★★** 47% (+17pp) [B+C] | **★★★** 55% (+25pp) [B+C] |
 | **Combined** (13) | QA1 Throughput | **★★** x1.000±0.000 [B+C] | **★★** x1.258±0.098 (CI가 경계에 걸침) [B+C] | **★★★** x1.442±0.023 [B+C] |
 | | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 159/338/343 ms, TPOT 6.4/9.9/10.0 ms) [B+C] | **★★★** x1.41 (TTFT P50/P95/P99 57/296/330 ms, TPOT 5.5/9.3/9.8 ms) [B+C] | **★★★** x1.65 (TTFT P50/P95/P99 52/244/324 ms, TPOT 5.4/5.7/6.9 ms) [B+C] |
-| | QA3 Utilization (임시 정의) | **★★** 35% (+0pp) [B+C] | **★★** 43% (+8pp) [B+C] | **★★★** 58% (+23pp) [B+C] |
+| | QA3 Utilization (임시 정의) | **★★** 35% (+0pp) [B+C] | **★★** 42% (+7pp) [B+C] | **★★** 49% (+14pp) [B+C] |
 | **QA4 Modifiability** | | — | ★★★ [C] | ★★ [C] |
 
 > QA1 = Baseline 대비 goodput ratio(± 95% CI), 별 경계 0.97 / 1.30. QA2 = TTFT/TPOT x P50/P95/P99 6개 improvement factor의 geometric mean (>1이면 Baseline보다 빠름), 경계 0.95 / 1.25. QA3 = Baseline 대비 변화(pp), 경계 -5 / +15.
@@ -119,16 +170,16 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 |---|---|---|---|---|
 | **Common** (3) | QA1 Throughput | ★★ 3,272 tps (x1.000) [B+C] | ★★ x1.000 [B+C] | ★★ x1.000 [B+C] |
 | | QA2 Latency (worst) | ★★★ 337 ms / 5 ms [B+C] | ★★★ 263 ms / 5 ms [B+C] | ★★★ 324 ms / 5 ms [B+C] |
-| | QA3 Util. (임시 정의) | ★ 44% [B+C] | ★ 41% [B+C] | ★ 59% [B+C] |
+| | QA3 Util. (임시 정의) | ★ 44% [B+C] | ★ 40% [B+C] | ★ 52% [B+C] |
 | **DP1 Stress** (9) | QA1 Throughput | ★★ 370 tps (x1.000) [B+C] | ★★ x1.000 [B+C] | ★★ x1.037±0.066 [B+C] |
 | | QA2 Latency (worst) | ★ 793,052 ms / 14 ms [B+C] | ★ 793,052 ms / 14 ms [B+C] | ★ 793,052 ms / 14 ms [B+C] |
-| | QA3 Util. (임시 정의) | ★ 31% [B+C] | ★ 31% [B+C] | ★ 34% [B+C] |
+| | QA3 Util. (임시 정의) | ★ 31% [B+C] | ★ 31% [B+C] | ★ 32% [B+C] |
 | **DP1 Dynamic** (6) | QA1 Throughput | ★★ 120 tps (x1.000) [B+C] | ★★★ x1.643±0.285 [B+C] | ★★★ x2.211±0.078 [B+C] |
 | | QA2 Latency (worst) | ★ 9,567 ms / 63 ms [B+C] | ★★ 2,138 ms / 62 ms [B+C] | ★★ 2,160 ms / 62 ms [B+C] |
-| | QA3 Util. (임시 정의) | ★ 30% [B+C] | ★ 48% [B+C] | ★★ 69% [B+C] |
+| | QA3 Util. (임시 정의) | ★ 30% [B+C] | ★ 47% [B+C] | ★ 55% [B+C] |
 | **Combined (3 set 통합)** (18) | QA1 Throughput | ★★ 770 tps (x1.000) [B+C] | ★★★ x1.180±0.066 [B+C] | ★★★ x1.327±0.042 [B+C] |
 | | QA2 Latency (worst) | ★ 793,052 ms / 63 ms [B+C] | ★ 793,052 ms / 62 ms [B+C] | ★ 793,052 ms / 62 ms [B+C] |
-| | QA3 Util. (임시 정의) | ★ 33% [B+C] | ★ 39% [B+C] | ★ 50% [B+C] |
+| | QA3 Util. (임시 정의) | ★ 33% [B+C] | ★ 38% [B+C] | ★ 43% [B+C] |
 | **QA4 Modifiability** | | — | ★★★ [C] | ★★ [C] |
 
 (n = 집계된 시나리오 수. ratio의 ± 값은 95% CI)
@@ -156,16 +207,16 @@ C1(x1.258)과 C2(x1.442) 사이에 경계가 있을 때(약 1.26~1.44)에만 둘
 |---|---|---|---|---|---|
 | **Common** (3) | QA1 tier / ratio | T3/7 x1.000 | T3/7 x1.000±0.000 | T3/7 x1.000±0.000 | x1.000±0.000 (C2 0 / tie 3 / C1 0) |
 | | QA2 median P50/P95/P99 | TTFT P50/P95/P99 99/299/329 ms; TPOT 4.1/5.0/5.1 ms | TTFT P50/P95/P99 51/197/250 ms; TPOT 4.0/4.6/4.8 ms | TTFT P50/P95/P99 37/108/263 ms; TPOT 3.9/4.0/4.8 ms | P99 x1.00 (tie), P95 x1.31 (C2), P50 x1.11 (C2) → **C2** |
-| | QA3 tier / util | T3/8 44% | T3/8 41% (-3pp) | T4/8 59% (+15pp) | +18pp |
+| | QA3 tier / util | T3/8 44% | T3/8 40% (-4pp) | T4/8 52% (+8pp) | +12pp |
 | **DP1 Stress** (4) | QA1 tier / ratio | T3/7 x1.000 | T3/7 x1.000±0.000 | T3/7 x1.000±0.000 | x1.000±0.000 (C2 0 / tie 4 / C1 0) |
 | | QA2 median P50/P95/P99 | TTFT P50/P95/P99 52/176/192 ms; TPOT 5.9/9.6/9.9 ms | TTFT P50/P95/P99 52/116/146 ms; TPOT 5.5/8.3/9.1 ms | TTFT P50/P95/P99 52/65/108 ms; TPOT 5.4/5.6/6.6 ms | P99 x1.23 (C2), P95 x1.39 (C2), P50 x1.01 (tie) → **C2** |
-| | QA3 tier / util | T2/8 36% | T2/8 37% (+1pp) | T2/8 40% (+4pp) | +3pp |
+| | QA3 tier / util | T2/8 36% | T2/8 36% (+0pp) | T2/8 37% (+1pp) | +1pp |
 | **DP1 Dynamic** (6) | QA1 tier / ratio | T3/7 x1.000 | T7/7 x1.643±0.285 | T7/7 x2.211±0.078 | x1.346±0.240 (C2 2 / tie 4 / C1 0) |
 | | QA2 median P50/P95/P99 | TTFT P50/P95/P99 1,721/2,174/2,174 ms; TPOT 50.3/62.1/62.1 ms | TTFT P50/P95/P99 669/1,686/2,023 ms; TPOT 39.0/54.2/60.3 ms | TTFT P50/P95/P99 230/1,696/2,112 ms; TPOT 32.3/53.8/61.7 ms | P99 x0.98 (tie), P95 x0.97 (tie), P50 x1.65 (C2) → **C2** |
-| | QA3 tier / util | T1/8 30% | T3/8 48% (+18pp) | T5/8 69% (+39pp) | +21pp |
+| | QA3 tier / util | T1/8 30% | T3/8 47% (+17pp) | T4/8 55% (+25pp) | +8pp |
 | **Combined** (13) | QA1 tier / ratio | T3/7 x1.000 | T6/7 x1.258±0.098 | T6/7 x1.442±0.023 | x1.147±0.096 (C2 2 / tie 11 / C1 0) |
 | | QA2 median P50/P95/P99 | TTFT P50/P95/P99 159/338/343 ms; TPOT 6.4/9.9/10.0 ms | TTFT P50/P95/P99 57/296/330 ms; TPOT 5.5/9.3/9.8 ms | TTFT P50/P95/P99 52/244/324 ms; TPOT 5.4/5.7/6.9 ms | P99 x1.06 (C2), P95 x1.16 (C2), P50 x1.30 (C2) → **C2** |
-| | QA3 tier / util | T2/8 35% | T3/8 43% (+8pp) | T4/8 58% (+23pp) | +15pp |
+| | QA3 tier / util | T2/8 35% | T3/8 42% (+7pp) | T3/8 49% (+14pp) | +7pp |
 
 읽는 법: `T3/7`은 7단계 중 3번째 tier (QA1 T3 = parity, T5~T7 = 공통 ★★★). QA3 tier는 8단계. QA2는 시나리오 간 median의 P50/P95/P99. 직접 비교의 ratio는 C2 / C1이다.
 
@@ -226,6 +277,7 @@ n_seeds = 5, 95% CI는 t 분포, V/I/S = Fit, ratio = 후보 / Baseline (Baselin
 |---|---:|---:|---:|
 | migration 횟수 | 0 | 4 | 58 |
 | migration bytes (GiB) | 0 | 110 | 1,239 |
+| migration 링크 점유율 (migration 시간 / horizon) | 0.0% | 1.3% | 9.5% |
 | decision overhead (ms/run) | 0.0 | 2.8 | 105.3 |
 | dynamic set 평균 migration bytes (GiB) | 0 | 195 | 2,345 |
 
@@ -233,10 +285,10 @@ n_seeds = 5, 95% CI는 t 분포, V/I/S = Fit, ratio = 후보 / Baseline (Baselin
 
 | SYS | 구성 | 공통 QA1 combined C1 / C2 | **DP1 별점 (QA1/QA2/QA3) C1** | **DP1 별점 C2** | C1 win/tie/loss | C2 win/tie/loss | dynamic: C1 / C2 win |
 |---|---|---|---|---|---|---|---|
-| SYS-1 | B200x8 + host DRAM (As-Is class) | ★★ x1.049±0.025 / ★★★ x1.149±0.044 | ★★ / ★★ / ★★ | ★★★ / ★★ / ★★★ | 1/17/0 | 6/12/0 | 1 / 6 (of 6) |
-| SYS-2 | B200x8 + DRAM + CXL-PNM | ★★ x1.049±0.022 / ★★★ x1.149±0.044 | ★★ / ★★ / ★★ | ★★★ / ★★ / ★★★ | 1/17/0 | 6/12/0 | 1 / 6 (of 6) |
-| SYS-3 | B200x8 + DRAM + HBF | ★★★ x1.182±0.073 / ★★★ x1.303±0.015 | ★★ / ★★★ / ★★ | ★★★ / ★★★ / ★★★ | 3/15/0 | 6/12/0 | 3 / 6 (of 6) |
-| SYS-4 | B200x8 + all six memories | ★★★ x1.180±0.066 / ★★★ x1.327±0.042 | ★★ / ★★★ / ★★ | ★★★ / ★★★ / ★★★ | 3/15/0 | 6/12/0 | 3 / 6 (of 6) |
+| SYS-1 | B200x8 + host DRAM (As-Is class) | ★★ x1.049±0.025 / ★★★ x1.149±0.044 | ★★ / ★★ / ★★ | ★★★ / ★★ / ★★ | 1/17/0 | 6/12/0 | 1 / 6 (of 6) |
+| SYS-2 | B200x8 + DRAM + CXL-PNM | ★★ x1.049±0.022 / ★★★ x1.149±0.044 | ★★ / ★★ / ★★ | ★★★ / ★★ / ★★ | 1/17/0 | 6/12/0 | 1 / 6 (of 6) |
+| SYS-3 | B200x8 + DRAM + HBF | ★★★ x1.182±0.073 / ★★★ x1.303±0.015 | ★★ / ★★★ / ★★ | ★★★ / ★★★ / ★★ | 3/15/0 | 6/12/0 | 3 / 6 (of 6) |
+| SYS-4 | B200x8 + all six memories | ★★★ x1.180±0.066 / ★★★ x1.327±0.042 | ★★ / ★★★ / ★★ | ★★★ / ★★★ / ★★ | 3/15/0 | 6/12/0 | 3 / 6 (of 6) |
 | SYS-5 | Vera Rubin x8 + all six memories | ★★ x1.005±0.002 / ★★ x1.026±0.012 | ★★ / ★★ / ★★ | ★★ / ★★★ / ★★ | 2/25/0 | 4/23/0 | 1 / 1 (of 6) |
 
 ## 4.5 Iteration summary
@@ -249,6 +301,19 @@ Baseline-regression loop가 발동했다 (first-pass에서 두 후보 모두 Bas
 | 1 | P | 공통 access-cost estimator, SLO filter와 do-no-harm(C1 destination 선택), link-time migration budget, cooldown, C2 benefit-vs-cost gating, C2 demotion은 HBM pressure일 때만 | C1 x1.000 / C2 x1.028, **loss 0**, win 0 (Common/Stress는 parity) |
 | 2 | B | `dynamic_benchmark()` 6개 + controls 추가 (policy 불변) | dynamic: C1 x1.106 (win 1), C2 x2.211 (win 6) |
 | 3 | P | C1 promotion path (설계 §17.2): static 추정으로 SLO를 위반하는 object를 HBM으로 승격, HBM 거주 object와 swap, budget 예약 | dynamic: C1 x1.643 (win 3), C2 불변 |
+
+## 4.6 모델 오차 e sweep (SYS-4, Combined, comparison-valid, 보고용)
+
+access-cost 추정(두 후보 공통, 시스템적 편향)과 C2의 predicted hotness(C2만, 호출마다)에 lognormal 오차(sigma=e)를 넣고 같은 benchmark를 다시 돌렸다. 정책 상수는 바꾸지 않았다 (`DP1/sim/epsilon_sweep.py`).
+
+| 오차 e (lognormal sigma) | C1 QA1 | C2 QA1 | C2/C1 | C1 win/tie/loss | C2 win/tie/loss | C1 QA3 | C2 QA3 |
+|---|---|---|---|---|---|---|---|
+| 0.0 | x1.258±0.098 | x1.442±0.023 | x1.147 | (3, 15, 0) | (6, 12, 0) | 42% | 49% |
+| 0.2 | x1.351±0.077 | x1.573±0.059 | x1.164 | (5, 13, 0) | (6, 12, 0) | 44% | 51% |
+| 0.4 | x1.334±0.055 | x1.621±0.062 | x1.215 | (4, 14, 0) | (6, 12, 0) | 42% | 50% |
+| 0.6 | x1.315±0.090 | x1.519±0.043 | x1.155 | (3, 15, 0) | (6, 12, 0) | 40% | 46% |
+
+e를 올려도 C2의 이득이 사라지는 지점(break-even)은 이 오차 모델에서는 나타나지 않았다. 오차가 커질수록 두 후보의 절대 이득이 오히려 e=0 일 때보다 커지는 구간이 있는데, 이는 e=0의 cost 추정식이 최적이 아님을 의미하며 오차가 정책을 개선한다는 뜻이 아니다. 이 결과는 lognormal 한 종류, 5 seed 기준이며 실제 workload 분포 이동에 대한 robustness는 확인하지 않았다.
 
 # 5. 결과 분석
 
@@ -299,12 +364,16 @@ SYS-1~SYS-5, 3개 set 전체에서 **어느 후보도 Baseline 미만(loss)인 �
 8. **SYS-5의 Custom HBM**은 평가 중 loader 수정 후의 값이며, 이전 first-pass 결과(SYS-5)와 비교할 수 없다.
 9. **DP1 별점 기준(4.1)은 공통 룰(criteria rule 2: 같은 QA는 DP 간 같은 룰)과 의도적으로 다르며, 첫 결과를 본 뒤 정의했다** (`defined_after_first_look`). 공통 별점은 4.1a에 병기한다. 후보 간 ★ 차이는 QA1 ★★★ 경계(1.30)에 의존한다. 4.1b의 sensitivity에서 경계가 약 1.26~1.44일 때만 C1/C2가 갈리고 1.25 이하에서는 같으며 1.50이면 둘 다 ★★이다. 새 benchmark로 같은 경계를 재확인해야 한다. 집계는 comparison-valid 시나리오만 대상으로 하므로 feasible 전체 기준 값과 n이 다르다.
 
+10. **QA3 정의를 이번 평가 중 v3로 바꿨다**(migration 링크 점유율 차감). 이전 정의의 C2 utilization(+15pp)은 v3에서 +14pp로 낮아져 DP1 ★★★ 경계(+15pp) 바로 아래에 있다. 별점은 1pp 차이에 달려 있으므로 수치(4.3)를 같이 읽어야 한다.
+11. **비용 항목의 한계:** decision overhead는 TTFT에 이미 가산되지만 run당 50~100 ms라 SLO(초 단위)에는 영향이 거의 없다. migration 링크 점유는 C2 9.5% 대 C1 1.3%로 QA3에만 반영된다. HBF endurance, 다른 workload와의 링크 경합은 모델링하지 않았다.
+12. **trade-off는 QA4와 비용 쪽에만 있다.** QA1~QA3에서는 C2가 C1과 같거나 앞선다. 오차 sweep(4.6)에서도 역전이 없다. 이를 '예측 오차가 없어서'로 단정할 수는 없다(C2 predictor는 EWMA 추정기이지 oracle이 아니다). 단 access-cost 추정이 simulator와 같은 식을 쓴다는 한계(2번)는 그대로다.
+
 # 7. 결론
 
 - **현재 simulator 기준으로 C1, C2는 모든 시스템·모든 benchmark에서 Baseline 이상이다** (loss 0). first-pass의 Baseline 미만 결과는 정책 결함(P: serving 비용 무시, migration budget 없음)과 benchmark 부적합(B)에서 왔고 iteration 1~3에서 해소되었다.
 - **이득은 "static 배치가 runtime에 stale해지는" 조건에서만 확인된다.** Common과 feasible Stress에서는 둘 다 Baseline과 동률이다. SYS-4 Dynamic에서 C2는 6/6, C1은 3/6 시나리오에서 유의하게 이긴다. 그 외는 parity다. 이것은 일반 이득 주장이 아니다.
-- **DP1 별점(4.1, 공식):** Combined 기준 Baseline ★★/★★/★★, C1 ★★/★★★/★★, C2 ★★★/★★★/★★★ (QA1/QA2/QA3). 공통 별점은 동일하지만 DP1 기준에서는 C2가 높다. 단 이 차이는 QA1 ★★★ 경계(1.30) 선택에 의존한다(6. 한계 9).
-- **C2 vs C1 (직접 비교, 4.1b):** 공통 별점은 같아 보여도(QA1 ★★★ 둘 다) comparison-valid 13개 기준 C2/C1 goodput은 x1.147±0.096로 **C2가 유의하게 높다** (C2 우세 2 / tie 11 / C1 우세 0). 우세 2개는 모두 Dynamic KV 시나리오다. Latency는 P99 tier가 같고 P95/P50에서 C2가 낫다 (Combined P95 x1.16, P50 x1.30). Utilization은 C2 58% 대 C1 43% (+15pp). 반면 C1은 훨씬 적은 byte를 옮기고(4.3) Modifiability가 우위다 (★★★ vs ★★). 같은 data class 안의 hot/cold 구분이 필요한 workload에서는 C1이 구조적으로 이기지 못한다. **Common과 feasible Stress에서는 둘 다 Baseline과 동률이고 C2/C1도 tie다.**
+- **DP1 별점(4.1, 공식, Combined):** C1 ★★ / ★★★ / ★★ / ★★★, C2 ★★★ / ★★★ / ★★ / ★★ (QA1 / QA2 / QA3 / QA4). 별 합계는 C1 10, C2 10이고 선택은 0.3의 규칙(QA 우선순위 QA1 > QA2 > QA3 > QA4)으로 정한다. 별점 차이는 경계 선택에 의존한다(6장 9, 10).
+- **C2 vs C1 (직접 비교):** comparison-valid 13개 기준 C2/C1 goodput은 x1.147 (4.1c). Dynamic KV 시나리오에서만 차이가 나고 Common/feasible Stress에서는 tie다. 반면 C2는 migration 1,239 GiB(C1 110 GiB), 링크 점유 9.5%(C1 1.3%)를 쓰고 Modifiability가 낮다(QA4 ★★ 대 ★★★). 이 비용은 QA1~QA3 별점에 거의 드러나지 않으므로 trade-off는 성능(C2) 대 확장성·비용(C1)으로 읽는다.
 - **다음 단계:** (1) Destination Tier Selector의 serving-cost 입력, link-time migration budget, C2 benefit-vs-cost gating, C1 promotion 경로를 설계 문서에 반영한다 (loop-log '설계 문서에 미치는 영향'). (2) vLLM trace 수집과 HBM↔DRAM 실측으로 access-cost 모델의 오차를 [A]로 확인하고, 오차를 넣은 estimator로 재평가한다. (3) budget 파라미터 근거 확보. (4) 개정 구조(Backend I/F, snapshot)를 simulator에 반영한다.
 
 ## QA4 — Modifiability (architecture argument, [C])

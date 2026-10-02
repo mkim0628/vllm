@@ -43,7 +43,8 @@ doc-mk/Evaluation/
 - 모든 결과는 SYS id + model + config git revision을 인용한다.
 - `system-specs.md`와 `DP1/benchmark.md`의 생성 블록은 수동 편집하지 않고 `tools/`의 스크립트로 재생성한다.
 - 시스템 spec은 Evidence [B], simulation 결과는 [B+C]이며 [A]로 쓰지 않는다.
-- QA 정의/별점 threshold는 결과를 본 뒤 바꾸지 않는다.
+- QA 별점 threshold는 결과를 본 뒤 바꾸지 않는다. 평가 정의의 누락·오류 수정(예: QA3 v3)은 사유와 이전 값을 문서에 기록하고 허용한다.
+- 결과 문서는 §0 최종 요약으로 시작하고, 선택은 QA 우선순위 규칙(`tools/dp_selection.py`)으로 설명한다. 산출 PPT는 `tools/gen_dp_pptx.py`.
 
 ## 상태
 

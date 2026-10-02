@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import random
+import zlib
 from collections import defaultdict, deque
 from dataclasses import dataclass
 
@@ -35,6 +37,26 @@ class ResourceState:
 MIGRATION_EXPOSURE = 0.20   # fraction of a transfer's duration exposed to the next access (executor, single source)
 LINK_SHARE = 0.25           # migration may use at most this share of link time (token-bucket refill rate)
 COOLDOWN_S = 8.0            # per-object cooldown == budget window
+MODEL_ERROR = 0.0   # eps: lognormal sigma on access-cost estimates (systematic, both candidates) and on C2's
+                    # predicted hotness (per call, C2 only). 0.0 = registered setting. Reporting-only knob.
+_ERR_SEED = 0
+_PRED_RNG = random.Random(0)
+
+
+def set_model_error(eps: float, seed: int = 0) -> None:
+    global MODEL_ERROR, _ERR_SEED, _PRED_RNG
+    MODEL_ERROR = float(eps)
+    _ERR_SEED = int(seed)
+    _PRED_RNG = random.Random(seed * 104729 + 17)
+
+
+def _est_factor(key) -> float:
+    if MODEL_ERROR <= 0.0:
+        return 1.0
+    r = random.Random(zlib.crc32(repr((key, _ERR_SEED)).encode()))
+    return math.exp(r.gauss(0.0, MODEL_ERROR))
+
+
 BENEFIT_HORIZON_S = 30.0    # C2 look-ahead over which predicted stall savings are counted
 HIGH_WATERMARK = 0.82       # capacity pressure at which a tier is "pressured" (unchanged since first pass)
 AFFINITY_MARGIN = 2.0       # C1 swap hysteresis: static penalty gain must be >= 2x the static penalty loss (iteration 3)
@@ -63,7 +85,11 @@ class AccessCostEstimator:
         )
         v = self._cache.get(key)
         if v is None:
-            v = self._cache[key] = self._estimate(tier, op, hint, size_bytes)
+            v = self._estimate(tier, op, hint, size_bytes)
+            if v is not None and tier != "hbm" and MODEL_ERROR > 0.0:
+                f = _est_factor(key)
+                v = (v[0] * f, v[1] * f)
+            self._cache[key] = v
         return v
 
     def _estimate(self, tier, op, hint, size):
@@ -804,6 +830,8 @@ class C2BehaviorDrivenMigration:
             feat = self.monitor.features(rec.object_id, ev.now_s)
             trend = self.trend.analyze(rec, feat)
             pred = self.predictor.predict(rec, trend)
+            if MODEL_ERROR > 0.0:
+                pred = clamp(pred * math.exp(_PRED_RNG.gauss(0.0, MODEL_ERROR)))
             self.last_prediction[rec.object_id] = pred
             hint = ctx.static_affinity_hints.get(rec.object_id, {})
             dst = self.destination.select(

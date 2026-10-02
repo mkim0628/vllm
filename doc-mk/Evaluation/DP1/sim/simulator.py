@@ -348,7 +348,10 @@ def run_sim(
     load_scale: float = 1.0,
     replica_fraction: float = 0.0,
     drop_enabled: bool = False,
+    model_error: float = 0.0,
 ) -> dict:
+    import policies as _pol
+    _pol.set_model_error(model_error, seed)
     from scenarios import generate_trace
 
     rng = random.Random(
@@ -706,6 +709,8 @@ def run_sim(
             migration_bytes / (1024**3)
         ),
         "migration_time_s": migration_time_total,
+        "migration_link_frac": min(1.0, migration_time_total / max(1, sc.horizon_s)),
+        "model_error": model_error,
         "promotion_count": direction_count["promotion"],
         "demotion_count": direction_count["demotion"],
         "rebalance_count": direction_count["rebalance"],

@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | QA1 Throughput | Max SLO Goodput의 Baseline 대비 ratio (시나리오 간 geometric mean) | < 0.97 | 0.97 ~ 1.30 | >= 1.30 |
 | QA2 Latency | Baseline 대비 latency improvement factor: (TTFT, TPOT) x (P50, P95, P99) 6개 improvement(= Baseline / 후보)의 geometric mean | < 0.95 | 0.95 ~ 1.25 | >= 1.25 |
-| QA3 Utilization | Useful utilization의 Baseline 대비 변화 (pp, 임시 정의: `HBM occupancy x SLO 만족 비율`) | < -5 pp | -5 ~ +15 pp | >= +15 pp |
+| QA3 Utilization | Useful utilization의 Baseline 대비 변화 (pp, 임시 정의 v3: `HBM occupancy x SLO 만족 비율 x (1 - migration 링크 점유율)`) | < -5 pp | -5 ~ +15 pp | >= +15 pp |
 | QA4 Modifiability | 공통 기준 그대로 (변경 module 수) | 공통 | 공통 | 공통 |
 
 **근거 (이 구간을 고른 이유):**
@@ -48,7 +48,7 @@
 | 집계 단위 | set별(Common / Stress / Dynamic)과 **combined** (3개 set의 comparison-valid 합) |
 | QA1 ratio | 시나리오별 (후보 Max SLO goodput) / (Baseline)의 **geometric mean**. 95% CI는 같은 seed·trace끼리 paired한 per-seed geometric mean의 t 구간 (공통 QA1과 같은 점 추정) |
 | QA2 | 시나리오별 TTFT/TPOT percentile을 구한 뒤 시나리오 간 **median**(대표값)과 worst-case(보조)를 모두 표기. 공통 별점의 worst-case 집계도 계속 병기 |
-| QA3 | comparison-valid 시나리오 평균 (임시 정의: `HBM occupancy x SLO 만족 비율`) |
+| QA3 | comparison-valid 시나리오 평균 (임시 정의 v3: `HBM occupancy x SLO 만족 비율 x (1 - migration 링크 점유율)`) |
 | 유의성 | 후보 간 차이가 CI 이내이거나 1% 미만이면 tie |
 
 ### B.2 세부 tier (공통 별점의 하위 구간)
@@ -123,3 +123,17 @@ python3 loop_run.py --final                                   # SYS-1~5 qa_resul
 python3 dp1_rating.py ../results/data/SYS-4/qa_result.json    # DP1 별점 + 세부 tier + head-to-head + 민감도 -> dp1_rating.json
 python3 ../../tools/gen_dp1_result.py                         # 결과 문서 생성
 ~~~
+
+
+---
+
+# E. QA 우선순위와 후보 선택 (사용자 확정 필요)
+
+[`qa_priority.json`](qa_priority.json): **QA1 > QA2 > QA3 > QA4** (status: proposal). 근거: DP1의 1차 목적은 SLO를 만족하는 처리량·지연이고, 활용률은 그 결과, 확장성은 구조 비용이다.
+
+선택 규칙 (`tools/dp_selection.py`): 별 합계 차이가 2 이상이면 합계가 높은 후보. 차이가 1 이하(동점 포함)이면 우선순위 위에서부터 처음으로 별이 갈리는 QA가 결정한다. 우선순위를 뒤집은 결과도 함께 보고한다.
+
+# F. QA3 정의 변경 이력
+
+- v2: `avg HBM occupancy x (SLO 만족 token / served token)`.
+- v3 (2026-10-02): 위 값에 `(1 - migration 링크 점유율)`을 곱한다. 이유: migration에 쓰인 링크 시간은 serving에 쓰이지 않으므로 useful 활용에서 빼는 것이 정의상 맞다. 영향: SYS-4 combined에서 C2 +15pp -> +14pp (DP1 ★★★ 경계 +15pp 아래로, 별 ★★★ -> ★★), C1 +7pp 유지. 변경은 결과를 본 뒤에 이루어졌으므로 `defined_after_first_look`에 해당한다.

@@ -83,6 +83,8 @@ def mean_ci(xs):
     return m, T95 * sd / math.sqrt(len(xs)), (sd / m if m else 0.0)
 
 
+MODEL_ERROR = 0.0  # reporting-only knob (epsilon sweep); registered value 0.0
+
 # --------------------------------------------------------------------------- running
 _SYS_CACHE = {}
 
@@ -97,10 +99,12 @@ def _system(sys_id):
 def _run_one(args):
     sys_id, label, sc_name, cand, load, seed = args
     sc = next(s for s in SET_FUNCS[label]() if s.name == sc_name)
-    r = run_sim(_system(sys_id), sc, seed, cand, DATA_PRIORS, load)
+    r = run_sim(_system(sys_id), sc, seed, cand, DATA_PRIORS, load, model_error=MODEL_ERROR)
     r["goodput_tps"] = r["slo_goodput_tokens"] / sc.horizon_s
     r["slo_ratio"] = r["slo_goodput_tokens"] / max(1e-9, r["served_tokens"])
-    r["useful_hbm_util"] = r["avg_hbm_util"] * r["slo_ratio"]
+    r["useful_hbm_util_raw"] = r["avg_hbm_util"] * r["slo_ratio"]
+    # v3: link time spent migrating is not serving time -> discounted (definition in criteria QA3 note)
+    r["useful_hbm_util"] = r["useful_hbm_util_raw"] * (1.0 - r["migration_link_frac"])
     r["set"] = label
     return r
 
@@ -118,7 +122,7 @@ def run_set(sys_id, label, jobs=1):
 METRICS = (
     "goodput_tps", "ttft_p99_ms", "tpot_p99_ms", "useful_hbm_util", "avg_hbm_util",
     "aggregate_capacity_util", "slo_ratio", "migration_count", "migration_gib",
-    "migration_time_s", "decision_overhead_ms", "demotion_count", "promotion_count",
+    "migration_time_s", "migration_link_frac", "decision_overhead_ms", "demotion_count", "promotion_count",
     "rebalance_count",
 )
 
@@ -153,6 +157,7 @@ def per_scenario(rows):
                         migration_count=statistics.mean(r["migration_count"] for r in rs),
                         migration_gib=statistics.mean(r["migration_gib"] for r in rs),
                         migration_time_s=statistics.mean(r["migration_time_s"] for r in rs),
+                        migration_link_frac=statistics.mean(r["migration_link_frac"] for r in rs),
                         decision_overhead_ms=statistics.mean(r["decision_overhead_ms"] for r in rs),
                         demotion=statistics.mean(r["demotion_count"] for r in rs),
                         promotion=statistics.mean(r["promotion_count"] for r in rs),
@@ -265,7 +270,9 @@ def qa_table(ps, names=None):
             mc = statistics.mean(v[cand]["migration_count"] for v in sub.values())
             mg = statistics.mean(v[cand]["migration_gib"] for v in sub.values())
             do = statistics.mean(v[cand]["decision_overhead_ms"] for v in sub.values())
+            lf = statistics.mean(v[cand]["migration_link_frac"] for v in sub.values())
         else:
+            lf = float("nan")
             ttft_w = tpot_w = ttft_m = tpot_m = util = pool = mc = mg = do = float("nan")
         res[cand] = dict(
             qa1_ratio_geomean=gm, qa1_ratio_ci95=gm_ci, qa1=stars_q1(gm) if ratios else "n/a",
@@ -276,7 +283,7 @@ def qa_table(ps, names=None):
             qa2_ttft_p99_median_ms=ttft_m, qa2_tpot_p99_median_ms=tpot_m,
             qa2=stars_q2(ttft_w, tpot_w) if sub else "n/a",
             qa3_useful_hbm_util=util, qa3=stars_q3(util) if sub else "n/a",
-            pool_util=pool, migration_count=mc, migration_gib=mg, decision_overhead_ms=do,
+            pool_util=pool, migration_count=mc, migration_gib=mg, decision_overhead_ms=do, migration_link_frac=lf,
             n_scenarios=len(sub),
         )
     # parity-with-baseline flags (used by the stop criterion)

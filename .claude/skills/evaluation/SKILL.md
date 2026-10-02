@@ -29,6 +29,12 @@ description: "Use whenever evaluating, benchmarking, simulating or scoring a Des
 - H9. 이전 결과/iteration을 덮어쓰거나 지우지 않는다. 대체된 결과는 파일명에 `_superseded`를 붙여 보존한다.
 - H10. 시스템 profile 값을 조용히 수정하지 않는다. 새 profile을 추가하고 provenance를 적는다.
 - H11. 공통 룰 문서는 바꾸지 않는다. 공통 별점이 후보를 구분하지 못하면 `DPn/qa-criteria-dpn.md`에 세부 tier·집계·직접 비교를 두는 것까지는 자유지만, **DP 전용 별점을 공식으로 쓰는 것은 사용자가 결정했을 때만** 허용한다(criteria rule 2의 의도적 예외). 이 경우 (a) 공통 별점을 항상 병기, (b) 경계 값 sensitivity 표 필수, (c) 결과를 본 뒤 정의했으면 `defined_after_first_look`로 공개, (d) 한계·결론에 '별점 차이가 경계 선택에 의존함'을 명시한다. 별점이 같아도 값은 항상 병기한다.
+- H12. **결과 문서는 §0 최종 요약으로 시작한다**(발표용 1장 분량). 순서: (0.1) QA1~QA4 x 후보 표 — 칸마다 별점 + 핵심 수치 1개 + Evidence 라벨, (0.2) trade-off 2~3줄, (0.3) 선택과 근거, (0.4) 선택 구조의 부족한 부분과 보완 설계, (0.5) 대표 benchmark 3~5개. 전체 시나리오는 4장에 두고 본문에서 나열하지 않는다. 0장은 생성기(`tools/gen_dp<n>_result.py`)가 데이터에서 만든다.
+- H13. **선택 로직(필수 명시).** DP별 QA 우선순위를 `DPn/qa_priority.json`에 둔다(사용자 확정 전에는 status를 "proposal"로 표시하고 결과에도 그대로 쓴다). 규칙(`tools/dp_selection.py`): 별 합계 차이 2 이상이면 합계, 1 이하(동점 포함)이면 우선순위 위에서부터 처음으로 별이 갈리는 QA가 결정. 우선순위를 뒤집었을 때의 결과(결정 민감도)와, 별점 경계가 결과를 좌우하는 곳(경계 근처 값)을 함께 적는다. 점수가 아니라 선택 근거를 문장으로 쓴다.
+- H14. **보완 설계.** 선택한 후보의 약점(QA별 별점·비용·리스크 근거 수치 포함)마다 보완 택틱을 표로 제안하고 각 택틱의 검증 상태([B] 구현·측정됨 / [C] 논증·미구현)를 적는다. 미구현 택틱의 효과를 수치로 주장하지 않는다. 택틱 제안은 별도 PPT 1장으로 낸다.
+- H15. **PPT 산출물.** (a) DP별 QA 결과 appendix 슬라이드: 기본 1장(QA 표 + trade-off + 선택 + 한계 한 줄), QA 행이 6개를 넘거나 내용이 넘치면 2장. (b) 보완 설계 택틱 슬라이드 1장. `tools/gen_dp_pptx.py`로 데이터에서 생성하고 `doc-mk/DPn/`에 둔다. 슬라이드의 숫자는 결과 문서와 같은 소스를 쓴다.
+- H16. **수치를 원하는 결론에 맞춰 조정하지 않는다.** 사용자가 "조금 조작해도 된다"고 해도 따르지 않는다. 결과가 마음에 안 들 때 허용되는 것은 (i) 평가 정의의 누락·오류 수정(예: 비용 항목 추가, 사유와 이전 정의를 문서에 기록), (ii) 공개된 가정의 변경과 그 민감도 보고, (iii) 시나리오 추가(실패한 것도 유지)뿐이다. 비용 항목을 넣었는데도 후보가 지배(dominate)하면 그것이 결론이다 — trade-off는 QA4·비용 쪽에 있다고 쓴다. 정의를 바꾸면 이전 값과 바뀐 별점을 결과 문서 한계에 적는다.
+- H17. **모델 오차 sweep.** 후보가 estimator/predictor에 의존하면 오차 e(lognormal sigma) 0/0.2/0.4/0.6 sweep을 보고한다(`DP1/sim/epsilon_sweep.py`, 정책 상수 재조정 금지). break-even이 없으면 "이 오차 모델에서는 없음"으로, 오차 모델이 한 종류뿐임을 한계에 적는다.
 
 ## 1. 폴더 구조 (single source of truth)
 ```
@@ -37,10 +43,12 @@ doc-mk/Evaluation/                 # 공통 문서
   common-benchmark.md              # Common Benchmark 정의
   system-specs.md                  # 시스템 profile SYS-n (코드: DP1/sim/configs/systems.json)
   result-template.md               # 결과 문서 template
-  README.md, CLAUDE.md, tools/
+  README.md, CLAUDE.md
+  tools/                           # gen_*_result.py, gen_dp_pptx.py, dp_selection.py
   DPn/                             # DP별 폴더 (n=1..4)
     simulation-plan.md             # (또는 evaluation plan)
     benchmark.md                   # DP 전용 benchmark
+    qa-criteria-dpn.md, qa_priority.json   # DP 전용 별점 기준(사용자 결정 시), QA 우선순위
     results/
       YYYY-MM-DD_<topic>.md        # 결과 문서 (대체 시 *_superseded.md)
       data/                        # raw json/csv
@@ -66,10 +74,11 @@ doc-mk/Evaluation/                 # 공통 문서
 
 ## 4. 결과 문서 형식 (result-template.md)
 Front-matter: `date, dp, candidates, sys_ids, git_rev, evidence, status(draft|final|superseded)`.
-섹션은 아래 번호와 제목을 그대로 쓴다.
+섹션은 아래 번호와 제목을 그대로 쓴다 (0번은 DP 결과 문서에 필수).
 
 | # | 제목 | 반드시 들어갈 내용 |
 |---|---|---|
+| 0 | 최종 요약 | H12 형식(QA 표, trade-off, 선택 근거, 보완 설계, 대표 benchmark). 생성기가 데이터에서 만든다 |
 | 1 | 시스템 환경 | SYS id(들), model, git revision, 재현 command. `system-specs.md` 링크 |
 | 2 | 평가 항목 | QA1~QA4 + diagnostic metric. 실제 사용한 formula/정의. 룰 문서에 없는 formula는 "임시 정의" 표기 |
 | 3 | 벤치마크 / 시나리오 | Common Benchmark와 DP 전용 benchmark(예: DP1 Stress Benchmark, dynamic benchmark) **모두**. 모든 시나리오를 나열하고 fit label(comparison-valid / infeasible / saturated) 부여 |
