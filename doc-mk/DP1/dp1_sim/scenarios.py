@@ -122,6 +122,20 @@ def scenarios():
         target_tiers=("hbm","custom_hbm","cxl_pnm","dram","hbf","ssd_pim")))
     return S
 
+def common_benchmark():
+    """Common Benchmark Profile (qa-evaluation-criteria.md section 8): Llama-3.1-70B, BF16,
+    8K input / 256 output, deterministic trace, load sweep. HBM is shrunk (hbm_capacity_mult)
+    so that the memory hierarchy actually matters; with ample HBM every candidate is identical."""
+    S=[]; add=S.append
+    add(Scenario("cb_kv_8k_b32","Common benchmark: KV only, 8K/256, batch 32, tight HBM.",{"KV_CACHE":1},8192,256,32,40,1.0,
+                 hbm_capacity_mult=.12,target_tiers=("hbm","dram","cxl_pnm","hbf")))
+    add(Scenario("cb_kv_8k_b32_ramp","Common benchmark: KV only, progressive HBM pressure.",{"KV_CACHE":1},8192,256,32,40,1.0,
+                 phase="capacity_ramp",hbm_capacity_mult=.2,target_tiers=("hbm","dram","cxl_pnm","hbf")))
+    add(Scenario("cb_mixed_8k_b32","Common benchmark: KV + LoRA + MoE + Agent/Tool data, tight HBM.",{
+        "KV_CACHE":.5,"LORA_ADAPTER":.15,"MOE_EXPERT":.15,"AGENT_MEMORY":.1,"TOOL_RESULT":.1},8192,256,32,48,1.0,
+                 hbm_capacity_mult=.12,phase="bimodal",target_tiers=("hbm","dram","cxl_pnm","hbf")))
+    return S
+
 def _choice(rng,mix):
     x=rng.random(); acc=0.0
     for k,w in mix.items():

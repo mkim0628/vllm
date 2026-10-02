@@ -10,6 +10,7 @@ from policies import (
     Telemetry,
     C1ResourceDrivenMigration,
     C2BehaviorDrivenMigration,
+    StaticNoMigration,
 )
 
 FIRST_RESPONSE_SLO_S = 2.0
@@ -298,6 +299,8 @@ def maybe_assign_replica(
 
 
 def _policy(system, candidate, priors, drop_enabled=False):
+    if candidate == "Baseline-static":
+        return StaticNoMigration(system)
     if candidate == "C1-resource-driven":
         return C1ResourceDrivenMigration(system, drop_enabled)
     if candidate == "C2-behavior-driven":

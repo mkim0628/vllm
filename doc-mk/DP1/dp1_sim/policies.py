@@ -267,6 +267,26 @@ class C1ResourceDrivenMigration:
         self.eviction.on_moved(decision.object_id, now_s)
 
 
+class StaticNoMigration:
+    """Common Reference Baseline (QA1 T_ref): As-Is proxy.
+
+    Initial placement is fixed by the common external allocator and never revisited:
+    no migration layer, tier order fixed, no reaction to pressure or data behavior.
+    """
+
+    name = "Baseline-static"
+    decision_cost_us = 0.0
+
+    def __init__(self, system, drop_enabled: bool = False):
+        self.system = system
+
+    def on_event(self, ev, ctx):
+        return [], 0.0
+
+    def on_migration_committed(self, decision, now_s):
+        pass
+
+
 class DataBehaviorMonitor:
     def __init__(self, alpha: float = 0.2):
         self.alpha = alpha
