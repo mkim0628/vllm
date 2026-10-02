@@ -672,6 +672,7 @@ RDMA 근거: `mkim0628/llm-d@4cd4ed4:docs/architecture/advanced/disaggregation/R
 | upstream vLLM | `https://github.com/vllm-project/vllm/tree/9e6550b` — `vllm/v1/kv_offload/tiering/`, `vllm/v1/kv_offload/base.py`, `vllm/v1/engine/coordinator.py`, `vllm/distributed/kv_events.py`, `vllm/distributed/kv_transfer/kv_connector/v1/offloading/scheduler.py`, `docs/serving/data_parallel_deployment.md`, `docs/deployment/integrations/llm-d.md` |
 | E2 프로브 | 코드 전체(`tiercost.go`, `main.go`, `tiercost_test.go`, 추가 프로브, 실행 스크립트)를 [llm-d 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/llm-d/llm-d-architecture-analysis.md) §9 부록 A에 수록 |
 | 기존 DP 문서 | `mkim0628/vllm` 브랜치 `claude/vllm-call-path-analysis-qxulkr`의 `doc-mk/` |
+| 요구사항 | [`dp0-requirements.md`](dp0-requirements.md) (F1~F6, Q1~Q4, C1~C6, P1~P5, 추적성 매트릭스) |
 
 웹 자료는 사용하지 않았다.
 
