@@ -55,6 +55,20 @@ AI Data마다 reuse pattern, lifetime, access frequency, bandwidth sensitivity, 
 
 그리고 두 후보 모두 공통적으로 **Event-driven Migration Scheduler**를 entry point로 사용한다.
 
+## 1.0 As-Is: vLLM의 기존 한계 (슬라이드 8)
+
+| # | 한계 | 근거 / 정확한 표현 |
+|---|---|---|
+| ① | **Data Migration Layer 부재** | data object의 위치 registry도, 이동을 결정·실행하는 scheduler/executor도 없다. 이동은 KV 전용 offload 경로(HBM ↔ CPU)에 내장되어 있고 데이터 타입(KV·Weight·LoRA·Expert)을 구분하지 않는다. |
+| ② | **Memory tier / Backend가 정적으로 고정** | tier별 backend가 설정으로 고정되고 정책이 tier 구성·순서에 결합되어 있다. 신규 memory마다 타입별 코드 수정이 필요하다. 예: `vllm/v1/kv_offload`의 `OffloadingSpec`은 `medium()` 하나(현재 CPU)를 가지며, 다중 tier는 `MultiConnector`의 **정적 connector 리스트**로 구성된다 (load는 먼저 hit를 알린 connector, store는 전체 fan-out). |
+| ③ | **이동은 반응형, 사전 예측 없음** | 부족할 때 evict / preempt / miss 조회로 대응한다. eviction은 tier **내부** 정책(LRU/ARC)이며 하위 tier로 **내려보내는(demote) 동작이 아니다**. memory 특성(BW·latency·용량)과 data 특성을 고려한 배치·사전 이동이 없다. |
+
+정확성 주석:
+
+- "Allocation Backend가 고정된 tier 순서로 호출된다"는 표현은 **allocation(할당)** 보다 **store/load 경로가 설정된 backend 순서로 고정**된다는 의미로 쓰는 것이 정확하다. 순서는 data나 memory 상태와 무관하다.
+- 슬라이드의 `LocalCPUBackend / LocalDiskBackend`는 이 repository에 소스가 없고 LMCache 계열 storage backend 이름이다. LMCache 경로(`lmcache_connector`)에서는 설정된 storage backend 순서로 조회/저장하는 구조로 알려져 있으나, 해당 외부 코드로 확인이 필요하다.
+- vLLM 자체의 `CPUOffloadingManager`는 tier 내부 eviction(LRU/ARC)과 ref-counting만 수행하고 tier 간 이동은 하지 않는다.
+
 ## 1.1 두 가지 설계 쟁점
 
 | 쟁점 | 질문 | 해결 구조 | 문서 위치 |
@@ -429,29 +443,25 @@ memory 후보는 **Memory Backend I/F의 capability_flags / telemetry / transfer
 
 ## 5.7 Migration Executor Boundary
 
-PPT의 Migration Executor는 DP1에서 결정된 source / target / data object를
+슬라이드의 Migration Executor는 DP1 decision plane의 **출구**다.
+Destination Tier Selector와 Migration Data Selector가 결정한 source / target / data object를
 공통 migration architecture로 넘기는 execution boundary로 본다.
 
 ~~~text
-Destination Tier Selector
-          +
-Migration Data Selector
-          │
-          ▼
-MigrationDecision
-          │
-          ▼
-MigrationIntent
-          │
-          ▼
-MigrationCoordinator
-          │
-          ▼
-MigrationExecutor
+Destination Tier Selector  ┐
+                           ├─► Migration Executor (boundary) ─► 공통 Migration subsystem
+Migration Data Selector    ┘
 ~~~
 
-즉 PPT의 단순 구조에서는 Selector 다음에 Migration Executor를 직접 그리지만,
-상세 구현에서는 공통 Migration Control Plane을 거쳐 실제 transfer가 수행된다.
+상세 구현에서는 boundary 뒤에서 다음 순서로 처리된다.
+
+~~~text
+MigrationDecision → MigrationIntent → MigrationCoordinator → MigrationExecutor → TransferHandler
+~~~
+
+- 슬라이드의 단순 구조에서는 Selector 다음에 Migration Executor를 직접 그리지만, 실제 transfer는 공통 Migration Control Plane을 거쳐 수행된다.
+- **Migration Executor는 Memory Backend I/F와 직접 연결하지 않는다.** Memory Backend I/F는 Resource Manager 아래에 붙는다 (§5.8.2).
+  실제 전송 시 binding(③)과 staging primitive를 쓰는 것은 공통 subsystem의 TransferHandler이며 DP1 범위 밖이다 (§5.9).
 
 ---
 
@@ -713,13 +723,14 @@ MemoryTransferBinding
 
 ### 5.8.7 Backend I/F의 설계 원칙
 
-1. **Capability-driven**: decision plane은 `resource_id`/`memory_class` 문자열이 아니라 `capability_flags`와 수치 field로 판단한다.
+1. **Capability-driven**: Destination Tier Selector는 `resource_id`/`memory_class` 문자열이 아니라 `capability_flags`와 수치 field로 후보를 거른다.
 2. **Self-describing**: memory 특성은 plug-in이 선언한다. 중앙 enum/if-else에 memory를 열거하지 않는다.
 3. **Data-type-agnostic**: Backend는 KV/LoRA/MoE를 모른다 (공통 migration 의존성 규칙 7).
 4. **Append-only vocabulary**: capability flag와 telemetry field는 추가만 허용해 기존 plug-in 호환성을 유지한다.
 5. **Graceful degradation**: optional metric/flag 부재 시 보수적 기본값으로 동작한다.
-6. **Single window**: `decision/` → memory 접근은 Backend I/F 하나로만 허용한다 (import 금지 규칙 §21).
-7. **Read-only for decision plane**: decision plane은 descriptor/telemetry를 조회만 한다. allocation reserve/release와 location commit은 공통 migration control plane 소유다.
+6. **Resource Manager 단일 창구**: I/F는 Resource Manager 아래에 붙고, decision 모듈은 Backend를 직접 호출하지 않는다.
+   Resource Manager를 통해 memory 정보를 받는 모듈은 **Resource State Monitor(②)** 와 **Destination Tier Selector(①②③)** 뿐이다 (§5.8.2, §5.8.8). `decision/`은 `resource/backends/`를 import하지 않는다 (§21).
+7. **Read-only for decision plane**: decision plane은 Resource Manager가 제공하는 값을 조회만 한다. `reserve/release`와 location commit은 공통 migration control plane 소유다.
 
 ### 5.8.8 C1/C2 공통 적용 방식
 
@@ -2103,31 +2114,51 @@ policy_metadata
 
 ## 22.8 Common Memory Backend Interface
 
-C1/C2가 공통으로 사용하며, Memory Registry에 plug-in 형태로 등록된다. (상세: §5.8)
+Resource Manager 아래의 plug-in contract다 (슬라이드 8~10, 상세: §5.8). 호출 주체는 Resource Manager의 두 컴포넌트뿐이다.
 
 ~~~text
 MemoryBackend  (plug-in contract)
-  descriptor() -> MemoryDescriptor              # static capability
-  telemetry()  -> MemoryTelemetry               # dynamic state (pull) 
-  subscribe(cb: Callable[[MemoryTelemetry], None])   # dynamic state (push, optional)
-  transfer_binding() -> MemoryTransferBinding   # 공통 TransferHandler와의 연결 정보
-  export_async(region, staging) -> handle       # staging primitive (§5.8.11)
+  descriptor()       -> MemoryDescriptor         # ① static capability       ← Memory Registry.register()
+  transfer_binding() -> MemoryTransferBinding    # ③ 전송 경로/비용 정보       ← Memory Registry.register()
+  telemetry()        -> MemoryTelemetry          # ② dynamic state (pull)     ← Telemetry Collector.collect()
+  subscribe(cb)                                  # ② dynamic state (push, optional)
+  health()           -> HealthState              # ④ 상태 변화 → RESOURCE_CHANGED event
+  export_async(region, staging) -> handle        # staging primitive (§5.8.11) ← 공통 TransferHandler
   import_async(staging, region) -> handle
-  health() -> HealthState
-
-MemoryBackendRegistry                           # = Memory Registry의 plug-in 등록부
-  register(backend: MemoryBackend)
-  unregister(resource_id)
-  get(resource_id) -> MemoryBackend
-  list(filter: CapabilityFilter) -> list[MemoryBackend]
-  tier_order() -> list[resource_id]             # descriptor에서 파생된 rank 순서
 ~~~
+
+Resource Manager가 decision 모듈에 제공하는 기능 (제안 명칭):
+
+~~~text
+Memory Registry                                   # → Destination Tier Selector (C1, C2)
+  register(backend) / unregister(resource_id)     # ①③ 읽어 캐시
+  get_descriptor(resource_id) -> MemoryDescriptor # capability
+  list(filter: CapabilityFilter) -> list[MemoryDescriptor]
+  get_binding(src, dst) -> MemoryTransferBinding  # transfer cost
+  tier_order() -> list[resource_id]               # descriptor에서 파생된 rank (partial order, §5.8.3)
+
+Telemetry Collector                               # → Resource State Monitor (C1), Destination Tier Selector (C2)
+  collect()                                       # backend.telemetry() 수집, 이력 보관 (decision 경로 밖)
+  snapshot() -> ResourceSnapshot                  # cycle 시작 시점의 immutable 값 (capacity·BW·load)
+~~~
+
+호출 관계:
+
+| 호출 주체 | 호출 대상 | 시점 |
+|---|---|---|
+| Memory Registry | `descriptor()`, `transfer_binding()` | boot / hot-plug (이후 캐시) |
+| Telemetry Collector | `telemetry()` / `subscribe()` | 상시, 비동기 |
+| Resource Manager | `health()` | 상태 변화 시 event 발행 |
+| 공통 TransferHandler | `export_async` / `import_async` | migration 실행 (DP1 범위 밖) |
+| Resource State Monitor | `Telemetry Collector.snapshot()` | decision cycle |
+| Destination Tier Selector | `Memory Registry.list/get_binding/tier_order`, (C2) `Telemetry Collector.snapshot()` | decision cycle |
 
 Decision plane 사용 규칙:
 
 ~~~text
-Resource State Monitor / Selector / Eviction Manager
-  → MemoryBackendRegistry.list(CapabilityFilter) 로만 memory를 조회
+Resource State Monitor / Destination Tier Selector
+  → Resource Manager (Telemetry Collector / Memory Registry) 로만 memory 정보를 조회
+  → MemoryBackend를 직접 호출하지 않는다
   → resource_id / memory_type 문자열 비교(if type == "CXL") 금지
 ~~~
 
