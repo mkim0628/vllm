@@ -82,8 +82,8 @@ def render():
     for n, res, err in sets:
         L.append(f"| {TITLES.get(n, n)} | `scenarios.{n}()` | {len(res) if res is not None else 'ERROR'} |")
     L.append("")
-    for n, res, err in sets:
-        L += [f"## G.{TITLES.get(n, n)}", ""]
+    for gi, (n, res, err) in enumerate(sets, 1):
+        L += [f"## G.{gi} {TITLES.get(n, n)}", ""]
         if res is None:
             L += [f"> ERROR while calling `{n}()`: {err}", ""]
             continue

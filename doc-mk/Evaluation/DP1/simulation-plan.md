@@ -6,6 +6,10 @@
 > QA 정의와 별점 기준은 별도 문서
 > **doc-mk/Evaluation/qa-evaluation-criteria.md**를 따른다.
 >
+> **문서 범위 (Evaluation 폴더 통합 후)**: 이 문서는 DP1의 평가/시뮬레이션 *방법*만 다룬다.
+> 공통 규칙은 [QA 기준](../qa-evaluation-criteria.md), [Common Benchmark](../common-benchmark.md), [System Spec (SYS-id)](../system-specs.md),
+> DP1 시나리오 정의는 [benchmark.md](benchmark.md), 결과는 [results/](results/), 폴더 안내는 [README](../README.md)를 본다.
+>
 > DP2/DP3/DP4의 실행 환경과 simulation methodology는 각각 별도 문서로 작성한다.
 > 특히 DP2는 llm-d 기반 scheduling/execution 구조를 사용하므로 본 DP1 simulation 구조를 그대로 재사용하지 않는다.
 
@@ -589,9 +593,12 @@ doc-mk/Evaluation/DP1/sim/
 ├── run_eval.py
 ├── test_sim.py
 ├── model.py
-├── scenarios.py
-└── configs/
+├── scenarios.py          # benchmark scenario 단일 소스 (benchmark.md 참조)
+├── qa_eval.py            # QA1~QA3 산출 (Common Reference Baseline 대비 별점)
+└── configs/              # systems.json (SYS-1..5), clusters.json, memories_default.json, models.json
 ~~~
+
+System profile은 `../system-specs.md`, benchmark scenario 정의는 `benchmark.md`, 결과는 `results/`에 둔다.
 
 기존 claude/dp1-ai-data-placement branch의 doc-architect/dp1_eval, doc-architect/dp1_sim, doc-architect/configs에서 재사용 가능한 model / scenario / HW configuration을 가져오고, policy와 event flow는 현재 DP1 구조에 맞게 변경했다.
 
