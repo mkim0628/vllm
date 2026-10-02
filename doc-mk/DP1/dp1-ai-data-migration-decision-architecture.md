@@ -163,7 +163,7 @@ DP1 decision이 byte copy를 동반하지 않는 선택지도 표현할 수 있�
 - `REPLICATE`로 만든 복제본은 이후 demotion 시 `DROP`으로 끝나므로 **write 비용이 큰 매체(HBF/SSD-PIM, §5.9.5)에 유리**하다.
 - `DROP`은 데이터를 재현 가능한 경우(복제본 존재, KV recompute 등)에만 허용한다. 재현 불가능 데이터의 `DROP`은 금지하며, 이 판정은 Registry의 replica/recomputable 정보에 의존한다 (C1: generic `replica_count`, C2: type별 recomputability).
 - near-data compute(compute-to-data)와 in-place transform(quantization 등)은 data 이동이 아니므로 DP1 action이 아니다 (DP2/DP4, KV compression은 §3.2 out of scope). 단 destination 후보 제약으로 `near_data_compute` flag만 사용한다 (§5.8.3).
-- 공통 migration architecture의 `MigrationIntent`는 현재 source/target만 가지므로, **`action` field 추가를 공통 문서와 정렬해야 한다** (§26 follow-up).
+- 공통 migration architecture의 `MigrationIntent`에도 동일한 `action` field가 반영되어 있으며(§1.1, state machine 경로는 §7.1), 생략 시 `MOVE`로 해석된다.
 
 DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
 그 부분은 공통 **MigrationCoordinator → MigrationPlanner → execution-side scheduler/queue → MigrationExecutor → TransferHandler** 구조가 담당한다.
@@ -2266,7 +2266,7 @@ DP1 상세 설계에서 다음 항목은 별도 페이지/문서로 구체화한
    - `dp1_sim`: `memories_default.json`을 MemoryDescriptor로 로드하는 adapter 추가, ScHBM 항목 추가 시 policy 코드 무변경 검증 (test_sim.py)
    - shared_link_group 단위 migration budget 모델링
 12. **MigrationAction 정렬 및 상세**
-   - 공통 migration architecture의 `MigrationIntent`에 `action` field 추가 (현재 source/target만 존재)
+   - ~~공통 migration architecture의 `MigrationIntent`에 `action` field 추가~~ → 반영 완료 (공통 문서 §1.1, §7.1, §23.1)
    - `DROP` 허용 조건(replica / recomputable)을 C1/C2 Registry schema에 반영
    - `REPLICATE` replica 수명/일관성 정책, `REMAP` 적용 가능 memory(CXL shared pool 등) 정의
 13. **Transfer Handler 설계 (§5.9)**

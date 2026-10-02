@@ -114,14 +114,32 @@ Migration subsystem은 최소한 다음 기능을 제공해야 한다.
 
 ~~~text
 MigrationIntent
+ ├─ action                      # MOVE | REPLICATE | DROP | REMAP | RECLASSIFY (기본값: MOVE)
  ├─ data_objects[]
  ├─ source_resource_id
- ├─ target_resource_id
+ ├─ target_resource_id?         # DROP / RECLASSIFY에서는 생략 가능
  ├─ reason
  ├─ priority
  ├─ deadline / execution_dependency
  └─ policy_metadata
 ~~~
+
+### Migration action
+
+"migration"은 항상 byte copy를 동반하지 않는다.
+Decision plane이 copy 비용 없는 선택지도 표현할 수 있도록 `action`을 둔다.
+`action`을 생략하면 `MOVE`로 해석하므로 기존 Intent와 호환된다.
+
+| action | 의미 | data-plane copy | location commit | source 처리 |
+|---|---|---|---|---|
+| `MOVE` | target에 복사 후 source 해제 | ✅ | authoritative = target | free |
+| `REPLICATE` | target에 복사, source 유지 | ✅ | target을 replica로 추가 | 유지 |
+| `DROP` | source copy 해제 (다른 replica 존재 또는 recomputable) | ❌ | 해당 location 제거 | free |
+| `REMAP` | 주소 매핑 / 소유권만 변경 | ❌ | mapping 갱신 | 유지 (물리 위치 동일) |
+| `RECLASSIFY` | 위치 불변, tier class / priority / pin 등 metadata만 변경 | ❌ | metadata 갱신 | 유지 |
+
+Action별 control-plane 처리와 state machine 경로는 §7.1에서 정의한다.
+Decision plane 측 action 선택 기준은 `DP1/dp1-ai-data-migration-decision-architecture.md` §2.1을 따른다.
 
 Migration decision의 생성 주체는 이 문서의 핵심 범위가 아니다. 다음 모두 가능하다.
 
@@ -137,9 +155,10 @@ Migration decision의 생성 주체는 이 문서의 핵심 범위가 아니다.
 ~~~text
 MigrationResult
  ├─ job_id
+ ├─ action
  ├─ migrated_objects[]
  ├─ final_locations[]
- ├─ bytes_transferred
+ ├─ bytes_transferred               # no-copy action은 0
  ├─ transfer_path
  ├─ queue_delay
  ├─ transfer_latency
@@ -154,7 +173,7 @@ MigrationResult
 - direct / staged / multi-hop transfer path 선택
 - asynchronous copy dispatch
 - foreground / background 우선순위 처리
-- copy completion 추적
+- copy completion 추적 (copy가 필요한 action에 한함)
 - data version / mutability 검증
 - successful copy 이후 location metadata atomic commit
 - commit 이후 source free 또는 replica 유지
@@ -454,6 +473,7 @@ graph TD
 classDiagram
     class MigrationIntent {
         +intent_id
+        +action
         +data_refs
         +source_resource_id
         +target_resource_id
@@ -698,7 +718,8 @@ Migration correctness의 핵심은 **copy와 location commit을 분리**하는 �
 stateDiagram-v2
     [*] --> PENDING
     PENDING --> PREPARING: dequeue
-    PREPARING --> COPYING: reserve target + pin source
+    PREPARING --> COPYING: reserve target + pin source (MOVE / REPLICATE)
+    PREPARING --> COMMITTING: no-copy action (DROP / REMAP), validation passed
     PREPARING --> FAILED: validation/reservation fail
 
     COPYING --> VERIFYING: all transfer steps done
@@ -735,6 +756,44 @@ free/unpin source
 
 copy가 끝나기 전 source는 authoritative location이다.
 
+## 7.1 Action별 처리 경로
+
+| action | 경로 | reservation | source pin | 핵심 검증 |
+|---|---|---|---|---|
+| `MOVE` | PENDING → PREPARING → COPYING → VERIFYING → COMMITTING → COMPLETED | target | ✅ | version / source 유효성 |
+| `REPLICATE` | 위와 동일. COMMITTING에서 **source 해제 없이 replica 추가** | target | ✅ | version, replica 수 상한 |
+| `DROP` | PREPARING → COMMITTING → COMPLETED (**COPYING 생략**) | 없음 | ✅ (in-flight 접근 보호) | 아래 규칙 |
+| `REMAP` | PREPARING → COMMITTING → COMPLETED (**COPYING 생략**) | 없음 | quiesce | 기존 mapping 사용 중인 접근 없음 |
+| `RECLASSIFY` | Coordinator fast path: 상태 머신 없이 idempotent하게 metadata 갱신 | 없음 | 없음 | object 존재 |
+
+**DROP 규칙**
+
+~~~text
+허용 조건 (둘 중 하나)
+  1. 다른 location에 유효한 replica가 존재
+       → 해당 replica를 authoritative로 atomic 승격한 뒤 source free
+  2. data가 recomputable로 표시됨 (e.g. KV recompute 경로 존재)
+       → location을 "absent / recomputable"로 commit한 뒤 free
+
+금지
+  - replica도 recompute 경로도 없는 authoritative copy의 DROP
+  - pin된 / in-flight migration 대상 object의 DROP
+~~~
+
+DROP이 authoritative copy를 제거하는 경우, **승격 commit과 source free는 같은 atomic commit 안에서** 수행한다.
+순서를 어기면 DataLocationStore에 authoritative location이 없는 구간이 생긴다 (§14의 invariant 위반).
+
+**REMAP 규칙**
+
+- 물리 data는 움직이지 않으므로 target reservation과 transfer step이 없다.
+- 기존 mapping을 통한 in-flight 접근이 없음을 보장한 뒤(quiesce) mapping/ownership을 atomic하게 갱신한다.
+- REMAP 지원 여부는 memory resource capability에 의존한다 (예: CXL shared pool 소유권 이전). 미지원이면 `FAILED(unsupported)`로 반환하고 Decision plane이 `MOVE`로 재시도한다.
+
+**RECLASSIFY 규칙**
+
+- authoritative location, replica set을 변경하지 않는다. tier class / eviction priority / pin 상태 같은 policy-visible metadata만 갱신한다.
+- 비용이 매우 낮으므로 job queue를 거치지 않는다.
+
 ---
 
 # 8. Migration Planning View
@@ -742,6 +801,10 @@ copy가 끝나기 전 source는 authoritative location이다.
 MigrationPlanner는 target을 선택하는 policy가 아니다.
 
 이미 주어진 source/target을 바탕으로 **실행 가능한 copy plan**을 만든다.
+
+`action`이 `MOVE` / `REPLICATE`일 때만 transfer step을 가진 plan을 만든다.
+`DROP` / `REMAP`은 reservation·transfer가 없는 **commit-only plan**(검증 + commit/cleanup)을,
+`RECLASSIFY`는 plan 없이 Coordinator fast path로 처리한다 (§7.1).
 
 ~~~mermaid
 flowchart LR
@@ -1427,6 +1490,10 @@ flowchart TD
 | Worker crash | source authoritative 유지, in-flight job timeout 처리 |
 | completion lost | idempotent status query / reconciliation |
 | source pressure during copy | source pin 때문에 premature free 금지 |
+| DROP 대상에 유효 replica/recompute 경로 없음 | reject, authoritative copy 유지 |
+| DROP 중 replica 무효화 (version mismatch) | abort, source 유지 |
+| REMAP 미지원 / quiesce 실패 | abort, 기존 mapping 유지, `MOVE`로 재계획 가능 |
+| REPLICATE replica 수 상한 초과 | reject 또는 오래된 replica DROP 후 재시도 |
 
 ---
 
@@ -1555,6 +1622,7 @@ MigrationDecisionRecord
 ~~~text
 MigrationCoordinator.submit(
     MigrationIntent(
+        action=MOVE,                 # 생략 시 MOVE
         data_refs=[...],
         source_resource_id="cxl0",
         target_resource_id="gpu0_hbm",
@@ -1564,6 +1632,20 @@ MigrationCoordinator.submit(
     )
 ) -> MigrationHandle
 ~~~
+
+no-copy action 예:
+
+~~~text
+# 하위 tier에 replica가 있는 object의 demotion → copy 없이 HBM copy만 해제
+MigrationIntent(action=DROP, data_refs=[...], source_resource_id="gpu0_hbm",
+                reason="demotion", priority=BACKGROUND)
+
+# 상위 tier 복제 (source 유지)
+MigrationIntent(action=REPLICATE, data_refs=[...], source_resource_id="cxl0",
+                target_resource_id="gpu0_hbm", reason="promotion", priority=HIGH)
+~~~
+
+no-copy action(`DROP`, `REMAP`, `RECLASSIFY`)은 data-plane command를 생성하지 않는다.
 
 ## 23.2 Data-plane command
 
