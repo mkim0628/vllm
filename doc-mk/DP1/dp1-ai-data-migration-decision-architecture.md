@@ -1226,6 +1226,13 @@ B1과 B2의 실제 future reuse 차이까지 C1이 직접 예측하지 않는다
 슬라이드에서 C1의 Destination Tier Selector가 Resource Manager와 직접 연결되는 곳은 **Memory Registry**다.
 Telemetry Collector 값은 Resource State Monitor를 거쳐 upstream으로 들어온다 (C2는 Selector가 Telemetry Collector도 직접 읽는다).
 
+**Serving cost 항(평가 loop에서 도출된 개정, `Evaluation/DP1/results/iterations/loop-log.md`):**
+첫 평가에서 C1은 destination의 **서빙 비용**(그 tier에서 접근할 때의 TPOT)을 보지 않아 CXL-PNM attention 경로(TPOT 311 ms)를 고르는 문제가 있었다.
+Destination Tier Selector는 Memory Registry의 capability(① gpu_reachable, ext/int BW, latency, near_data_compute)와 transfer cost(③)에서
+destination의 **서빙 비용 추정치**를 계산해 (a) SLO를 만족하지 못하는 tier를 후보에서 제외하고 (b) 후보 간 비교에 penalty로 반영한다.
+Resource Manager와의 연결은 추가되지 않는다 (같은 Memory Registry 입력의 파생값). 입력에는 operation hint(operation class, shape: context, concurrency, output tokens, touch bytes)가 필요하며 C1에서는 static hint 채널(Affinity Mapper)로 전달된다.
+또한 **link-time migration budget**(공유 링크 점유 시간 기준 token bucket)과 per-object cooldown으로 migration 총량을 제한한다 (§26 항목 8).
+
 개념적으로:
 
 ~~~text
@@ -1589,6 +1596,9 @@ Current Object Location
           ▼
 Data Object × Memory Tier matching
 ~~~
+
+C2도 §8.7과 같은 **serving cost 항**과 **link-time migration budget**을 쓰며, 추가로 **benefit-vs-cost gating**을 둔다: 예측된 접근 이득(Predictor가 expected access rate를 출력해야 함)이 전송 비용을 넘을 때만 이동한다.
+또한 demotion은 §17.3대로 **upper-tier pressure가 있을 때만** 수행한다 (평가 loop 전에는 이 조건이 구현되지 않아 migration churn이 발생했다).
 
 C2에서 Resource Manager와 직접 연결되는 모듈은 **Destination Tier Selector**이며,
 Telemetry Collector(② capacity·BW·load)와 Memory Registry(①③ capability·transfer cost)를 모두 읽는다.
@@ -2384,6 +2394,9 @@ DP1 상세 설계에서 다음 항목은 별도 페이지/문서로 구체화한
    - `REPLICATE` replica 수명/일관성 정책, `REMAP` 적용 가능 memory(CXL shared pool 등) 정의
    - `Evaluation/DP1/sim`에 `DROP` 반영 완료 (`run_eval.py --drop-study`, replica는 외부 write-through로 생성, 비용 미청구).
      예비 결과(replica 50%, KV 시나리오, 3 seed×3 load): DROP이 발생한 run은 C1 21/135, C2 42/135이며, 발생 시 migration GiB 중앙값 감소 C1 −42 / C2 −178 (전체 migration의 약 1%). latency는 중앙값 변화 없음, 일부 run에서 tail 악화(DROP target이 정책 선호 tier와 다름). 즉 효과는 작고, replica 용량 점유가 dynamics를 바꾸므로 `drop_on` vs `drop_off` 비교만 action 효과로 해석해야 한다.
+14. **평가 loop 결과 반영 (2026-10-02, `Evaluation/DP1/results/2026-10-02_dp1-qa-evaluation.md`)**
+   - Destination Tier Selector serving-cost 입력 (§8.7, §13.6), link-time migration budget, C2 benefit-vs-cost gating, C1 promotion 경로(§17.2)를 설계 항목으로 확정한다.
+   - 확인된 사실: 이득은 static 배치가 stale해지는 dynamic 조건에서만 확인(C2 6/6, C1 3/6 시나리오), 그 외는 Baseline과 parity. 이 simulator의 cost 추정은 오차 0이므로 [A] 실측 기반 보정 후 재평가가 필요하다.
 13. **Transfer Handler 설계 (§5.9)**
    - staged 합성(export/import) 기본 경로 + direct override 등록 규약
    - chunk pipelining 크기, bounce buffer budget, traffic class별 rate limit

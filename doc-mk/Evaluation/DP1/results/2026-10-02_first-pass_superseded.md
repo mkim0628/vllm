@@ -1,5 +1,7 @@
 # DP1 QA Evaluation — C1 vs C2 (simulation, 1st pass)
 
+> **SUPERSEDED** — 이 문서는 first-pass이며 [`2026-10-02_dp1-qa-evaluation.md`](2026-10-02_dp1-qa-evaluation.md)로 대체되었다 (통합 포맷, Common + Stress + Dynamic, Baseline-regression loop 반영). 경로 표기(`doc-mk/DP1/dp1_sim` 등)는 당시 기준이다.
+
 > 기준 문서: `doc-mk/Evaluation/qa-evaluation-criteria.md`, `doc-mk/Evaluation/dp1-simulation-plan.md`
 > 대상 구조: DP1 개정안 (Resource Manager + 공통 Memory Backend I/F, 슬라이드 8~10 기준)
 > 도구: `doc-mk/DP1/dp1_sim` (`python qa_eval.py`, 결과: `out_qa/qa_result.json`)

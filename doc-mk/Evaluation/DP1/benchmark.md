@@ -54,20 +54,22 @@
 
 > 위 grouping은 시나리오 이름/설명 기반의 해석이다. 정의는 4장 표(코드)가 우선한다.
 
-## 2.3 DP1 Dynamic Benchmark (placeholder)
+## 2.3 DP1 Dynamic Benchmark
 
-> 다른 agent가 `scenarios.py`에 추가 중이다. 추가되면 4장 표에 별도 set으로 자동 렌더링되고(`*_benchmark` 함수 discovery), 이 절의 시나리오별 rationale을 채운다.
+`scenarios.dynamic_benchmark()` — Baseline-regression loop iteration 2에서 추가한 6개 시나리오와 feasibility controls (표는 4장, 이력은 `results/iterations/loop-log.md`).
 
-개념: **As-Is 정적 배치가 SLO를 만족하는 초기 상태에서 시작하되, runtime에 상황이 바뀌어 정적 배치가 suboptimal이 되는 시나리오.** Stress Benchmark의 상당수는 baseline이 처음부터 SLO를 못 맞추는 용량 부족형이라, "migration이 왜 필요한가(초기 배치로는 충분하지 않은가)"를 분리해서 보지 못한다. Dynamic Benchmark는 이를 분리한다.
+설계 원칙: **As-Is 정적 배치가 SLO를 만족하는 초기 상태(Baseline feasible)에서 시작하되, runtime에 workload가 바뀌어 정적 배치가 suboptimal이 되는 패턴**만 쓴다. 각 시나리오의 description에 실제 serving 패턴과 As-Is 약점을 명시한다. Baseline만 돌려 설계하고 후보 실행 전에 고정했다 (cherry-picking 방지). 그래도 **실패 모드를 알고 설계한 시나리오**이므로 이득은 "static 배치가 stale해지는 경우"에 한정된 결과로 읽어야 한다.
 
-예상 유형:
+| 시나리오 | 재현하는 serving 패턴 |
+|---|---|
+| `dyn_cold_resident_chat_wave` | idle tenant의 long-lived Agent Memory가 먼저 HBM을 차지, 이후 chat 요청(KV)이 느린 tier로 밀림 |
+| `dyn_idle_kv_holds_hbm` | tool call에 막힌 agent session의 KV(idle)가 HBM을 점유, 이후 hot 요청이 도착 |
+| `dyn_kv_hotset_recency_shift` | working set drift: 먼저 생성된 대화가 초반에 hot, 이후 최근 대화로 이동 |
+| `dyn_kv_rotating_hotset` | 사용자 그룹이 시간대별로 번갈아 활성화(60 s window) |
+| `dyn_rag_shard_hotset_shift` | GPU 상주 vector index shard의 인기가 중간에 바뀜 |
+| `dyn_host_path_contention_kv` | host PCIe 경합으로 host link BW 저하 |
 
-| 유형 | 변화 | 정적 배치가 깨지는 이유 |
-|---|---|---|
-| hotness shift | cold로 배치된 object가 hot이 됨 (또는 반대) | 초기 hotness 기준 배치가 stale |
-| arrival burst after HBM filled by cold data | HBM이 cold data로 채워진 뒤 burst 도착 | hot 신규 data가 느린 tier에 배치됨 |
-| capacity ramp | 가용 HBM이 점진적으로 감소 | 초기에 맞던 배치가 용량 부족으로 전환 |
-| BW shock | HBM/host BW가 일시 저하 | 배치는 맞지만 경로 BW가 달라짐 |
+미포함(시뮬레이터가 모델링하지 못함): capacity ramp(hard capacity limit 없음), HBM BW shock(offload가 건강한 HBM을 이기지 못함). loop-log 한계 참조.
 
 # 3. 규칙
 
@@ -98,6 +100,7 @@ Knob column lists only non-default knobs (defaults: size_scale=1, horizon_s=180,
 |---|---|---|
 | Common Benchmark realization (cb_*) | `scenarios.common_benchmark()` | 3 |
 | DP1 Stress Benchmark | `scenarios.scenarios()` | 23 |
+| dynamic_benchmark | `scenarios.dynamic_benchmark()` | 6 |
 
 ## G.1 Common Benchmark realization (cb_*)
 
@@ -134,6 +137,17 @@ Knob column lists only non-default knobs (defaults: size_scale=1, horizon_s=180,
 | 21 | `data_mix_shift_b64` | KV_CACHE:0.35, RAG_DATA:0.25, AGENT_MEMORY:0.2, LORA_ADAPTER:0.1, TOOL_RESULT:0.1 | 128K | 72 | 64 | 44 | 1.1 | data_mix_shift | - | - | rag_index_total_gib=1024 | Workload shifts from KV/LoRA to RAG/Agent. |
 | 22 | `behavior_flip_stress` | KV_CACHE:0.35, RAG_DATA:0.25, AGENT_MEMORY:0.2, TOOL_RESULT:0.1, LORA_ADAPTER:0.1 | 32K | 72 | 16 | 40 | 0.9 | hotness_flip | - | - | rag_index_total_gib=512 | Abrupt per-object hotness inversion; stresses C2 prediction lag/thrashing while C1 reacts only to resource pressure. |
 | 23 | `six_tier_capacity_stress` | KV_CACHE:0.3, RAG_DATA:0.25, AGENT_MEMORY:0.2, TOOL_RESULT:0.1, LORA_ADAPTER:0.08, MOE_EXPERT:0.07 | 128K | 72 | 64 | 68 | 1.1 | - | size_scale=4; capacity_mult=0.35 | - | rag_index_total_gib=4096 | Capacity ladder intentionally exercises all six memories. |
+
+## G.3 dynamic_benchmark
+
+| # | name | data mix | ctx | out | batch | objs | demand | phase | knobs | disabled tiers | extra | description |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | `dyn_cold_resident_chat_wave` | AGENT_MEMORY:0.7, KV_CACHE:0.3 | 320K | 64 | 16 | 13 | 1 | - | size_scale=2.7; hbm_capacity_mult=0.4 | - | plan=(('AGENT_MEMORY', 9, 0, 0, 1.0, ()), ('KV_CACHE', 4, 20, 30, 1.0, ())) | Serving pattern: long-lived Agent Memory (episodic state kept warm for idle tenants) is loaded at start-up and fills HBM first-come-first-served; at t=20-30 s an interactive long-context chat wave arrives. As-Is failure mode: the new hot KV sessions land in host DRAM (HBM is full of cold data) and are never promoted, so every turn pays the host-link restore. |
+| 2 | `dyn_idle_kv_holds_hbm` | KV_CACHE:1 | 320K | 64 | 16 | 8 | 1 | - | hbm_capacity_mult=0.4 | - | plan=(('KV_CACHE', 4, 0, 0, 0.05, ()), ('KV_CACHE', 4, 30, 40, 1.0, ())) | Serving pattern: agent sessions blocked on slow tool calls keep their KV resident (idle, rate x0.05) and hold HBM; at t=30-40 s the tool results return / new sessions arrive and become the hot set. As-Is failure mode: arrival order decided HBM residency; hot sessions are served from DRAM while idle sessions sit in HBM. All objects are the same data class, so only per-object behavior tells them apart. |
+| 3 | `dyn_kv_hotset_recency_shift` | KV_CACHE:1 | 320K | 64 | 16 | 8 | 1 | - | hbm_capacity_mult=0.4 | - | plan=(('KV_CACHE', 4, 0, 0, 1.0, ((0, 1.0), (90, 0.1))), ('KV_CACHE', 4, 0, 0, 0.1, ((0, 1.0), (90, 30.0)))) | Serving pattern: working-set drift. Conversations created first are hot in the first half (HBM residents by first-come placement); at t=90 s users move on: the early sessions go cold (x0.1) and the later sessions (resident in DRAM) become hot (x3). As-Is failure mode: placement frozen at the old working set; post-shift traffic is served from DRAM. |
+| 4 | `dyn_kv_rotating_hotset` | KV_CACHE:1 | 320K | 64 | 16 | 9 | 1 | - | hbm_capacity_mult=0.3 | - | plan=(('KV_CACHE', 3, 0, 0, 1.0, ((0, 3.0), (60, 0.1))), ('KV_CACHE', 3, 0, 0, 1.0, ((0, 0.1), (60, 3.0), (120, 0.1))), ('KV_CACHE', 3, 0, 0, 1.0, ((0, 0.1), (120, 3.0)))) | Serving pattern: three user groups active in turn (60 s windows, e.g. shift/time-zone hand-over); the active group is hot (x3), the others near idle (x0.1). As-Is failure mode: placement fits only the first window; in later windows the active group is in DRAM. Also probes anti-thrashing: the hot set moves every 60 s. |
+| 5 | `dyn_rag_shard_hotset_shift` | RAG_DATA:1 | 32K | 96 | 16 | 8 | 1 | - | hbm_capacity_mult=0.12 | - | rag_index_total_gib=256; plan=(('RAG_DATA', 4, 0, 0, 1.0, ((0, 1.0), (90, 0.1))), ('RAG_DATA', 4, 0, 0, 0.1, ((0, 1.0), (90, 30.0)))) | Serving pattern: GPU-resident vector-index shards (8 x ~32 GiB). Query popularity shifts at t=90 s (trending topic / newly ingested documents): the first shards (HBM residents) cool down, the later shards (host DRAM) become hot. As-Is failure mode: the hot shards are scanned from DRAM (full index crosses the host link per query). |
+| 6 | `dyn_host_path_contention_kv` | KV_CACHE:1 | 128K | 64 | 16 | 8 | 1 | host_bw_shock | host_bw_mult=0.25; hbm_capacity_mult=0.12 | - | plan=(('KV_CACHE', 8, 0, 0, 1.0, ()),) | Serving pattern: host-side contention (co-located checkpoint / dataloader / NIC traffic on the shared PCIe root) cuts host-link bandwidth to 25% from t=90 s. 128K-context KV that spilled to DRAM was fine before. As-Is failure mode: static tier order keeps the spilled sessions on the degraded path. |
 <!-- END GENERATED -->
 
 # 5. 관련 문서

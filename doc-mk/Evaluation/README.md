@@ -16,11 +16,12 @@ doc-mk/Evaluation/
 ├── result-template.md           # 결과 문서 템플릿
 ├── tools/
 │   ├── gen_system_specs.py      # system-specs.md 생성 블록 렌더
-│   └── gen_dp1_benchmark_doc.py # DP1/benchmark.md 생성 블록 렌더
+│   ├── gen_dp1_benchmark_doc.py # DP1/benchmark.md 생성 블록 렌더
+│   └── gen_dp1_result.py        # DP1 통합 결과 문서 생성 (results/data/SYS-*/qa_result.json -> 표)
 ├── DP1/                         # AI Data Migration
 │   ├── simulation-plan.md       # 평가/시뮬레이션 방법
 │   ├── benchmark.md             # DP1 맞춤형 benchmark (시나리오 표 자동 생성)
-│   ├── results/                 # 결과 문서 (YYYY-MM-DD_<topic>.md)
+│   ├── results/                 # 결과 문서 (YYYY-MM-DD_<topic>.md), data/ (qa_result.json), iterations/ (loop-log.md)
 │   └── sim/                     # simulator (scenarios.py, policies.py, simulator.py, qa_eval.py, configs/)
 ├── DP2/  README.md, benchmark.md (TBD), results/
 ├── DP3/  README.md, benchmark.md (TBD), results/

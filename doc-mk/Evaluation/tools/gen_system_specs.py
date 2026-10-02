@@ -128,23 +128,22 @@ def render():
               f"- Purpose: {esc(p['purpose'])}",
               f"- Cluster: `{p['cluster']}` ({n}x {c['gpu']}, {c['domain_interconnect']}, "
               f"{c['custom_hbm_nodes_per_domain']} custom_hbm node/domain)", ""]
-        L += table(head, [mem_row(mems[m], n, g) for m in MEM_ORDER if m in p["memories"]])
-        warns = []
-        for m in p["memories"]:
-            mm = mems[m]
-            if m == "custom_hbm":
-                want = {"capacity": g["hbm_capacity_bytes"] * 2, "int_bw": g["hbm_bw_bytes_per_s"] * 2,
-                        "fp16": g["dense_fp16_flops"] * 0.2, "tdp": g["tdp_watts"] / 3}
-                got = {"capacity": mm["capacity_bytes"], "int_bw": mm["int_bw_bytes_per_s"],
-                       "fp16": mm["compute_tflops_fp16"], "tdp": mm["tdp_watts"]}
-                bad = [k for k in want if abs(want[k] - got[k]) / want[k] > 0.05]
-                if bad:
-                    warns.append(f"custom_hbm: JSON static values (B200-paired) differ from the paired-GPU rule "
-                                 f"({', '.join(bad)}). Rule would give {cap(want['capacity'])} / int {bw(want['int_bw'])} / "
-                                 f"{tflops(want['fp16'])} / {want['tdp']:.0f} W. The loader currently uses the static values.")
+        def adj(name, mm):
+            """custom_hbm follows the paired-GPU rule in the loader (model.load_system); mirror it here."""
+            if name != "custom_hbm":
+                return mm
+            mm = dict(mm)
+            mm["capacity_bytes"] = g["hbm_capacity_bytes"] * 2
+            mm["int_bw_bytes_per_s"] = g["hbm_bw_bytes_per_s"] * 2
+            mm["compute_tflops_fp16"] = g["dense_fp16_flops"] * 0.2
+            mm["tdp_watts"] = g["tdp_watts"] / 3
+            return mm
+        L += table(head, [mem_row(adj(m, mems[m]), n, g) for m in MEM_ORDER if m in p["memories"]])
+        if "custom_hbm" in p["memories"]:
+            L += ["", "> **NOTE**: `custom_hbm` is computed by the loader with the paired-GPU rule "
+                  "(capacity = GPU HBM x2, internal BW = GPU HBM BW x2, FP16 = GPU dense FP16 x20%, TDP = GPU TDP / 3); "
+                  "the JSON static values equal the B200-paired result."]
         L += [""]
-        for w in warns:
-            L += [f"> **WARNING ({sid})**: {w}", ""]
         L += ["Provenance:", ""]
         for m in p["memories"]:
             mm = mems[m]

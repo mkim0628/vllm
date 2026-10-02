@@ -26,6 +26,11 @@ class Scenario:
     rag_index_total_gib:float|None=None
     latency_sensitivity_override:float|None=None
     target_tiers:tuple[str,...]=()
+    # Deterministic object plan (dynamic benchmark). Each entry:
+    #   (data_class, count, arrival_lo_s, arrival_hi_s, rate_mult, rate_schedule)
+    # rate_schedule = ((t0, mult), ...). When non-empty it replaces the random data_mix draw and
+    # object_count (existing scenarios leave it empty and keep their exact traces).
+    plan:tuple=()
 
 SIZE_GIB={
  "KV_CACHE":(4,18),
@@ -136,6 +141,87 @@ def common_benchmark():
                  hbm_capacity_mult=.12,phase="bimodal",target_tiers=("hbm","dram","cxl_pnm","hbf")))
     return S
 
+def dynamic_benchmark():
+    """DP1 dynamic benchmark (B-class, loop iteration 2): the baseline's static placement is feasible when the
+    scenario starts and goes stale at run time. Every scenario states the serving behavior it models and the
+    As-Is failure mode it probes. Feasibility is verified with dynamic_controls() (same workload, no
+    staleness) in test_sim.py: the baseline must meet the SLO there.
+
+    Long-context KV cells (320K tokens, batch 16, 64 output tokens) are used where host-DRAM residency must
+    cost enough to matter: restoring a ~107 GiB session over the 64 GB/s host link takes 1.3-2.1 s, i.e. the
+    TPOT SLO (50 ms) is missed from DRAM but met from HBM (the stress set already uses 512K contexts).
+    """
+    S=[]; add=S.append
+    KV320=dict(context_tokens=327680,output_tokens=64,batch_size=16)
+    add(Scenario("dyn_cold_resident_chat_wave",
+        "Serving pattern: long-lived Agent Memory (episodic state kept warm for idle tenants) is loaded at start-up and "
+        "fills HBM first-come-first-served; at t=20-30 s an interactive long-context chat wave arrives. "
+        "As-Is failure mode: the new hot KV sessions land in host DRAM (HBM is full of cold data) and are never "
+        "promoted, so every turn pays the host-link restore.",
+        {"AGENT_MEMORY":.7,"KV_CACHE":.3},KV320["context_tokens"],64,16,13,1.0,2.7,
+        hbm_capacity_mult=.40,
+        plan=(("AGENT_MEMORY",9,0,0,1.0,()),("KV_CACHE",4,20,30,1.0,())),
+        target_tiers=("hbm","dram","hbf")))
+    add(Scenario("dyn_idle_kv_holds_hbm",
+        "Serving pattern: agent sessions blocked on slow tool calls keep their KV resident (idle, rate x0.05) and "
+        "hold HBM; at t=30-40 s the tool results return / new sessions arrive and become the hot set. "
+        "As-Is failure mode: arrival order decided HBM residency; hot sessions are served from DRAM while idle "
+        "sessions sit in HBM. All objects are the same data class, so only per-object behavior tells them apart.",
+        {"KV_CACHE":1},KV320["context_tokens"],64,16,8,1.0,
+        hbm_capacity_mult=.40,
+        plan=(("KV_CACHE",4,0,0,.05,()),("KV_CACHE",4,30,40,1.0,())),
+        target_tiers=("hbm","dram")))
+    add(Scenario("dyn_kv_hotset_recency_shift",
+        "Serving pattern: working-set drift. Conversations created first are hot in the first half (HBM residents by "
+        "first-come placement); at t=90 s users move on: the early sessions go cold (x0.1) and the later sessions "
+        "(resident in DRAM) become hot (x3). "
+        "As-Is failure mode: placement frozen at the old working set; post-shift traffic is served from DRAM.",
+        {"KV_CACHE":1},KV320["context_tokens"],64,16,8,1.0,
+        hbm_capacity_mult=.40,
+        plan=(("KV_CACHE",4,0,0,1.0,((0,1.0),(90,.1))),("KV_CACHE",4,0,0,.1,((0,1.0),(90,30.0)))),
+        target_tiers=("hbm","dram")))
+    add(Scenario("dyn_kv_rotating_hotset",
+        "Serving pattern: three user groups active in turn (60 s windows, e.g. shift/time-zone hand-over); the active "
+        "group is hot (x3), the others near idle (x0.1). "
+        "As-Is failure mode: placement fits only the first window; in later windows the active group is in DRAM. "
+        "Also probes anti-thrashing: the hot set moves every 60 s.",
+        {"KV_CACHE":1},KV320["context_tokens"],64,16,9,1.0,
+        hbm_capacity_mult=.30,
+        plan=(("KV_CACHE",3,0,0,1.0,((0,3.0),(60,.1))),
+              ("KV_CACHE",3,0,0,1.0,((0,.1),(60,3.0),(120,.1))),
+              ("KV_CACHE",3,0,0,1.0,((0,.1),(120,3.0)))),
+        target_tiers=("hbm","dram")))
+    add(Scenario("dyn_rag_shard_hotset_shift",
+        "Serving pattern: GPU-resident vector-index shards (8 x ~32 GiB). Query popularity shifts at t=90 s "
+        "(trending topic / newly ingested documents): the first shards (HBM residents) cool down, the later "
+        "shards (host DRAM) become hot. "
+        "As-Is failure mode: the hot shards are scanned from DRAM (full index crosses the host link per query).",
+        {"RAG_DATA":1},32768,96,16,8,1.0,
+        rag_index_total_gib=256,hbm_capacity_mult=.12,
+        plan=(("RAG_DATA",4,0,0,1.0,((0,1.0),(90,.1))),("RAG_DATA",4,0,0,.1,((0,1.0),(90,30.0)))),
+        target_tiers=("hbm","dram")))
+    add(Scenario("dyn_host_path_contention_kv",
+        "Serving pattern: host-side contention (co-located checkpoint / dataloader / NIC traffic on the shared PCIe "
+        "root) cuts host-link bandwidth to 25% from t=90 s. 128K-context KV that spilled to DRAM was fine before. "
+        "As-Is failure mode: static tier order keeps the spilled sessions on the degraded path.",
+        {"KV_CACHE":1},131072,64,16,8,1.0,
+        phase="host_bw_shock",host_bw_mult=.25,hbm_capacity_mult=.12,
+        plan=(("KV_CACHE",8,0,0,1.0,()),),
+        target_tiers=("hbm","dram","hbf")))
+    return S
+
+
+def dynamic_controls():
+    """Feasibility controls: the same workloads with the staleness removed (ample HBM, no BW shock).
+    The baseline must meet the SLO on every control (test_sim.py) - proof that the dynamic scenarios are
+    feasible for the baseline and fail only because the placement goes stale."""
+    from dataclasses import replace
+    out=[]
+    for sc in dynamic_benchmark():
+        out.append(replace(sc,name=sc.name+"__control",hbm_capacity_mult=1.0,
+                           phase=None if sc.phase=="host_bw_shock" else sc.phase,host_bw_mult=1.0))
+    return out
+
 def _choice(rng,mix):
     x=rng.random(); acc=0.0
     for k,w in mix.items():
@@ -143,8 +229,41 @@ def _choice(rng,mix):
         if x<=acc: return k
     return next(reversed(mix))
 
+def _generate_planned(sc:Scenario,seed:int):
+    rng=random.Random(seed*1009+sum(map(ord,sc.name.removesuffix("__control"))))
+    rag_count=sum(e[1] for e in sc.plan if e[0]=="RAG_DATA")
+    rag_each_gib=(sc.rag_index_total_gib/rag_count) if (sc.rag_index_total_gib and rag_count) else None
+    objs=[]; i=0
+    for dc,count,lo,hi,rate_mult,sched in sc.plan:
+        for _ in range(count):
+            slo,shi=SIZE_GIB[dc]
+            size=(slo+(shi-slo)*rng.random())*GIB*sc.size_scale
+            if dc=="KV_CACHE":
+                size=max(size,327680*sc.context_tokens*(.75+.5*rng.random()))
+            elif dc=="RAG_DATA" and rag_each_gib:
+                size=rag_each_gib*GIB*(.85+.30*rng.random())
+            base=BASE_RATE[dc]*(.65+.7*rng.random())*sc.demand_scale*rate_mult
+            hotmult=.75+.5*rng.random()
+            arrival=rng.randint(lo,hi) if hi>lo else lo
+            life=max(60,int(LIFE[dc]*(.75+.5*rng.random())))
+            life=max(life,sc.horizon_s+30)   # planned objects live through the whole horizon
+            prior=DATA_PRIORS[dc]
+            objs.append(DataObject(
+                oid=i,data_class=dc,size_bytes=size,base_rate=base,
+                access_bytes=max(4096,size*ACCESS_FRAC[dc]),
+                context_tokens=sc.context_tokens,output_tokens=sc.output_tokens,
+                lifetime_s=life,arrival_s=arrival,batch_size=sc.batch_size,
+                type_hint=dc,classification_confidence=.95,
+                hotness_mult=hotmult,phase_time=None,phase_mult=1.0,
+                latency_sensitivity=(sc.latency_sensitivity_override if sc.latency_sensitivity_override is not None else prior["latency"]),
+                write_ratio=prior["write"],retrieval_dim=1024,
+                rate_schedule=tuple(tuple(x) for x in sched)))
+            i+=1
+    return objs
+
 def generate_trace(sc:Scenario,seed:int):
-    rng=random.Random(seed*1009+sum(map(ord,sc.name)))
+    if sc.plan: return _generate_planned(sc,seed)
+    rng=random.Random(seed*1009+sum(map(ord,sc.name.removesuffix("__control"))))
     objs=[]; classes=list(DATA_PRIORS)
 
     rag_count=max(1,round(sc.object_count*sc.data_mix.get("RAG_DATA",0))) if "RAG_DATA" in sc.data_mix else 0

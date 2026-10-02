@@ -77,7 +77,7 @@ Front-matter: `date, dp, candidates, sys_ids, git_rev, evidence, status(draft|fi
 | 6 | 한계 | Evidence level, simulator가 모델링하지 않는 것, 임시 정의, 시나리오 선택 의존성 |
 | 7 | 결론 | 의사결정에 필요한 진술, 이득이 특정 benchmark 조건에만 있는지(어느 조건인지), 다음 단계 |
 
-Fit label 정의: **comparison-valid** = Baseline이 SLO를 만족(feasible)하고 후보와 비교 가능. **infeasible** = Baseline도 SLO 불가(goodput 0 등), 비교에서 제외하되 목록에는 남김. **saturated** = sweep 최대 load에서 goodput이 포화/비례 구간만 보여 Max를 신뢰할 수 없음.
+Fit label 정의: **comparison-valid** = Baseline이 SLO를 만족(feasible)하고 후보와 비교 가능. **infeasible** = Baseline도 SLO 불가(goodput 0 등), 비교에서 제외하되 목록에는 남김. **saturated** = Baseline은 feasible하지만 **모든 후보(Baseline 포함)가 95% CI 이내로 동일**하여 시나리오가 후보를 판별하지 못함 (집계에는 포함, 이득 근거로는 쓰지 않음). 별개로, simulator에 queueing/saturation 모델이 없어 QA1이 load에 비례할 때는 결과 문서의 '한계'에 적는다 (fit label이 아니다).
 별점 집계 규칙은 해당 DP의 plan 문서를 따른다 (DP1: QA1 = 시나리오별 ratio의 geometric mean, QA2 = worst-case, QA3 = 임시 정의 사용 시 표기). 집계는 comparison-valid 시나리오 기준이며 제외한 시나리오와 이유를 적는다.
 
 ## 5. Baseline-regression loop

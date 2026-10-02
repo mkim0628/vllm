@@ -11,6 +11,7 @@ from policies import (
     C1ResourceDrivenMigration,
     C2BehaviorDrivenMigration,
     StaticNoMigration,
+    MIGRATION_EXPOSURE,
 )
 
 FIRST_RESPONSE_SLO_S = 2.0
@@ -164,6 +165,8 @@ class SimContext:
     capacity_mult: float
     effective_capacity: dict[str, float]
     static_affinity_hints: dict[int, dict]
+    slo_ttft_s: float = 2.0
+    slo_tpot_s: float = 0.050
 
 
 def initial_external_placement(system, objs, sc) -> dict[int, str]:
@@ -240,18 +243,40 @@ def transfer_time_s(
     sm = system.memories[src]
     dm = system.memories[dst]
     sbw = sm.ext_bw * effective_bw_mult(sc, t, src)
-    dbw = dm.ext_bw * effective_bw_mult(sc, t, dst)
+    # Destination is written: use its write bandwidth (HBF 50 GB/s, config `write_bw_bytes_per_s`;
+    # equals ext_bw for memories without a separate write limit). M-class fix, loop iteration 0.
+    dbw = min(dm.ext_bw, dm.write_bw) * effective_bw_mult(sc, t, dst)
     return size_bytes / max(1.0, min(sbw, dbw))
+
+
+OPERATION_CLASS = {
+    # Class-level static metadata (the "Data-Memory Affinity Table"): which operation consumes the object.
+    # Only this hint channel knows the mapping; C1's registry and decision code see only the op class.
+    "KV_CACHE": "attention",
+    "RAG_DATA": "index_scan",
+    "AGENT_MEMORY": "context_fetch",
+    "TOOL_RESULT": "context_fetch",
+    "LORA_ADAPTER": "weight_fetch",
+    "MOE_EXPERT": "weight_fetch",
+}
 
 
 def static_hints(objs) -> dict[int, dict]:
     """Generic C1 hint channel, separate from C1 registry.
 
     The registry stays type-agnostic. These hints model static
-    operation/configuration metadata.
+    operation/configuration metadata: sensitivities (first pass) plus, since loop
+    iteration 1, the operation class and shape that the shared access-cost
+    estimator needs (touch bytes, context, concurrency, output tokens).
     """
     out = {}
     for o in objs:
+        op = OPERATION_CLASS[o.data_class]
+        touch = (
+            o.size_bytes
+            if op in ("attention", "index_scan")
+            else min(o.size_bytes, o.access_bytes * o.batch_size)
+        )
         out[o.oid] = {
             "latency_sensitivity": float(o.latency_sensitivity),
             "bandwidth_sensitivity": (
@@ -262,6 +287,12 @@ def static_hints(objs) -> dict[int, dict]:
             "capacity_sensitivity": (
                 0.8 if o.size_bytes > 8 * 1024**3 else 0.45
             ),
+            "op": op,
+            "touch_bytes": float(touch),
+            "ctx_tokens": o.context_tokens,
+            "concurrency": o.batch_size,
+            "out_tokens": o.output_tokens,
+            "vec_dim": o.retrieval_dim,
         }
     return out
 
@@ -344,6 +375,8 @@ def run_sim(
         sc.capacity_mult,
         initial_caps,
         static_hints(objs),
+        FIRST_RESPONSE_SLO_S,
+        TPOT_SLO_S,
     )
     policy = _policy(system, candidate, priors, drop_enabled)
     scheduler = MigrationScheduler()
@@ -572,7 +605,7 @@ def run_sim(
             migration_time_total += dt
             direction_count[d.direction] += 1
 
-            migration_debt[d.object_id] += 0.20 * dt
+            migration_debt[d.object_id] += MIGRATION_EXPOSURE * dt
             migration_ext[d.source_tier] += obj.size_bytes
             migration_ext[d.target_tier] += obj.size_bytes
 
@@ -677,6 +710,9 @@ def run_sim(
         "replica_gib_created": replica_gib_created,
         "drop_count": drop_count,
         "drop_gib_avoided": drop_bytes_avoided / (1024**3),
+        "budget_spent_s": getattr(getattr(policy, "budget", None), "spent_s", 0.0),
+        "budget_share": getattr(getattr(policy, "budget", None), "share", 0.0),
+        "budget_cap_s": getattr(getattr(policy, "budget", None), "cap", 0.0),
         "decision_overhead_ms": (
             scheduler.stats.decision_overhead_us / 1e3
         ),

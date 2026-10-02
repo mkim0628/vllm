@@ -37,7 +37,7 @@ SYS-1~3은 메모리를 하나씩 추가하는 ablation, SYS-4는 전체 조합,
 # 3. 알려진 한계 / 주의
 
 - HBM 행은 `GPU당 값 x 8`의 도메인 합산이다 (TP 가정). 나머지 메모리는 도메인당 1대다. 따라서 HBM 총 BW(64 TB/s)와 cHBM(1대, 내부 16 TB/s, 외부 63 GB/s)의 비대칭을 그대로 반영한다.
-- `memories_default.json`의 hbm / custom_hbm provenance는 `apply_cluster()`가 값을 재계산한다고 서술하나, 현재 `model.py`에는 해당 함수가 없고 `load_system()`이 hbm만 GPU 값으로 덮어쓴다. **custom_hbm은 SYS-5에서도 B200 페어링 정적값**이 쓰인다 (아래 SYS-5 WARNING 참조). 해소 전까지 SYS-5의 cHBM 결과는 under-provisioned 가정으로 읽는다.
+- `custom_hbm`은 loader(`model.load_system`)가 페어링 GPU 상대 규격(용량 x2, 내부 BW x2, 연산 20%, TDP/3)으로 계산한다. B200에서는 JSON 정적값과 같고, SYS-5(Vera Rubin)에서는 약 715 GiB / 56 TB/s / 1,665 TFLOPS / 767 W가 된다. (2026-10-02 수정 전에는 SYS-5도 B200 기준 정적값을 썼으므로 그 이전 SYS-5 결과와 비교할 수 없다.)
 - Vera Rubin FP16(8,325 TFLOPS)은 FP8의 1/2 가정(ASSUMED)이며 8-GPU 노드 형태도 확인 필요다.
 - cxl_pnm FP16 = FP32 x 2 가정은 결과를 바꿀 수 있어 sweep 대상이다 (JSON `note` 참조).
 
@@ -150,6 +150,8 @@ Provenance:
 | hbf | 2 TiB | 1 TB/s | 1 TB/s | 5 us | yes | - | - | - | 50 GB/s | 3x | 100 PB | 100 W |
 | ssd_pim | 16 TiB | 16 GB/s | 200 GB/s | 60 us | no | gpu->cpu:pcie -> cpu->dev:nvme | GEMV | 2 TFLOPS | = ext | 4x | 10 PB | 75 W |
 
+> **NOTE**: `custom_hbm` is computed by the loader with the paired-GPU rule (capacity = GPU HBM x2, internal BW = GPU HBM BW x2, FP16 = GPU dense FP16 x20%, TDP = GPU TDP / 3); the JSON static values equal the B200-paired result.
+
 Provenance:
 
 - `hbm` SPEC. 기본값은 HBM3e(B200) 192GiB / 8 TB/s. apply_cluster()가 클러스터의 GPU 스펙으로 용량/대역폭을 덮어쓴다. / TDP: GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다
@@ -167,13 +169,13 @@ Provenance:
 | Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Primitives | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | hbm | 2.79 TiB | 224 TB/s | 224 TB/s | 300 ns | yes | on-package | - | - | = ext | 1x | - | 0 W |
-| custom_hbm | 384 GiB | 63 GB/s | 16 TB/s | 2 us | no | gpu->host:pcie5_x16 -> host->dev:pcie5_x16 | QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK | 450 TFLOPS | = ext | 1x | - | 333.3 W |
+| custom_hbm | 715 GiB | 63 GB/s | 56 TB/s | 2 us | no | gpu->host:pcie5_x16 -> host->dev:pcie5_x16 | QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK | 1665 TFLOPS | = ext | 1x | - | 766.7 W |
 | cxl_pnm | 512 GiB | 63 GB/s | 400 GB/s | 300 ns | no | gpu->cpu:pcie -> cpu->dev:cxl | QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK | 3.28 TFLOPS | = ext | 1x | - | 150 W |
 | dram | 1 TiB | 64 GB/s | 400 GB/s | 200 ns | no | gpu->cpu:pcie | - | - | = ext | 1x | - | 50 W |
 | hbf | 2 TiB | 1 TB/s | 1 TB/s | 5 us | yes | - | - | - | 50 GB/s | 3x | 100 PB | 100 W |
 | ssd_pim | 16 TiB | 16 GB/s | 200 GB/s | 60 us | no | gpu->cpu:pcie -> cpu->dev:nvme | GEMV | 2 TFLOPS | = ext | 4x | 10 PB | 75 W |
 
-> **WARNING (SYS-5)**: custom_hbm: JSON static values (B200-paired) differ from the paired-GPU rule (capacity, int_bw, fp16, tdp). Rule would give 715 GiB / int 56 TB/s / 1665 TFLOPS / 767 W. The loader currently uses the static values.
+> **NOTE**: `custom_hbm` is computed by the loader with the paired-GPU rule (capacity = GPU HBM x2, internal BW = GPU HBM BW x2, FP16 = GPU dense FP16 x20%, TDP = GPU TDP / 3); the JSON static values equal the B200-paired result.
 
 Provenance:
 

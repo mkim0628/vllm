@@ -77,6 +77,42 @@ out/results_runs.csv
 out/results_summary.json
 ```
 
+## QA evaluation and the Baseline-regression loop
+
+```bash
+cd doc-mk/Evaluation/DP1/sim
+python3 test_sim.py                        # 26 tests (boundaries, budget, access cost, determinism, qa_eval)
+python3 qa_eval.py                         # SYS-4, all three sets, 5 seeds x 4 loads, ~10-30 s
+python3 qa_eval.py --system SYS-2 --sets common_benchmark dp1_dynamic_benchmark
+python3 qa_eval.py --out-dir ../results/data/SYS-4 --no-csv
+python3 loop_run.py --iter N               # one loop iteration: SYS-4,1,2,3,5 -> results/iterations/itN/
+python3 loop_run.py --final                # final qa_result.json per SYS -> results/data/SYS-*/
+python3 loop_tables.py N --scen            # markdown tables for loop-log.md
+python3 diagnose.py cost|run <scenario>    # per-tier cost table / per-candidate tier accesses and migrations
+python3 sensitivity.py                     # post-stop sensitivity of the global design parameters
+```
+
+Benchmark sets (`scenarios.py`): `common_benchmark()` (cb_*, steady state, 3), `scenarios()` (23 stress
+scenarios, diagnostic) and `dynamic_benchmark()` (dyn_*, 6 scenarios where the baseline is feasible but its
+static placement goes stale; `dynamic_controls()` removes the staleness and the baseline must meet the SLO there).
+Every scenario has a `description` stating the serving pattern and the As-Is failure mode.
+
+`qa_eval.py` labels each scenario `infeasible` (baseline goodput 0), `saturated` (all candidates identical
+within the 95% CI) or `comparison_valid`, reports per-scenario win/tie/loss (paired by seed, t=2.776, differences
+< 1% are ties), a QA table per set and a combined table. `qa_result.json` keys: `common_benchmark`,
+`dp1_stress_benchmark`, `dp1_dynamic_benchmark` (each with `per_scenario`, `qa` (legacy, all scenarios),
+`qa_feasible`, `qa_discriminating`, `fit`, `scenario_labels`, `tally`), `combined`, `meta`.
+
+The loop protocol, every iteration's pre-registered hypothesis and all results (including the ones that went
+the wrong way) are in `../results/iterations/loop-log.md`.
+
+Loop-era additions to the policies (all global design parameters live at the top of `policies.py` in the
+"migration economics" block): `AccessCostEstimator` (destination serving cost from Memory Registry descriptors
++ operation hint, shared by C1/C2), `MigrationBudget` (link-time token bucket), C1 SLO-feasibility /
+do-no-harm destination filter and promotion path (design 17.2), C2 benefit-vs-cost gating and
+pressure-conditioned demotion (design 17.3). C1 still has no data-type field or branch; the operation class
+reaches it only through the static hint channel.
+
 ## DROP action study (MigrationAction.DROP only)
 
 `MigrationDecision.action` is `MOVE` (default, unchanged) or `DROP`. DROP frees the

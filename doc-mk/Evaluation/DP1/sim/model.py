@@ -157,17 +157,27 @@ def load_system(config_dir:Path,cluster_name="b200_8gpu",model_name="llama_3_1_7
         cap=float(m["capacity_bytes"])
         ext=float(m["ext_bw_bytes_per_s"])
         internal=float(m["int_bw_bytes_per_s"])
+        comp=m.get("compute_tflops_fp16")
+        tdp=float(m.get("tdp_watts",0.0))
         if m["name"]=="hbm":
             cap=float(gpu["hbm_capacity_bytes"])*ngpu
             ext=float(gpu["hbm_bw_bytes_per_s"])*ngpu
             internal=ext
+        elif m["name"]=="custom_hbm":
+            # Paired-GPU relative spec (memories_default.json provenance): capacity = GPU HBM x2,
+            # internal BW = GPU HBM BW x2, compute = GPU dense FP16 x20%, TDP = GPU TDP / 3.
+            # Identical to the static B200 values; differs for other GPUs (e.g. Vera Rubin).
+            cap=float(gpu["hbm_capacity_bytes"])*2
+            internal=float(gpu["hbm_bw_bytes_per_s"])*2
+            comp=float(gpu["dense_fp16_flops"])*0.20
+            tdp=float(gpu["tdp_watts"])/3.0
         mems[m["name"]]=MemorySpec(
             m["name"],m["medium"],cap,ext,internal,float(m["latency_s"]),
             bool(m.get("gpu_reachable",False)),frozenset(m.get("supported_primitives",[])),
-            m.get("compute_tflops_fp16"),float(m.get("attention_bw_efficiency") or 0.7),
+            comp,float(m.get("attention_bw_efficiency") or 0.7),
             float(m.get("write_amplification",1.0)),
             float(m.get("write_bw_bytes_per_s") or m["ext_bw_bytes_per_s"]),
-            float(m.get("tdp_watts",0.0)))
+            tdp)
 
     mm=mod["models"][model_name]
     model=ModelSpec(
@@ -209,6 +219,8 @@ class DataObject:
     latency_sensitivity:float=0.5
     write_ratio:float=0.1
     retrieval_dim:int=1024
+    # ((t0, mult), ...): from t0 on the access rate is multiplied by mult (last entry with t0<=t wins).
+    rate_schedule:tuple=()
 
     def alive(self,t): return self.arrival_s<=t<self.arrival_s+self.lifetime_s
 
@@ -216,6 +228,11 @@ class DataObject:
         r=self.base_rate*self.hotness_mult
         if self.phase_time is not None and t>=self.phase_time:
             r*=self.phase_mult
+        if self.rate_schedule:
+            mult=1.0
+            for t0,m in self.rate_schedule:   # last entry with t0 <= t wins
+                if t>=t0: mult=m
+            r*=mult
         return max(.001,r)
 
     def true_hotness(self,t):
