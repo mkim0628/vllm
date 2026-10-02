@@ -483,6 +483,15 @@ classDiagram
         +dependency_type
     }
 
+    class MigrationAction {
+        <<enumeration>>
+        MOVE
+        REPLICATE
+        DROP
+        REMAP
+        RECLASSIFY
+    }
+
     class MigrationCoordinator {
         -MigrationPlanner planner
         -MigrationScheduler scheduler
@@ -490,6 +499,7 @@ classDiagram
         -MigrationConsistencyGuard guard
         -CompletionReconciler reconciler
         +submit(intent) MigrationHandle
+        +apply_reclassify(intent)   // no job, idempotent fast path
         +poll()
         +cancel(handle)
     }
@@ -501,10 +511,11 @@ classDiagram
 
     class MigrationPlan {
         +job_id
+        +action
         +objects
         +source_locations
         +target_allocations
-        +transfer_steps
+        +transfer_steps        // empty for DROP / REMAP
         +consistency_mode
         +commit_actions
         +cleanup_actions
@@ -562,6 +573,10 @@ classDiagram
         +build_source_spec(data_ref, location)
         +commit_location(data_ref, new_location)
         +can_migrate_now(data_ref) bool
+        +is_recomputable(data_ref) bool
+        +can_drop(data_ref, location) bool
+        +quiesce(data_ref) QuiesceToken
+        +supports_remap(data_ref, src, dst) bool
     }
 
     class KVDataAdapter {
@@ -569,20 +584,28 @@ classDiagram
         +check_sealed_block()
         +pin_against_eviction()
         +update_kv_location()
+        +is_recomputable_block()
     }
 
     class DataLocationStore {
         +get(data_ref) LocationRecord
-        +begin_migration(data_ref, job_id)
-        +commit(data_ref, location, version)
+        +begin_migration(data_ref, job_id, action)
+        +commit(data_ref, location, version)            // MOVE: authoritative = target
+        +commit_replica(data_ref, location, version)    // REPLICATE: add replica
+        +commit_drop(data_ref, location, promote_to)    // DROP: promote + remove, atomic
+        +commit_remap(data_ref, new_mapping, epoch)     // REMAP
+        +update_metadata(data_ref, metadata)            // RECLASSIFY
         +abort(data_ref, job_id)
     }
 
     class LocationRecord {
         +authoritative_location
-        +replicas
+        +replicas              // (location, version, valid)
+        +recomputable
+        +mapping_epoch
         +version
         +inflight_job
+        +inflight_action
     }
 
     class MemoryResourceRegistry {
@@ -632,6 +655,8 @@ classDiagram
     MigrationCoordinator --> MigrationConsistencyGuard
     MigrationCoordinator --> CompletionReconciler
 
+    MigrationIntent --> MigrationAction
+    MigrationPlan --> MigrationAction
     MigrationPlanner --> MigrationIntent
     MigrationPlanner --> MigrationPlan
     MigrationPlan --> TransferStep
@@ -1230,6 +1255,61 @@ verify current version == V7
 ~~~
 
 이 검증으로 migration 도중 data가 변경된 경우 stale target commit을 막는다.
+
+## 14.4 Action별 일관성 규칙
+
+copy-then-commit 원칙은 `MOVE`/`REPLICATE`에 해당한다.
+no-copy action은 copy 대신 **commit 전 전제 조건 검증**이 일관성의 핵심이다 (§7.1).
+
+공통 invariant:
+
+~~~text
+I1. 모든 object는 항상 정확히 하나의 authoritative location을 가진다
+    (단, recomputable로 표시된 object는 "absent / recomputable" 상태를 허용).
+I2. authoritative location은 copy 성공 및 검증 전에는 바뀌지 않는다.
+I3. 한 object에는 동시에 하나의 in-flight job만 허용한다 (LocationRecord.inflight_job).
+I4. commit은 LocationRecord 단위로 atomic하다.
+~~~
+
+| action | version 검증 | 추가 일관성 규칙 |
+|---|---|---|
+| `MOVE` | copy 시작 version == commit 시점 version | 기존 §14.1–14.3. commit 후 새 version(V+1) |
+| `REPLICATE` | 동일 | replica에 `version`을 기록. 이후 source가 변경되면 replica는 **invalid**로 표시 (stale replica 사용 금지) |
+| `DROP` | 승격 대상 replica의 version == authoritative version | 아래 규칙 R1–R3 |
+| `REMAP` | mapping_epoch 일치 | 아래 규칙 R4 |
+| `RECLASSIFY` | 불필요 | metadata만 변경. 위치/replica/version 불변. 동일 요청 반복 시 결과 동일(idempotent) |
+
+**DROP**
+
+~~~text
+R1. authoritative copy를 DROP하려면 (version이 일치하는) valid replica가 있어야 하고,
+    commit_drop(promote_to=replica)에서 승격과 source 제거를 한 번의 atomic commit으로 수행한다.
+    → authoritative location이 비어 있는 구간을 만들지 않는다 (I1).
+R2. replica가 없고 recomputable도 아니면 DROP은 reject한다.
+R3. recomputable object는 location을 "absent / recomputable"로 commit한다.
+    이후 접근 시 recompute/refetch가 트리거되며, 그 경로는 AIDataAdapter 소관이다.
+~~~
+
+non-authoritative replica를 DROP하는 것은 항상 안전하다 (authoritative 불변).
+단, 해당 replica를 source로 사용하는 in-flight job이 있으면 pin 때문에 reject한다.
+
+**REMAP**
+
+~~~text
+R4. 기존 mapping을 통한 in-flight 접근이 없음을 quiesce로 확인한 뒤,
+    mapping_epoch를 증가시키며 mapping/ownership을 atomic하게 갱신한다.
+    epoch 불일치 시 abort하고 재계획한다.
+~~~
+
+**active tail(§14.2) 및 replica**
+
+- active tail KV block은 `REPLICATE` 대상에서도 제외한다 (write마다 replica가 stale해지므로).
+- sealed block의 replica는 data가 불변이므로 stale될 일이 없고, 이것이 `REPLICATE` → 이후 `DROP` demotion이 sealed KV에서 특히 유효한 이유다.
+
+**Registry 동기화**
+
+DP1의 Data Object Registry는 위 commit 결과(MOVE/REPLICATE/DROP/REMAP/RECLASSIFY)로만 갱신된다.
+DP1이 직접 location을 변경하지 않는다 (DP1 문서 §22.3).
 
 ---
 
