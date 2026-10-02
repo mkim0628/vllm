@@ -476,187 +476,95 @@ As-Is
 따라서 DP1은 "무엇을 어디로 옮길지"의 decision 구조(C1/C2)와 별개로,
 **decision plane이 memory를 바라보는 유일한 창구인 공통 Memory Backend I/F**를 정의한다.
 
-### 5.8.2 위치와 책임 — Component View
+### 5.8.2 위치와 책임 — Component View (슬라이드 8~10 기준)
 
-Memory Backend I/F는 **decision plane이 memory를 보는 유일한 창구**이며,
-decision plane의 모듈은 Backend를 직접 호출하지 않고 **Resource Manager(Memory Registry / Telemetry Collector)를 통해서만** 접근한다.
-다이어그램의 ①~④는 Backend I/F의 4개 면(Descriptor / Telemetry / Binding / health)이고, ⑤~⑧은 아래 §5.8.2.2 표의 같은 번호 행(시점)에 대응한다.
+Common Memory Backend I/F는 **Resource Manager 아래**에 붙고, decision 모듈은 I/F를 직접 호출하지 않는다.
+슬라이드와 동일하게 decision plane에서 Resource Manager와 직접 연결되는 모듈은 **Resource State Monitor(C1)** 와 **Destination Tier Selector(C1/C2)** 뿐이다.
 
 #### 5.8.2.1 Component Diagram
 
-~~~mermaid
-flowchart LR
-    subgraph MEM["Memory plug-ins"]
-        direction TB
-        M1["HBM"]
-        M2["ScHBM / Custom HBM"]
-        M3["DRAM"]
-        M4["CXL-PNM"]
-        M5["HBF"]
-        M6["SSD / SSD-PIM"]
-        M7["+ New"]
-    end
-
-    subgraph IF["Common Memory Backend I/F"]
-        direction TB
-        D1["① MemoryDescriptor<br/>(static)"]
-        D2["② MemoryTelemetry<br/>(dynamic)"]
-        D3["③ TransferBinding<br/>+ export/import"]
-        D4["④ health / lifecycle"]
-    end
-
-    subgraph RM["Resource Manager"]
-        direction TB
-        MR["Memory Registry<br/>(= BackendRegistry)<br/>descriptor cache"]
-        TC["Telemetry Collector"]
-        SNAP["ResourceSnapshot<br/>(immutable per cycle)"]
-    end
-
-    subgraph DP1["DP1 Decision Plane"]
-        direction TB
-        EV(["Runtime Event"])
-        MS["Migration Scheduler"]
-        subgraph C1["C1 pipeline"]
-            direction TB
-            RSM["Resource State Monitor"]
-            RTA["Trend Analyzer"]
-            DEM["Data Eviction Mgr"]
-            DMA["Affinity Mapper"]
-            DTS1["Destination Tier Selector"]
-            MDS1["Migration Data Selector"]
-        end
-        subgraph C2["C2 pipeline"]
-            direction TB
-            DBM["Behavior Monitor → Predictor"]
-            SEL2["Destination Tier + Data Selector"]
-        end
-    end
-
-    subgraph CM["Common Migration Subsystem"]
-        direction TB
-        MC["Coordinator / Planner"]
-        EX["Executor"]
-        THR["TransferHandler Registry"]
-    end
-
-    MEM ==> IF
-    D1 -->|"⑤ register<br/>(boot / hot-plug)"| MR
-    D2 -->|"⑥ pull / subscribe"| TC
-    TC --> SNAP
-    D4 -.->|"⑦ RESOURCE_CHANGED"| EV
-
-    EV --> MS
-    MS -.->|async| RSM
-    MS -.->|async| DBM
-
-    SNAP -->|"ResourceState"| RSM
-    TC -->|"history"| RTA
-    RSM --> RTA
-    RSM --> DEM
-    RTA --> DMA
-    DEM --> DMA
-    DMA --> DTS1
-    DMA --> MDS1
-
-    MR -->|"tier_order<br/>granularity<br/>write_limited"| DEM
-    MR -->|"capability_flags"| DMA
-    MR -->|"CapabilityFilter<br/>est. transfer cost"| DTS1
-    SNAP -->|"free capacity"| DTS1
-    MR -->|"granularity<br/>constraints"| MDS1
-
-    DBM --> SEL2
-    MR -->|"capability / binding"| SEL2
-    SNAP -->|"free capacity"| SEL2
-
-    DTS1 --> MC
-    MDS1 --> MC
-    SEL2 --> MC
-    MC -->|"⑧ reserve / release"| MR
-    MC --> EX --> THR
-    THR -->|"handler_key<br/>direct / staged"| D3
-    EX -.->|"observed BW<br/>(feedback)"| TC
+~~~text
+  Memory plug-in:  HBM · ScHBM · DRAM · CXL-PNM · HBF · SSD · SSD-PIM · +New
+                                    │ implements
+  ┌─────────────────────────────────▼───────────────────────────────────┐
+  │ 공통 Memory Backend I/F (Plug-in)                                   │
+  │   ② Telemetry         ① Descriptor          ③ Binding               │
+  │   (used/free, BW,      (capacity, BW,        (handler_key,          │
+  │    queue, link util)    latency, flags)       est. transfer cost)   │
+  └───────┬──────────────────────┬───────────────────┬──────────────────┘
+          │ collect()            │ register()        │ get_binding()
+  ┌───────▼──────────┐   ┌───────▼───────────────────▼──────┐
+  │ Telemetry        │   │ Memory Registry                  │   ← Resource Manager
+  │ Collector        │   │ (descriptor·binding 캐시)         │
+  └───────┬──────────┘   └───────────────┬──────────────────┘
+          │ ② capacity·BW·load           │ ①③ capability·transfer cost
+          ▼                              ▼
+  ┌──────────────────┐            ┌───────────────────────┐
+  │ Resource State   │            │ Destination Tier      │
+  │ Monitor (C1)     │            │ Selector (C1, C2)     │
+  └──────────────────┘            └───────────────────────┘
 ~~~
 
-읽는 방법:
+C2에는 Resource State Monitor가 없으므로 Telemetry Collector의 출력도 Destination Tier Selector로 간다.
 
-- 좌→우 흐름이 `Memory plug-in → Backend I/F → Resource Manager → DP1 Decision Plane → 공통 Migration`이다. **굵은 화살표** : plug-in 구현 관계, **점선** : 비동기 event 또는 feedback.
-- C1/C2 어느 pipeline을 쓰더라도 memory 정보 경로(`SNAP`, `MR`, `TC`)는 동일하다. 달라지는 것은 **data 쪽 입력**(C1: Registry+Affinity, C2: Behavior Predictor)뿐이다.
-- DP1 모듈에서 `IF`(Backend)로 향하는 직접 화살표는 없다. 모두 `Resource Manager`를 거친다.
-- 실제 byte 이동 경로(`THR → D3 → MEM`)는 공통 migration subsystem만 사용한다 (DP1은 binding 정보를 *읽기만* 함).
-
-#### 5.8.2.2 언제 / 누가 / 어떻게 사용하는가
-
-| # | 시점 (phase) | 트리거 | 사용 모듈 | Backend I/F 호출 | 얻는 정보 → 용도 | 호출 방식 |
-|---|---|---|---|---|---|---|
-| ⑤ | **Boot / hot-plug** | 시스템 시작, memory 추가·제거 | Memory Registry | `register(backend)` → `descriptor()` | static capability → registry에 **캐시**, `tier_order()`·capability class 도출, affinity table 매핑 검증 | 1회 (이후 변경 시만) |
-| ⑥ | **상시 telemetry 수집** | 주기 pull 또는 backend push (`subscribe`) | Telemetry Collector | `telemetry()` / `subscribe(cb)` | 사용량·BW·큐·shared_link_util → **최신 값 보관 + 시계열 이력** | 비동기. decision critical path 밖 |
-| — | **Decision cycle 시작** | Runtime Event → Migration Scheduler | Resource State Monitor (C1) / Behavior Monitor (C2) | (없음) | Collector의 **ResourceSnapshot**(cycle 시작 시점 immutable copy)을 받음 | 캐시 read. Backend IPC 없음 |
-| 1 | **Pressure 판단** (C1) | cycle 내 | Resource State Monitor, Trend Analyzer | (Snapshot/이력 경유) `MemoryTelemetry` | `ResourceState` 정규화, nominal BW로 pressure score, look-ahead | 동기 (cycle 내) |
-| 2 | **Victim 후보 선정** (C1) | pressure 감지 후 | Data Eviction Manager | `tier_order()`, `descriptor.granularity`, `write_limited` | 어느 tier가 상위/하위인지, 이동 단위, write 제약 매체를 victim 선정에서 회피 | 캐시 read |
-| 3 | **Affinity 매핑** (C1) | 후보 선정 후 | Data-Memory Affinity Mapper | `descriptor.capability_flags` | affinity table(capability class key) ↔ 실제 memory 후보 매핑 | 캐시 read |
-| 4 | **Destination 선택** (C1/C2) | 이동 후보 확정 후 | Destination Tier Selector | `list(CapabilityFilter)`, Snapshot free capacity, `MemoryTransferBinding` | feasible 필터(`gpu_direct_access`, `high_bw`…) ∩ 여유 용량 ∩ 이동 비용(`est_transfer_bw`, `est_setup_cost`, hop 수, shared link) | 캐시 read |
-| 5 | **이동 객체 확정** (C1/C2) | destination 선택 후 | Migration Data Selector | `granularity`, `constraints`, `TransferBinding` | object를 granularity 배수로 묶고 정렬·전송 크기 제약 반영 | 캐시 read |
-| ⑧ | **Handoff** | Decision → Intent | Migration Coordinator/Planner (공통) | descriptor, binding, `reserve/release` | target 용량 예약, 경로 선택. **reserve/release·commit은 control plane만** 수행 | 동기 (control plane) |
-| 6 | **Transfer 실행** | Job 실행 | Executor → TransferHandlerRegistry | `export_async` / `import_async`, 또는 direct handler (`handler_key`) | byte 이동 (DP1 관여 없음) | 비동기 (data plane) |
-| 7 | **Feedback** | 전송 완료 | Executor → Telemetry Collector | (Backend 실측 보고) | 실측 BW/latency → Telemetry·`est_transfer_bw` 보정 (§5.9.6) | 비동기 |
-| ⑦ | **상태 변화 통지** | thermal throttle, 링크 열화, memory 제거 | Backend → Event | `health()` 변경 | `RESOURCE_CHANGED` event → Migration Scheduler → 재평가 (e.g. 해당 memory의 evacuation) | 비동기 event |
-
-모듈별 사용 정보는 §5.8.8의 소비자 표와 동일한 내용을 **시점 기준**으로 재정렬한 것이다.
-
-#### 5.8.2.3 호출 규칙 (how)
-
-1. **Decision plane은 Backend를 직접 호출하지 않는다.** Resource Manager의 `MemoryBackendRegistry` / `Telemetry Collector`만 본다. Backend에 대한 모든 직접 호출(`telemetry()`, `export/import`)은 Resource Manager 또는 공통 migration subsystem 내부에서 일어난다.
-2. **Descriptor는 캐시한다.** 값은 register 시 1회 읽어 Registry에 두고, `REGISTERED / UNREGISTERED / HEALTH_CHANGED` event로만 무효화한다. decision cycle마다 backend를 재조회하지 않는다.
-3. **Telemetry는 pull을 decision 경로에서 하지 않는다.** Collector가 비동기로 수집해 최신 값과 이력을 보관하고, decision cycle은 시작 시점의 **immutable `ResourceSnapshot`**을 읽는다. cycle 도중 값이 바뀌어도 한 번의 decision은 일관된 입력을 본다.
-4. **Staleness를 명시한다.** Snapshot에는 수집 시각이 있고, 허용 age를 넘으면 해당 metric은 `None`으로 취급(§5.8.4의 graceful degradation)한다.
-5. **Backend 호출 비용이 decision latency에 들어가지 않는다.** decision critical path는 O(#resources)의 메모리 read로 한정된다 (QA: event-to-decision latency, §26 항목 9).
-6. **쓰기 권한은 control plane 단일 소유.** `reserve/release`, location commit, transfer 시작은 Migration Coordinator만 수행한다. decision plane은 읽기 전용이다 (§5.8.7 원칙 7).
-7. **Memory 이름 분기 금지.** Selector/Eviction/Affinity는 `list(CapabilityFilter)`와 수치 field로만 memory를 고른다 (§5.8.7 원칙 1).
-
-#### 5.8.2.4 한 번의 Decision Cycle — Sequence (C1 pressure 예)
-
-~~~mermaid
-sequenceDiagram
-    autonumber
-    participant BE as Memory Backend (plug-in)
-    participant TC as Telemetry Collector
-    participant MR as Memory Registry
-    participant MS as Migration Scheduler
-    participant RSM as Resource State Monitor
-    participant DEM as Data Eviction Mgr
-    participant DTS as Destination Tier Selector
-    participant MDS as Migration Data Selector
-    participant MC as Migration Coordinator
-
-    Note over BE,MR: Boot: register(backend) → descriptor() cached in MR
-    BE-->>TC: telemetry push / periodic pull (async, off critical path)
-    TC->>TC: update latest + history
-
-    Note over MS: Event arrives (e.g. HBM pressure)
-    MS-)RSM: async push (start decision cycle)
-    RSM->>TC: get ResourceSnapshot (immutable copy)
-    TC-->>RSM: snapshot (capacity / BW / load / shared_link_util)
-    RSM->>RSM: normalize → ResourceState, trend, pressure source
-
-    RSM->>DEM: pressure source = hbm
-    DEM->>MR: tier_order(), granularity, write_limited
-    MR-->>DEM: cached descriptor fields
-    DEM-->>DTS: victim candidates (type-agnostic)
-
-    DTS->>MR: list(CapabilityFilter) + MemoryTransferBinding
-    MR-->>DTS: feasible memories + est_transfer_bw / setup cost
-    DTS->>DTS: feasible ∩ affinity ∩ free capacity (snapshot)
-    DTS-->>MDS: destination
-    MDS->>MR: granularity / constraints
-    MDS-->>MC: MigrationDecision → MigrationIntent
-
-    MC->>MR: reserve(target) + descriptor/binding (control plane only)
-    MC->>BE: export/import or direct handler (via TransferHandlerRegistry)
-    BE-->>TC: observed BW / latency (feedback)
+~~~text
+  Telemetry Collector ──② capacity·BW·load────┐
+                                              ▼
+  Memory Registry ──────①③ capability·cost──► Destination Tier Selector (C2)
 ~~~
 
-C2는 3~4단계(RSM → DEM)를 `Behavior Monitor → Predictor`로 대체하고,
-Selector 이후의 memory 접근 경로(`MR`, `Snapshot`, `Binding`)는 동일하다.
+슬라이드 10(Affinity 반영안)의 C1은 Resource Manager가 두 박스로 나뉘어 있다
+(Telemetry Collector 쪽 → Resource State Monitor, Memory Registry 쪽 → Destination Tier Selector).
+I/F의 면(②, ①③)과 연결 관계는 동일하며 그림에서만 분리된 것이다.
+
+#### 5.8.2.2 어떤 I/F 면을 누가 언제 호출하고, 무엇을 누구에게 전달하는가
+
+| I/F 면 | 호출하는 Resource Manager 기능 | 호출 시점 | 전달 대상 | 전달 정보 |
+|---|---|---|---|---|
+| ① Descriptor | Memory Registry `register()` → `backend.descriptor()` | boot / memory hot-plug (이후 캐시, 변경 시에만 재조회) | **Destination Tier Selector** | **capability**: capacity, ext/int BW, latency, gpu_reachable, primitives, capability_flags (§5.8.3) |
+| ③ Binding | Memory Registry `get_binding()` → `backend.transfer_binding()` | `register()` 시 캐시, Selector 조회 시 반환 | **Destination Tier Selector** | **transfer cost**: est_transfer_bw / est_setup_cost, hop 수, shared link (§5.8.5) |
+| ② Telemetry | Telemetry Collector `collect()` → `backend.telemetry()` | 상시 (주기 pull 또는 backend push), decision 경로 밖 | **Resource State Monitor** (C1), **Destination Tier Selector** (C2) | **capacity·BW·load**: used/free, BW util, queue, shared_link_util (§5.8.4) |
+
+- `register()`, `get_binding()`, `collect()`는 Resource Manager 내부 기능의 **제안 명칭**이다. 실제 이름은 구현에서 확정한다.
+- ④ health/lifecycle은 슬라이드에 그리지 않았다. health가 변하면 Resource Manager가 `RESOURCE_CHANGED` event를 Migration Scheduler로 보낸다 (§5.8.2.3 규칙 5).
+- Data Eviction Manager, Data-Memory Affinity Mapper, Migration Data Selector는 Resource Manager와 직접 연결되지 않는다.
+  victim 선정 단위와 전송 제약 같은 memory 정보는 **Destination Tier Selector의 feasibility 판단**으로 반영된다.
+
+#### 5.8.2.3 호출 규칙
+
+1. **Decision 모듈은 Backend를 직접 호출하지 않는다.** Resource Manager(Memory Registry, Telemetry Collector)만 본다.
+2. **Descriptor / Binding은 캐시한다.** `register()` 시 1회 읽고, `REGISTERED / UNREGISTERED / HEALTH_CHANGED` event로만 갱신한다. decision cycle마다 backend를 재조회하지 않는다.
+3. **Telemetry는 decision 경로 밖에서 수집한다.** Telemetry Collector가 비동기로 수집하고, decision cycle은 시작 시점의 snapshot을 읽는다. cycle 도중 값이 바뀌어도 한 번의 decision은 일관된 입력을 본다.
+4. **Staleness를 명시한다.** snapshot에는 수집 시각이 있고, 허용 age를 넘은 metric은 `None`으로 취급한다 (§5.8.4).
+5. **상태 변화는 event로 통지한다.** backend `health()`가 변하면(thermal throttle, 링크 열화, memory 제거) Resource Manager가 `RESOURCE_CHANGED` event를 Migration Scheduler로 보내 재평가를 일으킨다.
+6. **쓰기 권한은 control plane만 가진다.** `reserve/release`, location commit, transfer 시작은 공통 Migration subsystem이 수행한다. decision plane은 읽기 전용이다 (§5.8.7 원칙 7).
+7. **Memory 이름 분기 금지.** Selector는 `capability_flags`와 수치 field로만 memory를 고른다 (§5.8.7 원칙 1).
+8. **실제 전송은 DP1 범위 밖이다.** 공통 Migration subsystem의 TransferHandler가 binding(③)의 `handler_key`로 직접/staged 경로를 선택한다 (§5.9). 슬라이드 8의 To-Be 그림에서 I/F는 Resource Manager에 연결된다.
+
+#### 5.8.2.4 Decision Cycle에서의 사용 흐름 (C1 예)
+
+~~~text
+[boot / hot-plug]
+  Memory Registry.register(backend)
+    → backend.descriptor() / transfer_binding()  → ①③ 캐시
+
+[상시, decision 경로 밖]
+  Telemetry Collector.collect()
+    → backend.telemetry()                        → ② 최신값 + 이력 보관
+
+[Event 발생 → Migration Scheduler → async push]
+  Resource State Monitor
+    ← Telemetry Collector : ② capacity·BW·load  → ResourceState, pressure, trend
+  ...(C1 pipeline: Trend Analyzer / Eviction Manager / Affinity Mapper)...
+  Destination Tier Selector
+    ← Memory Registry     : ①③ capability · transfer cost
+    ⇒ feasible memory ∩ affinity ∩ 여유 용량 → target tier
+  Migration Data Selector → MigrationDecision → MigrationIntent
+    → 공통 Migration subsystem (reserve · transfer · commit)
+~~~
+
+C2는 Resource State Monitor → Trend Analyzer 구간을 `Behavior Monitor → Behavior Trend → Future Predictor`로 대체하고,
+Destination Tier Selector가 Telemetry Collector(②)와 Memory Registry(①③)를 모두 읽는다.
 
 #### 5.8.2.5 책임 경계
 
@@ -815,15 +723,17 @@ MemoryTransferBinding
 
 ### 5.8.8 C1/C2 공통 적용 방식
 
-| 소비 컴포넌트 | 사용하는 Backend I/F 정보 |
-|---|---|
-| Resource State Monitor (C1) | MemoryTelemetry → `ResourceState` 정규화 |
-| Resource-based Trend Analyzer (C1) | MemoryTelemetry 시계열, nominal BW (pressure 정규화 기준) |
-| Data Eviction Manager (C1) | `tier_order()`, descriptor.granularity, write_limited |
-| Data-Memory Affinity Mapper (C1) | affinity table(capability class) ↔ descriptor.capability_flags 매핑 |
-| Destination Tier Selector (C1/C2) | capability_flags, free capacity, TransferBinding(est cost) |
-| Migration Data Selector (C1/C2) | granularity, constraints, TransferBinding |
-| Data Behavior Monitor / Predictor (C2) | 직접 사용하지 않음. Selector가 prediction 결과에 memory 제약을 결합 |
+슬라이드 9~10과 동일하게, Resource Manager를 통해 memory 정보를 받는 decision 모듈은 두 개다.
+
+| 소비 모듈 | 받는 I/F 정보 | 경로 |
+|---|---|---|
+| Resource State Monitor (C1) | ② Telemetry: capacity·BW·load → `ResourceState` 정규화 | Telemetry Collector |
+| Destination Tier Selector (C1) | ①③ capability · transfer cost (feasibility ∩ affinity ∩ 여유 용량) | Memory Registry |
+| Destination Tier Selector (C2) | ② capacity·BW·load + ①③ capability · transfer cost | Telemetry Collector, Memory Registry |
+
+- Data Eviction Manager, Data-Memory Affinity Mapper, Migration Data Selector, C2 Behavior Monitor/Predictor는 Resource Manager와 직접 연결되지 않는다.
+  Affinity Mapper의 static hint(capability class key)와 이동 단위·전송 제약은 **Destination Tier Selector가 capability와 결합**해 반영한다.
+- Resource State Monitor의 pressure·trend 결과는 Trend Analyzer와 Eviction Manager로 전달된다 (§8.2~8.4).
 
 → Memory I/F는 **C1/C2 후보 선택(Q1/Q2)과 독립적으로** 확정 가능한 공통 설계 요소다.
 
