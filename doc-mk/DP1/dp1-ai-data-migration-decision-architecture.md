@@ -568,7 +568,7 @@ I/F의 면(②, ①③)과 연결 관계는 동일하며 그림에서만 분리�
   ...(C1 pipeline: Trend Analyzer / Eviction Manager / Affinity Mapper)...
   Destination Tier Selector
     ← Memory Registry     : ①③ capability · transfer cost
-    ⇒ feasible memory ∩ affinity ∩ 여유 용량 → target tier
+    ⇒ feasible memory ∩ affinity ∩ 여유 용량(upstream ResourceState) → target tier
   Migration Data Selector → MigrationDecision → MigrationIntent
     → 공통 Migration subsystem (reserve · transfer · commit)
 ~~~
@@ -889,14 +889,15 @@ engine 선택 결과는 migration cost(`est_transfer_bw`)와 serving 간섭에 �
 - paged KV는 작고 비연속적인 block 집합이다. 소 block 단위 전송은 BW를 못 채우므로 **batching(gather/scatter)** 이 필요하다.
 - memory별 정렬/단위 제약(SSD page, HBF page/erase block 등)을 `MemoryDescriptor.granularity / alignment`에서 받아
   handler가 **coalescing과 패딩**을 수행한다 (§5.8.3).
-- DP1의 Migration Data Selector는 object를 이 granularity 배수로 묶어 선택하는 것이 유리하다 (§8.8).
+- granularity / alignment 정보는 Memory Registry(①)에 있고 Destination Tier Selector가 target 선택 시 반영한다.
+  object를 granularity 배수로 묶는 일은 DP1이 아니라 공통 Planner / handler가 수행한다 (Migration Data Selector는 Resource Manager를 직접 읽지 않는다, §8.8).
 
 ### 5.9.5 Write-limited 매체 보호
 
 HBF(write 50 GB/s, endurance 100 PB, WA 3.0), SSD-PIM(WA 4.0, endurance 10 PB)은 write 비용이 크다.
 
 - handler는 write 대상 memory에 대해 **write coalescing / throttle**을 적용한다.
-- DP1은 anti-thrashing(§26 항목 8)과 함께 **write budget**을 decision 입력으로 고려한다.
+- DP1은 anti-thrashing(§26 항목 8)과 함께 **write budget**을 decision 입력으로 고려한다 (Destination Tier Selector가 `write_limited` capability로 반영).
   특히 `DROP`/`REPLICATE` action(§2.1)으로 write를 피할 수 있으면 우선한다.
 
 ### 5.9.6 측정–추정 closed loop
@@ -995,7 +996,7 @@ flowchart TD
     MR --> MBI
     MBI -->|"plug-in"| MEMS
     MBI -->|"MemoryTelemetry"| TC
-    TC -->|"capacity / BW / load"| RSM
+    TC -->|"② capacity / BW / load"| RSM
 
     RSM --> RTA
     RSM --> DEM
@@ -1003,14 +1004,13 @@ flowchart TD
     DEM -->|"object metadata query"| DOR
     DOR -->|"location / size / tier"| DEM
 
-    RTA -->|"resource trend"| DMA
+    RTA -->|"resource trend<br/>(tier별 여유 용량 포함)"| DMA
     DEM -->|"victim candidates<br/>(type-agnostic eviction)"| DMA
 
     DMA -->|"tier affinity hint"| DTS
     DMA -->|"data affinity hint"| MDS
 
-    MR -->|"memory capability"| DTS
-    MR -->|"resource constraints"| MDS
+    MR -->|"①③ capability ·<br/>transfer cost"| DTS
 
     DTS --> ME
     MDS --> ME
@@ -1053,7 +1053,8 @@ request execution path에서 직접 동기 호출되는 구조를 피할 수 있
 
 ## 8.2 Resource State Monitor
 
-Telemetry Collector 정보를 사용해 현재 resource state를 normalized state로 만든다.
+Telemetry Collector(② Telemetry: capacity·BW·load)의 정보를 사용해 현재 resource state를 normalized state로 만든다.
+Resource Manager에서 Resource State Monitor로 들어오는 입력은 이 경로 하나다 (슬라이드: Resource State Monitor ↔ Telemetry Collector).
 
 ~~~text
 ResourceState
@@ -1127,6 +1128,9 @@ evictable objects
 Data Eviction Manager는 최종 target tier를 정하지 않는다.
 역할은 **source-side candidate generation**이다.
 
+Data Eviction Manager가 조회하는 곳은 **Data Object Registry뿐**이다. Resource Manager / Memory Backend I/F를 직접 읽지 않는다.
+memory 쪽 제약(tier 순서, 이동 단위, 전송 비용 등)은 뒤의 Destination Tier Selector가 capability(①③)로 반영한다.
+
 기본 정책은 LRU / age / size / pin state / migration eligibility 등
 낮은 비용의 heuristic을 사용할 수 있다.
 
@@ -1189,8 +1193,8 @@ DataMemoryAffinity
  ├─ capacity_preference
  ├─ mutability
  ├─ expected_access_granularity
- ├─ preferred_tiers[]
- ├─ disallowed_tiers[]
+ ├─ preferred_capability_classes[]   # memory 이름이 아닌 capability class (§8.7)
+ ├─ disallowed_capability_classes[]
  └─ migration_cost_class
 ~~~
 
@@ -1211,24 +1215,26 @@ B1과 B2의 실제 future reuse 차이까지 C1이 직접 예측하지 않는다
 
 ## 8.7 Destination Tier Selector
 
-다음 정보를 결합해 target tier를 선택한다.
+다음 정보를 결합해 target tier를 선택한다. 입력은 출처가 서로 다르다.
 
-~~~text
-resource trend
-+ available capacity
-+ memory capability
-+ static data-memory affinity
-~~~
+| 입력 | 출처 | 내용 |
+|---|---|---|
+| resource trend, 후보 tier별 available capacity | Resource State Monitor / Trend Analyzer → Affinity Mapper (upstream ResourceState) | ② capacity·BW·load에서 만든 tier별 pressure와 여유 용량 |
+| **memory capability, transfer cost** | **Memory Registry** (Resource Manager) | ① Descriptor(capacity, BW, latency, gpu_reachable, capability_flags), ③ Binding(est_transfer_bw/setup, hop, shared link) |
+| static data-memory affinity | Data-Memory Affinity Mapper | capability class 기준 hint |
+
+슬라이드에서 C1의 Destination Tier Selector가 Resource Manager와 직접 연결되는 곳은 **Memory Registry**다.
+Telemetry Collector 값은 Resource State Monitor를 거쳐 upstream으로 들어온다 (C2는 Selector가 Telemetry Collector도 직접 읽는다).
 
 개념적으로:
 
 ~~~text
 candidate target tier
-  = feasible(resource constraints)
+  = feasible(capability ∩ transfer cost ∩ available capacity)
   ∩ preferred(data-memory affinity)
 ~~~
 
-여기서 "tier"와 "memory capability"는 **Memory Backend I/F(§5.8)의 MemoryDescriptor**로만 조회한다.
+여기서 "tier"와 "memory capability"는 **Memory Registry(MemoryDescriptor, §5.8)** 로만 조회한다.
 Affinity Table도 `HBM`, `CXL` 같은 memory 이름이 아니라
 `capability class`(예: `high_bw`, `large_capacity`, `persistent`, `near_data_compute`)를 key로 갖는다.
 따라서 신규 memory는 Descriptor가 해당 capability class에 매핑되기만 하면 Affinity Table 수정 없이 후보에 포함된다.
@@ -1245,8 +1251,12 @@ Eviction candidate 중 실제 migration object를 결정한다.
 - pin state
 - basic age/LRU
 - source pressure relief 효과
-- static data-memory affinity
+- static data-memory affinity (Affinity Mapper의 candidate ranking hint)
 - target feasibility
+
+Migration Data Selector도 Resource Manager와 직접 연결되지 않는다 (슬라이드: Resource Manager ↔ Destination Tier Selector만).
+(source object, target tier)는 Executor boundary에서 `MigrationDecision`으로 결합되고,
+target 용량 부족이나 전송 제약 위반은 공통 Planner가 reject / replan한다 (§19).
 
 C1에서는 runtime per-object future behavior prediction을 하지 않으므로
 selection logic은 상대적으로 단순하게 유지한다.
@@ -1260,6 +1270,7 @@ sequenceDiagram
     participant E as Event Source
     participant MS as Migration Scheduler
     participant TC as Telemetry Collector
+    participant MR as Memory Registry
     participant RSM as Resource State Monitor
     participant RTA as Resource Trend Analyzer
     participant DEM as Data Eviction Manager
@@ -1272,7 +1283,7 @@ sequenceDiagram
     E->>MS: Migration Event
     MS-->>RSM: async event push / evaluate
 
-    TC->>RSM: capacity / BW / load telemetry
+    TC->>RSM: ② capacity / BW / load telemetry
     RSM->>RTA: normalized resource state
     RSM->>DEM: pressure state
 
@@ -1288,6 +1299,9 @@ sequenceDiagram
 
     AM->>DTS: target-tier hints
     AM->>MDS: candidate ranking hints
+
+    DTS->>MR: query capability / transfer cost (①③)
+    MR-->>DTS: feasible memories + est. transfer cost
 
     DTS-->>MC: target resource
     MDS-->>MC: selected data objects
@@ -1405,10 +1419,8 @@ flowchart TD
     FBP -->|"predicted behavior"| DTS
     FBP -->|"predicted behavior"| MDS
 
-    TC -->|"current resource state"| DTS
-    TC -->|"current resource state"| MDS
-    MR -->|"memory capability"| DTS
-    MR -->|"resource constraints"| MDS
+    TC -->|"② capacity / BW / load"| DTS
+    MR -->|"①③ capability ·<br/>transfer cost"| DTS
 
     DTS --> ME
     MDS --> ME
@@ -1578,6 +1590,10 @@ Current Object Location
 Data Object × Memory Tier matching
 ~~~
 
+C2에서 Resource Manager와 직접 연결되는 모듈은 **Destination Tier Selector**이며,
+Telemetry Collector(② capacity·BW·load)와 Memory Registry(①③ capability·transfer cost)를 모두 읽는다.
+Migration Data Selector는 Resource Manager를 직접 조회하지 않고 Future Behavior Predictor의 결과를 사용한다.
+
 C2는 같은 data class 내부 object들도 서로 다른 tier로 migration할 수 있다.
 
 ---
@@ -1607,8 +1623,7 @@ sequenceDiagram
     BTA->>FBP: behavior trend
     FBP->>FBP: predict future reuse / lifetime / hotness
 
-    RM-->>DTS: resource state + capability
-    RM-->>MDS: resource constraints
+    RM-->>DTS: ② resource state + ①③ capability / transfer cost
 
     FBP->>DTS: predicted behavior
     FBP->>MDS: predicted behavior
