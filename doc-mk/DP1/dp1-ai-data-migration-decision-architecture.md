@@ -137,14 +137,33 @@ HOW to commit / rollback?
 
 ~~~text
 MigrationIntent
+ ├─ action                    # MOVE | REPLICATE | DROP | REMAP | RECLASSIFY  (§2.1)
  ├─ data_refs[]
  ├─ source_resource_id
- ├─ target_resource_id
+ ├─ target_resource_id?       # DROP / RECLASSIFY에서는 생략 가능
  ├─ reason
  ├─ priority
  ├─ dependency_type
  └─ policy_metadata
 ~~~
+
+### 2.1 MigrationAction — "이동"은 항상 copy가 아니다
+
+DP1 decision이 byte copy를 동반하지 않는 선택지도 표현할 수 있도록 `action`을 둔다.
+이는 transfer 비용이 큰 이기종 환경에서 **"복사하지 않는 것"도 decision의 선택지**가 되게 한다.
+
+| action | 의미 | byte copy | 비용 특성 | 대표 사용 |
+|---|---|---|---|---|
+| `MOVE` | target에 복사 후 source 해제 | ✅ | 전송 + commit | 일반 demotion/promotion |
+| `REPLICATE` | target에 복사, source 유지 | ✅ | 전송 (source 해제 없음) | hot 데이터의 상위 tier 복제 (예: LoRA) |
+| `DROP` | source만 해제 (복제본/재계산 경로 존재) | ❌ | 없음 (+ 이후 miss 시 recompute/refetch) | 하위 tier 복제본이 있는 데이터 demotion |
+| `REMAP` | 주소 매핑/소유권만 변경 | ❌ | metadata 갱신 | CXL shared pool 소유권 이전, page remap |
+| `RECLASSIFY` | 위치 그대로 hotness/eviction priority/pin 상태만 변경 | ❌ | metadata 갱신 | 위치 변경 없이 다음 decision 입력만 갱신 |
+
+- `REPLICATE`로 만든 복제본은 이후 demotion 시 `DROP`으로 끝나므로 **write 비용이 큰 매체(HBF/SSD-PIM, §5.9.5)에 유리**하다.
+- `DROP`은 데이터를 재현 가능한 경우(복제본 존재, KV recompute 등)에만 허용한다. 재현 불가능 데이터의 `DROP`은 금지하며, 이 판정은 Registry의 replica/recomputable 정보에 의존한다 (C1: generic `replica_count`, C2: type별 recomputability).
+- near-data compute(compute-to-data)와 in-place transform(quantization 등)은 data 이동이 아니므로 DP1 action이 아니다 (DP2/DP4, KV compression은 §3.2 out of scope). 단 destination 후보 제약으로 `near_data_compute` flag만 사용한다 (§5.8.3).
+- 공통 migration architecture의 `MigrationIntent`는 현재 source/target만 가지므로, **`action` field 추가를 공통 문서와 정렬해야 한다** (§26 follow-up).
 
 DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
 그 부분은 공통 **MigrationCoordinator → MigrationPlanner → execution-side scheduler/queue → MigrationExecutor → TransferHandler** 구조가 담당한다.
@@ -165,6 +184,8 @@ DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
 - Data Object Registry 기반 object 위치/크기/tier 조회
 - **공통 Memory Backend I/F 정의** — MemoryDescriptor / MemoryTelemetry / MemoryTransferBinding / plug-in 등록 규약 (§5.8)
 - 신규 memory 편입 시 decision plane 무변경 원칙 및 편입 절차
+- **MigrationAction 선택** (MOVE / REPLICATE / DROP / REMAP / RECLASSIFY) — copy 없는 선택지 포함 (§2.1)
+- DP1이 Transfer Handler에 요구하는 설계 포인트와 노출 정보 정의 (§5.9)
 - migration 대상 data 후보 선택
 - destination memory tier 선택
 - AI Data별 static affinity 반영
@@ -177,7 +198,7 @@ DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
 
 - initial data placement
 - 실제 byte transfer mechanism
-- 개별 memory backend 구현체(vendor driver) 및 TransferHandler 구현 — 공통 migration architecture 소관
+- 개별 memory backend 구현체(vendor driver) 및 TransferHandler **구현** — 공통 migration architecture 소관 (설계 포인트는 §5.9)
 - allocation reserve/release, source pin / version check / atomic location commit
 - migration failure rollback
 - Prefill execution resource 선택 — DP2
@@ -709,6 +730,127 @@ Memory Backend I/F (Memory 측 추상화)       Data Object Registry (Data 측 �
 > `clusters.json`의 `scale_attached: false` flag와 `custom_hbm`이 가장 가까운 대응이며,
 > ScHBM은 scale-up fabric에 붙어 GPU 도메인 간 공유될 수 있어 `scope`/`shared_link_group` 표현이 필요할 가능성이 있다.
 > 이는 **"신규 memory = plug-in 1개"** 원칙의 첫 검증 대상이며, config에 항목을 추가해도 decision plane이 바뀌지 않는지 `test_sim.py`로 확인한다 (§26 follow-up).
+
+---
+
+### 5.8.11 Backend I/F의 Staging Primitive — N² handler 방지
+
+신규 memory가 추가될 때마다 모든 상대 memory와의 pairwise handler를 만들면 확장 비용이 O(N)이다 (§5.9.2).
+이를 피하기 위해 MemoryBackend는 descriptor/telemetry 외에 **최소 data-movement primitive**를 노출한다 (§22.8).
+
+~~~text
+MemoryBackend (data-movement primitive)
+  export_async(region, staging_buf) -> handle      # 이 memory → host/공통 staging
+  import_async(staging_buf, region) -> handle      # host/공통 staging → 이 memory
+~~~
+
+- 모든 memory 쌍은 `export → staging → import`의 **staged path로 기본 지원**된다. 신규 memory는 이 두 primitive만 구현하면 즉시 모든 기존 memory와 이동 가능하다.
+- direct path(P2P, GPUDirect, CXL direct 등)는 **fast-path override**로 `TransferHandlerRegistry`에 선택적으로 등록한다 (§5.9.2).
+
+---
+
+## 5.9 Transfer Handler Design Considerations (이기종 환경)
+
+DP1은 transfer를 수행하지 않지만(§2), 이기종 memory 환경에서 **handler 설계가 DP1 decision의 실현 가능성과 비용 모델을 결정**한다.
+본 절은 handler 구현 자체가 아니라, DP1이 handler에 요구하는 설계 포인트와 DP1에 노출되어야 하는 정보를 정리한다.
+구현 상세는 공통 migration architecture(doc-mk/vllm-ai-data-migration-architecture.md §17)에서 확정한다.
+
+### 5.9.1 이동 경로가 대부분 multi-hop이다
+
+`dp1_sim/configs` 기준 6종 memory 중 4종(Custom HBM, CXL-PNM, DRAM, SSD-PIM)이 `gpu_reachable=false`이며 Host를 경유한다 (§5.8.10).
+
+~~~text
+HBM → DRAM         : gpu→cpu:pcie                       (1 hop)
+HBM → CXL-PNM      : gpu→cpu:pcie → cpu→dev:cxl         (2 hop)
+HBM → Custom HBM   : gpu→host:pcie5_x16 → host→dev:pcie5_x16   (2 hop, 공유 링크)
+HBM → SSD-PIM      : gpu→cpu:pcie → cpu→dev:nvme        (2 hop)
+~~~
+
+설계 포인트:
+- **store-and-forward vs chunk pipelining:** hop 간 pipelining이 없으면 전송 시간이 hop 수에 비례해 늘어난다. 최소 chunk 크기와 bounce buffer 크기가 설계 파라미터다.
+- **bounce buffer 소유권:** staging buffer 풀을 handler 공통 자원으로 관리하고 budget을 둔다 (host DRAM 자체가 migration 대상 tier이기도 하므로 pressure 연동 필요).
+- **DP1 노출 정보:** 경로의 hop 수와 병목 hop BW는 `MemoryTransferBinding.est_transfer_bw / est_setup_cost`로 Selector에 전달된다 (§5.8.5).
+
+### 5.9.2 Handler 확장성 — pairwise 폭발 방지
+
+| 방식 | 신규 memory 1종 추가 시 | 비고 |
+|---|---|---|
+| Pairwise handler (src,dst 쌍마다) | N개 handler 추가 (O(N)) | 쟁점 2와 충돌 |
+| **Staging primitive 기반 (§5.8.11) + direct override** | **primitive 2개 (export/import)** + 필요한 direct 경로만 | 권장 |
+
+~~~text
+TransferHandlerRegistry.resolve(src, dst)
+  1. direct handler가 등록되어 있으면 사용 (P2P / GDS / CXL direct)
+  2. 없으면 staged handler로 합성: src.export_async → staging → dst.import_async
+~~~
+
+direct path가 없어도 기능은 항상 보장되고(correctness), direct path는 성능 최적화로만 추가된다.
+
+### 5.9.3 공유 링크 대역폭 중재
+
+Custom HBM은 GPU 8장당 1대이며 PCIe5 x16 한 가닥(63 GB/s)을 도메인 전체가 공유한다 (`clusters.json`).
+
+- **traffic class 구분:** `demand fetch`(critical path) > `promotion prefetch` > `demotion / background`. serving 대역폭을 migration이 잠식하지 않도록 class별 priority와 rate limit을 둔다.
+- **link group 단위 budget:** `shared_link_group` 안의 inflight migration 총량에 상한을 둔다 (execution-side scheduler 소관, DP1은 budget 소진 시 decision 억제 또는 지연 가능).
+- **DP1 노출 정보:** Telemetry의 `shared_link_util` (§5.8.4).
+
+### 5.9.3.1 Copy engine 선택과 compute 간섭
+
+| engine | 특성 | 간섭 |
+|---|---|---|
+| GPU copy engine (DMA) | SM 점유 없음 | HBM BW만 경쟁 |
+| SM copy kernel | gather/scatter 유연 | SM, HBM BW 모두 경쟁 (decode와 충돌) |
+| CPU memcpy | host 경유 경로 | CPU/DRAM BW 경쟁 |
+| NVMe / GDS | storage 경로 | PCIe 경쟁 |
+
+handler는 engine을 선택할 때 decode/prefill의 HBM BW·SM 사용량을 고려해야 하며,
+engine 선택 결과는 migration cost(`est_transfer_bw`)와 serving 간섭에 모두 영향을 준다.
+
+### 5.9.4 Granularity / Layout 변환
+
+- paged KV는 작고 비연속적인 block 집합이다. 소 block 단위 전송은 BW를 못 채우므로 **batching(gather/scatter)** 이 필요하다.
+- memory별 정렬/단위 제약(SSD page, HBF page/erase block 등)을 `MemoryDescriptor.granularity / alignment`에서 받아
+  handler가 **coalescing과 패딩**을 수행한다 (§5.8.3).
+- DP1의 Migration Data Selector는 object를 이 granularity 배수로 묶어 선택하는 것이 유리하다 (§8.8).
+
+### 5.9.5 Write-limited 매체 보호
+
+HBF(write 50 GB/s, endurance 100 PB, WA 3.0), SSD-PIM(WA 4.0, endurance 10 PB)은 write 비용이 크다.
+
+- handler는 write 대상 memory에 대해 **write coalescing / throttle**을 적용한다.
+- DP1은 anti-thrashing(§26 항목 8)과 함께 **write budget**을 decision 입력으로 고려한다.
+  특히 `DROP`/`REPLICATE` action(§2.1)으로 write를 피할 수 있으면 우선한다.
+
+### 5.9.6 측정–추정 closed loop
+
+~~~text
+Selector가 est_transfer_bw 사용 → migration 수행 → handler가 실측 BW/latency 보고
+→ Telemetry(observed_latency, transfer BW) → Binding의 estimate 보정
+~~~
+
+nominal 값과 실측 값이 다를 수 있으므로 (공유 링크 contention, thermal throttle 등),
+handler는 완료 시 실측 값을 Telemetry로 보고하고, Selector는 이를 반영한 estimate를 사용한다.
+이 loop가 없으면 C1/C2의 destination 선택이 nominal spec에 고정된다.
+
+### 5.9.7 일관성 / 실패 처리 (공통 subsystem 소관)
+
+copy-then-commit, source pin, version check, partial failure rollback은
+공통 migration architecture가 정의한다 (§3.2 out of scope). DP1은 다음 두 가정만 한다.
+
+- `MOVE`/`REPLICATE` 완료 전에는 location이 바뀌지 않는다 (Registry는 commit 결과로만 갱신, §22.3).
+- 실패한 migration은 **결과(failure reason)가 DP1에 이벤트로 되돌아와** 동일 object의 재시도/억제 판단에 쓰인다.
+
+### 5.9.8 DP1 ↔ Handler 책임 요약
+
+| 항목 | DP1 (decision) | Handler / execution subsystem |
+|---|---|---|
+| 이동 action 선택 | MOVE / REPLICATE / DROP / REMAP / RECLASSIFY (§2.1) | action 실행 |
+| 경로 선택 | feasibility/cost 추정에 binding 사용 | 실제 path 선택·합성 (direct/staged) |
+| 대역폭 관리 | budget 소진 시 decision 억제 | traffic class / rate limit 집행 |
+| granularity | object를 granularity 배수로 선택 | batching / coalescing / padding |
+| write 보호 | write budget을 decision 입력에 반영 | throttle / coalescing |
+| 비용 모델 | estimate 사용 | 실측 보고로 estimate 보정 |
+| 일관성 | commit 결과로 Registry 동기화 | pin / version / commit / rollback |
 
 ---
 
@@ -1510,6 +1652,14 @@ reuse / access trend ↑
 
 C2는 data behavior 자체가 promotion/demotion의 강한 signal을 제공한다.
 
+### 17.4 Action 관점
+
+| 방향 | 기본 action | 대안 action |
+|---|---|---|
+| Demotion | `MOVE` | 하위 tier 복제본/재계산 경로가 있으면 `DROP` (copy 및 write 비용 회피) |
+| Promotion | `MOVE` | 하위 tier 복제본을 유지하려면 `REPLICATE` (이후 demotion은 `DROP`) |
+| Tier 변경 불필요 | — | `RECLASSIFY` (priority/hotness만 갱신), 공유 pool이면 `REMAP` |
+
 ---
 
 # 18. QA Trade-off
@@ -1849,10 +1999,11 @@ MigrationDecisionPolicy.evaluate(
 
 ~~~text
 MigrationDecision
+ ├─ action                    # MOVE | REPLICATE | DROP | REMAP | RECLASSIFY (§2.1)
  ├─ data_refs[]
  ├─ source_resource
- ├─ target_resource
- ├─ direction
+ ├─ target_resource?
+ ├─ direction                 # promotion | demotion | lateral | none(RECLASSIFY)
  ├─ reason
  ├─ priority
  ├─ score
@@ -1893,6 +2044,8 @@ MemoryBackend  (plug-in contract)
   telemetry()  -> MemoryTelemetry               # dynamic state (pull) 
   subscribe(cb: Callable[[MemoryTelemetry], None])   # dynamic state (push, optional)
   transfer_binding() -> MemoryTransferBinding   # 공통 TransferHandler와의 연결 정보
+  export_async(region, staging) -> handle       # staging primitive (§5.8.11)
+  import_async(staging, region) -> handle
   health() -> HealthState
 
 MemoryBackendRegistry                           # = Memory Registry의 plug-in 등록부
@@ -2112,6 +2265,15 @@ DP1 상세 설계에서 다음 항목은 별도 페이지/문서로 구체화한
    - 기존 kv_offload backend(LocalCPUBackend/LocalDiskBackend)의 adapter wrapping 방안
    - `dp1_sim`: `memories_default.json`을 MemoryDescriptor로 로드하는 adapter 추가, ScHBM 항목 추가 시 policy 코드 무변경 검증 (test_sim.py)
    - shared_link_group 단위 migration budget 모델링
+12. **MigrationAction 정렬 및 상세**
+   - 공통 migration architecture의 `MigrationIntent`에 `action` field 추가 (현재 source/target만 존재)
+   - `DROP` 허용 조건(replica / recomputable)을 C1/C2 Registry schema에 반영
+   - `REPLICATE` replica 수명/일관성 정책, `REMAP` 적용 가능 memory(CXL shared pool 등) 정의
+13. **Transfer Handler 설계 (§5.9)**
+   - staged 합성(export/import) 기본 경로 + direct override 등록 규약
+   - chunk pipelining 크기, bounce buffer budget, traffic class별 rate limit
+   - 실측 BW/latency 보고 → estimate 보정 loop 정의
+   - `dp1_sim`: multi-hop 전송 시간, 공유 링크 contention, write-limited 매체 비용 모델 반영 여부 검토
 
 ---
 
