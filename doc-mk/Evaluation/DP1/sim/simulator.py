@@ -694,6 +694,10 @@ def run_sim(
         "ttft_p99_ms": (
             weighted_quantile(ttft_samples, 0.99) * 1e3
         ),
+        "ttft_p50_ms": weighted_quantile(ttft_samples, 0.50) * 1e3,
+        "ttft_p95_ms": weighted_quantile(ttft_samples, 0.95) * 1e3,
+        "tpot_p50_ms": weighted_quantile(tpot_samples, 0.50) * 1e3,
+        "tpot_p95_ms": weighted_quantile(tpot_samples, 0.95) * 1e3,
         "tpot_p99_ms": (
             weighted_quantile(tpot_samples, 0.99) * 1e3
         ),

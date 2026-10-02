@@ -26,6 +26,7 @@ sys.path.insert(0, str(SIM))
 import scenarios as scn  # noqa: E402
 
 R = {s: json.load(open(DATA / s / "qa_result.json")) for s in SYSIDS}
+RT = {s: json.load(open(DATA / s / "dp1_rating.json")) for s in SYSIDS}
 P = R[PRIMARY]
 
 
@@ -62,6 +63,32 @@ def final_table(res, key="qa_feasible"):
         rows.append(f"| | QA2 Latency (worst) | {qa2_cell(b)} [B+C] | {qa2_cell(q[C1])} [B+C] | {qa2_cell(q[C2])} [B+C] |")
         rows.append(f"| | QA3 Util. (임시 정의) | {b['qa3']} {b['qa3_useful_hbm_util']*100:.0f}% [B+C] | {q[C1]['qa3']} {q[C1]['qa3_useful_hbm_util']*100:.0f}% [B+C] | {q[C2]['qa3']} {q[C2]['qa3_useful_hbm_util']*100:.0f}% [B+C] |")
     rows.append("| **QA4 Modifiability** | | — | ★★★ [C] | ★★ [C] |")
+    return "\n".join(rows)
+
+
+def fine_table(sysid=PRIMARY):
+    rt = RT[sysid]
+    rows = ["| Set (n, comparison-valid) | 항목 | Baseline | C1 | C2 | C2 / C1 직접 비교 |", "|---|---|---|---|---|---|"]
+    for key, name in [("common_benchmark", "Common"), ("dp1_stress_benchmark", "DP1 Stress"), ("dp1_dynamic_benchmark", "DP1 Dynamic"), ("combined", "Combined")]:
+        if key not in rt["sets"]:
+            continue
+        g = rt["sets"][key]; h = rt["h2h"][key]; lo = h["latency_order"]
+        n = g[B]["n"]
+        def q1(c):
+            x = g[c]["qa1"]; return f"T{x['tier']}/{x['tier_max']} x{x['ratio']:.3f}±{x['ci95']:.3f}"
+        def q3(c):
+            x = g[c]["qa3"]; return f"T{x['tier']}/{x['tier_max']} {x['useful_util']*100:.0f}% ({x['delta_pp_vs_baseline']:+.0f}pp)"
+        def q2(c):
+            l = g[c]["qa2"]["latency"]
+            return (f"TTFT P50/P95/P99 {l['ttft_p50_ms']['median']:,.0f}/{l['ttft_p95_ms']['median']:,.0f}/{l['ttft_p99_ms']['median']:,.0f} ms; "
+                    f"TPOT {l['tpot_p50_ms']['median']:.1f}/{l['tpot_p95_ms']['median']:.1f}/{l['tpot_p99_ms']['median']:.1f} ms")
+        tally = h["tally"]
+        rows.append(f"| **{name}** ({n}) | QA1 tier / ratio | T{g[B]['qa1']['tier']}/{g[B]['qa1']['tier_max']} x1.000 | {q1(C1)} | {q1(C2)} | "
+                    f"x{h['geomean_goodput_ratio_C2_over_C1']:.3f}±{h['geomean_ci95']:.3f} (C2 {tally['C2']} / tie {tally['tie']} / C1 {tally['C1']}) |")
+        rows.append(f"| | QA2 median P50/P95/P99 | {q2(B)} | {q2(C1)} | {q2(C2)} | " +
+                    ", ".join(f"{p.upper()} x{lo[p]['C2_over_C1']:.2f} ({lo[p]['verdict']})" for p in ("p99", "p95", "p50")) + f" → **{lo['overall']}** |")
+        rows.append(f"| | QA3 tier / util | T{g[B]['qa3']['tier']}/{g[B]['qa3']['tier_max']} {g[B]['qa3']['useful_util']*100:.0f}% | {q3(C1)} | {q3(C2)} | "
+                    f"{(g[C2]['qa3']['useful_util']-g[C1]['qa3']['useful_util'])*100:+.0f}pp |")
     return "\n".join(rows)
 
 
@@ -205,7 +232,15 @@ Fit label: **V** = comparison-valid (Baseline이 SLO 만족), **I** = infeasible
 
 {final_table(P)}
 
-(n = 집계된 시나리오 수. ratio의 ± 값은 95% CI. `qa_discriminating`(V만) 기준은 `qa_result.json` 참조)
+(n = 집계된 시나리오 수. ratio의 ± 값은 95% CI)
+
+## 4.1b DP1 세부 평가 (보조 척도, [`qa-criteria-dp1.md`](../qa-criteria-dp1.md))
+
+공통 별점은 위 표 그대로이며, 아래는 같은 별 안의 차이를 보기 위한 **보조** 기준이다 (구간은 첫 결과를 본 뒤 정의했으므로 탐색적 지표, 문서 §0 참조). 집계는 **comparison-valid 시나리오만** 대상으로 한다 (Baseline도 SLO를 못 맞추는 시나리오 제외).
+
+{fine_table()}
+
+읽는 법: `T3/7`은 7단계 중 3번째 tier (QA1 T3 = parity, T5~T7 = 공통 ★★★). QA3 tier는 8단계. QA2는 시나리오 간 median의 P50/P95/P99. 직접 비교의 ratio는 C2 / C1이다.
 
 ## 4.2 시나리오별 결과 (SYS-4)
 
@@ -271,12 +306,13 @@ SYS-1~SYS-5, 3개 set 전체에서 **어느 후보도 Baseline 미만(loss)인 �
 6. **임시 정의:** QA3 formula, tie 판정의 1% material 임계, "saturated" fit label(모든 후보 CI 이내 동일).
 7. **QA2 집계가 worst-case**라 Baseline 자체가 SLO를 못 맞추는 시나리오가 있는 set에서는 모든 후보가 ★로 나온다 (Stress set).
 8. **SYS-5의 Custom HBM**은 평가 중 loader 수정 후의 값이며, 이전 first-pass 결과(SYS-5)와 비교할 수 없다.
+9. **DP1 세부 tier(4.1b)는 첫 결과를 본 뒤 정의한 구간**이다 (`defined_after_first_look`). 탐색적 지표이며 별점 산정에는 쓰지 않았다. 새 benchmark에서 같은 구간으로 재확인해야 한다. 4.1b의 집계는 comparison-valid 시나리오만 대상으로 하므로 4.1(feasible 전체)과 n이 다르다.
 
 # 7. 결론
 
 - **현재 simulator 기준으로 C1, C2는 모든 시스템·모든 benchmark에서 Baseline 이상이다** (loss 0). first-pass의 Baseline 미만 결과는 정책 결함(P: serving 비용 무시, migration budget 없음)과 benchmark 부적합(B)에서 왔고 iteration 1~3에서 해소되었다.
 - **이득은 "static 배치가 runtime에 stale해지는" 조건에서만 확인된다.** Common과 feasible Stress에서는 둘 다 Baseline과 동률이다. SYS-4 Dynamic에서 C2는 6/6, C1은 3/6 시나리오에서 유의하게 이긴다. 그 외는 parity다. 이것은 일반 이득 주장이 아니다.
-- **C2 vs C1:** C2의 성능 이득이 크고 C1은 훨씬 적은 byte를 옮긴다. Modifiability는 C1이 우위다 (★★★ vs ★★). 같은 data class 안의 hot/cold 구분이 필요한 workload에서는 C1이 구조적으로 이기지 못한다.
+- **C2 vs C1 (직접 비교, 4.1b):** 공통 별점은 같아 보여도(QA1 ★★★ 둘 다) comparison-valid 13개 기준 C2/C1 goodput은 x1.147±0.096로 **C2가 유의하게 높다** (C2 우세 2 / tie 11 / C1 우세 0). 우세 2개는 모두 Dynamic KV 시나리오다. Latency는 P99 tier가 같고 P95/P50에서 C2가 낫다 (Combined P95 x1.16, P50 x1.30). Utilization은 C2 58% 대 C1 43% (+15pp). 반면 C1은 훨씬 적은 byte를 옮기고(4.3) Modifiability가 우위다 (★★★ vs ★★). 같은 data class 안의 hot/cold 구분이 필요한 workload에서는 C1이 구조적으로 이기지 못한다. **Common과 feasible Stress에서는 둘 다 Baseline과 동률이고 C2/C1도 tie다.**
 - **다음 단계:** (1) Destination Tier Selector의 serving-cost 입력, link-time migration budget, C2 benefit-vs-cost gating, C1 promotion 경로를 설계 문서에 반영한다 (loop-log '설계 문서에 미치는 영향'). (2) vLLM trace 수집과 HBM↔DRAM 실측으로 access-cost 모델의 오차를 [A]로 확인하고, 오차를 넣은 estimator로 재평가한다. (3) budget 파라미터 근거 확보. (4) 개정 구조(Backend I/F, snapshot)를 simulator에 반영한다.
 
 ## QA4 — Modifiability (architecture argument, [C])

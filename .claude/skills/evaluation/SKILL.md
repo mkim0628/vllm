@@ -28,6 +28,7 @@ description: "Use whenever evaluating, benchmarking, simulating or scoring a Des
 - H8. qa-evaluation-criteria.md에 없는 formula는 **임시 정의**로 표시한다.
 - H9. 이전 결과/iteration을 덮어쓰거나 지우지 않는다. 대체된 결과는 파일명에 `_superseded`를 붙여 보존한다.
 - H10. 시스템 profile 값을 조용히 수정하지 않는다. 새 profile을 추가하고 provenance를 적는다.
+- H11. 공통 별점이 거칠어 후보를 구분하지 못할 때 **공통 룰은 바꾸지 않고** `DPn/qa-criteria-dpn.md`에 DP 전용 보조 기준(세부 tier, 집계 규칙, 후보 간 직접 비교)을 둔다. 보조 기준은 별점 산정에 쓰지 않으며, 결과를 본 뒤 정의했으면 `defined_after_first_look`로 공개하고 탐색적 지표로만 취급한다. 별점이 같아도 값이 다르면 항상 값을 병기한다.
 
 ## 1. 폴더 구조 (single source of truth)
 ```

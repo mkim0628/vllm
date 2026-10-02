@@ -3,7 +3,7 @@ date: 2026-10-02
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
 sys_ids: [SYS-4, SYS-1, SYS-2, SYS-3, SYS-5]
-git_rev: cfa8e6d (dirty)
+git_rev: 480a6f8 (dirty)
 evidence: { QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[C]" }
 status: draft
 ---
@@ -21,7 +21,7 @@ status: draft
 |---|---|
 | SYS id | **SYS-4** (primary, B200x8 + 6개 memory 전부), SYS-1 (HBM+DRAM, As-Is class), SYS-2 (+CXL-PNM), SYS-3 (+HBF), SYS-5 (Vera Rubin x8 + 6개 memory) |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
-| Git revision | cfa8e6d (dirty) |
+| Git revision | 480a6f8 (dirty) |
 | Seeds / loads | seeds 11, 23, 37, 53, 71 (5회) / load x0.5, x1.0, x1.5, x2.0, 95% CI t=2.776 |
 | Tie 판정 | goodput 상대 차이 < 1% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
 | 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final` (SYS-1~5), 단일: `python3 qa_eval.py --system SYS-4` |
@@ -108,7 +108,28 @@ Fit label: **V** = comparison-valid (Baseline이 SLO 만족), **I** = infeasible
 | | QA3 Util. (임시 정의) | ★ 33% [B+C] | ★ 39% [B+C] | ★ 50% [B+C] |
 | **QA4 Modifiability** | | — | ★★★ [C] | ★★ [C] |
 
-(n = 집계된 시나리오 수. ratio의 ± 값은 95% CI. `qa_discriminating`(V만) 기준은 `qa_result.json` 참조)
+(n = 집계된 시나리오 수. ratio의 ± 값은 95% CI)
+
+## 4.1b DP1 세부 평가 (보조 척도, [`qa-criteria-dp1.md`](../qa-criteria-dp1.md))
+
+공통 별점은 위 표 그대로이며, 아래는 같은 별 안의 차이를 보기 위한 **보조** 기준이다 (구간은 첫 결과를 본 뒤 정의했으므로 탐색적 지표, 문서 §0 참조). 집계는 **comparison-valid 시나리오만** 대상으로 한다 (Baseline도 SLO를 못 맞추는 시나리오 제외).
+
+| Set (n, comparison-valid) | 항목 | Baseline | C1 | C2 | C2 / C1 직접 비교 |
+|---|---|---|---|---|---|
+| **Common** (3) | QA1 tier / ratio | T3/7 x1.000 | T3/7 x1.000±0.000 | T3/7 x1.000±0.000 | x1.000±0.000 (C2 0 / tie 3 / C1 0) |
+| | QA2 median P50/P95/P99 | TTFT P50/P95/P99 99/299/329 ms; TPOT 4.1/5.0/5.1 ms | TTFT P50/P95/P99 51/197/250 ms; TPOT 4.0/4.6/4.8 ms | TTFT P50/P95/P99 37/108/263 ms; TPOT 3.9/4.0/4.8 ms | P99 x1.00 (tie), P95 x1.31 (C2), P50 x1.11 (C2) → **C2** |
+| | QA3 tier / util | T3/8 44% | T3/8 41% (-3pp) | T4/8 59% (+15pp) | +18pp |
+| **DP1 Stress** (4) | QA1 tier / ratio | T3/7 x1.000 | T3/7 x1.000±0.000 | T3/7 x1.000±0.000 | x1.000±0.000 (C2 0 / tie 4 / C1 0) |
+| | QA2 median P50/P95/P99 | TTFT P50/P95/P99 52/176/192 ms; TPOT 5.9/9.6/9.9 ms | TTFT P50/P95/P99 52/116/146 ms; TPOT 5.5/8.3/9.1 ms | TTFT P50/P95/P99 52/65/108 ms; TPOT 5.4/5.6/6.6 ms | P99 x1.23 (C2), P95 x1.39 (C2), P50 x1.01 (tie) → **C2** |
+| | QA3 tier / util | T2/8 36% | T2/8 37% (+1pp) | T2/8 40% (+4pp) | +3pp |
+| **DP1 Dynamic** (6) | QA1 tier / ratio | T3/7 x1.000 | T7/7 x1.643±0.285 | T7/7 x2.211±0.078 | x1.346±0.240 (C2 2 / tie 4 / C1 0) |
+| | QA2 median P50/P95/P99 | TTFT P50/P95/P99 1,721/2,174/2,174 ms; TPOT 50.3/62.1/62.1 ms | TTFT P50/P95/P99 669/1,686/2,023 ms; TPOT 39.0/54.2/60.3 ms | TTFT P50/P95/P99 230/1,696/2,112 ms; TPOT 32.3/53.8/61.7 ms | P99 x0.98 (tie), P95 x0.97 (tie), P50 x1.65 (C2) → **C2** |
+| | QA3 tier / util | T1/8 30% | T3/8 48% (+18pp) | T5/8 69% (+39pp) | +21pp |
+| **Combined** (13) | QA1 tier / ratio | T3/7 x1.000 | T6/7 x1.258±0.098 | T6/7 x1.442±0.023 | x1.147±0.096 (C2 2 / tie 11 / C1 0) |
+| | QA2 median P50/P95/P99 | TTFT P50/P95/P99 159/338/343 ms; TPOT 6.4/9.9/10.0 ms | TTFT P50/P95/P99 57/296/330 ms; TPOT 5.5/9.3/9.8 ms | TTFT P50/P95/P99 52/244/324 ms; TPOT 5.4/5.7/6.9 ms | P99 x1.06 (C2), P95 x1.16 (C2), P50 x1.30 (C2) → **C2** |
+| | QA3 tier / util | T2/8 35% | T3/8 43% (+8pp) | T4/8 58% (+23pp) | +15pp |
+
+읽는 법: `T3/7`은 7단계 중 3번째 tier (QA1 T3 = parity, T5~T7 = 공통 ★★★). QA3 tier는 8단계. QA2는 시나리오 간 median의 P50/P95/P99. 직접 비교의 ratio는 C2 / C1이다.
 
 ## 4.2 시나리오별 결과 (SYS-4)
 
@@ -238,12 +259,13 @@ SYS-1~SYS-5, 3개 set 전체에서 **어느 후보도 Baseline 미만(loss)인 �
 6. **임시 정의:** QA3 formula, tie 판정의 1% material 임계, "saturated" fit label(모든 후보 CI 이내 동일).
 7. **QA2 집계가 worst-case**라 Baseline 자체가 SLO를 못 맞추는 시나리오가 있는 set에서는 모든 후보가 ★로 나온다 (Stress set).
 8. **SYS-5의 Custom HBM**은 평가 중 loader 수정 후의 값이며, 이전 first-pass 결과(SYS-5)와 비교할 수 없다.
+9. **DP1 세부 tier(4.1b)는 첫 결과를 본 뒤 정의한 구간**이다 (`defined_after_first_look`). 탐색적 지표이며 별점 산정에는 쓰지 않았다. 새 benchmark에서 같은 구간으로 재확인해야 한다. 4.1b의 집계는 comparison-valid 시나리오만 대상으로 하므로 4.1(feasible 전체)과 n이 다르다.
 
 # 7. 결론
 
 - **현재 simulator 기준으로 C1, C2는 모든 시스템·모든 benchmark에서 Baseline 이상이다** (loss 0). first-pass의 Baseline 미만 결과는 정책 결함(P: serving 비용 무시, migration budget 없음)과 benchmark 부적합(B)에서 왔고 iteration 1~3에서 해소되었다.
 - **이득은 "static 배치가 runtime에 stale해지는" 조건에서만 확인된다.** Common과 feasible Stress에서는 둘 다 Baseline과 동률이다. SYS-4 Dynamic에서 C2는 6/6, C1은 3/6 시나리오에서 유의하게 이긴다. 그 외는 parity다. 이것은 일반 이득 주장이 아니다.
-- **C2 vs C1:** C2의 성능 이득이 크고 C1은 훨씬 적은 byte를 옮긴다. Modifiability는 C1이 우위다 (★★★ vs ★★). 같은 data class 안의 hot/cold 구분이 필요한 workload에서는 C1이 구조적으로 이기지 못한다.
+- **C2 vs C1 (직접 비교, 4.1b):** 공통 별점은 같아 보여도(QA1 ★★★ 둘 다) comparison-valid 13개 기준 C2/C1 goodput은 x1.147±0.096로 **C2가 유의하게 높다** (C2 우세 2 / tie 11 / C1 우세 0). 우세 2개는 모두 Dynamic KV 시나리오다. Latency는 P99 tier가 같고 P95/P50에서 C2가 낫다 (Combined P95 x1.16, P50 x1.30). Utilization은 C2 58% 대 C1 43% (+15pp). 반면 C1은 훨씬 적은 byte를 옮기고(4.3) Modifiability가 우위다 (★★★ vs ★★). 같은 data class 안의 hot/cold 구분이 필요한 workload에서는 C1이 구조적으로 이기지 못한다. **Common과 feasible Stress에서는 둘 다 Baseline과 동률이고 C2/C1도 tie다.**
 - **다음 단계:** (1) Destination Tier Selector의 serving-cost 입력, link-time migration budget, C2 benefit-vs-cost gating, C1 promotion 경로를 설계 문서에 반영한다 (loop-log '설계 문서에 미치는 영향'). (2) vLLM trace 수집과 HBM↔DRAM 실측으로 access-cost 모델의 오차를 [A]로 확인하고, 오차를 넣은 estimator로 재평가한다. (3) budget 파라미터 근거 확보. (4) 개정 구조(Backend I/F, snapshot)를 simulator에 반영한다.
 
 ## QA4 — Modifiability (architecture argument, [C])

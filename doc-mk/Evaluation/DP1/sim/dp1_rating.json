@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "_note": "DP1 supplementary (fine-grained) rating bands. The COMMON stars in qa-evaluation-criteria.md are unchanged and still reported; this file only subdivides each star band so that candidates inside the same common star can be told apart. Edges are inclusive-lower. Any change after a result was produced must be logged as a new rating version (see Evaluation/DP1/qa-criteria-dp1.md).",
+  "version": "dp1-rating-v1",
+  "defined_after_first_look": true,
+  "qa1_ratio_edges": [
+    0.8,
+    0.9,
+    0.97,
+    1.03,
+    1.1,
+    1.25,
+    1.5
+  ],
+  "qa1_tier_to_common_star": [
+    "★",
+    "★",
+    "★★",
+    "★★",
+    "★★",
+    "★★★",
+    "★★★",
+    "★★★"
+  ],
+  "qa2_ttft_p99_edges_ms": [
+    250,
+    500,
+    1000,
+    2000,
+    4000
+  ],
+  "qa2_tpot_p99_edges_ms": [
+    10,
+    25,
+    50,
+    100
+  ],
+  "qa3_util_edges": [
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+    0.65,
+    0.75,
+    0.85,
+    0.95
+  ],
+  "qa3_tier_to_common_star": [
+    "★",
+    "★",
+    "★",
+    "★",
+    "★",
+    "★★",
+    "★★",
+    "★★★",
+    "★★★"
+  ],
+  "materiality_rel": 0.01,
+  "t95": 2.776,
+  "latency_materiality_rel": 0.05
+}

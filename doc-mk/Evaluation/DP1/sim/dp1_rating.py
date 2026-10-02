@@ -1,0 +1,173 @@
+"""DP1 supplementary rating (fine-grained tiers + C1-vs-C2 head-to-head) computed from qa_result.json.
+
+The common stars (qa-evaluation-criteria.md) are NOT replaced; see Evaluation/DP1/qa-criteria-dp1.md.
+
+    python dp1_rating.py ../results/data/SYS-4/qa_result.json      # prints, and writes dp1_rating.json next to it
+"""
+from __future__ import annotations
+
+import json
+import math
+import statistics
+import sys
+from pathlib import Path
+
+CFG = json.loads((Path(__file__).with_name("dp1_rating.json")).read_text())
+BASE, C1, C2 = "Baseline-static", "C1-resource-driven", "C2-behavior-driven"
+SETS = ("common_benchmark", "dp1_stress_benchmark", "dp1_dynamic_benchmark")
+T95 = CFG["t95"]
+
+
+def tier(x, edges):
+    """index of the band x falls in (0 = below first edge)."""
+    return sum(1 for e in edges if x >= e)
+
+
+def tier_lower_better(x, edges):
+    """tier where SMALLER is better: 0 = worse than the largest edge, len(edges) = better than the smallest."""
+    return sum(1 for e in edges if x <= e)
+
+
+def mean_ci(xs):
+    m = statistics.mean(xs)
+    sd = statistics.stdev(xs) if len(xs) > 1 else 0.0
+    return m, T95 * sd / math.sqrt(len(xs))
+
+
+def geomean(xs):
+    return math.exp(statistics.mean(math.log(max(1e-12, x)) for x in xs))
+
+
+def valid_scenarios(res, labels):
+    """(set, name) of comparison-valid scenarios among the given sets."""
+    out = []
+    for lab in labels:
+        for sn, v in res[lab]["scenario_labels"].items():
+            if v["fit"] == "comparison_valid":
+                out.append((lab, sn))
+    return out
+
+
+def agg_ratio(res, scen, num, den, key="seeds_goodput"):
+    """point = geometric mean over scenarios of (mean metric num / mean metric den), same as qa_eval's QA1 ratio;
+    CI95 = t-interval over the paired per-seed geometric means (same trace and seed for both candidates)."""
+    ps = res
+    point = geomean([statistics.mean(ps[l]["per_scenario"][s][num][key]) / max(1e-12, statistics.mean(ps[l]["per_scenario"][s][den][key])) for l, s in scen])
+    n = len(ps[scen[0][0]]["per_scenario"][scen[0][1]][num][key])
+    per_seed = [geomean([ps[l]["per_scenario"][s][num][key][i] / max(1e-12, ps[l]["per_scenario"][s][den][key][i]) for l, s in scen]) for i in range(n)]
+    return point, mean_ci(per_seed)[1]
+
+
+def rate_group(res, scen):
+    out = {}
+    for c in (BASE, C1, C2):
+        ps = [res[l]["per_scenario"][s][c] for l, s in scen]
+        r, ci = agg_ratio(res, scen, c, BASE) if scen else (1.0, 0.0)
+        t1 = tier(r, CFG["qa1_ratio_edges"])
+        ttft = [p["ttft_p99_ms"] for p in ps]; tpot = [p["tpot_p99_ms"] for p in ps]
+        util = statistics.mean(p["useful_hbm_util"] for p in ps)
+        tt = tier_lower_better(statistics.median(ttft), CFG["qa2_ttft_p99_edges_ms"])
+        tp = tier_lower_better(statistics.median(tpot), CFG["qa2_tpot_p99_edges_ms"])
+        t3 = tier(util, CFG["qa3_util_edges"])
+        lat = {}
+        for k in ("ttft_p50_ms", "ttft_p95_ms", "ttft_p99_ms", "tpot_p50_ms", "tpot_p95_ms", "tpot_p99_ms"):
+            vals = [p.get(k) for p in ps]
+            if None in vals:
+                continue
+            lat[k] = dict(median=statistics.median(vals), worst=max(vals))
+        # improvement factor vs baseline (>1 better), geometric mean over scenarios, P99
+        imp = {}
+        for k in ("ttft_p50_ms", "ttft_p95_ms", "ttft_p99_ms", "tpot_p50_ms", "tpot_p95_ms", "tpot_p99_ms"):
+            if any(k not in res[l]["per_scenario"][s][c] for l, s in scen):
+                continue
+            imp[k] = geomean([res[l]["per_scenario"][s][BASE][k] / max(1e-9, res[l]["per_scenario"][s][c][k]) for l, s in scen])
+        out[c] = dict(
+            n=len(scen),
+            qa1=dict(ratio=r, ci95=ci, tier=t1, tier_max=len(CFG["qa1_ratio_edges"]), common_star=CFG["qa1_tier_to_common_star"][t1]),
+            qa2=dict(latency=lat, improvement_vs_baseline=imp, ttft_tier=tt, ttft_tier_max=len(CFG["qa2_ttft_p99_edges_ms"]),
+                     tpot_tier=tp, tpot_tier_max=len(CFG["qa2_tpot_p99_edges_ms"])),
+            qa3=dict(useful_util=util, tier=t3, tier_max=len(CFG["qa3_util_edges"]), common_star=CFG["qa3_tier_to_common_star"][t3],
+                     delta_pp_vs_baseline=(util - statistics.mean(res[l]["per_scenario"][s][BASE]["useful_hbm_util"] for l, s in scen)) * 100),
+        )
+    return out
+
+
+def head_to_head(res, scen):
+    """C2 vs C1, same trace & seeds (paired)."""
+    rows = {}
+    wins = dict(C2=0, tie=0, C1=0)
+    for l, s in scen:
+        a, b = res[l]["per_scenario"][s][C1], res[l]["per_scenario"][s][C2]
+        diffs = [y / max(1e-12, x) for x, y in zip(a["seeds_goodput"], b["seeds_goodput"])]
+        r, ci = mean_ci(diffs)
+        rel = r - 1.0
+        if abs(rel) < CFG["materiality_rel"] or abs(rel) <= ci:
+            v = "tie"
+        else:
+            v = "C2" if rel > 0 else "C1"
+        wins[v] += 1
+        rows[f"{l}/{s}"] = dict(goodput_ratio_C2_over_C1=r, ci95=ci, verdict=v,
+                                ttft_p99_ratio_C2_over_C1=b["ttft_p99_ms"] / max(1e-9, a["ttft_p99_ms"]),
+                                tpot_p99_ratio_C2_over_C1=b["tpot_p99_ms"] / max(1e-9, a["tpot_p99_ms"]),
+                                util_delta_pp_C2_minus_C1=(b["useful_hbm_util"] - a["useful_hbm_util"]) * 100,
+                                migration_gib_C1=a["migration_gib"], migration_gib_C2=b["migration_gib"])
+    gm = agg_ratio_h2h(res, scen)
+    return dict(per_scenario=rows, tally=wins, geomean_goodput_ratio_C2_over_C1=gm[0], geomean_ci95=gm[1])
+
+
+def agg_ratio_h2h(res, scen):
+    return agg_ratio(res, scen, C2, C1)
+
+
+def latency_order(group):
+    """C2 vs C1 latency comparison, P99 -> P95 -> P50 (improvement factor vs baseline, geometric mean of TTFT and TPOT).
+    A percentile decides only if the two candidates differ by more than the latency materiality (5%)."""
+    mat = CFG.get("latency_materiality_rel", 0.05)
+    res = {}
+    for p in ("p99", "p95", "p50"):
+        f = {}
+        for c in (C1, C2):
+            imp = group[c]["qa2"]["improvement_vs_baseline"]
+            f[c] = math.sqrt(imp[f"ttft_{p}_ms"] * imp[f"tpot_{p}_ms"])
+        r = f[C2] / f[C1]
+        res[p] = dict(C1_improvement=f[C1], C2_improvement=f[C2], C2_over_C1=r,
+                      verdict=("tie" if abs(r - 1) < mat else ("C2" if r > 1 else "C1")))
+    decided = next((p for p in ("p99", "p95", "p50") if res[p]["verdict"] != "tie"), None)
+    res["decided_by"] = decided
+    res["overall"] = res[decided]["verdict"] if decided else "tie"
+    return res
+
+
+def rate(res):
+    out = dict(version=CFG["version"], defined_after_first_look=CFG["defined_after_first_look"], sets={}, h2h={})
+    for lab in SETS:
+        scen = valid_scenarios(res, [lab])
+        if scen:
+            out["sets"][lab] = rate_group(res, scen)
+            out["h2h"][lab] = head_to_head(res, scen)
+            out["h2h"][lab]["latency_order"] = latency_order(out["sets"][lab])
+    scen = valid_scenarios(res, SETS)
+    out["sets"]["combined"] = rate_group(res, scen)
+    out["h2h"]["combined"] = head_to_head(res, scen)
+    out["h2h"]["combined"]["latency_order"] = latency_order(out["sets"]["combined"])
+    out["scope"] = {"combined_n": len(scen)}
+    return out
+
+
+def main():
+    p = Path(sys.argv[1])
+    res = json.loads(p.read_text())
+    out = rate(res)
+    (p.parent / "dp1_rating.json").write_text(json.dumps(out, indent=1, sort_keys=True))
+    for lab, g in out["sets"].items():
+        print("==", lab, "n =", g[BASE]["n"])
+        for c in (BASE, C1, C2):
+            x = g[c]
+            print(f"  {c[:8]:8s} QA1 T{x['qa1']['tier']}/{x['qa1']['tier_max']} x{x['qa1']['ratio']:.3f} | QA2 TTFT-tier {x['qa2']['ttft_tier']}/{x['qa2']['ttft_tier_max']} TPOT-tier {x['qa2']['tpot_tier']}/{x['qa2']['tpot_tier_max']} | QA3 T{x['qa3']['tier']}/{x['qa3']['tier_max']} {x['qa3']['useful_util']*100:.0f}%")
+        h = out["h2h"][lab]
+        lo = h["latency_order"]
+        print(f"  C2/C1 goodput x{h['geomean_goodput_ratio_C2_over_C1']:.3f}±{h['geomean_ci95']:.3f}  C2 {h['tally']['C2']} / tie {h['tally']['tie']} / C1 {h['tally']['C1']} | latency: " + ", ".join(f"{p} C2/C1 x{lo[p]['C2_over_C1']:.2f} ({lo[p]['verdict']})" for p in ("p99","p95","p50")) + f" -> {lo['overall']} (by {lo['decided_by']})")
+
+
+if __name__ == "__main__":
+    main()

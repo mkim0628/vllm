@@ -21,6 +21,7 @@ doc-mk/Evaluation/
 ├── DP1/                         # AI Data Migration
 │   ├── simulation-plan.md       # 평가/시뮬레이션 방법
 │   ├── benchmark.md             # DP1 맞춤형 benchmark (시나리오 표 자동 생성)
+│   ├── qa-criteria-dp1.md       # DP1 보조 평가 기준 (세부 tier, 집계, C1 vs C2 직접 비교)
 │   ├── results/                 # 결과 문서 (YYYY-MM-DD_<topic>.md), data/ (qa_result.json), iterations/ (loop-log.md)
 │   └── sim/                     # simulator (scenarios.py, policies.py, simulator.py, qa_eval.py, configs/)
 ├── DP2/  README.md, benchmark.md (TBD), results/
