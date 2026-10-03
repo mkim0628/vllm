@@ -1,0 +1,150 @@
+##### SYS-4
+== common_benchmark  scenarios: {'comparison_valid': 3, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 44% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 263ms TPOT 5ms | QA3 ★ 41% | mig 13/190GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 324ms TPOT 5ms | QA3 ★ 59% | mig 182/1639GiB
+   C1-resource-driven   win 0 tie 3 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 3 loss 0  loss=[]
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 4, 'saturated': 5, 'infeasible': 14}
+   (QA table over feasible scenarios n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 31% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 31% | mig 2/27GiB
+   C2-behavior-driven   QA1 ★★ x1.037 (±0.066) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 34% | mig 26/369GiB
+   C1-resource-driven   win 0 tie 9 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 9 loss 0  loss=[]
+== dp1_dynamic_benchmark  scenarios: {'comparison_valid': 6, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=6)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 9567ms TPOT 63ms | QA3 ★ 30% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★★ x1.106 (±0.064) | QA2 ★ TTFT 9567ms TPOT 62ms | QA3 ★ 35% | mig 1/46GiB
+   C2-behavior-driven   QA1 ★★★ x2.211 (±0.078) | QA2 ★★ TTFT 2160ms TPOT 62ms | QA3 ★★ 69% | mig 44/2345GiB
+   C1-resource-driven   win 1 tie 5 loss 0  loss=[]
+   C2-behavior-driven   win 6 tie 0 loss 0  loss=[]
+== combined over feasible scenarios (n=18, discriminating n=13)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 63ms | QA3 ★ 33% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.034 (±0.020) | QA2 ★ TTFT 793052ms TPOT 62ms | QA3 ★ 34% | mig 3/61GiB
+   C2-behavior-driven   QA1 ★★★ x1.327 (±0.042) | QA2 ★ TTFT 793052ms TPOT 62ms | QA3 ★ 50% | mig 58/1239GiB
+   C1-resource-driven   win 1 ['dp1_dynamic_benchmark/dyn_host_path_contention_kv']
+                          loss 0 []
+   C2-behavior-driven   win 6 ['dp1_dynamic_benchmark/dyn_cold_resident_chat_wave', 'dp1_dynamic_benchmark/dyn_host_path_contention_kv', 'dp1_dynamic_benchmark/dyn_idle_kv_holds_hbm', 'dp1_dynamic_benchmark/dyn_kv_hotset_recency_shift', 'dp1_dynamic_benchmark/dyn_kv_rotating_hotset', 'dp1_dynamic_benchmark/dyn_rag_shard_hotset_shift']
+                          loss 0 []
+##### SYS-1
+== common_benchmark  scenarios: {'comparison_valid': 0, 'saturated': 3, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 44% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 41% | mig 2/26GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 338ms TPOT 5ms | QA3 ★ 58% | mig 154/1446GiB
+   C1-resource-driven   win 0 tie 3 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 3 loss 0  loss=[]
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 2, 'saturated': 7, 'infeasible': 14}
+   (QA table over feasible scenarios n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 79% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 80% | mig 1/18GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 82% | mig 21/258GiB
+   C1-resource-driven   win 0 tie 9 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 9 loss 0  loss=[]
+== dp1_dynamic_benchmark  scenarios: {'comparison_valid': 6, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=6)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 9567ms TPOT 63ms | QA3 ★ 30% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.040 (±0.050) | QA2 ★ TTFT 9567ms TPOT 62ms | QA3 ★ 32% | mig 0/12GiB
+   C2-behavior-driven   QA1 ★★★ x1.519 (±0.170) | QA2 ★ TTFT 9226ms TPOT 63ms | QA3 ★ 51% | mig 19/795GiB
+   C1-resource-driven   win 0 tie 6 loss 0  loss=[]
+   C2-behavior-driven   win 6 tie 0 loss 0  loss=[]
+== combined over feasible scenarios (n=18, discriminating n=8)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 63ms | QA3 ★ 57% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.013 (±0.016) | QA2 ★ TTFT 793052ms TPOT 62ms | QA3 ★ 57% | mig 1/17GiB
+   C2-behavior-driven   QA1 ★★★ x1.149 (±0.044) | QA2 ★ TTFT 793052ms TPOT 63ms | QA3 ★★ 67% | mig 42/635GiB
+   C1-resource-driven   win 0 []
+                          loss 0 []
+   C2-behavior-driven   win 6 ['dp1_dynamic_benchmark/dyn_cold_resident_chat_wave', 'dp1_dynamic_benchmark/dyn_host_path_contention_kv', 'dp1_dynamic_benchmark/dyn_idle_kv_holds_hbm', 'dp1_dynamic_benchmark/dyn_kv_hotset_recency_shift', 'dp1_dynamic_benchmark/dyn_kv_rotating_hotset', 'dp1_dynamic_benchmark/dyn_rag_shard_hotset_shift']
+                          loss 0 []
+##### SYS-2
+== common_benchmark  scenarios: {'comparison_valid': 0, 'saturated': 3, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 44% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 41% | mig 2/26GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 338ms TPOT 5ms | QA3 ★ 58% | mig 154/1446GiB
+   C1-resource-driven   win 0 tie 3 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 3 loss 0  loss=[]
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 2, 'saturated': 7, 'infeasible': 14}
+   (QA table over feasible scenarios n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 79% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 80% | mig 1/18GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 82% | mig 21/258GiB
+   C1-resource-driven   win 0 tie 9 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 9 loss 0  loss=[]
+== dp1_dynamic_benchmark  scenarios: {'comparison_valid': 6, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=6)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 9567ms TPOT 63ms | QA3 ★ 30% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.040 (±0.050) | QA2 ★ TTFT 9567ms TPOT 62ms | QA3 ★ 32% | mig 0/12GiB
+   C2-behavior-driven   QA1 ★★★ x1.519 (±0.170) | QA2 ★ TTFT 9226ms TPOT 63ms | QA3 ★ 51% | mig 19/795GiB
+   C1-resource-driven   win 0 tie 6 loss 0  loss=[]
+   C2-behavior-driven   win 6 tie 0 loss 0  loss=[]
+== combined over feasible scenarios (n=18, discriminating n=8)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 63ms | QA3 ★ 57% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.013 (±0.016) | QA2 ★ TTFT 793052ms TPOT 62ms | QA3 ★ 57% | mig 1/17GiB
+   C2-behavior-driven   QA1 ★★★ x1.149 (±0.044) | QA2 ★ TTFT 793052ms TPOT 63ms | QA3 ★★ 67% | mig 42/635GiB
+   C1-resource-driven   win 0 []
+                          loss 0 []
+   C2-behavior-driven   win 6 ['dp1_dynamic_benchmark/dyn_cold_resident_chat_wave', 'dp1_dynamic_benchmark/dyn_host_path_contention_kv', 'dp1_dynamic_benchmark/dyn_idle_kv_holds_hbm', 'dp1_dynamic_benchmark/dyn_kv_hotset_recency_shift', 'dp1_dynamic_benchmark/dyn_kv_rotating_hotset', 'dp1_dynamic_benchmark/dyn_rag_shard_hotset_shift']
+                          loss 0 []
+##### SYS-3
+== common_benchmark  scenarios: {'comparison_valid': 3, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 44% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 263ms TPOT 5ms | QA3 ★ 41% | mig 13/190GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 324ms TPOT 5ms | QA3 ★ 59% | mig 182/1639GiB
+   C1-resource-driven   win 0 tie 3 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 3 loss 0  loss=[]
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 4, 'saturated': 5, 'infeasible': 14}
+   (QA table over feasible scenarios n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 63% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 63% | mig 2/27GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 64% | mig 26/322GiB
+   C1-resource-driven   win 0 tie 9 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 9 loss 0  loss=[]
+== dp1_dynamic_benchmark  scenarios: {'comparison_valid': 6, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=6)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 9567ms TPOT 63ms | QA3 ★ 30% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★★ x1.106 (±0.064) | QA2 ★ TTFT 9567ms TPOT 62ms | QA3 ★ 35% | mig 1/46GiB
+   C2-behavior-driven   QA1 ★★★ x2.211 (±0.078) | QA2 ★★ TTFT 2160ms TPOT 62ms | QA3 ★★ 69% | mig 44/2345GiB
+   C1-resource-driven   win 1 tie 5 loss 0  loss=[]
+   C2-behavior-driven   win 6 tie 0 loss 0  loss=[]
+== combined over feasible scenarios (n=18, discriminating n=13)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 63ms | QA3 ★ 49% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.034 (±0.020) | QA2 ★ TTFT 793052ms TPOT 62ms | QA3 ★ 50% | mig 3/61GiB
+   C2-behavior-driven   QA1 ★★★ x1.303 (±0.015) | QA2 ★ TTFT 793052ms TPOT 62ms | QA3 ★ 65% | mig 58/1216GiB
+   C1-resource-driven   win 1 ['dp1_dynamic_benchmark/dyn_host_path_contention_kv']
+                          loss 0 []
+   C2-behavior-driven   win 6 ['dp1_dynamic_benchmark/dyn_cold_resident_chat_wave', 'dp1_dynamic_benchmark/dyn_host_path_contention_kv', 'dp1_dynamic_benchmark/dyn_idle_kv_holds_hbm', 'dp1_dynamic_benchmark/dyn_kv_hotset_recency_shift', 'dp1_dynamic_benchmark/dyn_kv_rotating_hotset', 'dp1_dynamic_benchmark/dyn_rag_shard_hotset_shift']
+                          loss 0 []
+##### SYS-5
+== common_benchmark  scenarios: {'comparison_valid': 3, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 301ms TPOT 2ms | QA3 ★ 43% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 239ms TPOT 2ms | QA3 ★ 42% | mig 5/75GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 144ms TPOT 2ms | QA3 ★ 49% | mig 101/909GiB
+   C1-resource-driven   win 0 tie 3 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 3 loss 0  loss=[]
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 10, 'saturated': 8, 'infeasible': 5}
+   (QA table over feasible scenarios n=18)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 3041794ms TPOT 7872ms | QA3 ★ 28% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.001) | QA2 ★ TTFT 3041794ms TPOT 4044ms | QA3 ★ 28% | mig 0/13GiB
+   C2-behavior-driven   QA1 ★★ x1.032 (±0.016) | QA2 ★ TTFT 3041794ms TPOT 2060ms | QA3 ★ 30% | mig 12/237GiB
+   C1-resource-driven   win 0 tie 18 loss 0  loss=[]
+   C2-behavior-driven   win 3 tie 15 loss 0  loss=[]
+== dp1_dynamic_benchmark  scenarios: {'comparison_valid': 3, 'saturated': 3, 'infeasible': 0}
+   (QA table over feasible scenarios n=6)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★ TTFT 2724ms TPOT 46ms | QA3 ★★ 70% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.016 (±0.009) | QA2 ★★★ TTFT 1960ms TPOT 39ms | QA3 ★★ 71% | mig 0/12GiB
+   C2-behavior-driven   QA1 ★★ x1.023 (±0.016) | QA2 ★★★ TTFT 967ms TPOT 16ms | QA3 ★★ 74% | mig 17/935GiB
+   C1-resource-driven   win 1 tie 5 loss 0  loss=[]
+   C2-behavior-driven   win 1 tie 5 loss 0  loss=[]
+== combined over feasible scenarios (n=27, discriminating n=16)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 3041794ms TPOT 7872ms | QA3 ★ 39% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.004 (±0.002) | QA2 ★ TTFT 3041794ms TPOT 4044ms | QA3 ★ 39% | mig 1/20GiB
+   C2-behavior-driven   QA1 ★★ x1.026 (±0.012) | QA2 ★ TTFT 3041794ms TPOT 2060ms | QA3 ★ 41% | mig 23/467GiB
+   C1-resource-driven   win 1 ['dp1_dynamic_benchmark/dyn_host_path_contention_kv']
+                          loss 0 []
+   C2-behavior-driven   win 4 ['dp1_stress_benchmark/rag_8tib_b256_ssd_pim', 'dp1_stress_benchmark/rag_8tib_b64_ssd_pim', 'dp1_stress_benchmark/six_tier_capacity_stress', 'dp1_dynamic_benchmark/dyn_host_path_contention_kv']
+                          loss 0 []
