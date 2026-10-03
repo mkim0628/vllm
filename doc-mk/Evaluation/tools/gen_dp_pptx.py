@@ -78,6 +78,11 @@ def qa_slides():
     def lat(c):
         l = G[c]["qa2"]["latency"]
         return f"TTFT P50/P95/P99 {l['ttft_p50_ms']['median']:,.0f}/{l['ttft_p95_ms']['median']:,.0f}/{l['ttft_p99_ms']['median']:,.0f} ms"
+    import math as _m
+    def ttpot(c):
+        imp = G[c]["qa2"]["improvement_vs_baseline"]
+        gm = lambda ks: _m.exp(sum(_m.log(imp[k]) for k in ks) / len(ks))
+        return gm(["ttft_p50_ms", "ttft_p95_ms", "ttft_p99_ms"]), gm(["tpot_p50_ms", "tpot_p95_ms", "tpot_p99_ms"])
     s = Slide("DP1 평가 결과 - QA별 후보 비교 (H100 + B200 통합)")
     cols = [("QA / 지표", 0.4, 3.2), ("C1 Resource-driven", 3.6, 4.65), ("C2 Behavior-driven", 8.25, 4.65)]
     y = 1.2
@@ -86,11 +91,11 @@ def qa_slides():
     rows = [
         (["QA1 Throughput [B]", "Baseline 대비 SLO goodput 배수, 승/무/패"],
          [f"{st[C1]['QA1']}  x{G[C1]['qa1']['ratio']:.2f} (±{G[C1]['qa1']['ci95']:.2f})", wl(C1)], [f"{st[C2]['QA1']}  x{G[C2]['qa1']['ratio']:.2f} (±{G[C2]['qa1']['ci95']:.2f})", wl(C2)]),
-        (["QA2 Latency [B]", "TTFT/TPOT 개선 배수(geomean), 중앙값 TTFT"],
-         [f"{st[C1]['QA2']}  x{G[C1]['qa2']['latency_improvement_geomean']:.2f}", lat(C1)], [f"{st[C2]['QA2']}  x{G[C2]['qa2']['latency_improvement_geomean']:.2f}", lat(C2)]),
-        (["QA3 (진단, 별점 제외) [B]", "전 메모리 풀 U 상대값, 링크 점유, 이동량"],
-         [f"U x{G[C1]['qa3']['rel_vs_baseline']:.2f} ({G[C1]['qa3']['useful_util']*100:.2f}%)", f"링크 {Qf[C1]['migration_link_frac']*100:.1f}% · {Qf[C1]['migration_gib']:,.0f} GiB"],
-         [f"U x{G[C2]['qa3']['rel_vs_baseline']:.2f} ({G[C2]['qa3']['useful_util']*100:.2f}%)", f"링크 {Qf[C2]['migration_link_frac']*100:.1f}% · {Qf[C2]['migration_gib']:,.0f} GiB"]),
+        (["QA2 Latency [B]", "TTFT와 TPOT 개선 배수(따로), 중앙값 TTFT"],
+         [f"{st[C1]['QA2']}  x{G[C1]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{ttpot(C1)[0]:.2f} · TPOT x{ttpot(C1)[1]:.2f})", lat(C1)], [f"{st[C2]['QA2']}  x{G[C2]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{ttpot(C2)[0]:.2f} · TPOT x{ttpot(C2)[1]:.2f})", lat(C2)]),
+        (["QA3 Resource efficiency [B]", "비용 가중 점유 대비 goodput(상대), 점유 배수, HBM GiB"],
+         [f"{st[C1]['QA3']}  x{G[C1]['eff']['rel']:.2f} (±{G[C1]['eff']['ci95']:.2f})", f"점유 x{G[C1]['eff']['cost_ratio']:.2f} · HBM {G[C1]['eff']['tier_occ_gib']['hbm']:.0f} GiB"],
+         [f"{st[C2]['QA3']}  x{G[C2]['eff']['rel']:.2f} (±{G[C2]['eff']['ci95']:.2f})", f"점유 x{G[C2]['eff']['cost_ratio']:.2f} · HBM {G[C2]['eff']['tier_occ_gib']['hbm']:.0f} GiB"]),
         (["QA4 Modifiability [B+C]", "변경 4종 평균: module, 공수, 에이전트 비용"],
          [f"{st[C1]['QA4']}  module {m['C1']['modules']:.2f}", f"{m['C1']['man_months']:.2f} man-month · ${m['C1']['usd_T1']:.2f}"], [f"{st[C2]['QA4']}  module {m['C2']['modules']:.2f}", f"{m['C2']['man_months']:.2f} man-month · ${m['C2']['usd_T1']:.2f}"]),
     ]
@@ -108,9 +113,10 @@ def qa_slides():
     s.box(0.4, y, 6.2, 2.15, [
         "Trade-off와 이유",
         "- 성능은 C2: 데이터마다 접근 빈도·재사용·유휴를 보고 이동해, 같은 종류(KV) 안의 hot/cold를 구분한다. C1은 자원 압박에만 반응해 구분 못 함.",
-        f"- 비용은 C2: migration {Qf[C2]['migration_gib']:,.0f} GiB (C1 {Qf[C1]['migration_gib']:,.0f}), 링크 점유 {Qf[C2]['migration_link_frac']*100:.1f}% (C1 {Qf[C1]['migration_link_frac']*100:.1f}%)라 이동이 서빙 링크를 나눠 써서 지연·처리량 이득이 줄어든다(간섭 모델 반영).",
-        f"- 확장성은 C1: 종류를 모르는 구조라 새 데이터 종류 추가 시 module 1개 (C2 3개).",
-        "- 지연(QA2)은 둘 다 ★★★ 경계를 넘어 별이 같지만 값은 C2가 높다."], "note", 9.5)
+        f"- 효율은 C1: 비용 가중 점유 대비 성능 C1 x{G[C1]['eff']['rel']:.2f} 대 C2 x{G[C2]['eff']['rel']:.2f}. C2는 hot 데이터를 HBM에 올려 비싼 메모리를 더 쓰고(HBM {G[C2]['eff']['tier_occ_gib']['hbm']:.0f} GiB), C1은 싼 tier로 옮겨 비용이 줄어듦.",
+        f"- 이동 비용은 링크 간섭으로 지연에 반영(C2 migration {Qf[C2]['migration_gib']:,.0f} GiB, 링크 {Qf[C2]['migration_link_frac']*100:.1f}%).",
+        "- 확장성은 C1: 종류를 모르는 구조라 새 데이터 종류 추가 시 module 1개 (C2 3개).",
+        "- 지연(QA2)은 둘 다 ★★★ 경계를 넘어 별이 같지만 값은 C2가 높다. TPOT은 거의 변하지 않고 개선은 TTFT에서 나온다."], "note", 9.5)
     why = (f"합계 {o['totals'][C1]} 대 {o['totals'][C2]}로 같아 QA 우선순위로 결정: {o['deciding']}에서 앞선 {nm[o['winner']]}" if o["rule"] == "priority"
            else f"별 합계가 높은 {nm[o['winner']]}")
     s.box(6.8, y, 6.1, 2.15, [
@@ -118,7 +124,7 @@ def qa_slides():
         f"- 규칙: 별 합계가 높은 후보, 같을 때만 QA 우선순위({' > '.join(g.PRIO['priority'])}).",
         f"- {why}.",
         f"- 우선순위를 뒤집으면 {nm[o['reversed_winner']]}.",
-        "- 한계: [B] simulation, 별 경계(QA1 1.30, QA4 평균 집계)는 결과를 본 뒤 정함. QA4 공수·비용은 가정 상수 추정."], "sel", 9.5)
+        "- 한계: [B] simulation. 별 경계(QA1 1.30), QA3 정의, QA4 평균 집계는 결과를 본 뒤 정함. 메모리 가격 가중치(QA3)와 QA4 공수·비용은 ASSUMED."], "sel", 9.5)
 
     # slide 2: scenarios in plain language
     ft = g.fit_counts()

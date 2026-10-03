@@ -58,6 +58,24 @@ def agg_ratio(res, scen, num, den, key="seeds_goodput"):
     return point, mean_ci(per_seed)[1]
 
 
+def eff_group(res, scen, c):
+    """QA3 v5 resource efficiency = SLO goodput / cost-weighted occupancy (cost_model.py), relative to Baseline.
+    Same aggregation as QA1: geometric mean over scenarios of the ratio of seed-means, CI over paired per-seed geomeans."""
+    base_keys = res[scen[0][0]]["per_scenario"][scen[0][1]][BASE]
+    schemes = [k[len("seeds_eff_"):] for k in base_keys if k.startswith("seeds_eff_")]
+    by = {}
+    for sch in schemes:
+        r, ci = agg_ratio(res, scen, c, BASE, "seeds_eff_" + sch) if scen else (1.0, 0.0)
+        by[sch] = dict(rel=r, ci95=ci)
+    ps = [res[l]["per_scenario"][s][c] for l, s in scen]
+    bs = [res[l]["per_scenario"][s][BASE] for l, s in scen]
+    cost, base_cost = statistics.mean(p["cost_occ"] for p in ps), statistics.mean(p["cost_occ"] for p in bs)
+    tiers = sorted(ps[0]["tier_occ_gib"])
+    return dict(rel=by["registered"]["rel"], ci95=by["registered"]["ci95"], by_scheme=by, cost_occ=cost, base_cost_occ=base_cost,
+                cost_ratio=cost / max(1e-12, base_cost),
+                tier_occ_gib={m: statistics.mean(p["tier_occ_gib"][m] for p in ps) for m in tiers})
+
+
 def rate_group(res, scen):
     out = {}
     for c in (BASE, C1, C2):
@@ -88,6 +106,7 @@ def rate_group(res, scen):
             imp[k] = geomean([res[l]["per_scenario"][s][BASE][k] / max(1e-9, res[l]["per_scenario"][s][c][k]) for l, s in scen])
         out[c] = dict(
             n=len(scen),
+            eff=eff_group(res, scen, c),
             qa1=dict(ratio=r, ci95=ci, tier=t1, tier_max=len(CFG["qa1_ratio_edges"]), common_star=CFG["qa1_tier_to_common_star"][t1]),
             qa2=dict(latency=lat, improvement_vs_baseline=imp, ttft_tier=tt, ttft_tier_max=len(CFG["qa2_ttft_p99_edges_ms"]),
                      tpot_tier=tp, tpot_tier_max=len(CFG["qa2_tpot_p99_edges_ms"])),
@@ -165,7 +184,8 @@ def add_dp1_stars(group):
         x["dp1_star"] = dict(
             qa1=dp1_star(x["qa1"]["ratio"], cfg["qa1_ratio_edges"]),
             qa2=dp1_star(l_all, cfg["qa2_latency_improvement_edges"]),
-            qa3=dp1_star(x["qa3"]["rel_vs_baseline"], cfg["qa3_relative_edges"]),
+            qa3=dp1_star(x["eff"]["rel"], cfg["qa3_eff_relative_edges"]),   # v5: resource efficiency (official)
+            qa3_util_diag=dp1_star(x["qa3"]["rel_vs_baseline"], cfg["qa3_relative_edges"]),   # v4 pooled-utilization star, diagnostic only
             qa3_common_ref=x["qa3"]["common_star"],  # common 65%/85% absolute star, reference only
             qa1_ci_straddles_edge=any(abs(x["qa1"]["ratio"] - e) <= x["qa1"]["ci95"] for e in cfg["qa1_ratio_edges"]),
         )
@@ -182,9 +202,10 @@ def star_sensitivity(group):
 
 
 def star_sensitivity_qa3(group):
-    """QA3 relative stars of C1/C2 when the top (3-star) edge is moved (lower edge fixed)."""
-    cfg = CFG["dp1_star"]; lo = cfg["qa3_relative_edges"][0]
-    return {str(top): {c: dp1_star(group[c]["qa3"]["rel_vs_baseline"], [lo, top]) for c in (C1, C2)} for top in cfg["sensitivity_qa3_top_edge"]}
+    """QA3 (resource efficiency) stars of C1/C2 under each cost-weight scheme (cost_model.py)."""
+    cfg = CFG["dp1_star"]
+    schemes = group[C1]["eff"]["by_scheme"]
+    return {sch: {c: dict(rel=group[c]["eff"]["by_scheme"][sch]["rel"], star=dp1_star(group[c]["eff"]["by_scheme"][sch]["rel"], cfg["qa3_eff_relative_edges"])) for c in (C1, C2)} for sch in schemes}
 
 
 def rate(res):

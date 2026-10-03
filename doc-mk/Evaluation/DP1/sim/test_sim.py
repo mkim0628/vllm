@@ -481,5 +481,27 @@ class LinkInterferenceTests(unittest.TestCase):
         self.assertGreater(b["ttft_p99_ms"], a["ttft_p99_ms"] * 1.05)
 
 
+class CostModelTests(unittest.TestCase):
+    def test_cost_occupancy_hand_value(self):
+        import cost_model
+        occ = {"hbm": 10.0, "dram": 20.0, "hbf": 100.0}
+        self.assertAlmostEqual(cost_model.cost_occupancy(occ, "registered"), 10 * 5.0 + 20 * 1.0 + 100 * 0.3)
+
+    def test_moving_bytes_to_expensive_tier_raises_cost_not_total(self):
+        import cost_model
+        a = {"hbm": 10.0, "dram": 30.0}
+        b = {"hbm": 20.0, "dram": 20.0}
+        self.assertEqual(sum(a.values()), sum(b.values()))
+        self.assertGreater(cost_model.cost_occupancy(b), cost_model.cost_occupancy(a))
+
+    def test_run_reports_cost_occupancy(self):
+        import qa_eval as q
+        from simulator import run_sim
+        sc = next(x for x in q.SET_FUNCS["common_benchmark"]() if x.name == "cb_kv_8k_b32")
+        r = run_sim(q._system("SYS-B200"), sc, 11, "Baseline-static", q.DATA_PRIORS, 1.0)
+        self.assertEqual(set(r["cost_occ"]), {"registered", "hbm_3x", "hbm_10x"})
+        self.assertGreater(r["cost_occ"]["registered"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,9 @@ FIRST_RESPONSE_SLO_S = 2.0
 TPOT_SLO_S = 0.050
 
 
+import cost_model
+
+
 def weighted_quantile(samples, q: float) -> float:
     data = sorted((v, w) for v, w in samples if w > 0)
     if not data:
@@ -713,6 +716,8 @@ def run_sim(
         for name, vals in capacity_util_samples.items()
     )
     pooled_util, tier_util, tier_util_mean_active = pooled_capacity_util(occ_bytes_sum, cap_bytes_sum)
+    tier_occ_gib = {n: occ_bytes_sum[n] / max(1, sc.horizon_s) / 1024**3 for n in system.memories}
+    cost_occ = {k: cost_model.cost_occupancy(tier_occ_gib, k) for k in cost_model.SCHEMES}
     hbm_vals = capacity_util_samples.get("hbm", [0.0])
     avg_hbm = sum(hbm_vals) / max(1, len(hbm_vals))
 
@@ -765,6 +770,8 @@ def run_sim(
         "avg_hbm_util": avg_hbm,
         "pooled_util": pooled_util,
         "tier_util": tier_util,
+        "tier_occ_gib": tier_occ_gib,
+        "cost_occ": cost_occ,
         "tier_util_mean_active": tier_util_mean_active,
         "aggregate_capacity_util": (
             avg_used / max(1.0, total_cap)

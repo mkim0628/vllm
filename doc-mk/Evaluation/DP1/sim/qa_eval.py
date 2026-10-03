@@ -109,6 +109,9 @@ def _run_one(args):
     # useful_hbm_util (v3, HBM only) is kept as a diagnostic for continuity.
     r["useful_util_raw"] = r["pooled_util"] * r["slo_ratio"]
     r["useful_util"] = r["useful_util_raw"] * (1.0 - r["migration_link_frac"])
+    # v5 resource efficiency: SLO goodput per cost-weighted occupied GiB (cost_model.py), one value per weight scheme
+    for _k, _c in r["cost_occ"].items():
+        r["eff_" + _k] = r["goodput_tps"] / max(1e-9, _c)
     r["set"] = label
     return r
 
@@ -175,6 +178,9 @@ def per_scenario(rows):
                         seeds_tpot=[r["tpot_p99_ms"] for r in rs],
                         seeds_useful_util=[r["useful_hbm_util"] for r in rs],  # v3 HBM-only (legacy name)
                         seeds_useful_util_v4=[r["useful_util"] for r in rs],
+                        cost_occ=statistics.mean(r["cost_occ"]["registered"] for r in rs),
+                        tier_occ_gib={m: statistics.mean(r["tier_occ_gib"].get(m, 0.0) for r in rs) for m in rs[0]["tier_occ_gib"]},
+                        **{"seeds_eff_" + k: [r["eff_" + k] for r in rs] for k in rs[0]["cost_occ"]},
                     )
             out[sn][cand] = best
     return out
