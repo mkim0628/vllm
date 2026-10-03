@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 상태 | **초안 (제안)** — 원본 `dp3-long-context-kv-cache-eviction.md`는 수정하지 않았다 |
-| 작성 일자 | 2026-10-02 (최종 수정 2026-10-03: 사용자 확인 반영 — eviction은 Drop, blending은 Drop 이후 복원 경로) |
+| 작성 일자 | 2026-10-02 (최종 수정 2026-10-03: 사용자 확인 반영 — eviction은 Drop이며 복원(재계산) 절차는 미설계) |
 | 기준 문서 | [`dp3-long-context-kv-cache-eviction.md`](dp3-long-context-kv-cache-eviction.md) (§ 번호는 이 문서 기준), [`../DP1/dp1-ai-data-migration-decision-architecture.md`](../DP1/dp1-ai-data-migration-decision-architecture.md), [`../Evaluation/qa-evaluation-criteria.md`](../Evaluation/qa-evaluation-criteria.md) |
 | 근거 수준 | **[A]** 실측 / **[B]** 문헌 보고 수치 (as reported) / **[C]** 구조 논증·가설 |
 | 원칙 | 원본의 용어 고정(**Eviction = Drop**), "DP1 먼저·DP3는 실패 경로" 규칙(§2.4), B1 기준선(§9.2), 가정값 미기재 원칙(§9)을 **그대로 유지**한다 |
@@ -16,13 +16,13 @@
 
 | # | 확장 | 원본의 어디가 바뀌는가 |
 |---|---|---|
-| ① | 회수 동작 분류를 넓힌다. **하신 일의 핵심은 Drop(eviction)과 Blend(selective recompute)의 한 쌍**이고, Compress·Select는 문헌 기반 확장 후보다 | §2.1 |
+| ① | 회수 동작 분류를 넓힌다. **하신 일은 Drop(eviction)과 Blend(selective recompute) 두 가지**이고(둘을 연결할지는 §4.6), Compress·Select는 문헌 기반 확장 후보다 | §2.1 |
 | ② | **설계 쟁점 2**를 추가한다 — "축소 동작을 어떤 소프트웨어 구조에 둘 것인가"(S1 엔진 내장 / S2 경계 플러그인) | §3 이후에 신설 |
 | ③ | **공통 컴포넌트와 블록 상태 모델**(위치 × 충실도 직교)을 정의한다 | 신설 (§3.2~3.3) |
 
 **유지하는 것**: 쟁점 1(중요도 평가 시점: C1 Offline / C2 Online), 용어 고정, DP1 우선 규칙, B1 기준선, §9의 지표 체계.
 
-**사용자 확인 (2026-10-03)**: 하신 eviction은 **폐기(Drop)** 이고, blending(selective recompute)은 폐기된 KV를 선택 재연산으로 복원하는 경로다. 즉 **Drop–Blend 한 쌍**이 이 구조의 중심이며, Compress·Select는 새 동작을 추가할 때의 확장성(Modifiability)을 시험하는 후보로 둔다.
+**사용자 확인 (2026-10-03)**: 하신 eviction은 **폐기(Drop)** 이다. blending(selective recompute)도 하신 일이지만, **폐기된 KV가 다시 필요해질 때의 복원(재계산) 절차는 아직 설계하지 않았다.** Drop과 Blend를 한 쌍으로 묶는 것은 **제안**(§2, §4.6)이며 확정이 아니다. Compress·Select는 새 동작을 추가할 때의 확장성(Modifiability)을 시험하는 후보로 둔다.
 
 **왜 필요한가**: 원본의 후보 C1/C2는 "중요도를 언제 평가하는가"라는 **알고리즘 축**이다. 이 축만으로는 모듈 책임, 상태, 인터페이스가 정의되지 않아 소프트웨어 구조 설계의 대상이 되지 못한다. 또 재사용 시 일부 토큰만 다시 계산하는 selective recompute(blending)는 §2.1의 Demote/Drop 두 분류에 들어갈 자리가 없다.
 
@@ -49,11 +49,11 @@
 | **Compress** | 정밀도·표현을 줄여 크기를 축소 | 크기 감소분 (위치에 따라 HBM 또는 전체) | **부분 손실** | 원본 미보존 시 비가역 | 코덱 연산, 품질 저하 | **DP3** | HBM 내부 양자화(KIVI, KVQuant), 경계 압축(CacheGen, KVTC) | **하신 일에 없음** (문헌 기반 확장 후보) |
 | **Select (Skip)** | KV는 보존하되 해당 질의의 attention 대상에서 제외 | 접근·연산 비용 (보존 위치에 따라 용량도) | **손실 (근사 attention)** | 가역 (보존 시) | 선택 판단 비용 | **DP3** | Quest, InfiniGen, ShadowKV | **하신 일에 없음** (확장 후보) |
 | **Drop** | 어느 계층에도 남기지 않고 폐기 | 전체 용량 | 손실 | 비가역, 재계산만 가능 | 재계산 (M-R1) | **DP3** | H2O, StreamingLLM, SnapKV | **하신 eviction (오프라인·온라인)** — 폐기로 확인 (§4.5) |
-| **Blend / Selective Recompute** (재사용 시점) | 다시 계산할 토큰을 고르고 재연산까지 수행해 폐기된 KV를 복원 | 용량 회수가 아니라 **Drop의 재접근 비용 절감·복원** | 보정 정도에 따라 | — | 선택 재계산 연산 | **DP3** (연산 배치는 DP2) | CacheBlend | **하신 blending** (두 이름은 같은 동작) — Drop 이후 복원 경로 |
+| **Blend / Selective Recompute** (재사용 시점) | 다시 계산할 토큰을 고르고 재연산까지 수행해 폐기된 KV를 복원 | 용량 회수가 아니라 **Drop의 재접근 비용 절감·복원** | 보정 정도에 따라 | — | 선택 재계산 연산 | **DP3** (연산 배치는 DP2) | CacheBlend | **하신 blending** (두 이름은 같은 동작) — Drop 이후 복원 경로로 쓸지는 미정 (§4.6) |
 
 > **문헌 예의 근거 수준.** 위 [B] 항목은 조사 에이전트가 초록을 열람해 분류한 것이다(부록 A). 이 문서에서 직접 열람해 재확인한 것은 CacheBlend(arXiv 2405.16444)뿐이다. 나머지는 인용 전 원문 재확인이 필요하다.
 
-**Drop과 Blend는 한 쌍이다 (사용자 확인).** 중요도가 낮은 토큰은 폐기되고, 폐기된 토큰이 다시 필요해지면 **전부를 Prefill로 다시 계산하는 대신** 다시 계산할 토큰을 골라 일부만 재연산한다.
+**Drop과 Blend를 한 쌍으로 묶을 수 있다 (제안, 미확정).** 하신 eviction은 폐기이며, 폐기된 토큰이 다시 필요해질 때의 복원 절차는 아직 설계되지 않았다. 복원을 둔다면 **전부를 Prefill로 다시 계산하는 대신** 다시 계산할 토큰을 골라 일부만 재연산하는 구성이 가능하다.
 
 ```text
 FULL ──Drop(중요도 낮은 토큰 폐기)──► DROPPED ──재접근──► Blend(재연산할 토큰 선택 + 재연산) ──► 복원
@@ -66,7 +66,7 @@ FULL ──Drop(중요도 낮은 토큰 폐기)──► DROPPED ──재접근
 > 원본: "Attention Importance가 Accuracy와 교환되는 것은 **Drop에서만** 성립한다."
 > 제안: Importance가 Accuracy와 교환되는 것은 **손실을 허용하는 동작(Compress, Select, Drop)이 회수 동작에 포함될 때에만** 성립한다. Demote만 수행하는 구조에서는 Accuracy 행이 성립하지 않는다(원본의 결론 유지).
 
-**§2.2(Drop이 필요해지는 조건)에 대한 영향 [C]**: (a)(b)(c)는 Drop이 값을 하는 조건이다. Compress와 Select는 하위 계층까지 포화되지 않아도 HBM 점유와 접근 비용을 줄이므로 값을 할 수 있다. 다만 이 주장은 가설이며 §9의 M-C4·M-C5 분해로 검증해야 한다. 반대로 Blend는 (c) 이후의 재접근 비용을 낮춰 Drop이 값을 하는 범위를 넓힐 수 있다 [C].
+**§2.2(Drop이 필요해지는 조건)에 대한 영향 [C]**: (a)(b)(c)는 Drop이 값을 하는 조건이다. Compress와 Select는 하위 계층까지 포화되지 않아도 HBM 점유와 접근 비용을 줄이므로 값을 할 수 있다. 다만 이 주장은 가설이며 §9의 M-C4·M-C5 분해로 검증해야 한다. 복원 절차를 둔다면 Blend는 (c) 이후의 재접근 비용을 낮춰 Drop이 값을 하는 범위를 넓힐 수 있다 [C].
 
 ---
 
@@ -142,7 +142,7 @@ DP1과 DP3의 경계를 문서 규칙에서 **데이터 모델 규칙**으로 �
 | 현재 | → | 조건 | 동작 |
 |---|---|---|---|
 | FULL | DROPPED | DP1 배치 실패(용량 제약) + 정확도 한도 여유 | Drop (오프라인/온라인 중요도로 대상 선정) |
-| DROPPED | RECOMPUTED-PARTIAL | 재접근 | Blend: 재연산할 토큰 선택 + 재연산 |
+| DROPPED | RECOMPUTED-PARTIAL | 재접근 (복원 절차를 두는 경우) | Blend: 재연산할 토큰 선택 + 재연산 |
 | DROPPED | FULL | 재접근 + 선택 재연산이 부적합하거나 정확도 한도 위반 | 전체 재계산 (M-R1) |
 | RECOMPUTED-PARTIAL | FULL | Quality Guard 위반 | 전체 재계산 |
 | (확장) FULL | COMPRESSED / SELECTED-OUT | 압박 + 정확도 한도 여유 / 질의별 중요도 낮음 | Compress / Select |
@@ -230,17 +230,17 @@ ReductionOperator
 
 "Stage 1"은 온라인 방식에서 실제 질의로 attention 점수를 산출하는 단계를 가리키는 용어로 받았다. 원본 DP3 문서에는 이 용어가 없다. 원본 §5(C2)에 같은 이름으로 명시하는 것을 권한다.
 
-## 4.5 확인 완료 — 내려간 토큰은 폐기되고, 필요하면 선택 재연산으로 복원한다 (사용자 확인)
+## 4.5 확인 완료 — 내려간 토큰은 폐기된다 (사용자 확인). 복원 절차는 미설계
 
 | 내려간 토큰의 이후 | §2의 동작 종류 | Accuracy 교환 | 판정 |
 |---|---|---|---|
 | (a) 하위 tier에 보존, 이후 attention에도 참여 | Demote | 없음 | 해당 없음 |
 | (b) 하위 tier에 보존, 이후 attention에서 제외 | Select (Skip) | 있음, 가역 | 해당 없음 |
-| **(c) 폐기, 필요할 때 재계산** | **Drop (+ Blend로 복원)** | 있음, 비가역 | **하신 일** |
+| **(c) 폐기** (필요할 때 재계산하는 절차는 아직 설계하지 않음) | **Drop** (복원 경로는 §4.6) | 있음, 비가역 | **하신 일** |
 
 결과:
 1. 하신 eviction은 **Drop**이며, 원본 DP3 문서의 정확도(QA) 논리가 그대로 성립한다. DP1 영역(Demote)과 겹치지 않는다.
-2. Drop과 Blend는 **한 쌍**이다(§2).
+2. Blend(하신 일)를 Drop 이후의 복원 경로로 연결할지는 **미정**이다(§4.6). 재계산 절차는 아직 설계되지 않았다.
 3. 원본 §1 ③의 "Low Tier로 Eviction" 표현은 Demote로 읽히므로 "폐기"로 고쳐야 한다(§1 관찰 4, §7).
 
 ## 4.6 Drop–Blend 쌍이 만드는 설계 질문 [C]
@@ -249,6 +249,7 @@ ReductionOperator
 
 | # | 질문 | 구조에 주는 영향 |
 |---|---|---|
+| 0 | 폐기된 토큰이 다시 필요해질 때 **복원할 것인가**, 손실을 수용하는가 | 복원하면 재접근 감지·복원 방식 선택·재연산이 구조에 추가되고 M-R1이 의미를 가진다. 수용하면 Blend는 Drop과 별개의 기능(재사용 시 보정)이 된다 |
 | 1 | 무엇을 버릴지(Drop)와 무엇을 다시 계산할지(Blend)가 **같은 중요도 점수**를 쓰는가, 별개인가 | 같다면 Policy가 하나이고 점수를 공유한다. 별개라면 Policy가 둘이고 Operator 인터페이스가 점수를 공유할 수 없다 |
 | 2 | 재연산 시점: 재접근 시 즉시(lazy)인가, 유휴 시 미리(eager)인가 | 재연산이 TTFT에 직렬로 붙는지 결정한다 (원본 §2.3의 실행 시점 축과 비슷하다) |
 | 3 | 재연산을 어느 자원에서 실행하는가 | GPU 연산을 소비하므로 DP2와의 접점이다. 원본 M-R1의 "메모리 압력을 GPU 압력으로 전환"과 같은 문제 |
@@ -298,7 +299,7 @@ DP1 문서는 victim을 고르는 컴포넌트를 **"Data Eviction Manager", "ge
 | 항목 | 변경 | 이유 |
 |---|---|---|
 | **M-C5 확장** | Drop/Demote 분해에 **Recompute 항목**(선택 재연산 토큰 수, 전체 재계산 횟수)을 추가. 확장 동작 도입 시 Compress·Select 바이트도 분해 | Drop의 이득과 Blend 복원 비용을 분리하고 DP1(Demote)의 이득과도 분리 |
-| **M-R1 변경** | 재계산 비용을 "Prefill 전체 재연산"이 아니라 **선택 재연산 비용 + 전체 재계산 fallback 비용**으로 정의 | Blend가 Drop의 재접근 비용을 줄이는 효과를 측정에 반영 |
+| **M-R1 변경** | 재계산 비용을 "Prefill 전체 재연산"이 아니라 **선택 재연산 비용 + 전체 재계산 fallback 비용**으로 정의 | 복원 절차를 두는 경우, Blend가 Drop의 재접근 비용을 줄이는 효과를 측정에 반영 |
 | **M-B1 (신규)** | Blend의 재연산 토큰 비율과 그에 따른 Accuracy 회복량(Drop 후 · Blend 후 · B0 대비) | 선택 재연산이 비용 대비 정확도를 얼마나 되돌리는지 |
 | **M-A1 귀속** | 동작을 **하나씩 켜는 단독 조건(ablation)**(Drop만 / Drop + Blend)을 대조군에 추가하고 Accuracy 손실을 동작별로 귀속 | 정확도 손실이 Drop에서 오는지 Blend 근사에서 오는지 분리 |
 | **M-M1 (신규)** | Modifiability: 새 연산자를 추가할 때 변경되는 모듈 수·인터페이스 수·LOC·신규 type-specific 분기 수 | S1/S2 비교용. [`qa-evaluation-criteria.md`](../Evaluation/qa-evaluation-criteria.md) §7의 보조 측정 항목을 따른다 |
@@ -330,7 +331,7 @@ DP1 문서는 victim을 고르는 컴포넌트를 **"Data Eviction Manager", "ge
 
 | # | 내용 | 영향 |
 |---|---|---|
-| 1 | (해소) 내려간 토큰의 이후: 사용자 확인 — 폐기 후 필요 시 선택 재연산으로 복원 (§4.5) | 해소 |
+| 1 | (해소) 내려간 토큰은 폐기 (§4.5). 복원 절차는 미설계 (§4.6 #0) | 해소 / 후속 설계 |
 | 1-b | 엔진 수정 범위와 blending의 적용 시나리오(§2.4 공유 Block 규칙과의 충돌 여부)는 아직 확인하지 않았다 | 정정 필요 |
 | 2 | 범위 확대로 DP3가 DP1·DP2와 다시 겹칠 수 있다. 직교 속성 모델(§3.3)과 DP1 우선 규칙으로 막는 설계이나, 실제 충돌 사례는 prototype으로 확인해야 한다 | 경계 위험 |
 | 3 | (C2, S2) 조합의 attention 점수 export 비용 | S2 평가의 핵심 위험 |
