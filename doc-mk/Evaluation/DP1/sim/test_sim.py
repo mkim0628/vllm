@@ -460,5 +460,26 @@ class GenerationProfileTests(unittest.TestCase):
         self.assertTrue(diff and all(k.split(".")[0] in ("custom_hbm", "cxl_pnm", "dram", "ssd_pim") for k in diff), diff)
 
 
+class LinkInterferenceTests(unittest.TestCase):
+    """v2 model fix: migration link time is taken from serving bandwidth of the same tier."""
+
+    def _run(self, cand, on):
+        import qa_eval as q
+        from simulator import run_sim
+        sc = next(x for x in q.SET_FUNCS["dp1_dynamic_benchmark"]() if x.name == "dyn_kv_hotset_recency_shift")
+        return run_sim(q._system("SYS-B200"), sc, 11, cand, q.DATA_PRIORS, 1.0, link_interference=on)
+
+    def test_baseline_unaffected(self):
+        a, b = self._run("Baseline-static", False), self._run("Baseline-static", True)
+        self.assertEqual(a["ttft_p99_ms"], b["ttft_p99_ms"])
+        self.assertEqual(a["slo_goodput_tokens"], b["slo_goodput_tokens"])
+
+    def test_migrating_candidate_pays(self):
+        a, b = self._run("C2-behavior-driven", False), self._run("C2-behavior-driven", True)
+        self.assertGreater(b["migration_link_frac"], 0.0)
+        self.assertGreaterEqual(b["ttft_p99_ms"], a["ttft_p99_ms"])
+        self.assertGreater(b["ttft_p99_ms"], a["ttft_p99_ms"] * 1.05)
+
+
 if __name__ == "__main__":
     unittest.main()

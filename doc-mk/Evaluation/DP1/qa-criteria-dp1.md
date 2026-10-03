@@ -159,3 +159,20 @@ python3 ../../tools/gen_dp1_result.py                         # 결과 문서 �
 - v3 (2026-10-02): 위 값에 `(1 - migration 링크 점유율)`을 곱한다. 이유: migration에 쓰인 링크 시간은 serving에 쓰이지 않으므로 useful 활용에서 빼는 것이 정의상 맞다. 영향: SYS-4 combined에서 C2 +15pp -> +14pp (DP1 ★★★ 경계 +15pp 아래로, 별 ★★★ -> ★★), C1 +7pp 유지. 변경은 결과를 본 뒤에 이루어졌으므로 `defined_after_first_look`에 해당한다.
 - v4 (2026-10-03): 사용자 지적(HBM만 보는 것은 부당)에 따라 QA3를 **SYS의 모든 메모리**로 확장. `U = [sum_m avg_occupied_bytes_m / sum_m capacity_m] x SLO 만족 비율 x (1 - migration 링크 점유율)`. DP1 공식 별점은 pp 구간(-5/+15pp, v2/v3)에서 **상대 개선 U_cand/U_base, edge 0.95/1.25(QA2 edge와 동일, 숫자 확인 전에 유추로 고정)**로 바꿨다 (`dp1-rating-v3`). v3 HBM-only 값은 `useful_hbm_util`로 보존. 정의 변경은 이전 별점을 본 뒤이므로 `defined_after_first_look: true`. 기록용 이전 결과(SYS-4 combined, v3 + pp 별점): C1 QA3 ★★ (+7pp), C2 ★★ (+14pp). 한계: pooled 값은 SSD-PIM(약 75% 용량)이 지배하고, cold data 적재는 SLO 계수 외에 막는 장치가 없다(§A.1). 공통 룰 문서(`qa-evaluation-criteria.md` §6)와의 관계: 공통 문서는 "DP1: HBM / DRAM / CXL / HBF occupancy, aggregate memory-pool utilization"을 예시 metric으로 두고 있어 v4는 충돌하지 않고 오히려 부합한다. 공통 별점 65%/85% 절대 threshold는 그대로 적용해 병기한다.
 - v4 첫 계산 관찰 (SYS-4 combined, n=13, 5 seed, 숫자는 별점 정의 고정 후 산출, 재튜닝 없음): Baseline / C1 / C2의 pooled occupancy(곱하기 전)는 모두 2.13%로 **동일**하다. migration은 bytes를 tier 사이로 옮길 뿐 총 점유 bytes를 바꾸지 않으므로, pooled U의 후보 간 차이는 전부 SLO 계수와 (1 - migration 링크 점유)에서 나온다(U = 1.27% / 1.53% / 1.59%, 상대 x1.00 / x1.20 / x1.25). 즉 v4 pooled 값은 **placement 품질을 직접 보지 못한다**. placement 효과는 tier별 `u_m`(HBM 55% / 53% / 64%, DRAM 18% / 11% / 6%)과 HBM-only 진단에서만 보인다. 또 C2의 x1.2535는 ★★★ edge 1.25를 0.3% 넘었을 뿐이라 C2 ★★★(v3의 ★★와 달라짐)은 경계 선택에 의존한다. 절대값은 모든 후보가 공통 기준 ★(< 65%)이다.
+
+
+---
+
+# G. QA3 진단 전환과 링크 간섭 모델 (2026-10-03, 소유자 결정)
+
+1. **QA3(활용률)는 DP1 별점에서 제외하고 진단으로 둔다.** 이유: 통합 결과(H100+B200)에서 U 상대값과 처리량 배수의 상관이 0.99였고, 풀 점유는 후보와 무관하며, 이동 비용은 지연과 처리량에 반영되어야 하기 때문이다. DP1 별점은 QA1, QA2, QA4 세 개이며 QA 우선순위는 QA1 > QA2 > QA4 (`qa_priority.json`). QA3의 U, tier별 사용률, 링크 점유, 이동량은 결과 문서에 계속 싣는다. 공통 QA 문서의 QA3는 바꾸지 않는다.
+2. **시뮬레이터 모델 수정(링크 간섭).** 이전에는 이동이 지연에 "옮겨진 객체의 첫 접근 1회 x 0.20 x 전송시간"으로만 반영되어 이동량이 10배 큰 후보의 비용이 거의 나타나지 않았다. 수정 후 이동이 쓴 링크 시간(초)을 해당 tier의 backlog로 쌓고, backlog가 있는 동안 그 tier에서 서빙되는 접근의 대역폭을 `(1 - min(0.9, backlog))`배로 줄인다 (HBM 제외, 매 tick backlog 1초 감소). 모델 결함 수정이므로 수정 전 결과를 `results/data/pre_interference/`에 보존한다.
+3. **수정 전후 (H100+B200 통합, comparison-valid):**
+
+| | 수정 전 (n=23) | 수정 후 (n=21) |
+|---|---|---|
+| C1 QA1 / QA2 배수 | x1.27 / x1.40 | x1.30 / x1.28 |
+| C2 QA1 / QA2 배수 | x1.40 / x1.66 | x1.42 / x1.56 |
+| 별 (C1: QA1/QA2, C2: QA1/QA2) | ★★/★★★, ★★★/★★★ | ★★/★★★, ★★★/★★★ |
+
+   비교 가능한 쌍 수가 달라져(Baseline도 간섭을 받는 후보와 같은 규칙으로 분류) 값은 단순 비교가 아니다. 별은 바뀌지 않았다.

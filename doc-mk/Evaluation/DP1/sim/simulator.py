@@ -57,6 +57,9 @@ def pooled_capacity_util(occ_sum, cap_sum):
     return pooled, per_tier, (sum(active) / len(active) if active else 0.0)
 
 
+LINK_LOAD_CAP = 0.9   # a busy link never takes more than this share of a tier's serving bandwidth
+
+
 def effective_capacity_mult(sc, t: int, tier: str) -> float:
     mult = sc.capacity_mult
     if tier == "hbm":
@@ -360,6 +363,7 @@ def run_sim(
     replica_fraction: float = 0.0,
     drop_enabled: bool = False,
     model_error: float = 0.0,
+    link_interference: bool = True,
 ) -> dict:
     import policies as _pol
     _pol.set_model_error(model_error, seed)
@@ -404,6 +408,9 @@ def run_sim(
             replica_gib_created += o.size_bytes / 1024**3
     migration_debt = defaultdict(float)
     prev_ext_bytes = Counter()
+    # Link interference (v2 model fix, 2026-10-03): seconds of link time still owed by migrations per tier.
+    # While backlog > 0 the tier's link is shared with serving, so serving sees (1 - load) of its bandwidth.
+    link_backlog = defaultdict(float)
 
     for oid, tier in placements.items():
         o = objects[oid]
@@ -627,6 +634,8 @@ def run_sim(
             migration_debt[d.object_id] += MIGRATION_EXPOSURE * dt
             migration_ext[d.source_tier] += obj.size_bytes
             migration_ext[d.target_tier] += obj.size_bytes
+            link_backlog[d.source_tier] += dt
+            link_backlog[d.target_tier] += dt
 
         decision_debt_per_access = (
             tick_decision_overhead_us
@@ -648,6 +657,8 @@ def run_sim(
             bw_mult = effective_bw_mult(
                 sc, t, tier
             )
+            if link_interference and tier != "hbm":
+                bw_mult *= 1.0 - min(LINK_LOAD_CAP, link_backlog[tier])
             tpot = tpot_s(
                 system,
                 o,
@@ -688,6 +699,8 @@ def run_sim(
                 )
 
         prev_ext_bytes = next_ext
+        for _t in list(link_backlog):
+            link_backlog[_t] = max(0.0, link_backlog[_t] - 1.0)
 
     total_cap = sum(
         m.capacity_bytes * sc.capacity_mult
@@ -728,6 +741,7 @@ def run_sim(
         "migration_time_s": migration_time_total,
         "migration_link_frac": min(1.0, migration_time_total / max(1, sc.horizon_s)),
         "model_error": model_error,
+        "link_interference": link_interference,
         "promotion_count": direction_count["promotion"],
         "demotion_count": direction_count["demotion"],
         "rebalance_count": direction_count["rebalance"],

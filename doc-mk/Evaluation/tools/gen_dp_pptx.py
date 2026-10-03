@@ -88,9 +88,9 @@ def qa_slides():
          [f"{st[C1]['QA1']}  x{G[C1]['qa1']['ratio']:.2f} (±{G[C1]['qa1']['ci95']:.2f})", wl(C1)], [f"{st[C2]['QA1']}  x{G[C2]['qa1']['ratio']:.2f} (±{G[C2]['qa1']['ci95']:.2f})", wl(C2)]),
         (["QA2 Latency [B]", "TTFT/TPOT 개선 배수(geomean), 중앙값 TTFT"],
          [f"{st[C1]['QA2']}  x{G[C1]['qa2']['latency_improvement_geomean']:.2f}", lat(C1)], [f"{st[C2]['QA2']}  x{G[C2]['qa2']['latency_improvement_geomean']:.2f}", lat(C2)]),
-        (["QA3 Utilization [B]", "전 메모리 풀 U 상대값, HBM 점유, 링크 점유"],
-         [f"{st[C1]['QA3']}  x{G[C1]['qa3']['rel_vs_baseline']:.2f} (U {G[C1]['qa3']['useful_util']*100:.2f}%)", f"HBM {G[C1]['qa3']['tier_util'].get('hbm', 0)*100:.0f}% · 링크 {Qf[C1]['migration_link_frac']*100:.1f}%"],
-         [f"{st[C2]['QA3']}  x{G[C2]['qa3']['rel_vs_baseline']:.2f} (U {G[C2]['qa3']['useful_util']*100:.2f}%)", f"HBM {G[C2]['qa3']['tier_util'].get('hbm', 0)*100:.0f}% · 링크 {Qf[C2]['migration_link_frac']*100:.1f}%"]),
+        (["QA3 (진단, 별점 제외) [B]", "전 메모리 풀 U 상대값, 링크 점유, 이동량"],
+         [f"U x{G[C1]['qa3']['rel_vs_baseline']:.2f} ({G[C1]['qa3']['useful_util']*100:.2f}%)", f"링크 {Qf[C1]['migration_link_frac']*100:.1f}% · {Qf[C1]['migration_gib']:,.0f} GiB"],
+         [f"U x{G[C2]['qa3']['rel_vs_baseline']:.2f} ({G[C2]['qa3']['useful_util']*100:.2f}%)", f"링크 {Qf[C2]['migration_link_frac']*100:.1f}% · {Qf[C2]['migration_gib']:,.0f} GiB"]),
         (["QA4 Modifiability [B+C]", "변경 4종 평균: module, 공수, 에이전트 비용"],
          [f"{st[C1]['QA4']}  module {m['C1']['modules']:.2f}", f"{m['C1']['man_months']:.2f} man-month · ${m['C1']['usd_T1']:.2f}"], [f"{st[C2]['QA4']}  module {m['C2']['modules']:.2f}", f"{m['C2']['man_months']:.2f} man-month · ${m['C2']['usd_T1']:.2f}"]),
     ]
@@ -108,7 +108,7 @@ def qa_slides():
     s.box(0.4, y, 6.2, 2.15, [
         "Trade-off와 이유",
         "- 성능은 C2: 데이터마다 접근 빈도·재사용·유휴를 보고 이동해, 같은 종류(KV) 안의 hot/cold를 구분한다. C1은 자원 압박에만 반응해 구분 못 함.",
-        f"- 비용은 C2: migration {Qf[C2]['migration_gib']:,.0f} GiB (C1 {Qf[C1]['migration_gib']:,.0f}), 링크 점유 {Qf[C2]['migration_link_frac']*100:.1f}% (C1 {Qf[C1]['migration_link_frac']*100:.1f}%)라 활용률(QA3) 이득이 C1을 넘지 못함.",
+        f"- 비용은 C2: migration {Qf[C2]['migration_gib']:,.0f} GiB (C1 {Qf[C1]['migration_gib']:,.0f}), 링크 점유 {Qf[C2]['migration_link_frac']*100:.1f}% (C1 {Qf[C1]['migration_link_frac']*100:.1f}%)라 이동이 서빙 링크를 나눠 써서 지연·처리량 이득이 줄어든다(간섭 모델 반영).",
         f"- 확장성은 C1: 종류를 모르는 구조라 새 데이터 종류 추가 시 module 1개 (C2 3개).",
         "- 지연(QA2)은 둘 다 ★★★ 경계를 넘어 별이 같지만 값은 C2가 높다."], "note", 9.5)
     why = (f"합계 {o['totals'][C1]} 대 {o['totals'][C2]}로 같아 QA 우선순위로 결정: {o['deciding']}에서 앞선 {nm[o['winner']]}" if o["rule"] == "priority"
@@ -150,7 +150,7 @@ def tactics_slide():
         ("W1", f"QA4: 신규 AI data class 추가 시 C2 module {g.QA4['scenarios']['S2']['C2']['modules']}개(C1 {g.QA4['scenarios']['S2']['C1']['modules']}개), 신규 memory는 선호 목록에 명시해야 사용됨(C1은 코드 변경 없이 사용)",
          "T1 type 특성을 descriptor(데이터)로 외부화. descriptor가 없는 class는 type-agnostic 경로로 처리 -> 신규 type 추가 = descriptor 1개", "QA4", "[C] 논증, 미구현. 기대: 변경 module 3 -> 1~2 (미검증)"),
         ("W2", f"migration 비용: C2 {Q[C2]['migration_gib']:,.0f} GiB (C1 {Q[C1]['migration_gib']:,.0f}), 링크 점유 {Q[C2]['migration_link_frac']*100:.1f}% (C1 {Q[C1]['migration_link_frac']*100:.1f}%)",
-         "T2 link-time budget + 이득/비용 gating (simulator 적용). traffic class 우선순위(demand > prefetch > demotion). replica가 있으면 DROP 우선", "QA1 QA3", "budget/gating [B] 적용. class 우선순위·DROP 우선은 [C]"),
+         "T2 link-time budget + 이득/비용 gating (simulator 적용). traffic class 우선순위(demand > prefetch > demotion). replica가 있으면 DROP 우선", "QA1 QA2", "budget/gating [B] 적용. class 우선순위·DROP 우선은 [C]"),
         ("W3", "예측 의존: C2는 predictor가 틀리면 잘못된 migration. 오차 e=0.6까지는 우위 유지(lognormal 한 종류, 결과 4.6)",
          "T3 신뢰도 gating (낮으면 C1의 resource-pressure 트리거로 대체) + 이득 미실현 시 자동 중단(do-no-harm guard) + hysteresis", "QA1 안정성", "[C] 미구현. 실제 workload 이동 robustness는 미확인"),
         ("W4", f"decision overhead {Q[C2]['decision_overhead_ms']:.0f} ms/run (C1 {Q[C1]['decision_overhead_ms']:.0f} ms). SLO(초 단위) 영향은 작음",
