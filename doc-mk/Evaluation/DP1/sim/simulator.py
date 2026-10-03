@@ -46,6 +46,17 @@ def poisson(rng, lam: float) -> int:
     return max(0, int(round(rng.gauss(lam, math.sqrt(lam)))))
 
 
+def pooled_capacity_util(occ_sum, cap_sum):
+    """QA3 v4 pooled occupancy over ALL memories: sum_m occupied_bytes_m / sum_m capacity_m (time-integrated;
+    occ_sum / cap_sum are per-tier dicts of byte-seconds). Also returns per-tier u_m and the unweighted mean of
+    u_m over tiers that held data at any time (diagnostic: not dominated by the largest tier)."""
+    tot_c = sum(cap_sum.values())
+    pooled = sum(occ_sum.values()) / tot_c if tot_c > 0 else 0.0
+    per_tier = {m: (occ_sum.get(m, 0.0) / c if c > 0 else 0.0) for m, c in cap_sum.items()}
+    active = [u for m, u in per_tier.items() if occ_sum.get(m, 0.0) > 0]
+    return pooled, per_tier, (sum(active) / len(active) if active else 0.0)
+
+
 def effective_capacity_mult(sc, t: int, tier: str) -> float:
     mult = sc.capacity_mult
     if tier == "hbm":
@@ -423,6 +434,8 @@ def run_sim(
     tier_accesses = Counter()
     capacity_util_samples = defaultdict(list)
     hbm_pressure_seconds = 0
+    occ_bytes_sum = defaultdict(float)   # v4: per-tier sum_t min(occupied, effective cap)
+    cap_bytes_sum = defaultdict(float)   # v4: per-tier sum_t effective cap (tier available)
     allocated = set(placements)
 
     for t in range(sc.horizon_s):
@@ -501,6 +514,9 @@ def run_sim(
                 bw_util=bw_util,
             )
             capacity_util_samples[name].append(cap_util)
+            if capm > 0:  # disabled tier (capm == 0) is not part of the pool at that second
+                occ_bytes_sum[name] += min(max(0.0, occupancy[name]), effective_cap)
+                cap_bytes_sum[name] += effective_cap
 
         ctx.effective_capacity = current_caps
 
@@ -683,6 +699,7 @@ def run_sim(
         * sc.capacity_mult
         for name, vals in capacity_util_samples.items()
     )
+    pooled_util, tier_util, tier_util_mean_active = pooled_capacity_util(occ_bytes_sum, cap_bytes_sum)
     hbm_vals = capacity_util_samples.get("hbm", [0.0])
     avg_hbm = sum(hbm_vals) / max(1, len(hbm_vals))
 
@@ -732,6 +749,9 @@ def run_sim(
             / max(1, sc.horizon_s)
         ),
         "avg_hbm_util": avg_hbm,
+        "pooled_util": pooled_util,
+        "tier_util": tier_util,
+        "tier_util_mean_active": tier_util_mean_active,
         "aggregate_capacity_util": (
             avg_used / max(1.0, total_cap)
         ),

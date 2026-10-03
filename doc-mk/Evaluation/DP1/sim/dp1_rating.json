@@ -1,7 +1,11 @@
 {
   "schema_version": 1,
   "_note": "DP1 supplementary (fine-grained) rating bands. The COMMON stars in qa-evaluation-criteria.md are unchanged and still reported; this file only subdivides each star band so that candidates inside the same common star can be told apart. Edges are inclusive-lower. Any change after a result was produced must be logged as a new rating version (see Evaluation/DP1/qa-criteria-dp1.md).",
-  "version": "dp1-rating-v2",
+  "version": "dp1-rating-v3",
+  "version_history": {
+    "dp1-rating-v2": "QA3 official star = delta of useful HBM utilization vs Baseline in pp, edges -5/+15 pp (qa3_delta_pp_edges_v2). Kept for the record.",
+    "dp1-rating-v3": "QA3 v4 definition (pooled occupancy over ALL memories x SLO ratio x (1 - migration link fraction)); official star = RELATIVE improvement U_cand/U_base with edges 0.95/1.25 = the QA2 improvement-factor edges, chosen by analogy BEFORE the v4 numbers were seen. Definition change itself is defined_after_first_look (the v2/v3 star was already seen)."
+  },
   "defined_after_first_look": true,
   "qa1_ratio_edges": [
     0.8,
@@ -69,9 +73,21 @@
       0.95,
       1.25
     ],
-    "qa3_delta_pp_edges": [
+    "qa3_delta_pp_edges_v2": [
       -5,
       15
+    ],
+    "qa3_relative_edges": [
+      0.95,
+      1.25
+    ],
+    "qa3_relative_edges_note": "Same values as qa2_latency_improvement_edges (a ratio-to-Baseline where >1 is better, 'noticeable improvement' = 25%). Fixed by analogy before the v4 numbers were computed. NOT tuned to the outcome (evaluation H16).",
+    "sensitivity_qa3_top_edge": [
+      1.1,
+      1.15,
+      1.25,
+      1.4,
+      1.5
     ],
     "qa2_percentiles": [
       "p50",

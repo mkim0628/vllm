@@ -105,6 +105,10 @@ def _run_one(args):
     r["useful_hbm_util_raw"] = r["avg_hbm_util"] * r["slo_ratio"]
     # v3: link time spent migrating is not serving time -> discounted (definition in criteria QA3 note)
     r["useful_hbm_util"] = r["useful_hbm_util_raw"] * (1.0 - r["migration_link_frac"])
+    # v4 (QA3 over ALL memories of the SYS): pooled occupancy sum_m occ_m / sum_m cap_m, same two multiplicative factors.
+    # useful_hbm_util (v3, HBM only) is kept as a diagnostic for continuity.
+    r["useful_util_raw"] = r["pooled_util"] * r["slo_ratio"]
+    r["useful_util"] = r["useful_util_raw"] * (1.0 - r["migration_link_frac"])
     r["set"] = label
     return r
 
@@ -120,7 +124,7 @@ def run_set(sys_id, label, jobs=1):
 
 # --------------------------------------------------------------------------- per scenario
 METRICS = (
-    "goodput_tps", "ttft_p99_ms", "tpot_p99_ms", "useful_hbm_util", "avg_hbm_util",
+    "goodput_tps", "ttft_p99_ms", "tpot_p99_ms", "useful_util", "pooled_util", "tier_util_mean_active", "useful_hbm_util", "avg_hbm_util",
     "aggregate_capacity_util", "slo_ratio", "migration_count", "migration_gib",
     "migration_time_s", "migration_link_frac", "decision_overhead_ms", "demotion_count", "promotion_count",
     "rebalance_count",
@@ -150,9 +154,13 @@ def per_scenario(rows):
                         ttft_p95_ms=statistics.mean(r["ttft_p95_ms"] for r in rs),
                         tpot_p50_ms=statistics.mean(r["tpot_p50_ms"] for r in rs),
                         tpot_p95_ms=statistics.mean(r["tpot_p95_ms"] for r in rs),
+                        useful_util=statistics.mean(r["useful_util"] for r in rs),
+                        pooled_util=statistics.mean(r["pooled_util"] for r in rs),
+                        tier_util={m: statistics.mean(r["tier_util"].get(m, 0.0) for r in rs) for m in rs[0]["tier_util"]},
+                        tier_util_mean_active=statistics.mean(r["tier_util_mean_active"] for r in rs),
                         useful_hbm_util=statistics.mean(r["useful_hbm_util"] for r in rs),
                         avg_hbm_util=statistics.mean(r["avg_hbm_util"] for r in rs),
-                        pool_util=statistics.mean(r["aggregate_capacity_util"] for r in rs),
+                        pool_util=statistics.mean(r["aggregate_capacity_util"] for r in rs),  # legacy diagnostic (pre-v4 pooled estimate)
                         slo_ratio=statistics.mean(r["slo_ratio"] for r in rs),
                         migration_count=statistics.mean(r["migration_count"] for r in rs),
                         migration_gib=statistics.mean(r["migration_gib"] for r in rs),
@@ -165,7 +173,8 @@ def per_scenario(rows):
                         seeds_goodput=[r["goodput_tps"] for r in rs],
                         seeds_ttft=[r["ttft_p99_ms"] for r in rs],
                         seeds_tpot=[r["tpot_p99_ms"] for r in rs],
-                        seeds_useful_util=[r["useful_hbm_util"] for r in rs],
+                        seeds_useful_util=[r["useful_hbm_util"] for r in rs],  # v3 HBM-only (legacy name)
+                        seeds_useful_util_v4=[r["useful_util"] for r in rs],
                     )
             out[sn][cand] = best
     return out
@@ -265,7 +274,12 @@ def qa_table(ps, names=None):
             tpot_w = max(v[cand]["tpot_p99_ms"] for v in sub.values())
             ttft_m = statistics.median(v[cand]["ttft_p99_ms"] for v in sub.values())
             tpot_m = statistics.median(v[cand]["tpot_p99_ms"] for v in sub.values())
-            util = statistics.mean(v[cand]["useful_hbm_util"] for v in sub.values())
+            util = statistics.mean(v[cand]["useful_util"] for v in sub.values())  # v4: all memories
+            hbm_util = statistics.mean(v[cand]["useful_hbm_util"] for v in sub.values())  # v3 diagnostic
+            pooled_raw = statistics.mean(v[cand]["pooled_util"] for v in sub.values())
+            active_mean = statistics.mean(v[cand]["tier_util_mean_active"] for v in sub.values())
+            tiers = sorted({m for v in sub.values() for m in v[cand]["tier_util"]})
+            tier_u = {m: statistics.mean(v[cand]["tier_util"].get(m, 0.0) for v in sub.values()) for m in tiers}
             pool = statistics.mean(v[cand]["pool_util"] for v in sub.values())
             mc = statistics.mean(v[cand]["migration_count"] for v in sub.values())
             mg = statistics.mean(v[cand]["migration_gib"] for v in sub.values())
@@ -274,6 +288,7 @@ def qa_table(ps, names=None):
         else:
             lf = float("nan")
             ttft_w = tpot_w = ttft_m = tpot_m = util = pool = mc = mg = do = float("nan")
+            hbm_util = pooled_raw = active_mean = float("nan"); tier_u = {}
         res[cand] = dict(
             qa1_ratio_geomean=gm, qa1_ratio_ci95=gm_ci, qa1=stars_q1(gm) if ratios else "n/a",
             qa1_per_scenario={sn: (v[cand]["max_goodput_tps"] / base[sn] if base[sn] > 0 else None) for sn, v in sub.items()},
@@ -282,7 +297,9 @@ def qa_table(ps, names=None):
             qa2_ttft_p99_worst_ms=ttft_w, qa2_tpot_p99_worst_ms=tpot_w,
             qa2_ttft_p99_median_ms=ttft_m, qa2_tpot_p99_median_ms=tpot_m,
             qa2=stars_q2(ttft_w, tpot_w) if sub else "n/a",
-            qa3_useful_hbm_util=util, qa3=stars_q3(util) if sub else "n/a",
+            qa3_useful_util=util, qa3_pooled_occupancy=pooled_raw, qa3_tier_util=tier_u, qa3_tier_util_mean_active=active_mean,
+            qa3_useful_hbm_util=hbm_util,  # v3 HBM-only value, diagnostic
+            qa3=stars_q3(util) if sub else "n/a",
             pool_util=pool, migration_count=mc, migration_gib=mg, decision_overhead_ms=do, migration_link_frac=lf,
             n_scenarios=len(sub),
         )
@@ -310,7 +327,7 @@ def fmt_qa(cand, q):
     return (
         f"{cand:20s} QA1 {q['qa1']} x{q['qa1_ratio_geomean']:.3f} (±{q['qa1_ratio_ci95']:.3f}) | "
         f"QA2 {q['qa2']} TTFT {q['qa2_ttft_p99_worst_ms']:.0f}ms TPOT {q['qa2_tpot_p99_worst_ms']:.0f}ms | "
-        f"QA3 {q['qa3']} {q['qa3_useful_hbm_util']*100:.0f}% | mig {q['migration_count']:.0f}/{q['migration_gib']:.0f}GiB"
+        f"QA3 {q['qa3']} {q['qa3_useful_util']*100:.0f}% (HBM-only v3 {q['qa3_useful_hbm_util']*100:.0f}%) | mig {q['migration_count']:.0f}/{q['migration_gib']:.0f}GiB"
     )
 
 

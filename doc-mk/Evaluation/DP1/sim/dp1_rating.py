@@ -1,4 +1,4 @@
-"""DP1 supplementary rating (fine-grained tiers + C1-vs-C2 head-to-head) computed from qa_result.json.
+"""DP1 supplementary rating (dp1-rating-v3; QA3 official star = relative U_cand/U_base) (fine-grained tiers + C1-vs-C2 head-to-head) computed from qa_result.json.
 
 The common stars (qa-evaluation-criteria.md) are NOT replaced; see Evaluation/DP1/qa-criteria-dp1.md.
 
@@ -65,7 +65,12 @@ def rate_group(res, scen):
         r, ci = agg_ratio(res, scen, c, BASE) if scen else (1.0, 0.0)
         t1 = tier(r, CFG["qa1_ratio_edges"])
         ttft = [p["ttft_p99_ms"] for p in ps]; tpot = [p["tpot_p99_ms"] for p in ps]
-        util = statistics.mean(p["useful_hbm_util"] for p in ps)
+        util = statistics.mean(p["useful_util"] for p in ps)  # QA3 v4: pooled over ALL memories
+        base_util = statistics.mean(res[l]["per_scenario"][s][BASE]["useful_util"] for l, s in scen)
+        mean_tier = {}
+        for p in ps:
+            for m, u in p["tier_util"].items():
+                mean_tier.setdefault(m, []).append(u)
         tt = tier_lower_better(statistics.median(ttft), CFG["qa2_ttft_p99_edges_ms"])
         tp = tier_lower_better(statistics.median(tpot), CFG["qa2_tpot_p99_edges_ms"])
         t3 = tier(util, CFG["qa3_util_edges"])
@@ -87,7 +92,13 @@ def rate_group(res, scen):
             qa2=dict(latency=lat, improvement_vs_baseline=imp, ttft_tier=tt, ttft_tier_max=len(CFG["qa2_ttft_p99_edges_ms"]),
                      tpot_tier=tp, tpot_tier_max=len(CFG["qa2_tpot_p99_edges_ms"])),
             qa3=dict(useful_util=util, tier=t3, tier_max=len(CFG["qa3_util_edges"]), common_star=CFG["qa3_tier_to_common_star"][t3],
-                     delta_pp_vs_baseline=(util - statistics.mean(res[l]["per_scenario"][s][BASE]["useful_hbm_util"] for l, s in scen)) * 100),
+                     delta_pp_vs_baseline=(util - base_util) * 100,
+                     rel_vs_baseline=util / max(1e-12, base_util),
+                     pooled_occupancy=statistics.mean(p["pooled_util"] for p in ps),
+                     tier_util={m: statistics.mean(v) for m, v in sorted(mean_tier.items())},
+                     tier_util_mean_active=statistics.mean(p["tier_util_mean_active"] for p in ps),
+                     useful_hbm_util=statistics.mean(p["useful_hbm_util"] for p in ps),
+                     useful_hbm_delta_pp_vs_baseline=(statistics.mean(p["useful_hbm_util"] for p in ps) - statistics.mean(res[l]["per_scenario"][s][BASE]["useful_hbm_util"] for l, s in scen)) * 100),
         )
     return out
 
@@ -109,7 +120,8 @@ def head_to_head(res, scen):
         rows[f"{l}/{s}"] = dict(goodput_ratio_C2_over_C1=r, ci95=ci, verdict=v,
                                 ttft_p99_ratio_C2_over_C1=b["ttft_p99_ms"] / max(1e-9, a["ttft_p99_ms"]),
                                 tpot_p99_ratio_C2_over_C1=b["tpot_p99_ms"] / max(1e-9, a["tpot_p99_ms"]),
-                                util_delta_pp_C2_minus_C1=(b["useful_hbm_util"] - a["useful_hbm_util"]) * 100,
+                                util_delta_pp_C2_minus_C1=(b["useful_util"] - a["useful_util"]) * 100,
+                                hbm_util_delta_pp_C2_minus_C1=(b["useful_hbm_util"] - a["useful_hbm_util"]) * 100,
                                 migration_gib_C1=a["migration_gib"], migration_gib_C2=b["migration_gib"])
     gm = agg_ratio_h2h(res, scen)
     return dict(per_scenario=rows, tally=wins, geomean_goodput_ratio_C2_over_C1=gm[0], geomean_ci95=gm[1])
@@ -153,7 +165,8 @@ def add_dp1_stars(group):
         x["dp1_star"] = dict(
             qa1=dp1_star(x["qa1"]["ratio"], cfg["qa1_ratio_edges"]),
             qa2=dp1_star(l_all, cfg["qa2_latency_improvement_edges"]),
-            qa3=dp1_star(x["qa3"]["delta_pp_vs_baseline"], cfg["qa3_delta_pp_edges"]),
+            qa3=dp1_star(x["qa3"]["rel_vs_baseline"], cfg["qa3_relative_edges"]),
+            qa3_common_ref=x["qa3"]["common_star"],  # common 65%/85% absolute star, reference only
             qa1_ci_straddles_edge=any(abs(x["qa1"]["ratio"] - e) <= x["qa1"]["ci95"] for e in cfg["qa1_ratio_edges"]),
         )
     return group
@@ -168,6 +181,12 @@ def star_sensitivity(group):
     return out
 
 
+def star_sensitivity_qa3(group):
+    """QA3 relative stars of C1/C2 when the top (3-star) edge is moved (lower edge fixed)."""
+    cfg = CFG["dp1_star"]; lo = cfg["qa3_relative_edges"][0]
+    return {str(top): {c: dp1_star(group[c]["qa3"]["rel_vs_baseline"], [lo, top]) for c in (C1, C2)} for top in cfg["sensitivity_qa3_top_edge"]}
+
+
 def rate(res):
     out = dict(version=CFG["version"], defined_after_first_look=CFG["defined_after_first_look"], sets={}, h2h={})
     for lab in SETS:
@@ -179,6 +198,7 @@ def rate(res):
     scen = valid_scenarios(res, SETS)
     out["sets"]["combined"] = add_dp1_stars(rate_group(res, scen))
     out["sensitivity_combined_qa1"] = star_sensitivity(out["sets"]["combined"])
+    out["sensitivity_combined_qa3"] = star_sensitivity_qa3(out["sets"]["combined"])
     out["h2h"]["combined"] = head_to_head(res, scen)
     out["h2h"]["combined"]["latency_order"] = latency_order(out["sets"]["combined"])
     out["scope"] = {"combined_n": len(scen)}
@@ -198,7 +218,7 @@ def main():
         h = out["h2h"][lab]
         lo = h["latency_order"]
         for c in (BASE, C1, C2):
-            ds = g[c]["dp1_star"]; print(f"  {c[:8]:8s} DP1 stars QA1 {ds['qa1']} QA2 {ds['qa2']} (L x{g[c]['qa2']['latency_improvement_geomean']:.2f}) QA3 {ds['qa3']} ({g[c]['qa3']['delta_pp_vs_baseline']:+.0f}pp)")
+            ds = g[c]["dp1_star"]; print(f"  {c[:8]:8s} DP1 stars QA1 {ds['qa1']} QA2 {ds['qa2']} (L x{g[c]['qa2']['latency_improvement_geomean']:.2f}) QA3 {ds['qa3']} (x{g[c]['qa3']['rel_vs_baseline']:.2f}, {g[c]['qa3']['delta_pp_vs_baseline']:+.0f}pp; common {ds['qa3_common_ref']}; HBM-only {g[c]['qa3']['useful_hbm_util']*100:.0f}%)")
         print(f"  C2/C1 goodput x{h['geomean_goodput_ratio_C2_over_C1']:.3f}±{h['geomean_ci95']:.3f}  C2 {h['tally']['C2']} / tie {h['tally']['tie']} / C1 {h['tally']['C1']} | latency: " + ", ".join(f"{p} C2/C1 x{lo[p]['C2_over_C1']:.2f} ({lo[p]['verdict']})" for p in ("p99","p95","p50")) + f" -> {lo['overall']} (by {lo['decided_by']})")
 
 
