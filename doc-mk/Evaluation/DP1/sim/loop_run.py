@@ -20,7 +20,7 @@ from qa_eval import BASE, CANDS, evaluate, print_result
 
 HERE = Path(__file__).resolve().parent
 RES = HERE.parent / "results"
-SYSTEMS = ("SYS-B200", "SYS-A100", "SYS-H100", "SYS-VR")  # generation profiles; legacy SYS-1..5 via --systems
+SYSTEMS = ("SYS-B200", "SYS-A100", "SYS-H100")  # generation profiles (SYS-VR defined but excluded by owner decision); legacy SYS-1..5 via --systems
 
 
 def compact(result):

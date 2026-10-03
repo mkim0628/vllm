@@ -72,7 +72,7 @@ def qa_slide():
     SY = g.SYSIDS
     m = g.QA4["mean_over_scenarios"]
     s = Slide("DP1 평가 결과 - QA별 후보 비교 (메모리 세대별 4개 시스템, Common + Stress + Dynamic)")
-    cw = 2.55
+    cw = 10.2 / len(g.SYSIDS)
     cols = [("QA", 0.4, 1.9)] + [(sid, 2.3 + k * cw, cw) for k, sid in enumerate(SY)]
     y = 1.2
     for name, x, w in cols:

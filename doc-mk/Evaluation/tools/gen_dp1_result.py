@@ -18,7 +18,7 @@ DATE = "2026-10-02"
 OUT = ROOT / "DP1" / "results" / f"{DATE}_dp1-qa-evaluation.md"
 B, C1, C2 = "Baseline-static", "C1-resource-driven", "C2-behavior-driven"
 SETS = [("common_benchmark", "Common"), ("dp1_stress_benchmark", "DP1 Stress"), ("dp1_dynamic_benchmark", "DP1 Dynamic")]
-SYSIDS = ["SYS-A100", "SYS-H100", "SYS-B200", "SYS-VR"]   # generation profiles (all six memory kinds in each)
+SYSIDS = ["SYS-A100", "SYS-H100", "SYS-B200"]   # generation profiles (all six memory kinds in each); SYS-VR excluded by owner decision
 PRIMARY = "SYS-B200"                                       # per-scenario detail tables (equals legacy SYS-B200 numerically)
 FIT_LETTER = {"comparison_valid": "V", "infeasible": "I", "saturated": "S"}
 
@@ -293,7 +293,7 @@ def conclusion_bullets():
         "- **세대별 DP1 별점 (QA1 / QA2 / QA3 / QA4):**\n  - " + "\n  - ".join(parts) + "\n"
         f"- **전체 선택:** 시스템별 선택 승수 C1 {sel['wins'][C1]} 대 C2 {sel['wins'][C2]} -> **{nm[sel['winner']]}** ({'다수결' if sel['rule'] == 'majority' else 'QA 우선순위 ' + str(sel['deciding'])}). "
         f"QA 우선순위는 {' > '.join(PRIO['priority'])} ({PRIO['status']}). 별점 경계 의존성은 6장 9, 10.\n"
-        "- **trade-off는 세대에 따라 달라진다:** 오래된 세대(A100)에서는 두 후보가 같은 별이고 구분은 비용과 확장성에 있다. 최신 세대(VR)에서는 HBM이 커서 Baseline이 대부분 SLO를 만족해 이득 자체가 작다. 이득과 후보 간 차이는 B200/H100 구간에서 가장 크다."
+        "- **trade-off는 세대에 따라 달라진다:** 오래된 세대(A100)에서는 두 후보가 같은 별이고 구분은 비용과 확장성에 있다. 이득과 후보 간 차이는 B200에서 가장 크다."
     )
 
 
@@ -331,7 +331,7 @@ def summary_section():
     pr = " > ".join(PRIO["priority"])
     lines = f"""# 0. 최종 요약
 
-> 발표용 요약이다. 근거는 4장, 한계는 6장. 별점은 **DP1 기준 별점**(`qa-criteria-dp1.md`)이고, Common+Stress+Dynamic 통합(comparison-valid만)을 **메모리 세대별 4개 시스템**에 대해 각각 계산했다. 공통 기준 별점은 4.1a.
+> 발표용 요약이다. 근거는 4장, 한계는 6장. 별점은 **DP1 기준 별점**(`qa-criteria-dp1.md`)이고, Common+Stress+Dynamic 통합(comparison-valid만)을 **메모리 세대별 3개 시스템**에 대해 각각 계산했다. 공통 기준 별점은 4.1a.
 
 ## 0.1 QA별 후보 비교 (세대별)
 
@@ -341,9 +341,9 @@ def summary_section():
 
 ## 0.2 Trade-off
 
-- **별이 갈리는 칸:** C2가 앞서는 칸 {', '.join(tradeoff_cells()[1]) or '없음'}, C1이 앞서는 칸 {', '.join(tradeoff_cells()[0]) or '없음'}. QA3는 C2의 migration 비용(링크 점유)이 사용률 이득을 깎는 세대에서 C1이 앞선다. QA4는 측정 결과 두 후보가 같은 별이지만 값은 C1이 작다: 변경 module 평균 C1 {m['C1']['modules']:.2f} 대 C2 {m['C2']['modules']:.2f}, 공수 {m['C1']['man_months']:.2f} 대 {m['C2']['man_months']:.2f} man-month, 에이전트 비용(frontier tier) ${m['C1']['usd_T1']:.2f} 대 ${m['C2']['usd_T1']:.2f} (QA4 장 참조, 모두 추정).
+- **별이 갈리는 칸:** C2가 앞서는 칸 {', '.join(tradeoff_cells()[1]) or '없음'}, C1이 앞서는 칸 {', '.join(tradeoff_cells()[0]) or '없음'}. QA4는 측정 결과 두 후보가 같은 별이지만 값은 C1이 작다: 변경 module 평균 C1 {m['C1']['modules']:.2f} 대 C2 {m['C2']['modules']:.2f}, 공수 {m['C1']['man_months']:.2f} 대 {m['C2']['man_months']:.2f} man-month, 에이전트 비용(frontier tier) ${m['C1']['usd_T1']:.2f} 대 ${m['C2']['usd_T1']:.2f} (QA4 장 참조, 모두 추정).
 - C2의 비용({PRIMARY}, combined 평균): migration {Q[C2]['migration_gib']:,.0f} GiB (C1 {Q[C1]['migration_gib']:,.0f}), 링크 점유 {Q[C2]['migration_link_frac']*100:.1f}% (C1 {Q[C1]['migration_link_frac']*100:.1f}%), decision overhead {Q[C2]['decision_overhead_ms']:.0f} ms/run (C1 {Q[C1]['decision_overhead_ms']:.0f} ms).
-- 이득은 static 배치가 stale해지는 Dynamic 시나리오와 중간 세대(H100/B200)에 집중된다. 최신 세대(VR)는 HBM이 커서 Baseline이 대부분 SLO를 만족하고, 오래된 세대(A100)는 두 후보가 같다.
+- 이득은 static 배치가 stale해지는 Dynamic 시나리오와 H100/B200에 집중된다. 가장 오래된 세대(A100)에서는 두 후보가 같다.
 
 ## 0.3 선택과 근거
 
@@ -378,10 +378,10 @@ def loss_sentence():
     tot = {sid: sum(len(R[sid]["combined"]["tally"][c]["loss"]) for c in (C1, C2)) for sid in SYSIDS}
     dyn = {sid: (len(R[sid]["dp1_dynamic_benchmark"]["tally"][C1]["win"]), len(R[sid]["dp1_dynamic_benchmark"]["tally"][C2]["win"]), len(R[sid]["dp1_dynamic_benchmark"]["per_scenario"])) for sid in SYSIDS}
     if all(v == 0 for v in tot.values()):
-        head = "세대별 4개 시스템, 3개 set 전체에서 **어느 후보도 Baseline 미만(loss)인 시나리오가 없다** (4.4의 loss 열)."
+        head = "세대별 3개 시스템, 3개 set 전체에서 **어느 후보도 Baseline 미만(loss)인 시나리오가 없다** (4.4의 loss 열)."
     else:
         head = "Baseline 미만(loss) 시나리오가 있다: " + ", ".join(f"{sid} {n}건" for sid, n in tot.items() if n) + " (4.4)."
-    return head + " Dynamic에서 유의하게 이긴 시나리오 수(C1 / C2, 전체): " + ", ".join(f"{sid} {a} / {b} (of {n})" for sid, (a, b, n) in dyn.items()) + ". 최신 세대(VR)는 HBM이 커서 Baseline이 dynamic 시나리오를 대부분 감당한다(saturated)."
+    return head + " Dynamic에서 유의하게 이긴 시나리오 수(C1 / C2, 전체): " + ", ".join(f"{sid} {a} / {b} (of {n})" for sid, (a, b, n) in dyn.items()) + "."
 
 
 def tradeoff_cells():
@@ -431,7 +431,7 @@ def main():
 date: {DATE}
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
-sys_ids: [SYS-A100, SYS-H100, SYS-B200, SYS-VR]
+sys_ids: [SYS-A100, SYS-H100, SYS-B200]
 git_rev: {rev()}
 evidence: {{ QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[B+C]" }}
 status: draft
@@ -448,14 +448,14 @@ status: draft
 
 | 항목 | 값 |
 |---|---|
-| SYS id | **메모리 세대별 4개 profile** (모두 6종 메모리 포함): SYS-A100 (HBM2e, PCIe 4.0), SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0), SYS-VR (HBM4, PCIe 6.0). 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
+| SYS id | **메모리 세대별 3개 profile** (모두 6종 메모리 포함): SYS-A100 (HBM2e, PCIe 4.0), SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정). 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
 | Git revision | {rev()} |
 | Seeds / loads | seeds {', '.join(map(str, meta['seeds']))} (5회) / load x{', x'.join(map(str, meta['loads']))}, 95% CI t={meta['t95']} |
 | Tie 판정 | goodput 상대 차이 < {meta['material_rel']*100:.0f}% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
-| 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final` (SYS-A100/H100/B200/VR), 단일: `python3 qa_eval.py --system SYS-B200` |
+| 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final` (SYS-A100/H100/B200), 단일: `python3 qa_eval.py --system SYS-B200` |
 | 표 생성 | `python3 doc-mk/Evaluation/tools/gen_dp1_result.py` |
-| Raw data | `DP1/results/data/SYS-{{A100,H100,B200,VR}}/qa_result.json`, `epsilon_SYS-B200.json`, `qa4_modifiability.json`, `sensitivity_SYS-4.json`(legacy, SYS-B200과 동일 수치) |
+| Raw data | `DP1/results/data/SYS-{{A100,H100,B200}}/qa_result.json`, `epsilon_SYS-B200.json`, `qa4_modifiability.json`, `sensitivity_SYS-4.json`(legacy, SYS-B200과 동일 수치) |
 
 시스템 profile 상세: [system-specs.md](../../system-specs.md). 세대별 profile의 A100/H100 규격과 link 스케일링은 ASSUMED/PUBLIC(확인 필요)이며, CXL-PNM/HBF/SSD-PIM/Custom HBM 같은 신규 memory는 과거 세대가 없어 link 대역 스케일로만 세대를 표현했다(ASSUMED). 구 SYS-4 = SYS-B200(수치 동일), 구 SYS-5와 SYS-VR은 PCIe 6.0 반영으로 다르다.
 
