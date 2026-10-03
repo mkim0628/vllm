@@ -18,7 +18,7 @@ DATE = "2026-10-02"
 OUT = ROOT / "DP1" / "results" / f"{DATE}_dp1-qa-evaluation.md"
 B, C1, C2 = "Baseline-static", "C1-resource-driven", "C2-behavior-driven"
 SETS = [("common_benchmark", "Common"), ("dp1_stress_benchmark", "DP1 Stress"), ("dp1_dynamic_benchmark", "DP1 Dynamic")]
-SYSIDS = ["SYS-A100", "SYS-H100", "SYS-B200"]   # generation profiles (all six memory kinds in each); SYS-VR excluded by owner decision
+SYSIDS = ["SYS-H100", "SYS-B200"]   # generation profiles (all six memory kinds in each); SYS-A100 and SYS-VR excluded by owner decision
 PRIMARY = "SYS-B200"                                       # per-scenario detail tables (equals legacy SYS-B200 numerically)
 FIT_LETTER = {"comparison_valid": "V", "infeasible": "I", "saturated": "S"}
 
@@ -260,25 +260,25 @@ def all_stars():
 
 
 def overall_selection():
-    """Per-system selection (dp_selection rule) and overall: system majority; tie -> QA priority on star sums over systems."""
+    """Per-system selection (dp_selection rule) and overall: higher star total summed over systems; tie -> QA priority on per-QA star sums."""
     st = all_stars()
     per = {sid: select_candidate(st[sid], PRIO["priority"]) for sid in SYSIDS}
     wins = {c: sum(1 for sid in SYSIDS if per[sid]["winner"] == c) for c in (C1, C2)}
     sums = {c: {q: sum(st[sid][c][q].count("★") for sid in SYSIDS) for q in PRIO["priority"]} for c in (C1, C2)}
-    if wins[C1] != wins[C2]:
-        winner, rule = (C1 if wins[C1] > wins[C2] else C2), "majority"
-        deciding = None
+    tot = {c: sum(sums[c].values()) for c in (C1, C2)}
+    winner, rule, deciding = None, "undecided", None
+    if tot[C1] != tot[C2]:
+        winner, rule = (C1 if tot[C1] > tot[C2] else C2), "total"
     else:
-        winner, rule, deciding = None, "priority", None
         for q in PRIO["priority"]:
             if sums[C1][q] != sums[C2][q]:
-                winner, deciding = (C1 if sums[C1][q] > sums[C2][q] else C2), q
+                winner, rule, deciding = (C1 if sums[C1][q] > sums[C2][q] else C2), "priority", q
                 break
     rev = None
     for q in reversed(PRIO["priority"]):
         if sums[C1][q] != sums[C2][q]:
             rev = (C1 if sums[C1][q] > sums[C2][q] else C2); break
-    return dict(per=per, wins=wins, sums=sums, winner=winner, rule=rule, deciding=deciding, reversed_winner=rev, stars=st)
+    return dict(per=per, wins=wins, sums=sums, totals=tot, winner=winner, rule=rule, deciding=deciding, reversed_winner=rev, stars=st)
 
 
 def conclusion_bullets():
@@ -291,9 +291,9 @@ def conclusion_bullets():
         parts.append(f"{sid}: C1 {f(C1)} | C2 {f(C2)} -> {nm.get(sel['per'][sid]['winner'], '미결정')}")
     return (
         "- **세대별 DP1 별점 (QA1 / QA2 / QA3 / QA4):**\n  - " + "\n  - ".join(parts) + "\n"
-        f"- **전체 선택:** 시스템별 선택 승수 C1 {sel['wins'][C1]} 대 C2 {sel['wins'][C2]} -> **{nm[sel['winner']]}** ({'다수결' if sel['rule'] == 'majority' else 'QA 우선순위 ' + str(sel['deciding'])}). "
+        f"- **전체 선택:** 시스템별 별 합계를 더하면 C1 {sel['totals'][C1]}, C2 {sel['totals'][C2]} -> **{nm[sel['winner']]}** ({'별 합계가 높은 후보' if sel['rule'] == 'total' else 'QA 우선순위 ' + str(sel['deciding'])}). "
         f"QA 우선순위는 {' > '.join(PRIO['priority'])} ({PRIO['status']}). 별점 경계 의존성은 6장 9, 10.\n"
-        "- **trade-off는 세대에 따라 달라진다:** 오래된 세대(A100)에서는 두 후보가 같은 별이고 구분은 비용과 확장성에 있다. 이득과 후보 간 차이는 B200에서 가장 크다."
+        "- **trade-off는 세대에 따라 달라진다:** H100과 B200에서 C2의 성능 이득(QA1~QA3)이 C1보다 크고, 확장성(QA4)은 C1이 높다. B200에서 성능 이득 차이가 더 크다."
     )
 
 
@@ -331,7 +331,7 @@ def summary_section():
     pr = " > ".join(PRIO["priority"])
     lines = f"""# 0. 최종 요약
 
-> 발표용 요약이다. 근거는 4장, 한계는 6장. 별점은 **DP1 기준 별점**(`qa-criteria-dp1.md`)이고, Common+Stress+Dynamic 통합(comparison-valid만)을 **메모리 세대별 3개 시스템**에 대해 각각 계산했다. 공통 기준 별점은 4.1a.
+> 발표용 요약이다. 근거는 4장, 한계는 6장. 별점은 **DP1 기준 별점**(`qa-criteria-dp1.md`)이고, Common+Stress+Dynamic 통합(comparison-valid만)을 **메모리 세대별 2개 시스템**에 대해 각각 계산했다. 공통 기준 별점은 4.1a.
 
 ## 0.1 QA별 후보 비교 (세대별)
 
@@ -341,17 +341,17 @@ def summary_section():
 
 ## 0.2 Trade-off
 
-- **별이 갈리는 칸:** C2가 앞서는 칸 {', '.join(tradeoff_cells()[1]) or '없음'}, C1이 앞서는 칸 {', '.join(tradeoff_cells()[0]) or '없음'}. QA4는 측정 결과 두 후보가 같은 별이지만 값은 C1이 작다: 변경 module 평균 C1 {m['C1']['modules']:.2f} 대 C2 {m['C2']['modules']:.2f}, 공수 {m['C1']['man_months']:.2f} 대 {m['C2']['man_months']:.2f} man-month, 에이전트 비용(frontier tier) ${m['C1']['usd_T1']:.2f} 대 ${m['C2']['usd_T1']:.2f} (QA4 장 참조, 모두 추정).
+- **별이 갈리는 칸:** C2가 앞서는 칸 {', '.join(tradeoff_cells()[1]) or '없음'}, C1이 앞서는 칸 {', '.join(tradeoff_cells()[0]) or '없음'}. QA4는 평균 집계에서 C1 ★★★ 대 C2 ★★이다: 변경 module 평균 C1 {m['C1']['modules']:.2f} 대 C2 {m['C2']['modules']:.2f}, 공수 {m['C1']['man_months']:.2f} 대 {m['C2']['man_months']:.2f} man-month, 에이전트 비용(frontier tier) ${m['C1']['usd_T1']:.2f} 대 ${m['C2']['usd_T1']:.2f} (QA4 장 참조, 모두 추정).
 - C2의 비용({PRIMARY}, combined 평균): migration {Q[C2]['migration_gib']:,.0f} GiB (C1 {Q[C1]['migration_gib']:,.0f}), 링크 점유 {Q[C2]['migration_link_frac']*100:.1f}% (C1 {Q[C1]['migration_link_frac']*100:.1f}%), decision overhead {Q[C2]['decision_overhead_ms']:.0f} ms/run (C1 {Q[C1]['decision_overhead_ms']:.0f} ms).
-- 이득은 static 배치가 stale해지는 Dynamic 시나리오와 H100/B200에 집중된다. 가장 오래된 세대(A100)에서는 두 후보가 같다.
+- 이득은 static 배치가 stale해지는 Dynamic 시나리오와 H100/B200에 집중된다.
 
 ## 0.3 선택과 근거
 
 1. **QA 우선순위:** {pr} ({PRIO['status']}). 근거: {PRIO['rationale']}
-2. **시스템별 선택:** 별 합계 차이 2 이상이면 합계, 1 이하(동점 포함)이면 우선순위 위에서부터 처음으로 별이 갈리는 QA (`tools/dp_selection.py`). 결과는 0.1 표의 마지막 행이다.
-3. **전체 선택:** 시스템별 승수 C1 {sel['wins'][C1]} 대 C2 {sel['wins'][C2]} -> **{nm[sel['winner']]}**{' (승수 동률이면 QA 우선순위로 별 합계를 비교, 결정 QA: ' + str(sel['deciding']) + ')' if sel['rule'] == 'priority' else ' (다수결)'}.
-4. **결정 민감도:** 우선순위를 뒤집으면({' > '.join(reversed(PRIO['priority']))}) 전체 선택은 {nm[sel['reversed_winner']]}이다.
-5. **별점 경계 취약성:** QA1 ★★★ 경계(1.30), QA3 상대 경계(1.25)는 결과를 본 뒤 정했거나(QA1) QA2와 같은 값을 유추로 가져온 것(QA3)이다. 경계 근처 값은 4.1b와 QA3 민감도에서 확인한다. QA4는 두 후보가 같은 별이라 선택에 기여하지 않는다.
+2. **시스템별 선택:** 별 합계가 높은 후보. **합계가 같을 때만** 우선순위 위에서부터 처음으로 별이 갈리는 QA가 결정한다 (`tools/dp_selection.py`). 결과는 0.1 표의 마지막 행이다.
+3. **전체 선택:** 시스템별 별 합계를 더해 C1 {sel['totals'][C1]}, C2 {sel['totals'][C2]} -> **{nm[sel['winner']]}**{' (합계가 같아 QA 우선순위로 결정, 결정 QA: ' + str(sel['deciding']) + ')' if sel['rule'] == 'priority' else ' (별 합계가 높은 후보)'}.
+4. **결정 민감도:** 우선순위는 합계가 같은 시스템에서만 쓰인다(SYS-H100). 우선순위를 뒤집으면({' > '.join(reversed(PRIO['priority']))}) 전체 선택은 {nm[sel['reversed_winner']]}이다.
+5. **별점 경계 취약성:** QA1 ★★★ 경계(1.30), QA3 상대 경계(1.25)는 결과를 본 뒤 정했거나(QA1) QA2와 같은 값을 유추로 가져온 것(QA3)이다. 경계 근처 값은 4.1b와 QA3 민감도에서 확인한다. QA4는 평균 집계(v2)로 C1이 한 단계 높지만 C2의 M2 값이 경계(0.5 man-month)를 0.006 넘은 수준이라 경계에 민감하다(`qa4-modifiability.md`).
 
 ## 0.4 선택한 구조의 부족한 부분과 보완 설계
 
@@ -378,7 +378,7 @@ def loss_sentence():
     tot = {sid: sum(len(R[sid]["combined"]["tally"][c]["loss"]) for c in (C1, C2)) for sid in SYSIDS}
     dyn = {sid: (len(R[sid]["dp1_dynamic_benchmark"]["tally"][C1]["win"]), len(R[sid]["dp1_dynamic_benchmark"]["tally"][C2]["win"]), len(R[sid]["dp1_dynamic_benchmark"]["per_scenario"])) for sid in SYSIDS}
     if all(v == 0 for v in tot.values()):
-        head = "세대별 3개 시스템, 3개 set 전체에서 **어느 후보도 Baseline 미만(loss)인 시나리오가 없다** (4.4의 loss 열)."
+        head = "세대별 2개 시스템, 3개 set 전체에서 **어느 후보도 Baseline 미만(loss)인 시나리오가 없다** (4.4의 loss 열)."
     else:
         head = "Baseline 미만(loss) 시나리오가 있다: " + ", ".join(f"{sid} {n}건" for sid, n in tot.items() if n) + " (4.4)."
     return head + " Dynamic에서 유의하게 이긴 시나리오 수(C1 / C2, 전체): " + ", ".join(f"{sid} {a} / {b} (of {n})" for sid, (a, b, n) in dyn.items()) + "."
@@ -404,7 +404,7 @@ def qa4_table():
     rows.append(f"| **평균** | {m['C1']['modules']:.2f} / {m['C1']['man_months']:.2f} / ${m['C1']['usd_T1']:.2f} | {m['C2']['modules']:.2f} / {m['C2']['man_months']:.2f} / ${m['C2']['usd_T1']:.2f} |")
     ss = QA4["sub_stars"]
     rows.append(f"| sub-star (M1 modules / M2 공수 / M3 비용) | {' / '.join(ss['C1'][k] for k in ('M1','M2','M3'))} | {' / '.join(ss['C2'][k] for k in ('M1','M2','M3'))} |")
-    rows.append(f"| **QA4 (중앙값)** | **{QA4_STARS[C1]}** | **{QA4_STARS[C2]}** |")
+    rows.append(f"| **QA4 (sub-star 중앙값, 시나리오 평균 집계)** | **{QA4_STARS[C1]}** | **{QA4_STARS[C2]}** |")
     return "\n".join(rows)
 
 
@@ -431,7 +431,7 @@ def main():
 date: {DATE}
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
-sys_ids: [SYS-A100, SYS-H100, SYS-B200]
+sys_ids: [SYS-H100, SYS-B200]
 git_rev: {rev()}
 evidence: {{ QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[B+C]" }}
 status: draft
@@ -448,16 +448,16 @@ status: draft
 
 | 항목 | 값 |
 |---|---|
-| SYS id | **메모리 세대별 3개 profile** (모두 6종 메모리 포함): SYS-A100 (HBM2e, PCIe 4.0), SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정). 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
+| SYS id | **메모리 세대별 2개 profile** (모두 6종 메모리 포함): SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-A100(HBM2e, PCIe 4.0)과 SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정, 2026-10-03). 이전 문서의 A100/VR 결과는 `results/data/SYS-A100`, `SYS-VR`에 보존된다. 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
 | Git revision | {rev()} |
 | Seeds / loads | seeds {', '.join(map(str, meta['seeds']))} (5회) / load x{', x'.join(map(str, meta['loads']))}, 95% CI t={meta['t95']} |
 | Tie 판정 | goodput 상대 차이 < {meta['material_rel']*100:.0f}% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
-| 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final` (SYS-A100/H100/B200), 단일: `python3 qa_eval.py --system SYS-B200` |
+| 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final` (SYS-H100/B200; 제외 SYS는 --systems로 실행 가능), 단일: `python3 qa_eval.py --system SYS-B200` |
 | 표 생성 | `python3 doc-mk/Evaluation/tools/gen_dp1_result.py` |
-| Raw data | `DP1/results/data/SYS-{{A100,H100,B200}}/qa_result.json`, `epsilon_SYS-B200.json`, `qa4_modifiability.json`, `sensitivity_SYS-4.json`(legacy, SYS-B200과 동일 수치) |
+| Raw data | `DP1/results/data/SYS-{{H100,B200}}/qa_result.json`, `epsilon_SYS-B200.json`, `qa4_modifiability.json`, `sensitivity_SYS-4.json`(legacy, SYS-B200과 동일 수치) |
 
-시스템 profile 상세: [system-specs.md](../../system-specs.md). 세대별 profile의 A100/H100 규격과 link 스케일링은 ASSUMED/PUBLIC(확인 필요)이며, CXL-PNM/HBF/SSD-PIM/Custom HBM 같은 신규 memory는 과거 세대가 없어 link 대역 스케일로만 세대를 표현했다(ASSUMED). 구 SYS-4 = SYS-B200(수치 동일), 구 SYS-5와 SYS-VR은 PCIe 6.0 반영으로 다르다.
+시스템 profile 상세: [system-specs.md](../../system-specs.md). 세대별 profile의 H100 규격과 link 스케일링은 ASSUMED/PUBLIC(확인 필요)이며, CXL-PNM/HBF/SSD-PIM/Custom HBM 같은 신규 memory는 과거 세대가 없어 link 대역 스케일로만 세대를 표현했다(ASSUMED). 구 SYS-4 = SYS-B200(수치 동일), 구 SYS-5와 SYS-VR은 PCIe 6.0 반영으로 다르다.
 
 # 2. 평가 항목
 
@@ -581,14 +581,14 @@ e를 올려도 C2의 이득이 사라지는 지점(break-even)은 이 오차 모
 
 # 6. 한계
 
-1. **Evidence가 [A]가 아니다.** 모든 수치는 config parameter(SPEC/PUBLIC/ASSUMED 혼재) 기반 simulation이다. vLLM trace replay, A100/H100 calibration이 없다.
+1. **Evidence가 [A]가 아니다.** 모든 수치는 config parameter(SPEC/PUBLIC/ASSUMED 혼재) 기반 simulation이다. vLLM trace replay, H100/B200 calibration이 없다.
 2. **비용 추정이 완벽하다.** 정책의 access-cost estimator가 simulator와 같은 식을 쓴다 (테스트로 일치 확인). 실제 [A] 측정으로 보정한 추정은 오차가 있어 이득은 **상한에 가깝다.**
 3. **Dynamic 시나리오는 실패 모드를 알고 설계했다.** Baseline만 돌려 설계하고 후보 실행 전에 고정했지만, 시나리오 선택이 결과를 좌우한다. 이득은 "static 배치가 stale해지는 경우"에 한정된 결과이며 일반 이득이 아니다. KV dynamic은 320K context, batch 16 셀(DRAM serving이 TPOT SLO를 못 맞추는 구성)이라 Llama-3.1 공식 context(128K)를 넘는다.
 4. **정책 상수는 근거 데이터가 없는 설계 선택이다.** LINK_SHARE 0.25, window 8 s, horizon 30 s, affinity margin 2.0. sensitivity에서 budget이 결과를 크게 바꾼다 (5.4).
 5. **미모델링:** capacity ramp(hard capacity limit 없음), HBM BW shock(offload가 건강한 HBM을 이길 수 없음), migration 간섭(단일 0.20 계수), HBF endurance, queueing/saturation(QA1이 load에 거의 비례). 개정된 **Memory Backend I/F 구조는 구현하지 않았다** (decision 로직은 기존 C1/C2, 개정 구조는 QA4에만 반영). DROP action은 이 평가에 포함하지 않았다.
 6. **임시 정의:** QA3 formula, tie 판정의 1% material 임계, "saturated" fit label(모든 후보 CI 이내 동일).
 7. **QA2 집계가 worst-case**라 Baseline 자체가 SLO를 못 맞추는 시나리오가 있는 set에서는 모든 후보가 ★로 나온다 (Stress set).
-8. **세대별 profile의 규격은 일부 ASSUMED**: A100/H100 HBM·연산 값은 PUBLIC(확인 필요), PCIe 세대별 link 스케일은 x0.5/x1/x2 가정, SYS-A100의 CXL-PNM은 CXL이 없는 host에 PCIe 4.0급 link로 붙인 가상 구성이다. 신규 memory(CXL-PNM, HBF, SSD-PIM, Custom HBM)는 과거 세대가 없어 link 대역으로만 세대를 표현했다.
+8. **세대별 profile의 규격은 일부 ASSUMED**: H100 HBM·연산 값은 PUBLIC(확인 필요), PCIe 세대별 link 스케일은 가정이다(제외된 SYS-A100의 CXL-PNM은 가상 구성). 신규 memory(CXL-PNM, HBF, SSD-PIM, Custom HBM)는 과거 세대가 없어 link 대역으로만 세대를 표현했다.
 9. **DP1 별점 기준(4.1)은 공통 룰(criteria rule 2: 같은 QA는 DP 간 같은 룰)과 의도적으로 다르며, 첫 결과를 본 뒤 정의했다** (`defined_after_first_look`). 공통 별점은 4.1a에 병기한다. 후보 간 ★ 차이는 QA1 ★★★ 경계(1.30)에 의존한다. 4.1b의 sensitivity에서 경계가 약 1.26~1.44일 때만 C1/C2가 갈리고 1.25 이하에서는 같으며 1.50이면 둘 다 ★★이다. 새 benchmark로 같은 경계를 재확인해야 한다. 집계는 comparison-valid 시나리오만 대상으로 하므로 feasible 전체 기준 값과 n이 다르다.
 
 10. **QA3 정의를 v3(링크 점유 차감)에서 v4(모든 메모리 풀)로 바꿨다.** 이유: HBM만 보는 것은 시스템 전체 사용률이 아니다. v4의 풀 점유는 SSD-PIM(16 TiB, 풀의 약 75%)에 지배되어 U가 1~2%대이고, 풀 점유 자체는 후보 간 같다(migration은 byte를 옮길 뿐이므로). 후보 차이는 SLO 만족 비율과 링크 점유 항에서만 나온다. 배치 품질은 tier별 u_m과 HBM 전용 값에서 보이며 두 값은 서로 반대 방향일 수 있다. cold data를 큰 tier에 두면 점유가 올라가도 이득이 없다는 점도 한계다(SLO 항만이 방어). DP1 QA3 별점 경계(상대 0.95/1.25)는 QA2와 같은 값을 유추로 가져왔으나, 이전 별점을 본 뒤의 정의 변경이라 `defined_after_first_look`이다. 결과 값은 경계 근처(예: SYS-B200 C2 x1.25)에서 별이 갈리므로 값을 같이 읽어야 한다.

@@ -116,3 +116,10 @@ cost$   = mult_tier * ( Cbar*p_in + N_turns*Cbar*p_cache + T_out*p_out ) / 1e6
 - S1 harness: As-Is 초기 배치 순서 목록에 `cxl_mem`을 추가했다(harness, LOC 미포함, 2줄).
 - S2 smoke: 해당 class를 쓰는 기존 시나리오가 없어 `dyn_cold_resident_chat_wave`의 AGENT_MEMORY를 SPARSE_EMBED로 바꾼 임시 trace를 사용. C1은 이 trace에서 migration이 0건이라 합격 기준을 "op hint가 estimator에 도달"(사전 기준 그대로)까지만 확인했다.
 - S3, S4 smoke 시나리오: `dyn_cold_resident_chat_wave` (SYS-4).
+
+
+## 변경 이력 (v2, 2026-10-03, 소유자 결정, **결과를 본 뒤 변경**)
+
+- **집계: 시나리오 최악값 -> 시나리오 평균.** sub-metric 별 = 4개 시나리오 평균값에 위 threshold 적용. 이유: 최악값이 두 후보가 module을 공유하는 한 시나리오(S4, 신규 event)로 정해져 차이가 있는 S1, S2의 신호가 별에서 사라졌다. 변경은 이전 결과(C1 ★★ / C2 ★★)를 본 뒤에 이루어졌으므로 `defined_after_first_look`이다.
+- threshold, 공식, 가정 상수, 시나리오는 변경하지 않았다. 이전 최악값 방식 결과는 `qa4_modifiability.json`의 `*_worst_case`에 보존한다.
+- 평균 집계 결과: C1 ★★★ / C2 ★★. C2의 M2 평균 0.506 MM은 경계 0.5를 0.006 넘은 값이라 상수에 민감하다(낙관 상수에서는 둘 다 ★★★, 비관 상수에서도 C1 ★★★ / C2 ★★).

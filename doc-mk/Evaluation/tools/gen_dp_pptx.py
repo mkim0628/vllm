@@ -71,7 +71,7 @@ def qa_slide():
     B, C1, C2 = g.B, g.C1, g.C2
     SY = g.SYSIDS
     m = g.QA4["mean_over_scenarios"]
-    s = Slide("DP1 평가 결과 - QA별 후보 비교 (메모리 세대별 4개 시스템, Common + Stress + Dynamic)")
+    s = Slide(f"DP1 평가 결과 - QA별 후보 비교 (메모리 세대별 {len(SY)}개 시스템: {', '.join(x[4:] for x in SY)}, Common + Stress + Dynamic)")
     cw = 10.2 / len(g.SYSIDS)
     cols = [("QA", 0.4, 1.9)] + [(sid, 2.3 + k * cw, cw) for k, sid in enumerate(SY)]
     y = 1.2
@@ -111,15 +111,15 @@ def qa_slide():
         f"- C2 우세 칸: {', '.join(cells[1]) or '없음'}",
         f"- C1 우세 칸: {', '.join(cells[0]) or '없음'}",
         f"- C2 비용({g.PRIMARY}): migration {Q[C2]['migration_gib']:,.0f} GiB (C1 {Q[C1]['migration_gib']:,.0f}), 링크 점유 {Q[C2]['migration_link_frac']*100:.1f}% (C1 {Q[C1]['migration_link_frac']*100:.1f}%)",
-        "- QA4는 두 후보 같은 별(추정), 값은 C1이 작음"], "note", 9.5)
+        "- QA4 [B+C]: 평균 집계로 C1 ★★★, C2 ★★ (C2의 공수가 경계 0.5 MM를 0.006 넘음)"], "note", 9.5)
     s.box(6.7, y, 6.2, 1.6, [
         f"선택: {nm[sel['winner']]}",
-        f"- 시스템별: 별 합계 차이 2 이상이면 합계, 아니면 QA 우선순위({' > '.join(g.PRIO['priority'])}).",
-        f"- 시스템별 승수 C1 {sel['wins'][C1]} 대 C2 {sel['wins'][C2]}. 우선순위를 뒤집으면 {nm[sel['reversed_winner']]}.",
+        f"- 규칙: 별 합계가 높은 후보. 합계가 같을 때만 QA 우선순위({' > '.join(g.PRIO['priority'])}).",
+        f"- 시스템별 별 합계 합: C1 {sel['totals'][C1]}, C2 {sel['totals'][C2]} -> {nm[sel['winner']]}.",
         f"- 우선순위 상태: {g.PRIO['status'].split(' - ')[0]}"], "sel", 9.5)
     y += 1.7
     s.box(0.4, y, 12.5, 0.55, [
-        "한계: [B] simulation(config 기반, [A] 실측 아님). A100/H100 규격·link 스케일 ASSUMED. QA3는 SSD-PIM이 풀의 약 75%라 U가 1~2%대(상대값으로 판정). QA4 공수·비용은 가정 상수 추정. 별 경계는 결과를 본 뒤 정한 값 포함."], "warn", 8.5)
+        "한계: [B] simulation(config 기반, [A] 실측 아님). H100 규격·link 스케일 ASSUMED. QA3는 SSD-PIM이 풀의 약 75%라 U가 1~2%대(상대값으로 판정). QA4 공수·비용은 가정 상수 추정. 별 경계는 결과를 본 뒤 정한 값 포함."], "warn", 8.5)
     return s
 
 

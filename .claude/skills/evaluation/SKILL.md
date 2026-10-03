@@ -9,7 +9,7 @@ description: "Use whenever evaluating, benchmarking, simulating or scoring a Des
 
 ## Quick start
 1. `doc-mk/Evaluation/README.md`와 아래 [사전 체크리스트](#3-평가-전-체크리스트)의 문서를 읽는다.
-2. 후보와 DP, 평가할 세대별 SYS 집합(`system-specs.md`, 기본 SYS-A100/H100/B200/VR)을 정하고 Baseline(T_ref)을 확인한다.
+2. 후보와 DP, 평가할 세대별 SYS 집합(`system-specs.md`, DP1 기본 SYS-H100/B200)을 정하고 Baseline(T_ref)을 확인한다.
 3. simulator/test suite가 통과하는지 먼저 확인한다 (`DP1/sim/test_sim.py`).
 4. Common Benchmark + DP 전용 benchmark **둘 다** `qa_eval.py`로 실행한다 (seed >= 5, load sweep).
 5. raw 출력을 `DPn/results/data/`에 저장한다. 숫자는 손으로 쓰지 않고 코드 출력에서 옮긴다.
@@ -30,15 +30,15 @@ description: "Use whenever evaluating, benchmarking, simulating or scoring a Des
 - H10. 시스템 profile 값을 조용히 수정하지 않는다. 새 profile을 추가하고 provenance를 적는다.
 - H11. 공통 룰 문서는 바꾸지 않는다. 공통 별점이 후보를 구분하지 못하면 `DPn/qa-criteria-dpn.md`에 세부 tier·집계·직접 비교를 두는 것까지는 자유지만, **DP 전용 별점을 공식으로 쓰는 것은 사용자가 결정했을 때만** 허용한다(criteria rule 2의 의도적 예외). 이 경우 (a) 공통 별점을 항상 병기, (b) 경계 값 sensitivity 표 필수, (c) 결과를 본 뒤 정의했으면 `defined_after_first_look`로 공개, (d) 한계·결론에 '별점 차이가 경계 선택에 의존함'을 명시한다. 별점이 같아도 값은 항상 병기한다.
 - H12. **결과 문서는 §0 최종 요약으로 시작한다**(발표용 1장 분량). 순서: (0.1) QA1~QA4 x 후보 표 — 칸마다 별점 + 핵심 수치 1개 + Evidence 라벨, (0.2) trade-off 2~3줄, (0.3) 선택과 근거, (0.4) 선택 구조의 부족한 부분과 보완 설계, (0.5) 대표 benchmark 3~5개. 전체 시나리오는 4장에 두고 본문에서 나열하지 않는다. 0장은 생성기(`tools/gen_dp<n>_result.py`)가 데이터에서 만든다.
-- H13. **선택 로직(필수 명시).** DP별 QA 우선순위를 `DPn/qa_priority.json`에 둔다(사용자 확정 전에는 status를 "proposal"로 표시하고 결과에도 그대로 쓴다). 규칙(`tools/dp_selection.py`): 별 합계 차이 2 이상이면 합계, 1 이하(동점 포함)이면 우선순위 위에서부터 처음으로 별이 갈리는 QA가 결정. 우선순위를 뒤집었을 때의 결과(결정 민감도)와, 별점 경계가 결과를 좌우하는 곳(경계 근처 값)을 함께 적는다. 점수가 아니라 선택 근거를 문장으로 쓴다.
+- H13. **선택 로직(필수 명시).** DP별 QA 우선순위를 `DPn/qa_priority.json`에 둔다(사용자 확정 전에는 status를 "proposal"로 표시하고 결과에도 그대로 쓴다). 규칙(`tools/dp_selection.py`, 소유자 결정): **별 합계가 높은 후보**가 선택되고, **합계가 같을 때만** 우선순위 위에서부터 처음으로 별이 갈리는 QA가 결정한다. 여러 시스템이면 시스템별 별 합계를 더해 같은 규칙을 쓴다. 우선순위를 뒤집었을 때의 결과(결정 민감도)와, 별점 경계가 결과를 좌우하는 곳(경계 근처 값)을 함께 적는다. 점수가 아니라 선택 근거를 문장으로 쓴다.
 - H14. **보완 설계.** 선택한 후보의 약점(QA별 별점·비용·리스크 근거 수치 포함)마다 보완 택틱을 표로 제안하고 각 택틱의 검증 상태([B] 구현·측정됨 / [C] 논증·미구현)를 적는다. 미구현 택틱의 효과를 수치로 주장하지 않는다. 택틱 제안은 별도 PPT 1장으로 낸다.
 - H15. **PPT 산출물.** (a) DP별 QA 결과 appendix 슬라이드: 기본 1장(QA 표 + trade-off + 선택 + 한계 한 줄), QA 행이 6개를 넘거나 내용이 넘치면 2장. (b) 보완 설계 택틱 슬라이드 1장. `tools/gen_dp_pptx.py`로 데이터에서 생성하고 `doc-mk/DPn/`에 둔다. 슬라이드의 숫자는 결과 문서와 같은 소스를 쓴다.
 - H16. **수치를 원하는 결론에 맞춰 조정하지 않는다.** 사용자가 "조금 조작해도 된다"고 해도 따르지 않는다. 결과가 마음에 안 들 때 허용되는 것은 (i) 평가 정의의 누락·오류 수정(예: 비용 항목 추가, 사유와 이전 정의를 문서에 기록), (ii) 공개된 가정의 변경과 그 민감도 보고, (iii) 시나리오 추가(실패한 것도 유지)뿐이다. 비용 항목을 넣었는데도 후보가 지배(dominate)하면 그것이 결론이다 — trade-off는 QA4·비용 쪽에 있다고 쓴다. 정의를 바꾸면 이전 값과 바뀐 별점을 결과 문서 한계에 적는다.
 - H17. **모델 오차 sweep.** 후보가 estimator/predictor에 의존하면 오차 e(lognormal sigma) 0/0.2/0.4/0.6 sweep을 보고한다(`DP1/sim/epsilon_sweep.py`, 정책 상수 재조정 금지). break-even이 없으면 "이 오차 모델에서는 없음"으로, 오차 모델이 한 종류뿐임을 한계에 적는다.
 - H18. **Benchmark 문서 구조.** Common Benchmark의 시나리오(CB-n)는 `doc-mk/Evaluation/common-benchmark.md`에 정의한다(workload 수준: ID, 한 줄 설명, 노브). DP 전용 시나리오는 `DPn/benchmark.md`에만 둔다. 모든 benchmark 문서는 **시나리오당 한 줄**(이름 | 무엇인가 60자 이내 | 드러내는 As-Is 약점 | 핵심 파라미터 짧게)이며 상세 config는 코드/생성 데이터를 가리킨다. 시나리오 한 줄 설명은 `Scenario.brief`, 결과 문서 §3도 이를 쓴다.
-- H19. **시스템은 메모리 세대 축으로 평가한다.** 6종 메모리가 모두 있는 profile을 세대별로 둔다(SYS-A100: HBM2e/PCIe4, SYS-H100: HBM3/PCIe5, SYS-B200: HBM3e/PCIe5, SYS-VR: HBM4/PCIe6; 정의는 `system-specs.md`). 한 시스템만의 결과를 주 결과로 쓰지 않는다: 결과 문서 §0은 **세대별 매트릭스**(QA x 시스템)로, 선택도 시스템별로 낸 뒤 전체(다수결, 동률이면 QA 우선순위의 별 합계)로 낸다. 구 SYS-1~5는 legacy(메모리 부분집합 ablation). 규격은 SPEC/PUBLIC/ASSUMED를 필드별로 표기하고, 확인하지 못한 값은 ASSUMED로 둔다. 신규 memory는 과거 세대가 없으므로 link 세대 스케일로만 표현하고 그 가정을 적는다.
+- H19. **시스템은 메모리 세대 축으로 평가한다.** 6종 메모리가 모두 있는 profile을 세대별로 둔다(정의 SYS-A100: HBM2e/PCIe4, SYS-H100: HBM3/PCIe5, SYS-B200: HBM3e/PCIe5, SYS-VR: HBM4/PCIe6; `system-specs.md`). 한 시스템만의 결과를 주 결과로 쓰지 않는다: 결과 문서 §0은 **세대별 매트릭스**(QA x 시스템)로, 선택은 시스템별로 낸 뒤 전체(시스템별 별 합계의 합, 같을 때만 QA 우선순위)로 낸다. DP1의 평가 시스템은 **SYS-H100, SYS-B200**이다(SYS-A100, SYS-VR은 소유자 결정으로 제외, profile은 유지). 구 SYS-1~5는 legacy(메모리 부분집합 ablation). 규격은 SPEC/PUBLIC/ASSUMED를 필드별로 표기하고, 확인하지 못한 값은 ASSUMED로 둔다. 신규 memory는 과거 세대가 없으므로 link 세대 스케일로만 표현하고 그 가정을 적는다.
 - H20. **QA3는 시스템의 모든 메모리를 본다(v4).** `U = (sum_m 평균 점유 / sum_m 용량) x SLO 만족 비율 x (1 - migration 링크 점유율)`. HBM 전용 값과 tier별 u_m은 diagnostic으로 병기한다. 풀 점유가 큰 cold tier에 지배될 수 있음을 한계에 적고 QA1/QA2와 함께 읽는다. DP1 별점은 Baseline 대비 상대값(QA2 개선 배수와 같은 경계).
-- H21. **QA4는 세 sub-metric이다.** (M1) 변경 module 수, (M2) 개발 공수(man-month), (M3) 코드 에이전트 토큰 **비용(금액)** — 모델 tier에 따라 토큰 수와 금액의 순위가 달라질 수 있으므로 금액으로 비교한다. 변경 시나리오(신규 memory / data type / policy / event)를 실제로 구현해 module/LOC를 측정하고, 공수·비용은 가정 상수로 계산하되 **측정 전에 사전 등록**(`DPn/qa4-preregistration.md`: 시나리오, 공식, 별 경계, 집계 규칙)한다. QA4 별 = 세 sub-star의 중앙값, 세 값을 모두 보인다. 가정 상수 민감도(낙관/비관)와 구조 대안을 함께 보고한다. 증거는 [B+C]이며 실제 에이전트 세션 측정이 아님을 한계에 적는다.
+- H21. **QA4는 세 sub-metric이다.** (M1) 변경 module 수, (M2) 개발 공수(man-month), (M3) 코드 에이전트 토큰 **비용(금액)** — 모델 tier에 따라 토큰 수와 금액의 순위가 달라질 수 있으므로 금액으로 비교한다. 변경 시나리오(신규 memory / data type / policy / event)를 실제로 구현해 module/LOC를 측정하고, 공수·비용은 가정 상수로 계산하되 **측정 전에 사전 등록**(`DPn/qa4-preregistration.md`: 시나리오, 공식, 별 경계, 집계 규칙)한다. QA4 별 = 세 sub-star의 중앙값, 세 값을 모두 보인다. sub-star는 **시나리오 평균값**에 기준을 적용한다(최악값 집계는 공유 module 시나리오 하나가 결과를 정해 신호를 가리므로 쓰지 않는다. 소유자 결정, 결과를 본 뒤 변경이라 `defined_after_first_look`). 가정 상수 민감도(낙관/비관)와 구조 대안을 함께 보고한다. 증거는 [B+C]이며 실제 에이전트 세션 측정이 아님을 한계에 적는다.
 
 ## 1. 폴더 구조 (single source of truth)
 ```

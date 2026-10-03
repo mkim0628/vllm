@@ -74,19 +74,26 @@ def cand_metrics(changes, k):
     return out
 
 
-def star_set(per_sc, k):
-    """per_sc: {scenario: {cand: changes}} -> sub-stars (worst over scenarios) for each candidate."""
+def star_set(per_sc, k, agg="mean"):
+    """per_sc: {scenario: {cand: changes}} -> sub-stars for each candidate.
+    agg="mean": star of the mean metric over scenarios (v2, owner decision 2026-10-03, defined after first look).
+    agg="worst": worst per-scenario star (v1, pre-registered; kept for transparency)."""
     res = {}
     for cand in ("C1", "C2"):
-        m1, m2, m3 = [], [], []
+        n_l, mm_l, usd_l = [], [], []
         for sc, d in per_sc.items():
             ch = d[cand]["changes"]
             n = len(ch)
-            m1.append(stars_le(n, *M1_T))
-            m2.append(stars_le(man_month(n, sum(c["loc_added"] for c in ch), k)[0], *M2_T))
-            m3.append(stars_le(agent(n, sum(c["loc_added"] for c in ch), sum(c["module_size_loc"] for c in ch),
-                                     k, STAR_TIER)[1], *M3_T))
-        sub = {"M1": min(m1), "M2": min(m2), "M3": min(m3)}
+            loc = sum(c["loc_added"] for c in ch)
+            n_l.append(n)
+            mm_l.append(man_month(n, loc, k)[0])
+            usd_l.append(agent(n, loc, sum(c["module_size_loc"] for c in ch), k, STAR_TIER)[1])
+        if agg == "mean":
+            sub = {"M1": stars_le(statistics.mean(n_l), *M1_T), "M2": stars_le(statistics.mean(mm_l), *M2_T),
+                   "M3": stars_le(statistics.mean(usd_l), *M3_T)}
+        else:
+            sub = {"M1": min(stars_le(x, *M1_T) for x in n_l), "M2": min(stars_le(x, *M2_T) for x in mm_l),
+                   "M3": min(stars_le(x, *M3_T) for x in usd_l)}
         res[cand] = {"sub": sub, "qa4": int(statistics.median(sub.values()))}
     return res
 
@@ -95,14 +102,17 @@ def s(n):
     return "★" * n
 
 
+s_ = s
+
+
 def main():
     src = json.loads((DATA / "qa4_measured_counts.json").read_text())
     scs = src["scenarios"]
-    out = {"schema": "qa4_modifiability v1", "date": src["date"], "evidence": src["evidence"],
+    out = {"schema": "qa4_modifiability v2", "date": src["date"], "evidence": src["evidence"],
            "inputs": "DP1/results/data/qa4_measured_counts.json", "constants_mid": MID, "constants_low": LOW,
            "constants_high": HIGH, "prices_assumed_2026-10-03": PRICES, "thresholds": {
                "M1_modules": "<=2 ★★★, 3-5 ★★, >=6 ★", "M2_man_months": "<=0.5 ★★★, <=1.0 ★★, else ★",
-               "M3_usd_T1": "<=3 ★★★, <=10 ★★, else ★", "qa4": "median of M1, M2, M3 stars"},
+               "M3_usd_T1": "<=3 ★★★, <=10 ★★, else ★", "qa4": "median of M1, M2, M3 stars", "aggregation": "mean metric over the 4 scenarios, then star (v2); worst-case v1 kept as *_worst_case"},
            "scenarios": {}}
     for sc, d in scs.items():
         row = {"title": d["title"]}
@@ -117,8 +127,11 @@ def main():
             row[cand] = m
         out["scenarios"][sc] = row
 
-    # aggregation (worst scenario per sub-metric, QA4 = median of sub-stars)
+    # aggregation: mean over scenarios per sub-metric (v2), QA4 = median of sub-stars; v1 worst-case kept
     base = star_set(scs, MID)
+    worst = star_set(scs, MID, agg="worst")
+    out["sub_stars_worst_case"] = {c: {k: s_(v) for k, v in worst[c]["sub"].items()} for c in worst}
+    out["qa4_stars_worst_case"] = {c: s_(worst[c]["qa4"]) for c in worst}
     out["sub_stars"] = {c: {k: s(v) for k, v in base[c]["sub"].items()} for c in base}
     out["qa4_stars"] = {c: s(base[c]["qa4"]) for c in base}
     out["mean_over_scenarios"] = {

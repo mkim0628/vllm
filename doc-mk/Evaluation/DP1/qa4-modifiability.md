@@ -17,7 +17,7 @@ status: draft
 2. 측정: 변경된 **설계 component 수**(M1), 추가 LOC, 건드린 component의 크기. 두 후보가 모두 바꿔야 하는 component는 shared로 표시하고 양쪽에 모두 센다.
 3. **M2 man-month** = (n x 3일 + LOC x 5 / 40 x 2.0) / 21. (n = module 수, LOC 5배 = sim -> 실제 통합 배율, 40 LOC/일, test+review 2배.) 모두 **ASSUMED**, 범위로 민감도 확인.
 4. **M3 agent 비용(달러)** = 읽은 context + 턴별 cache read + 작성 출력 토큰 x 가격. 토큰 = 측정한 module 크기와 LOC에 12 token/LOC 적용. 가격은 **ASSUMED 예시(2026-10-03)**: T1 frontier $15/$75 (입력/출력 per Mtok), T2 mid $3/$15. T1은 더 똑똑해 토큰을 0.6배만 쓴다고 가정(ASSUMED).
-5. 별점: 시나리오별 -> sub-metric은 **worst 시나리오**. QA4 = **세 sub-star의 중앙값**. 기준: M1 <=2 / 3~5 / >=6 module, M2 <=0.5 / <=1.0 / >1.0 MM, M3 <=$3 / <=$10 / >$10 (T1 기준).
+5. 별점(v2, 2026-10-03 소유자 결정): sub-metric은 **4개 시나리오 평균값**에 기준 적용. QA4 = **세 sub-star의 중앙값**. (v1은 worst 시나리오였고 결과를 본 뒤 변경, `defined_after_first_look`; v1 결과는 JSON의 `*_worst_case`에 보존.) 기준: M1 <=2 / 3~5 / >=6 module, M2 <=0.5 / <=1.0 / >1.0 MM, M3 <=$3 / <=$10 / >$10 (T1 기준).
 
 ## 2. 결과 (mid 상수, 시나리오당 변경 1건)
 
@@ -36,14 +36,14 @@ status: draft
 
 변경 component: S1 = Backend plug-in(shared) + C2는 Destination Tier Selector(C2)(type 선호 목록이 memory 이름을 가짐). S2 = op-class hint 표(shared) + C2는 Type-aware Registry class metadata + Destination Tier Selector(C2). S3 = Affinity Mapper(C1) 또는 Predictor(C2) + pipeline 조립부(주입점). S4 = Event schema + Event Source(shared) + pipeline event dispatch.
 
-## 3. 별점 (사전 등록 규칙)
+## 3. 별점 (v2 평균 집계)
 
-| | M1 module | M2 man-month | M3 agent 비용 | **QA4 (중앙값)** |
+| | M1 module (평균) | M2 man-month (평균) | M3 agent 비용 (평균, T1) | **QA4 (중앙값)** |
 |---|---|---|---|---|
-| C1 | ★★ (worst S4: 3) | ★★ (worst S4: 0.56 MM) | ★★★ (worst $1.75) | **★★** |
-| C2 | ★★ (worst S2, S4: 3) | ★★ (worst S1: 0.63 MM) | ★★★ (worst $1.85) | **★★** |
+| C1 | ★★★ (1.75) | ★★★ (0.38 MM) | ★★★ ($1.16) | **★★★** |
+| C2 | ★★ (2.50) | ★★ (0.51 MM) | ★★★ ($1.49) | **★★** |
 
-기존 QA4 표(C1 ★★★ / C2 ★★)는 재현되지 않았다. 두 후보 모두 ★★이다. 이유는 S4에서 Event schema와 Event Source가 **두 후보가 공유하는** 별도 module이라 둘 다 3개가 되기 때문이다 (사전 등록 정의를 따름).
+v1(시나리오 최악값 집계)에서는 두 후보 모두 ★★였다. 최악 시나리오가 S4(신규 event)로, Event schema와 Event Source가 두 후보 공유 module이라 둘 다 3개가 되어 차이가 있는 S1, S2의 신호가 사라졌기 때문이다. 이를 결과를 본 뒤 평균 집계로 바꿨다(`defined_after_first_look`). **민감도:** C2의 M2 평균 0.506 MM은 경계 0.5를 0.006 넘은 값이다. 가정 상수를 낙관으로 두면 두 후보 모두 ★★★, 비관으로 두면 C1 ★★★ / C2 ★★이다(구조 대안은 JSON `sensitivity_*`).
 
 ## 4. 해석
 

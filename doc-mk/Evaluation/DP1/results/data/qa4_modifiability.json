@@ -1,5 +1,5 @@
 {
- "schema": "qa4_modifiability v1",
+ "schema": "qa4_modifiability v2",
  "date": "2026-10-03",
  "evidence": "[B+C] proxy implementation in the DP1 simulator, not vLLM",
  "inputs": "DP1/results/data/qa4_measured_counts.json",
@@ -48,7 +48,8 @@
   "M1_modules": "<=2 ★★★, 3-5 ★★, >=6 ★",
   "M2_man_months": "<=0.5 ★★★, <=1.0 ★★, else ★",
   "M3_usd_T1": "<=3 ★★★, <=10 ★★, else ★",
-  "qa4": "median of M1, M2, M3 stars"
+  "qa4": "median of M1, M2, M3 stars",
+  "aggregation": "mean metric over the 4 scenarios, then star (v2); worst-case v1 kept as *_worst_case"
  },
  "scenarios": {
   "S1": {
@@ -345,7 +346,7 @@
    }
   }
  },
- "sub_stars": {
+ "sub_stars_worst_case": {
   "C1": {
    "M1": "★★",
    "M2": "★★",
@@ -357,8 +358,24 @@
    "M3": "★★★"
   }
  },
- "qa4_stars": {
+ "qa4_stars_worst_case": {
   "C1": "★★",
+  "C2": "★★"
+ },
+ "sub_stars": {
+  "C1": {
+   "M1": "★★★",
+   "M2": "★★★",
+   "M3": "★★★"
+  },
+  "C2": {
+   "M1": "★★",
+   "M2": "★★",
+   "M3": "★★★"
+  }
+ },
+ "qa4_stars": {
+  "C1": "★★★",
   "C2": "★★"
  },
  "mean_over_scenarios": {
@@ -383,7 +400,7 @@
   "optimistic": {
    "C1": {
     "sub": {
-     "M1": "★★",
+     "M1": "★★★",
      "M2": "★★★",
      "M3": "★★★"
     },
@@ -401,11 +418,11 @@
   "mid": {
    "C1": {
     "sub": {
-     "M1": "★★",
-     "M2": "★★",
+     "M1": "★★★",
+     "M2": "★★★",
      "M3": "★★★"
     },
-    "qa4": "★★"
+    "qa4": "★★★"
    },
    "C2": {
     "sub": {
@@ -419,17 +436,17 @@
   "pessimistic": {
    "C1": {
     "sub": {
-     "M1": "★★",
+     "M1": "★★★",
      "M2": "★",
-     "M3": "★★"
+     "M3": "★★★"
     },
-    "qa4": "★★"
+    "qa4": "★★★"
    },
    "C2": {
     "sub": {
      "M1": "★★",
      "M2": "★",
-     "M3": "★★"
+     "M3": "★★★"
     },
     "qa4": "★★"
    }
@@ -447,7 +464,7 @@
    },
    "C2": {
     "sub": {
-     "M1": "★★",
+     "M1": "★★★",
      "M2": "★★★",
      "M3": "★★★"
     },
