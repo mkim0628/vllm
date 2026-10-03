@@ -31,6 +31,51 @@ class Scenario:
     # rate_schedule = ((t0, mult), ...). When non-empty it replaces the random data_mix draw and
     # object_count (existing scenarios leave it empty and keep their exact traces).
     plan:tuple=()
+    # Short Korean one-line summary (<=60 chars) for docs/tables. Documentation only: never read by the
+    # simulator. Empty -> looked up by name in BRIEFS (below) in __post_init__.
+    brief:str=""
+
+    def __post_init__(self):
+        if not self.brief:
+            object.__setattr__(self,"brief",BRIEFS.get(self.name,""))
+
+BRIEFS={
+ # Common benchmark realization (CB-1..CB-3, doc-mk/Evaluation/common-benchmark.md)
+ "cb_kv_8k_b32":"KV만, 8K/256, batch 32, HBM 빠듯",
+ "cb_kv_8k_b32_ramp":"KV만, 8K/256, HBM 압박이 점진 증가",
+ "cb_mixed_8k_b32":"KV+LoRA+MoE+Agent/Tool 혼합, HBM 빠듯",
+ # DP1 stress benchmark
+ "kv_b1_c32k_cold_cxl":"차가운 32K KV, Custom-HBM 불가 (CXL-PNM 경로)",
+ "kv_b16_c32k":"중간 batch/context KV 기준선",
+ "kv_b16_c32k_burst_chbm":"32K KV, HBM 여유 적을 때 도착 burst",
+ "kv_hbm_relief_behavior_recovery":"HBM 압박 후 회복, hot KV 재승격",
+ "kv_b64_c128k_cold":"차가운 128K KV, batch 64 (CXL-PNM attention)",
+ "kv_b256_c128k_burst":"128K KV 대형 batch burst, 공유 링크 압박",
+ "kv_b64_c512k_long":"512K 초장문 KV, batch 64",
+ "kv_b256_c512k_stress":"512K x batch 256 최대 KV 셀",
+ "rag_1tib_b16":"1 TiB read-mostly 벡터 인덱스, 지역성 변화",
+ "rag_8tib_b64_ssd_pim":"8 TiB 벡터 DB, 동시 질의 64 (SSD-PIM)",
+ "rag_8tib_b256_ssd_pim":"8 TiB 벡터 DB, 동시 질의 256",
+ "kv_rag_b64_c128k":"KV decode + 대용량 RAG 인덱스 경합",
+ "agent_memory_long_lived":"장기 보존 Agent Memory, 드문 재사용",
+ "tool_result_bursty":"Tool 결과가 burst로 생성되어 반복 참조",
+ "lora_multi_tenant_b64":"Multi-LoRA, 인기도 skew",
+ "moe_expert_skew_b256":"MoE expert 라우팅 skew, 대형 batch",
+ "mixed_all_ai_data_b64":"6종 AI data class 공존",
+ "hbm_pressure_ramp_b64":"KV/LoRA/MoE, HBM 압박 점진 증가",
+ "hbm_bw_shock_b256":"batch 256 중 HBM 대역폭 급락",
+ "host_path_pressure_b64":"RAG/Agent/Tool + host PCIe/CPU 경합",
+ "data_mix_shift_b64":"워크로드가 KV/LoRA에서 RAG/Agent로 이동",
+ "behavior_flip_stress":"객체별 hotness 급반전 (thrashing 유발)",
+ "six_tier_capacity_stress":"용량 사다리로 6개 메모리 전부 사용",
+ # DP1 dynamic benchmark
+ "dyn_cold_resident_chat_wave":"idle Agent Memory가 HBM 선점 후 chat 폭주",
+ "dyn_idle_kv_holds_hbm":"tool 대기 중 idle KV가 HBM 점유, hot 세션 도착",
+ "dyn_kv_hotset_recency_shift":"hot 대화가 초기 세션에서 최근 세션으로 이동",
+ "dyn_kv_rotating_hotset":"사용자 그룹이 60 s 주기로 번갈아 활성",
+ "dyn_rag_shard_hotset_shift":"벡터 shard 인기도가 중간에 뒤바뀜",
+ "dyn_host_path_contention_kv":"중간에 host link 대역폭 25%로 저하",
+}
 
 SIZE_GIB={
  "KV_CACHE":(4,18),

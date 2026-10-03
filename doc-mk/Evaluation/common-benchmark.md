@@ -27,6 +27,20 @@
 
 위 값은 결과를 본 뒤 조정하지 않는다. 변경이 필요하면 새 버전의 Common Benchmark로 취급하고 이전 결과와 비교하지 않는다.
 
+## 2.1 Common scenarios (CB-1 ~ CB-3)
+
+위 고정 파라미터(Llama-3.1-70B BF16, 8K in / 256 out, batch 32, SLO)를 공유하고 **메모리 압박 양상과 데이터 종류만** 다른 공통 시나리오 집합이다. 모든 DP가 자기 구조에서 이 3개를 실현하고 같은 SLO / T_ref 규칙으로 측정한다. 공통 별점(QA1~QA3)은 이 집합에서만 산출한다.
+
+| ID | 시나리오 (DP1 코드명) | 무엇인가 | 왜 필요한가 (탐지하는 As-Is 약점) | workload knob |
+|---|---|---|---|---|
+| CB-1 | `cb_kv_8k_b32` | KV만, 정상 상태, 용량 압박 고정 | 정적 배치가 fast tier 초과분을 느린 tier로 흘릴 때의 TPOT 악화 | KV 100%, ctx 8K, out 256, batch 32, 40 objs, 압박 = tight (DP1: HBM x0.12) |
+| CB-2 | `cb_kv_8k_b32_ramp` | CB-1과 같은 KV, 압박이 시간에 따라 점진 증가 | 시간에 따라 필요한 배치가 바뀌는데 정적 배치는 따라가지 못함 | KV 100%, 8K/256, batch 32, 40 objs, 압박 = ramp (DP1: HBM x0.2, phase = capacity_ramp) |
+| CB-3 | `cb_mixed_8k_b32` | KV + LoRA + MoE + Agent/Tool 데이터 혼합, 용량 압박 고정 | data type을 구분하지 않는 관리의 한계 (QA4 근거) | KV 50 / LoRA 15 / MoE 15 / Agent 10 / Tool 10 %, 8K/256, batch 32, 48 objs, phase = bimodal, 압박 = tight (DP1: HBM x0.12) |
+
+- 위 표는 **workload 수준 정의**다. "압박"을 만드는 방법(DP1은 `hbm_capacity_mult`로 HBM 축소)은 3장에 따라 각 DP가 정하고 자기 benchmark.md에 비율을 명시한다.
+- 시나리오 ID와 코드명 대응은 DP별 realization 표(8장)에 둔다. DP1 정의 단일 소스는 `DP1/sim/scenarios.py::common_benchmark()`.
+- 시나리오 추가는 허용하되 기존 CB-n을 삭제/수정하지 않는다 (SKILL H4, H5). 아직 어떤 DP도 실현하지 않은 제안은 "proposed (not yet realized by any DP)"로 표기한다. 현재 제안 없음.
+
 # 3. 각 DP가 바꿀 수 있는 것 / 없는 것
 
 | 구분 | 항목 |
@@ -76,7 +90,7 @@ Prefix reuse는 baseline에서 제거/통제한다. 후보가 prefix reuse 계�
 | 구분 | 위치 | 목적 | 산출 |
 |---|---|---|---|
 | Common Benchmark | 이 문서 | 공통 QA rating, DP 간 calibration | QA1~QA3 별점 (T_ref 기준) |
-| DP-specific Benchmark | `DPn/benchmark.md` | 해당 DP의 trade-off / failure mode 관찰 | diagnostic metric, QA4 근거 |
+| DP-specific Benchmark | `DPn/benchmark.md` | 해당 DP의 trade-off / failure mode 관찰 (공통 시나리오는 여기 다시 정의하지 않음) | diagnostic metric, QA4 근거 |
 
 공통 별점은 Common Benchmark에서만 산출한다. DP-specific 결과는 diagnostic으로 보고하며 공통 별점 계산에 섞지 않는다 (`qa-evaluation-criteria.md` 11장 규칙 8, 9).
 
@@ -84,12 +98,12 @@ Prefix reuse는 baseline에서 제거/통제한다. 후보가 prefix reuse 계�
 
 | DP | 실현 문서 | Serving 구조 | 상태 |
 |---|---|---|---|
-| DP1 | `DP1/benchmark.md` (시나리오 `cb_*`, `scenarios.common_benchmark()`) | vLLM 중심 (simulator) | 정의됨 |
-| DP2 | `DP2/benchmark.md` | TBD | TBD |
-| DP3 | `DP3/benchmark.md` | TBD | TBD |
-| DP4 | `DP4/benchmark.md` | TBD | TBD |
+| DP1 | CB-1~3 = `cb_kv_8k_b32`, `cb_kv_8k_b32_ramp`, `cb_mixed_8k_b32` (`scenarios.common_benchmark()`). DP 전용 시나리오: `DP1/benchmark.md` | vLLM 중심 (simulator) | 실현됨 (3/3) |
+| DP2 | CB-1~3 실현 TBD. DP 전용: `DP2/benchmark.md` | TBD | TBD |
+| DP3 | CB-1~3 실현 TBD. DP 전용: `DP3/benchmark.md` | TBD | TBD |
+| DP4 | CB-1~3 실현 TBD. DP 전용: `DP4/benchmark.md` | TBD | TBD |
 
-각 DP 문서는 최소한 다음을 포함해야 한다: (1) 2장 고정 파라미터를 어떻게 구현했는지, (2) 3장의 자유 항목 선택, (3) 4장 Baseline 정의와 T_ref, (4) 사용 SYS-id, (5) sweep grid와 반복 횟수.
+각 DP 문서는 2.1장의 CB-1~3을 모두 실현해야 하며(못 하면 사유 명시), 최소한 다음을 포함해야 한다: (1) 2장 고정 파라미터를 어떻게 구현했는지, (2) 3장의 자유 항목 선택, (3) 4장 Baseline 정의와 T_ref, (4) 사용 SYS-id, (5) sweep grid와 반복 횟수.
 
 # 9. 관련 문서
 
