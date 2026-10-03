@@ -1,0 +1,468 @@
+{
+ "schema": "qa4_modifiability v1",
+ "date": "2026-10-03",
+ "evidence": "[B+C] proxy implementation in the DP1 simulator, not vLLM",
+ "inputs": "DP1/results/data/qa4_measured_counts.json",
+ "constants_mid": {
+  "c_mod": 3.0,
+  "k_real": 5.0,
+  "P": 40.0,
+  "f_ovh": 2.0,
+  "tpl": 12.0,
+  "C0": 25000.0,
+  "a_read": 1.5,
+  "n0": 10.0,
+  "n_m": 5.0,
+  "n_iter": 2.0,
+  "o_turn": 300.0
+ },
+ "constants_low": {
+  "c_mod": 2.0,
+  "k_real": 3.0,
+  "P": 80.0,
+  "f_ovh": 1.5,
+  "tpl": 8.0
+ },
+ "constants_high": {
+  "c_mod": 5.0,
+  "k_real": 10.0,
+  "P": 25.0,
+  "f_ovh": 3.0,
+  "tpl": 16.0
+ },
+ "prices_assumed_2026-10-03": {
+  "T1_frontier": {
+   "p_in": 15.0,
+   "p_cache": 1.5,
+   "p_out": 75.0,
+   "mult": 0.6
+  },
+  "T2_mid": {
+   "p_in": 3.0,
+   "p_cache": 0.3,
+   "p_out": 15.0,
+   "mult": 1.0
+  }
+ },
+ "thresholds": {
+  "M1_modules": "<=2 ★★★, 3-5 ★★, >=6 ★",
+  "M2_man_months": "<=0.5 ★★★, <=1.0 ★★, else ★",
+  "M3_usd_T1": "<=3 ★★★, <=10 ★★, else ★",
+  "qa4": "median of M1, M2, M3 stars"
+ },
+ "scenarios": {
+  "S1": {
+   "title": "new memory (cxl_mem, CXL.mem DRAM expander)",
+   "C1": {
+    "modules": 1,
+    "shared_modules": 1,
+    "files": [
+     "configs/memories_default.json",
+     "configs/systems.json"
+    ],
+    "loc_added": 23,
+    "module_size_loc": 35,
+    "engineer_days": 8.75,
+    "man_months": 0.417,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 274596,
+      "usd": 0.96
+     },
+     "T2_mid": {
+      "tokens": 457660,
+      "usd": 0.32
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.157,
+     1.552
+    ],
+    "usd_T1_range": [
+     0.84,
+     1.29
+    ]
+   },
+   "C2": {
+    "modules": 2,
+    "shared_modules": 1,
+    "files": [
+     "configs/memories_default.json",
+     "configs/systems.json",
+     "policies.py"
+    ],
+    "loc_added": 29,
+    "module_size_loc": 106,
+    "engineer_days": 13.25,
+    "man_months": 0.631,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 440892,
+      "usd": 1.36
+     },
+     "T2_mid": {
+      "tokens": 734820,
+      "usd": 0.45
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.268,
+     2.133
+    ],
+    "usd_T1_range": [
+     1.11,
+     2.05
+    ]
+   }
+  },
+  "S2": {
+   "title": "new AI data class (SPARSE_EMBED, op class weight_fetch)",
+   "C1": {
+    "modules": 1,
+    "shared_modules": 1,
+    "files": [
+     "simulator.py"
+    ],
+    "loc_added": 1,
+    "module_size_loc": 44,
+    "engineer_days": 3.25,
+    "man_months": 0.155,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 280788,
+      "usd": 0.86
+     },
+     "T2_mid": {
+      "tokens": 467980,
+      "usd": 0.29
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.098,
+     0.295
+    ],
+    "usd_T1_range": [
+     0.8,
+     1.02
+    ]
+   },
+   "C2": {
+    "modules": 3,
+    "shared_modules": 1,
+    "files": [
+     "model.py",
+     "policies.py",
+     "simulator.py"
+    ],
+    "loc_added": 3,
+    "module_size_loc": 190,
+    "engineer_days": 9.75,
+    "man_months": 0.464,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 661476,
+      "usd": 1.68
+     },
+     "T2_mid": {
+      "tokens": 1102460,
+      "usd": 0.56
+     }
+    },
+    "stars": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.294,
+     0.886
+    ],
+    "usd_T1_range": [
+     1.35,
+     2.6
+    ]
+   }
+  },
+  "S3": {
+   "title": "policy swap (C1: Affinity Mapper latency-first; C2: Predictor observed-only)",
+   "C1": {
+    "modules": 2,
+    "shared_modules": 0,
+    "files": [
+     "policies.py"
+    ],
+    "loc_added": 8,
+    "module_size_loc": 37,
+    "engineer_days": 8.0,
+    "man_months": 0.381,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 361134,
+      "usd": 1.08
+     },
+     "T2_mid": {
+      "tokens": 601890,
+      "usd": 0.36
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.212,
+     0.933
+    ],
+    "usd_T1_range": [
+     1.0,
+     1.3
+    ]
+   },
+   "C2": {
+    "modules": 2,
+    "shared_modules": 0,
+    "files": [
+     "policies.py"
+    ],
+    "loc_added": 7,
+    "module_size_loc": 27,
+    "engineer_days": 7.75,
+    "man_months": 0.369,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 349722,
+      "usd": 1.05
+     },
+     "T2_mid": {
+      "tokens": 582870,
+      "usd": 0.35
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.209,
+     0.876
+    ],
+    "usd_T1_range": [
+     0.99,
+     1.22
+    ]
+   }
+  },
+  "S4": {
+   "title": "new event type (SLO_ALERT)",
+   "C1": {
+    "modules": 3,
+    "shared_modules": 2,
+    "files": [
+     "events.py",
+     "policies.py",
+     "simulator.py"
+    ],
+    "loc_added": 11,
+    "module_size_loc": 201,
+    "engineer_days": 11.75,
+    "man_months": 0.56,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 677496,
+      "usd": 1.75
+     },
+     "T2_mid": {
+      "tokens": 1129160,
+      "usd": 0.58
+     }
+    },
+    "stars": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.315,
+     1.343
+    ],
+    "usd_T1_range": [
+     1.38,
+     2.8
+    ]
+   },
+   "C2": {
+    "modules": 3,
+    "shared_modules": 2,
+    "files": [
+     "events.py",
+     "policies.py",
+     "simulator.py"
+    ],
+    "loc_added": 11,
+    "module_size_loc": 235,
+    "engineer_days": 11.75,
+    "man_months": 0.56,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 725232,
+      "usd": 1.85
+     },
+     "T2_mid": {
+      "tokens": 1208720,
+      "usd": 0.62
+     }
+    },
+    "stars": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.315,
+     1.343
+    ],
+    "usd_T1_range": [
+     1.42,
+     3.06
+    ]
+   }
+  }
+ },
+ "sub_stars": {
+  "C1": {
+   "M1": "★★",
+   "M2": "★★",
+   "M3": "★★★"
+  },
+  "C2": {
+   "M1": "★★",
+   "M2": "★★",
+   "M3": "★★★"
+  }
+ },
+ "qa4_stars": {
+  "C1": "★★",
+  "C2": "★★"
+ },
+ "mean_over_scenarios": {
+  "C1": {
+   "modules": 1.75,
+   "man_months": 0.378,
+   "usd_T1": 1.16,
+   "usd_T2": 0.39,
+   "tokens_T1": 398504,
+   "tokens_T2": 664172
+  },
+  "C2": {
+   "modules": 2.5,
+   "man_months": 0.506,
+   "usd_T1": 1.49,
+   "usd_T2": 0.49,
+   "tokens_T1": 544330,
+   "tokens_T2": 907218
+  }
+ },
+ "sensitivity_constants": {
+  "optimistic": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "mid": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "pessimistic": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★",
+     "M3": "★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★",
+     "M3": "★★"
+    },
+    "qa4": "★★"
+   }
+  }
+ },
+ "sensitivity_structure_alternatives": {
+  "capclass_pref_and_event_schema_merged": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  }
+ },
+ "T1_break_even_token_multiplier": {
+  "S1_C1": 0.2,
+  "S1_C2": 0.199,
+  "S2_C1": 0.202,
+  "S2_C2": 0.2,
+  "S3_C1": 0.2,
+  "S3_C2": 0.2,
+  "S4_C1": 0.199,
+  "S4_C2": 0.201
+ }
+}
