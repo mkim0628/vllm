@@ -1,8 +1,8 @@
-"""Run the full benchmark (all three sets) on SYS-1..SYS-5 for one Baseline-regression loop iteration and
+"""Run the full benchmark (all three sets) on the generation profiles (SYS-A100/H100/B200/VR; legacy SYS-1..5 via --systems) for one Baseline-regression loop iteration and
 store compact summaries under results/iterations/it<N>/ .
 
-    python loop_run.py --iter 0                 # all five systems
-    python loop_run.py --iter 1 --systems SYS-4 # one system only (diagnostic reruns)
+    python loop_run.py --iter 0                 # four generation profiles
+    python loop_run.py --iter 1 --systems SYS-B200 # one system only (diagnostic reruns)
     python loop_run.py --final                  # full qa_result.json (incl. per-seed vectors) -> results/data/<SYS>/
 
 The summary keeps, per set: QA table (feasible scenarios), per-scenario fit/verdicts and win/tie/loss tally,
@@ -20,7 +20,7 @@ from qa_eval import BASE, CANDS, evaluate, print_result
 
 HERE = Path(__file__).resolve().parent
 RES = HERE.parent / "results"
-SYSTEMS = ("SYS-4", "SYS-1", "SYS-2", "SYS-3", "SYS-5")
+SYSTEMS = ("SYS-B200", "SYS-A100", "SYS-H100", "SYS-VR")  # generation profiles; legacy SYS-1..5 via --systems
 
 
 def compact(result):

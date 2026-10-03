@@ -1,6 +1,6 @@
 """Model-error (epsilon) sweep, reporting only: how much of C2's advantage survives estimator/predictor error.
 
-    python epsilon_sweep.py [--system SYS-4]
+    python epsilon_sweep.py [--system SYS-B200]
 
 eps = lognormal sigma on access-cost estimates (both candidates) and on C2's predicted hotness (C2 only).
 No policy constant is re-tuned. Output: results/data/epsilon_<SYS>.json + markdown table.
@@ -21,7 +21,7 @@ EPS = (0.0, 0.2, 0.4, 0.6)
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--system", default="SYS-4")
+    ap.add_argument("--system", default="SYS-B200")
     ap.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1))
     a = ap.parse_args()
     load_profile(HERE / "configs", a.system)

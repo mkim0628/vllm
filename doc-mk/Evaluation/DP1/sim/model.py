@@ -142,7 +142,14 @@ class SystemSpec:
         gpu_compute=flops/(self.gpu_compute_flops*self.gpu_compute_eff)
         return data_path+gpu_compute+m.latency_s
 
-def load_system(config_dir:Path,cluster_name="b200_8gpu",model_name="llama_3_1_70b",memory_names=None):
+LINK_BOUND_MEMORIES=("custom_hbm","cxl_pnm","dram","ssd_pim")
+
+def load_system(config_dir:Path,cluster_name="b200_8gpu",model_name="llama_3_1_70b",memory_names=None,
+                link_scale=1.0,mem_overrides=None):
+    """link_scale / mem_overrides: generation-profile hooks (systems.json 'link' / 'overrides').
+    link_scale multiplies ext BW of host-link-bound tiers (LINK_BOUND_MEMORIES); 1.0 and None leave every value
+    exactly as in memories_default.json (legacy SYS-1..5 unchanged)."""
+    mem_overrides=mem_overrides or {}
     mr=json.loads((config_dir/"memories_default.json").read_text())
     cr=json.loads((config_dir/"clusters.json").read_text())
     mod=json.loads((config_dir/"models.json").read_text())
@@ -171,13 +178,23 @@ def load_system(config_dir:Path,cluster_name="b200_8gpu",model_name="llama_3_1_7
             internal=float(gpu["hbm_bw_bytes_per_s"])*2
             comp=float(gpu["dense_fp16_flops"])*0.20
             tdp=float(gpu["tdp_watts"])/3.0
+        if m["name"] in LINK_BOUND_MEMORIES and link_scale!=1.0:
+            ext=ext*link_scale
+        ov=mem_overrides.get(m["name"],{})
+        if "capacity_bytes" in ov: cap=float(ov["capacity_bytes"])
+        if "ext_bw_bytes_per_s" in ov: ext=float(ov["ext_bw_bytes_per_s"])
+        if "int_bw_bytes_per_s" in ov: internal=float(ov["int_bw_bytes_per_s"])
+        lat_s=float(ov.get("latency_s",m["latency_s"]))
+        wbw=m.get("write_bw_bytes_per_s")
+        # legacy: write BW fell back to the JSON ext BW (not the cluster-overridden one); keep that, link-scaled.
+        wbw=float(wbw) if wbw else float(m["ext_bw_bytes_per_s"])*(link_scale if m["name"] in LINK_BOUND_MEMORIES else 1.0)
+        if "ext_bw_bytes_per_s" in ov and not m.get("write_bw_bytes_per_s"): wbw=ext
         mems[m["name"]]=MemorySpec(
-            m["name"],m["medium"],cap,ext,internal,float(m["latency_s"]),
+            m["name"],m["medium"],cap,ext,internal,lat_s,
             bool(m.get("gpu_reachable",False)),frozenset(m.get("supported_primitives",[])),
             comp,float(m.get("attention_bw_efficiency") or 0.7),
             float(m.get("write_amplification",1.0)),
-            float(m.get("write_bw_bytes_per_s") or m["ext_bw_bytes_per_s"]),
-            tdp)
+            wbw,tdp)
 
     mm=mod["models"][model_name]
     model=ModelSpec(
@@ -246,4 +263,6 @@ def load_profile(config_dir:Path,profile_id:str|None=None,model_name="llama_3_1_
     sp=json.loads((config_dir/"systems.json").read_text())
     pid=profile_id or sp["default"]
     prof=sp["profiles"][pid]
-    return load_system(config_dir,prof["cluster"],model_name,memory_names=set(prof["memories"])),pid,prof
+    link=prof.get("link") or {}
+    return load_system(config_dir,prof["cluster"],model_name,memory_names=set(prof["memories"]),
+                       link_scale=float(link.get("ext_bw_scale",1.0)),mem_overrides=prof.get("overrides")),pid,prof

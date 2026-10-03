@@ -1,183 +1,204 @@
 # System Specification (Evaluation System Profiles)
 
-> 적용 범위: **DP1 ~ DP4 공통**
->
-> 목적: 평가에 사용하는 하드웨어/메모리 구성을 **SYS-id**로 고정하고, 모든 평가 결과가 어떤 시스템에서 나온 것인지 추적 가능하게 한다.
->
-> 단일 소스: `DP1/sim/configs/{systems,clusters,memories_default,models}.json`. 이 문서의 표는 `tools/gen_system_specs.py`가 JSON에서 생성한다 (수동 편집 금지).
+> 적용 범위: **DP1 ~ DP4 공통**. 목적: 평가 시스템을 **SYS-id**로 고정해 모든 결과가 어떤 시스템에서 나왔는지 추적한다.
+> 단일 소스: `DP1/sim/configs/{systems,clusters,memories_default,models}.json`. 표는 `tools/gen_system_specs.py`가 JSON에서 생성한다 (수동 편집 금지).
+
+## 0. Primary 시스템 비교 (세대 profile)
+
+<!-- BEGIN GENERATED SUMMARY -->
+> 4개 generation profile. **6종 메모리(HBM, Custom HBM, CXL-PNM, DRAM, HBF, SSD-PIM)는 모든 profile에 항상 존재**하고 세대(GPU/HBM, host link, DRAM, SSD)만 다르다. 값의 provenance는 아래 G.3 / G.4 및 3장. 이 블록은 `tools/gen_system_specs.py`가 생성한다.
+
+| Item | **SYS-A100** | **SYS-H100** | **SYS-B200** | **SYS-VR** |
+|---|---|---|---|---|
+| GPU class (x GPUs/domain) | a100 x8 | h100 x8 | b200 x8 | vera_rubin x8 |
+| HBM generation | HBM2e | HBM3 | HBM3e | HBM4 |
+| HBM / GPU: cap, BW | 80 GiB, 2.04 TB/s | 80 GiB, 3.35 TB/s | 192 GiB, 8 TB/s | 358 GiB, 28 TB/s |
+| HBM domain total BW | 16.3 TB/s | 26.8 TB/s | 64 TB/s | 224 TB/s |
+| FP16 dense / GPU | 312 TFLOPS | 989 TFLOPS | 2250 TFLOPS | 8325 TFLOPS |
+| Host link / CXL | PCIe 4.0 / n/a on platform | PCIe 5.0 / CXL 2.0 | PCIe 5.0 / CXL 2.0 | PCIe 6.0 / CXL 3.x |
+| Link BW (x16, per dir) | 31.5 GB/s | 63 GB/s | 63 GB/s | 126 GB/s |
+| Custom HBM: cap / int BW / ext BW | 160 GiB / 4.08 TB/s / 31.5 GB/s | 160 GiB / 6.7 TB/s / 63 GB/s | 384 GiB / 16 TB/s / 63 GB/s | 715 GiB / 56 TB/s / 126 GB/s |
+| CXL-PNM: int / ext BW | 400 GB/s / 31.5 GB/s | 400 GB/s / 63 GB/s | 400 GB/s / 63 GB/s | 400 GB/s / 126 GB/s |
+| DRAM gen: int / ext BW | DDR4-3200 : 200 GB/s / 32 GB/s | DDR5-4800 : 300 GB/s / 64 GB/s | DDR5-6400 : 400 GB/s / 64 GB/s | DDR5-6400 : 400 GB/s / 128 GB/s |
+| HBF: read BW (link-independent) | 1 TB/s | 1 TB/s | 1 TB/s | 1 TB/s |
+| SSD gen / SSD-PIM ext BW | NVMe PCIe 4.0 x4 : 8 GB/s | NVMe PCIe 5.0 x4 : 16 GB/s | NVMe PCIe 5.0 x4 : 16 GB/s | NVMe PCIe 6.0 x4 : 32 GB/s |
+<!-- END GENERATED SUMMARY -->
+
+시스템 축은 **메모리 세대**다. 6종 메모리는 모든 profile에 항상 존재하고, profile은 GPU/HBM 세대, host link(PCIe/CXL 세대), DRAM 세대, SSD 세대로 구분한다. 결과는 4개 profile 모두에서 보고한다 (SYS-4 하나만 보고하지 않는다).
 
 ---
 
 # 1. 규칙
 
-1. **모든 평가 결과는 SYS id, model, config 파일 git revision을 반드시 인용한다.**
+1. **모든 평가 결과는 SYS id, model, config 파일 git revision을 반드시 인용한다.** 예: `SYS-B200 / llama_3_1_70b / configs@<rev>` (`git log -1 --format=%h -- doc-mk/Evaluation/DP1/sim/configs`).
+2. 이 문서의 값은 공개 자료 / vendor spec / 가정 / 사용자 제공값이며 **Evidence [B]**다. 이 값으로 얻은 결과는 simulation = [B] 입력 + 모델 = **[C]** (`qa-evaluation-criteria.md` 2장).
+3. provenance 태그: `SPEC`(표준/공식 spec), `PUBLIC`(공개 자료, 확인 필요), `ASSUMED`(가정, 민감도 확인 필요), `사용자 제공`. ASSUMED 항목은 `[ASSUMED]`로 표시되며 의존 결론은 sensitivity와 함께 제시한다.
+4. profile 값을 결과를 본 뒤 조정하지 않는다 (H10). 변경은 새 profile/revision이며 이전 결과와 직접 비교하지 않는다.
+5. DP1의 단위는 **scale-up 도메인 1개**다. 도메인 간 배치는 DP2 범위다.
 
-   ~~~text
-   SYS-4 / llama_3_1_70b / configs@81c1916
-   ~~~
+# 2. 프로파일 구성
 
-   revision은 `git log -1 --format=%h -- doc-mk/Evaluation/DP1/sim/configs` 로 얻는다. 생성 블록 첫 줄에도 현재 revision이 기록된다.
-2. 이 문서의 값은 공개 자료 / vendor spec / 가정 / 사용자 제공값이며 **Evidence level은 [B]**이다. 실측 [A]가 아니다. SYS 값으로 얻은 결과는 simulation이므로 [B] 입력 + 모델 = **[C]** 이다 (`qa-evaluation-criteria.md` 2장).
-3. provenance 태그: `SPEC`(표준/공식 spec), `PUBLIC`(공개 자료), `ASSUMED`(가정, 민감도 확인 필요), `사용자 제공`. **ASSUMED 항목은 아래 표에서 `[ASSUMED]`로 표시**되며, 그 값에 의존하는 결론은 sensitivity sweep을 함께 제시해야 한다.
-4. 프로파일 값을 결과를 본 뒤 조정하지 않는다. 변경은 새 revision이며 이전 결과와 직접 비교하지 않는다.
-5. DP1의 단위는 **scale-up 도메인 1개**다. 도메인 간 배치는 DP2 범위이며 여기서는 모델링하지 않는다.
+| 구분 | SYS | 내용 |
+|---|---|---|
+| **Primary (세대)** | SYS-A100 | Ampere-class: HBM2e, PCIe 4.0, DDR4, CXL 없음(가정) |
+| | SYS-H100 | Hopper-class: HBM3, PCIe 5.0 / CXL 2.0, DDR5-4800 |
+| | SYS-B200 | Blackwell-class: HBM3e, PCIe 5.0 / CXL 2.0, DDR5-6400 (= legacy SYS-4 수치 동일) |
+| | SYS-VR | Vera Rubin: HBM4, PCIe 6.0 / CXL 3.x (= legacy SYS-5 + host link x2) |
+| Legacy (memory-subset ablation) | SYS-1~3 | 메모리를 부분집합으로 줄이는 ablation (HBM+DRAM / +CXL-PNM / +HBF). 더 이상 primary 아님 |
+| | SYS-4, SYS-5 | 6종 전부, B200 / Vera Rubin, PCIe 5.0 고정. 결과 호환을 위해 유지 |
 
-# 2. 프로파일 목적
+세대 사실관계: A100 = HBM2e(80GB; 40GB는 HBM2) + PCIe 4.0, H100 SXM = HBM3 + PCIe 5.0 (HBM3e는 H200), B100/B200 = HBM3e + PCIe 5.0, Vera Rubin = HBM4 + PCIe 6.0. CXL은 PCIe 5.0 이상 PHY가 필요하다(CXL 2.0 = PCIe 5.0, CXL 3.x = PCIe 6.0).
 
-| SYS | 용도 |
-|---|---|
-| SYS-1 | As-Is class (HBM + DRAM). heterogeneity 이득의 하한 / **Common Reference Baseline 후보 시스템** |
-| SYS-2 | capacity tier + near-memory attention (CXL-PNM) 효과 분리 |
-| SYS-3 | GPU-reachable high-BW / write-limited tier (HBF) 효과 분리 |
-| SYS-4 | 전체 6종 메모리 — DP1 primary target (default) |
-| SYS-5 | 차세대 GPU (Vera Rubin, HBM4) + 동일 메모리 세트 — GPU 세대 민감도 |
+# 3. 세대 스케일링 규칙과 알려진 한계
 
-SYS-1~3은 메모리를 하나씩 추가하는 ablation, SYS-4는 전체 조합, SYS-5는 GPU 세대 변경이다.
-
-# 3. 알려진 한계 / 주의
-
-- HBM 행은 `GPU당 값 x 8`의 도메인 합산이다 (TP 가정). 나머지 메모리는 도메인당 1대다. 따라서 HBM 총 BW(64 TB/s)와 cHBM(1대, 내부 16 TB/s, 외부 63 GB/s)의 비대칭을 그대로 반영한다.
-- `custom_hbm`은 loader(`model.load_system`)가 페어링 GPU 상대 규격(용량 x2, 내부 BW x2, 연산 20%, TDP/3)으로 계산한다. B200에서는 JSON 정적값과 같고, SYS-5(Vera Rubin)에서는 약 715 GiB / 56 TB/s / 1,665 TFLOPS / 767 W가 된다. (2026-10-02 수정 전에는 SYS-5도 B200 기준 정적값을 썼으므로 그 이전 SYS-5 결과와 비교할 수 없다.)
-- Vera Rubin FP16(8,325 TFLOPS)은 FP8의 1/2 가정(ASSUMED)이며 8-GPU 노드 형태도 확인 필요다.
-- cxl_pnm FP16 = FP32 x 2 가정은 결과를 바꿀 수 있어 sweep 대상이다 (JSON `note` 참조).
+- **세대로 바뀌는 것**: GPU(HBM 세대/용량/BW, FP16, TDP) -> custom_hbm 용량/내부 BW/연산/TDP(페어링 GPU 상대 규칙), host link(PCIe) 세대 -> custom_hbm / CXL-PNM / DRAM / SSD-PIM의 **external BW 전부**(x0.5 / x1 / x2, PCIe 4/5/6), DRAM 세대(내부 BW), SSD 세대(= link 세대).
+- **신생 메모리(Custom HBM, CXL-PNM, HBF, SSD-PIM)에는 과거 세대가 없다.** 같은 device를 모든 플랫폼에 쓰고 host link 속도만 바꾼다(link-bound scaling). 이 스케일링은 **ASSUMED**다. HBF는 GPU 직결(UCIe)이라 link 스케일하지 않는다.
+- **SYS-A100의 CXL-PNM은 가정**: A100 플랫폼은 PCIe 4.0이라 CXL을 지원하지 않는다. PCIe 4.0 x16 속도 링크 뒤에 있다고 가정한 hypothetical이다.
+- PCIe 6.0 x16 = 126 GB/s는 raw 값(FLIT/FEC overhead 미차감, ASSUMED). DDR4/DDR5 내부 BW는 채널 수 x 채널 BW를 기존 관례(8ch, 400 GB/s)에 맞춰 반올림했다.
+- A100/H100 수치(HBM BW, FP16, TDP)는 PUBLIC(확인 필요)이며 **이 환경에서 원문으로 검증하지 못했다** -> 확인 전까지 ASSUMED로 취급한다.
+- SYS-VR의 host DRAM은 SYS-5와 같은 DDR5-6400으로 둔다(Vera CPU의 LPDDR5X 여부는 확인 필요). Vera Rubin FP16(8,325 TFLOPS)은 FP8의 1/2 가정(ASSUMED).
+- HBM 행은 `GPU당 값 x 8` 도메인 합산(TP 가정), 나머지 메모리는 도메인당 1대다. cHBM 외부 BW(host link 1가닥)는 도메인 전체가 공유한다.
+- cxl_pnm FP16 = FP32 x 2 가정은 결과를 바꿀 수 있어 sweep 대상이다.
 
 # 4. 생성 표
 
 <!-- BEGIN GENERATED -->
 > Generated by `doc-mk/Evaluation/tools/gen_system_specs.py` from `DP1/sim/configs/*.json` (config git revision: `81c1916`). Do not edit by hand.
 
-## G.1 Profile summary
+## G.1 Profile list
 
-| SYS id | Name | Cluster | Memories | Default |
-|---|---|---|---|---|
-| **SYS-1** | B200x8 + host DRAM (As-Is class) | b200_8gpu | hbm, dram |  |
-| **SYS-2** | B200x8 + DRAM + CXL-PNM | b200_8gpu | hbm, dram, cxl_pnm |  |
-| **SYS-3** | B200x8 + DRAM + HBF | b200_8gpu | hbm, dram, hbf |  |
-| **SYS-4** | B200x8 + all six memories | b200_8gpu | hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim | yes |
-| **SYS-5** | Vera Rubin x8 + all six memories | vera_rubin_8gpu | hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim |  |
-
-## G.2 Memory x SYS cross-reference
-
-| Memory | SYS-1 | SYS-2 | SYS-3 | SYS-4 | SYS-5 |
+| SYS id | Role | Name | Cluster | Memories | Default |
 |---|---|---|---|---|---|
-| hbm | X | X | X | X | X |
-| custom_hbm | - | - | - | X | X |
-| cxl_pnm | - | X | - | X | X |
-| dram | X | X | X | X | X |
-| hbf | - | - | X | X | X |
-| ssd_pim | - | - | - | X | X |
+| **SYS-A100** | primary (generation) | A100x8 (Ampere-class): HBM2e + PCIe4 + DDR4 + six memory kinds | a100_8gpu | hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim |  |
+| **SYS-H100** | primary (generation) | H100x8 (Hopper-class): HBM3 + PCIe5 + DDR5-4800 + six memory kinds | h100_8gpu | hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim |  |
+| **SYS-B200** | primary (generation) | B200x8 (Blackwell-class): HBM3e + PCIe5 + DDR5-6400 + six memory kinds | b200_8gpu | hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim | yes |
+| **SYS-VR** | primary (generation) | Vera Rubin x8 (Rubin-class): HBM4 + PCIe6 + DDR5-6400 + six memory kinds | vera_rubin_8gpu | hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim |  |
+| **SYS-1** | legacy (memory-subset ablation) | B200x8 + host DRAM (As-Is class) | b200_8gpu | hbm, dram |  |
+| **SYS-2** | legacy (memory-subset ablation) | B200x8 + DRAM + CXL-PNM | b200_8gpu | hbm, dram, cxl_pnm |  |
+| **SYS-3** | legacy (memory-subset ablation) | B200x8 + DRAM + HBF | b200_8gpu | hbm, dram, hbf |  |
+| **SYS-4** | legacy (memory-subset ablation) | B200x8 + all six memories | b200_8gpu | hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim |  |
+| **SYS-5** | legacy (memory-subset ablation) | Vera Rubin x8 + all six memories | vera_rubin_8gpu | hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim |  |
 
-## G.3 GPU / cluster specs
+## G.2 GPU / cluster specs
 
-| Cluster | GPU | HBM | HBM cap/GPU | HBM BW/GPU | FP16 dense/GPU | TDP/GPU | GPUs/scale-up domain | Interconnect | custom_hbm nodes/domain | Domains | Domain HBM (cap / BW) |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| b200_8gpu | b200 | HBM3e | 206 GB (192 GiB) | 8 TB/s | 2250 TFLOPS | 1000 W | 8 | nvlink5_within_node | 1 | 1 | 1649 GB / 64 TB/s |
-| vera_rubin_8gpu | vera_rubin | HBM4 | 384 GB (358 GiB) | 28 TB/s | 8325 TFLOPS | 2300 W | 8 | nvlink_within_node | 1 | 1 | 3072 GB / 224 TB/s |
+| Cluster | GPU | HBM | HBM cap/GPU | HBM BW/GPU | FP16 dense/GPU | TDP/GPU | GPUs/domain | Interconnect | cHBM nodes/domain | Domain HBM (cap / BW) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| a100_8gpu | a100 | HBM2e | 86 GB (80 GiB) | 2.04 TB/s | 312 TFLOPS | 400 W | 8 | nvlink3_within_node | 1 | 687 GB / 16.3 TB/s |
+| h100_8gpu | h100 | HBM3 | 86 GB (80 GiB) | 3.35 TB/s | 989 TFLOPS | 700 W | 8 | nvlink4_within_node | 1 | 687 GB / 26.8 TB/s |
+| b200_8gpu | b200 | HBM3e | 206 GB (192 GiB) | 8 TB/s | 2250 TFLOPS | 1000 W | 8 | nvlink5_within_node | 1 | 1649 GB / 64 TB/s |
+| vera_rubin_8gpu | vera_rubin | HBM4 | 384 GB (358 GiB) | 28 TB/s | 8325 TFLOPS | 2300 W | 8 | nvlink_within_node | 1 | 3072 GB / 224 TB/s |
 
 Provenance (clusters.json):
 
+- `a100` **[ASSUMED/확인 필요 포함]**: PUBLIC (확인 필요): A100 SXM4 80GB = HBM2e 80 GiB / 2.039 TB/s / FP16 tensor dense 312 TFLOPS / TDP 400W / PCIe 4.0. (40GB 변형은 HBM2 1.555 TB/s, 본 profile은 80GB 사용). 용량은 B200 항목과 같은 GiB 관례(80 GiB).
+- `h100` **[ASSUMED/확인 필요 포함]**: PUBLIC (확인 필요): H100 SXM5 80GB = HBM3 80 GiB / 3.35 TB/s / FP16 tensor dense ~989 TFLOPS / TDP 700W / PCIe 5.0. (HBM3e는 H200이며 H100이 아니다.)
 - `b200` **[ASSUMED/확인 필요 포함]**: PUBLIC (확인 필요): HBM3e 192GB / 8 TB/s / FP16 dense ~2.25 PFLOPS / TDP 1000W(공랭)
 - `vera_rubin` **[ASSUMED/확인 필요 포함]**: 사용자 제공: 용량 384GB, BW 28 TB/s, FP8 16,650 TFLOPS, TDP 2300W. FP16 = FP8의 1/2 = 8,325 TFLOPS (ASSUMED) HBM은 HBM4(384GB/28TB/s) — memories_default.json의 hbm4 항목과 동일.
+- `a100_8gpu`: HGX A100 8-GPU baseboard 1개 = 도메인 1개 (NVLink3/NVSwitch). 도메인 구성은 B200 클러스터와 같은 8-GPU 가정.
+- `h100_8gpu`: HGX H100 8-GPU baseboard 1개 = 도메인 1개 (NVLink4/NVSwitch).
 - `b200_8gpu`: HGX B200 8-GPU baseboard 1개 = 도메인 1개
 - `vera_rubin_8gpu`: 8-GPU 노드 형태 가정. 확인 필요
 
 Topology note: GPU -(PCIe5)- CPU -(PCIe5 x16)- cHBM. cHBM<->CPU의 PCIe5 x16 한 가닥(63.0 GB/s)을 도메인 전체가 공유한다.
 
-## G.4 Per-profile memory tables
+## G.3 Per-profile memory tables (primary: generation profiles)
 
-HBM row = domain aggregate (per-GPU value x GPUs per domain), as loaded by `model.load_system()`. Other rows are the values in `memories_default.json` (one device per domain). `write BW = ext` means no separate write BW is defined (simulator uses ext BW). All values Evidence [B].
+HBM row = domain aggregate (per-GPU x GPUs/domain), custom_hbm = paired-GPU rule, link-bound tiers (custom_hbm, cxl_pnm, dram, ssd_pim) ext BW = baseline x link scale, as computed by `model.load_profile()`. `write BW = ext`: no separate write BW (simulator uses ext BW). All values Evidence [B].
 
-### SYS-1 - B200x8 + host DRAM (As-Is class)
+### SYS-A100 - A100x8 (Ampere-class): HBM2e + PCIe4 + DDR4 + six memory kinds
 
-- Purpose: Today's vLLM-class hierarchy (HBM + CPU DRAM). Lower bound for heterogeneity benefit.
-- Cluster: `b200_8gpu` (8x b200, nvlink5_within_node, 1 custom_hbm node/domain)
+- Purpose: Previous-generation platform with all six memory kinds. Emerging memories are attached via PCIe 4.0 (hypothetical: CXL needs PCIe 5.0+).
+- Cluster `a100_8gpu` (8x a100, nvlink3_within_node); generations: gpu_hbm=HBM2e (A100 80GB), host_link=PCIe 4.0, cxl=n/a on platform (ASSUMED behind PCIe4-rate link), dram=DDR4-3200, ssd=NVMe PCIe 4.0 x4
 
-| Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Primitives | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| hbm | 1.5 TiB | 64 TB/s | 64 TB/s | 300 ns | yes | on-package | - | - | = ext | 1x | - | 0 W |
-| dram | 1 TiB | 64 GB/s | 400 GB/s | 200 ns | no | gpu->cpu:pcie | - | - | = ext | 1x | - | 50 W |
+| Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| hbm | 640 GiB | 16.3 TB/s | 16.3 TB/s | 300 ns | yes | on-package | - | = ext | 1x | - | 0 W |
+| custom_hbm | 160 GiB | 31.5 GB/s | 4.08 TB/s | 2 us | no | gpu->host:pcie5_x16 -> host->dev:pcie5_x16 | 62.4 TFLOPS | = ext | 1x | - | 133.3 W |
+| cxl_pnm | 512 GiB | 31.5 GB/s | 400 GB/s | 300 ns | no | gpu->cpu:pcie -> cpu->dev:cxl | 3.28 TFLOPS | = ext | 1x | - | 150 W |
+| dram | 1 TiB | 32 GB/s | 200 GB/s | 200 ns | no | gpu->cpu:pcie | - | = ext | 1x | - | 50 W |
+| hbf | 2 TiB | 1 TB/s | 1 TB/s | 5 us | yes | - | - | 50 GB/s | 3x | 100 PB | 100 W |
+| ssd_pim | 16 TiB | 8 GB/s | 200 GB/s | 60 us | no | gpu->cpu:pcie -> cpu->dev:nvme | 2 TFLOPS | = ext | 4x | 10 PB | 75 W |
 
-Provenance:
+Provenance (generation-specific):
 
-- `hbm` SPEC. 기본값은 HBM3e(B200) 192GiB / 8 TB/s. apply_cluster()가 클러스터의 GPU 스펙으로 용량/대역폭을 덮어쓴다. / TDP: GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다
-- `dram` SPEC: DDR5-6400 51.2 GB/s per channel; ext limited by PCIe 5.0 x16 / TDP: **[ASSUMED]** ASSUMED — 1 TiB급 메모리 확장 모듈
+- GPU/HBM `a100`: PUBLIC (확인 필요): A100 SXM4 80GB = HBM2e 80 GiB / 2.039 TB/s / FP16 tensor dense 312 TFLOPS / TDP 400W / PCIe 4.0. (40GB 변형은 HBM2 1.555 TB/s, 본 profile은 80GB 사용). 용량은 B200 항목과 같은 GiB 관례(80 GiB).
+- Link PCIe 4.0 x16 (31.5 GB/s) (scale x0.5): SPEC: PCIe 4.0 = 16 GT/s, 128b/130b, x16 ~ 31.5 GB/s per direction (half of PCIe 5.0). ext_bw_scale is relative to the PCIe 5.0 x16 baseline (63.0 GB/s) in memories_default.json; ASSUMED: applied uniformly to every host-link-bound tier (cHBM, CXL-PNM, DRAM ext, SSD-PIM ext). HBF (GPU-reachable, UCIe) is not link-scaled.
+- override `dram`: DDR4-3200 25.6 GB/s/ch x8ch = 204.8 GB/s, rounded to 200 GB/s with the same convention as the 400 GB/s DDR5 baseline (SPEC math, host config ASSUMED). Ext follows PCIe 4.0.
+- override `cxl_pnm`: A100 platform has no CXL (PCIe 4.0 host). ASSUMED hypothetical: the CXL-PNM device sits behind a PCIe 4.0 x16-rate link (x0.5). Internal BW unchanged (LPDDR5X media).
+- ASSUMED: emerging devices (custom_hbm, cxl_pnm, hbf, ssd_pim) have no past generations; the same device is used on every platform and only its host-link-bound external BW is scaled (link-bound scaling). Internal BW/compute/latency fixed (cHBM follows the paired-GPU rule).
 
-### SYS-2 - B200x8 + DRAM + CXL-PNM
+### SYS-H100 - H100x8 (Hopper-class): HBM3 + PCIe5 + DDR5-4800 + six memory kinds
 
-- Purpose: Adds a capacity tier with near-memory attention (host-staged).
-- Cluster: `b200_8gpu` (8x b200, nvlink5_within_node, 1 custom_hbm node/domain)
+- Purpose: Hopper platform: HBM3 (not HBM3e), PCIe 5.0, CXL 2.0-capable host.
+- Cluster `h100_8gpu` (8x h100, nvlink4_within_node); generations: gpu_hbm=HBM3 (H100 SXM5 80GB), host_link=PCIe 5.0, cxl=CXL 2.0 (PCIe 5.0 PHY), dram=DDR5-4800, ssd=NVMe PCIe 5.0 x4
 
-| Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Primitives | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| hbm | 1.5 TiB | 64 TB/s | 64 TB/s | 300 ns | yes | on-package | - | - | = ext | 1x | - | 0 W |
-| cxl_pnm | 512 GiB | 63 GB/s | 400 GB/s | 300 ns | no | gpu->cpu:pcie -> cpu->dev:cxl | QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK | 3.28 TFLOPS | = ext | 1x | - | 150 W |
-| dram | 1 TiB | 64 GB/s | 400 GB/s | 200 ns | no | gpu->cpu:pcie | - | - | = ext | 1x | - | 50 W |
+| Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| hbm | 640 GiB | 26.8 TB/s | 26.8 TB/s | 300 ns | yes | on-package | - | = ext | 1x | - | 0 W |
+| custom_hbm | 160 GiB | 63 GB/s | 6.7 TB/s | 2 us | no | gpu->host:pcie5_x16 -> host->dev:pcie5_x16 | 197.8 TFLOPS | = ext | 1x | - | 233.3 W |
+| cxl_pnm | 512 GiB | 63 GB/s | 400 GB/s | 300 ns | no | gpu->cpu:pcie -> cpu->dev:cxl | 3.28 TFLOPS | = ext | 1x | - | 150 W |
+| dram | 1 TiB | 64 GB/s | 300 GB/s | 200 ns | no | gpu->cpu:pcie | - | = ext | 1x | - | 50 W |
+| hbf | 2 TiB | 1 TB/s | 1 TB/s | 5 us | yes | - | - | 50 GB/s | 3x | 100 PB | 100 W |
+| ssd_pim | 16 TiB | 16 GB/s | 200 GB/s | 60 us | no | gpu->cpu:pcie -> cpu->dev:nvme | 2 TFLOPS | = ext | 4x | 10 PB | 75 W |
 
-Provenance:
+Provenance (generation-specific):
 
-- `hbm` SPEC. 기본값은 HBM3e(B200) 192GiB / 8 TB/s. apply_cluster()가 클러스터의 GPU 스펙으로 용량/대역폭을 덮어쓴다. / TDP: GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다
-- `dram` SPEC: DDR5-6400 51.2 GB/s per channel; ext limited by PCIe 5.0 x16 / TDP: **[ASSUMED]** ASSUMED — 1 TiB급 메모리 확장 모듈
-- `cxl_pnm` **[ASSUMED]** 연산 = 사용자 제공 FP32 1.64 TFLOPS -> FP16 3.28 TFLOPS (2배, ASSUMED). ext_bw = SPEC CXL 2.0 over PCIe 5.0 x16 (63.0 GB/s). 내부BW = DRAM과 동일 (CXL memory expander의 media가 DRAM이므로) SPEC DDR5-6400 51.2 GB/s/채널 x8채널 = 400 GB/s. 용량/지연 = ASSUMED. / TDP: **[ASSUMED]** ASSUMED — 연산 유닛을 얹은 CXL 메모리 모듈 등급
+- GPU/HBM `h100`: PUBLIC (확인 필요): H100 SXM5 80GB = HBM3 80 GiB / 3.35 TB/s / FP16 tensor dense ~989 TFLOPS / TDP 700W / PCIe 5.0. (HBM3e는 H200이며 H100이 아니다.)
+- Link PCIe 5.0 x16 (63.0 GB/s) (scale x1): SPEC: PCIe 5.0 = 32 GT/s, 128b/130b, x16 ~ 63.0 GB/s (same as the memories_default.json baseline); CXL 2.0 runs on the PCIe 5.0 PHY. ext_bw_scale is relative to the PCIe 5.0 x16 baseline (63.0 GB/s) in memories_default.json; ASSUMED: applied uniformly to every host-link-bound tier (cHBM, CXL-PNM, DRAM ext, SSD-PIM ext). HBF (GPU-reachable, UCIe) is not link-scaled.
+- override `dram`: DDR5-4800 38.4 GB/s/ch x8ch = 307 GB/s, rounded to 300 GB/s (SPEC math, host config ASSUMED). Ext follows PCIe 5.0.
+- ASSUMED: emerging devices (custom_hbm, cxl_pnm, hbf, ssd_pim) have no past generations; the same device is used on every platform and only its host-link-bound external BW is scaled (link-bound scaling). Internal BW/compute/latency fixed (cHBM follows the paired-GPU rule).
 
-### SYS-3 - B200x8 + DRAM + HBF
+### SYS-B200 - B200x8 (Blackwell-class): HBM3e + PCIe5 + DDR5-6400 + six memory kinds
 
-- Purpose: Adds a GPU-reachable high-BW / high-latency / write-limited tier.
-- Cluster: `b200_8gpu` (8x b200, nvlink5_within_node, 1 custom_hbm node/domain)
+- Purpose: Blackwell platform, all six memory kinds. Numerically identical to legacy SYS-4 (verified field by field in tests).
+- Cluster `b200_8gpu` (8x b200, nvlink5_within_node); generations: gpu_hbm=HBM3e (B200), host_link=PCIe 5.0, cxl=CXL 2.0 (PCIe 5.0 PHY), dram=DDR5-6400, ssd=NVMe PCIe 5.0 x4
 
-| Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Primitives | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| hbm | 1.5 TiB | 64 TB/s | 64 TB/s | 300 ns | yes | on-package | - | - | = ext | 1x | - | 0 W |
-| dram | 1 TiB | 64 GB/s | 400 GB/s | 200 ns | no | gpu->cpu:pcie | - | - | = ext | 1x | - | 50 W |
-| hbf | 2 TiB | 1 TB/s | 1 TB/s | 5 us | yes | - | - | - | 50 GB/s | 3x | 100 PB | 100 W |
+| Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| hbm | 1.5 TiB | 64 TB/s | 64 TB/s | 300 ns | yes | on-package | - | = ext | 1x | - | 0 W |
+| custom_hbm | 384 GiB | 63 GB/s | 16 TB/s | 2 us | no | gpu->host:pcie5_x16 -> host->dev:pcie5_x16 | 450 TFLOPS | = ext | 1x | - | 333.3 W |
+| cxl_pnm | 512 GiB | 63 GB/s | 400 GB/s | 300 ns | no | gpu->cpu:pcie -> cpu->dev:cxl | 3.28 TFLOPS | = ext | 1x | - | 150 W |
+| dram | 1 TiB | 64 GB/s | 400 GB/s | 200 ns | no | gpu->cpu:pcie | - | = ext | 1x | - | 50 W |
+| hbf | 2 TiB | 1 TB/s | 1 TB/s | 5 us | yes | - | - | 50 GB/s | 3x | 100 PB | 100 W |
+| ssd_pim | 16 TiB | 16 GB/s | 200 GB/s | 60 us | no | gpu->cpu:pcie -> cpu->dev:nvme | 2 TFLOPS | = ext | 4x | 10 PB | 75 W |
 
-Provenance:
+Provenance (generation-specific):
 
-- `hbm` SPEC. 기본값은 HBM3e(B200) 192GiB / 8 TB/s. apply_cluster()가 클러스터의 GPU 스펙으로 용량/대역폭을 덮어쓴다. / TDP: GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다
-- `dram` SPEC: DDR5-6400 51.2 GB/s per channel; ext limited by PCIe 5.0 x16 / TDP: **[ASSUMED]** ASSUMED — 1 TiB급 메모리 확장 모듈
-- `hbf` **[ASSUMED]** capacity/read BW/UCIe = SPEC (OCP HBF technical specification, FMS 2026); write BW, latency, WA, endurance = ASSUMED / TDP: **[ASSUMED]** ASSUMED — High Bandwidth Flash 모듈
+- GPU/HBM `b200`: PUBLIC (확인 필요): HBM3e 192GB / 8 TB/s / FP16 dense ~2.25 PFLOPS / TDP 1000W(공랭)
+- Link PCIe 5.0 x16 (63.0 GB/s) (scale x1): SPEC: PCIe 5.0 x16 ~ 63.0 GB/s; CXL 2.0 on PCIe 5.0 PHY. ext_bw_scale is relative to the PCIe 5.0 x16 baseline (63.0 GB/s) in memories_default.json; ASSUMED: applied uniformly to every host-link-bound tier (cHBM, CXL-PNM, DRAM ext, SSD-PIM ext). HBF (GPU-reachable, UCIe) is not link-scaled.
+- ASSUMED: emerging devices (custom_hbm, cxl_pnm, hbf, ssd_pim) have no past generations; the same device is used on every platform and only its host-link-bound external BW is scaled (link-bound scaling). Internal BW/compute/latency fixed (cHBM follows the paired-GPU rule).
 
-### SYS-4 - B200x8 + all six memories
+### SYS-VR - Vera Rubin x8 (Rubin-class): HBM4 + PCIe6 + DDR5-6400 + six memory kinds
 
-- Purpose: Full heterogeneous hierarchy (primary DP1 target).
-- Cluster: `b200_8gpu` (8x b200, nvlink5_within_node, 1 custom_hbm node/domain)
+- Purpose: Next-generation platform: HBM4 (384 GB, 28 TB/s), PCIe 6.0 / CXL 3.x. Same as legacy SYS-5 except host-link BW x2 (PCIe 6.0) on link-bound tiers.
+- Cluster `vera_rubin_8gpu` (8x vera_rubin, nvlink_within_node); generations: gpu_hbm=HBM4 (Vera Rubin), host_link=PCIe 6.0, cxl=CXL 3.x (PCIe 6.0 PHY), dram=DDR5-6400, ssd=NVMe PCIe 6.0 x4
 
-| Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Primitives | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| hbm | 1.5 TiB | 64 TB/s | 64 TB/s | 300 ns | yes | on-package | - | - | = ext | 1x | - | 0 W |
-| custom_hbm | 384 GiB | 63 GB/s | 16 TB/s | 2 us | no | gpu->host:pcie5_x16 -> host->dev:pcie5_x16 | QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK | 450 TFLOPS | = ext | 1x | - | 333.3 W |
-| cxl_pnm | 512 GiB | 63 GB/s | 400 GB/s | 300 ns | no | gpu->cpu:pcie -> cpu->dev:cxl | QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK | 3.28 TFLOPS | = ext | 1x | - | 150 W |
-| dram | 1 TiB | 64 GB/s | 400 GB/s | 200 ns | no | gpu->cpu:pcie | - | - | = ext | 1x | - | 50 W |
-| hbf | 2 TiB | 1 TB/s | 1 TB/s | 5 us | yes | - | - | - | 50 GB/s | 3x | 100 PB | 100 W |
-| ssd_pim | 16 TiB | 16 GB/s | 200 GB/s | 60 us | no | gpu->cpu:pcie -> cpu->dev:nvme | GEMV | 2 TFLOPS | = ext | 4x | 10 PB | 75 W |
+| Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| hbm | 2.79 TiB | 224 TB/s | 224 TB/s | 300 ns | yes | on-package | - | = ext | 1x | - | 0 W |
+| custom_hbm | 715 GiB | 126 GB/s | 56 TB/s | 2 us | no | gpu->host:pcie5_x16 -> host->dev:pcie5_x16 | 1665 TFLOPS | = ext | 1x | - | 766.7 W |
+| cxl_pnm | 512 GiB | 126 GB/s | 400 GB/s | 300 ns | no | gpu->cpu:pcie -> cpu->dev:cxl | 3.28 TFLOPS | = ext | 1x | - | 150 W |
+| dram | 1 TiB | 128 GB/s | 400 GB/s | 200 ns | no | gpu->cpu:pcie | - | = ext | 1x | - | 50 W |
+| hbf | 2 TiB | 1 TB/s | 1 TB/s | 5 us | yes | - | - | 50 GB/s | 3x | 100 PB | 100 W |
+| ssd_pim | 16 TiB | 32 GB/s | 200 GB/s | 60 us | no | gpu->cpu:pcie -> cpu->dev:nvme | 2 TFLOPS | = ext | 4x | 10 PB | 75 W |
 
-> **NOTE**: `custom_hbm` is computed by the loader with the paired-GPU rule (capacity = GPU HBM x2, internal BW = GPU HBM BW x2, FP16 = GPU dense FP16 x20%, TDP = GPU TDP / 3); the JSON static values equal the B200-paired result.
+Provenance (generation-specific):
 
-Provenance:
+- GPU/HBM `vera_rubin`: 사용자 제공: 용량 384GB, BW 28 TB/s, FP8 16,650 TFLOPS, TDP 2300W. FP16 = FP8의 1/2 = 8,325 TFLOPS (ASSUMED) HBM은 HBM4(384GB/28TB/s) — memories_default.json의 hbm4 항목과 동일.
+- Link PCIe 6.0 x16 (126 GB/s) (scale x2): SPEC: PCIe 6.0 = 64 GT/s PAM4, x16 ~ 126 GB/s raw (flit/FEC overhead not deducted, ASSUMED); CXL 3.x on PCIe 6.0 PHY. ext_bw_scale is relative to the PCIe 5.0 x16 baseline (63.0 GB/s) in memories_default.json; ASSUMED: applied uniformly to every host-link-bound tier (cHBM, CXL-PNM, DRAM ext, SSD-PIM ext). HBF (GPU-reachable, UCIe) is not link-scaled.
+- ASSUMED: emerging devices (custom_hbm, cxl_pnm, hbf, ssd_pim) have no past generations; the same device is used on every platform and only its host-link-bound external BW is scaled (link-bound scaling). Internal BW/compute/latency fixed (cHBM follows the paired-GPU rule).
 
-- `hbm` SPEC. 기본값은 HBM3e(B200) 192GiB / 8 TB/s. apply_cluster()가 클러스터의 GPU 스펙으로 용량/대역폭을 덮어쓴다. / TDP: GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다
-- `custom_hbm` **페어링 GPU 상대 스펙** (사용자 규칙). apply_cluster()가 클러스터별로 재계산한다: 용량 = GPU HBM 용량 x 2 내부BW = GPU HBM 대역폭 x 2 연산 = GPU dense FP16 x 20% (= FP8의 20%) TDP = GPU TDP / 3 정적 기본값은 B200 페어링 기준. Vera Rubin 페어링 시 용량 768GB / 내부BW 56TB/s / 연산 1,665 TFLOPS / TDP 767W 가 된다. ext_bw/latency = SPEC PCIe 5.0 x16 (63.0 GB/s), CPU 2홉 경유. GPU 직접 읽기 불가. / TDP: 사용자 제공 (Rubin 2300W의 1/3)
-- `cxl_pnm` **[ASSUMED]** 연산 = 사용자 제공 FP32 1.64 TFLOPS -> FP16 3.28 TFLOPS (2배, ASSUMED). ext_bw = SPEC CXL 2.0 over PCIe 5.0 x16 (63.0 GB/s). 내부BW = DRAM과 동일 (CXL memory expander의 media가 DRAM이므로) SPEC DDR5-6400 51.2 GB/s/채널 x8채널 = 400 GB/s. 용량/지연 = ASSUMED. / TDP: **[ASSUMED]** ASSUMED — 연산 유닛을 얹은 CXL 메모리 모듈 등급
-- `dram` SPEC: DDR5-6400 51.2 GB/s per channel; ext limited by PCIe 5.0 x16 / TDP: **[ASSUMED]** ASSUMED — 1 TiB급 메모리 확장 모듈
-- `hbf` **[ASSUMED]** capacity/read BW/UCIe = SPEC (OCP HBF technical specification, FMS 2026); write BW, latency, WA, endurance = ASSUMED / TDP: **[ASSUMED]** ASSUMED — High Bandwidth Flash 모듈
-- `ssd_pim` **[ASSUMED]** ext=SPEC PCIe 5.0 x4; latency=PUBLIC NVMe; int BW, WA, endurance = ASSUMED / TDP: **[ASSUMED]** ASSUMED — 연산 유닛을 얹은 SSD
+### Legacy profiles (memory-subset ablation, values unchanged)
 
-### SYS-5 - Vera Rubin x8 + all six memories
+- **SYS-1** `b200_8gpu`: hbm, dram - Today's vLLM-class hierarchy (HBM + CPU DRAM). Lower bound for heterogeneity benefit.
+- **SYS-2** `b200_8gpu`: hbm, dram, cxl_pnm - Adds a capacity tier with near-memory attention (host-staged).
+- **SYS-3** `b200_8gpu`: hbm, dram, hbf - Adds a GPU-reachable high-BW / high-latency / write-limited tier.
+- **SYS-4** `b200_8gpu`: hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim - Full heterogeneous hierarchy (primary DP1 target).
+- **SYS-5** `vera_rubin_8gpu`: hbm, custom_hbm, cxl_pnm, dram, hbf, ssd_pim - Next-gen GPU (HBM4, 384 GB, 28 TB/s) with the same memory set; cHBM scales with the paired GPU.
 
-- Purpose: Next-gen GPU (HBM4, 384 GB, 28 TB/s) with the same memory set; cHBM scales with the paired GPU.
-- Cluster: `vera_rubin_8gpu` (8x vera_rubin, nvlink_within_node, 1 custom_hbm node/domain)
+Legacy values = same cluster + `memories_default.json` baseline (PCIe 5.0 link, DDR5-6400). SYS-4 == SYS-B200 field by field; SYS-5 == SYS-VR except link-bound ext BW (PCIe 5.0 vs 6.0).
 
-| Memory | Capacity | Ext BW | Int BW | Latency | GPU-reachable | Access hops | Primitives | Compute FP16 | Write BW | Write amp. | Endurance | TDP |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| hbm | 2.79 TiB | 224 TB/s | 224 TB/s | 300 ns | yes | on-package | - | - | = ext | 1x | - | 0 W |
-| custom_hbm | 715 GiB | 63 GB/s | 56 TB/s | 2 us | no | gpu->host:pcie5_x16 -> host->dev:pcie5_x16 | QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK | 1665 TFLOPS | = ext | 1x | - | 766.7 W |
-| cxl_pnm | 512 GiB | 63 GB/s | 400 GB/s | 300 ns | no | gpu->cpu:pcie -> cpu->dev:cxl | QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK | 3.28 TFLOPS | = ext | 1x | - | 150 W |
-| dram | 1 TiB | 64 GB/s | 400 GB/s | 200 ns | no | gpu->cpu:pcie | - | - | = ext | 1x | - | 50 W |
-| hbf | 2 TiB | 1 TB/s | 1 TB/s | 5 us | yes | - | - | - | 50 GB/s | 3x | 100 PB | 100 W |
-| ssd_pim | 16 TiB | 16 GB/s | 200 GB/s | 60 us | no | gpu->cpu:pcie -> cpu->dev:nvme | GEMV | 2 TFLOPS | = ext | 4x | 10 PB | 75 W |
-
-> **NOTE**: `custom_hbm` is computed by the loader with the paired-GPU rule (capacity = GPU HBM x2, internal BW = GPU HBM BW x2, FP16 = GPU dense FP16 x20%, TDP = GPU TDP / 3); the JSON static values equal the B200-paired result.
-
-Provenance:
+## G.4 Memory device provenance (shared by all profiles; baseline = PCIe 5.0 / DDR5 values)
 
 - `hbm` SPEC. 기본값은 HBM3e(B200) 192GiB / 8 TB/s. apply_cluster()가 클러스터의 GPU 스펙으로 용량/대역폭을 덮어쓴다. / TDP: GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다
 - `custom_hbm` **페어링 GPU 상대 스펙** (사용자 규칙). apply_cluster()가 클러스터별로 재계산한다: 용량 = GPU HBM 용량 x 2 내부BW = GPU HBM 대역폭 x 2 연산 = GPU dense FP16 x 20% (= FP8의 20%) TDP = GPU TDP / 3 정적 기본값은 B200 페어링 기준. Vera Rubin 페어링 시 용량 768GB / 내부BW 56TB/s / 연산 1,665 TFLOPS / TDP 767W 가 된다. ext_bw/latency = SPEC PCIe 5.0 x16 (63.0 GB/s), CPU 2홉 경유. GPU 직접 읽기 불가. / TDP: 사용자 제공 (Rubin 2300W의 1/3)
@@ -209,11 +230,10 @@ Derived: KV bytes/token = 2 x layers x kv_heads x head_dim x dtype_bytes = 32768
 
 # 5. 새 프로파일 추가 방법
 
-1. `DP1/sim/configs/systems.json`의 `profiles`에 항목 추가: `name`, `cluster`(clusters.json 키), `memories`(memories_default.json의 `name` 부분집합), `purpose`.
-2. 새 GPU/클러스터가 필요하면 `clusters.json`에 추가한다. 새 메모리는 `memories_default.json`에 provenance(SPEC/PUBLIC/ASSUMED)와 함께 추가한다. 값은 이 문서가 아니라 JSON에만 쓴다.
-3. 표 재생성: `python3 doc-mk/Evaluation/tools/gen_system_specs.py` (`--check`는 문서가 최신인지 exit code로 확인).
-4. 2장 프로파일 목적 표에 한 줄 추가하고, 이 변경을 새 config revision으로 commit한다.
-5. 로딩 확인: `model.load_profile(config_dir, "SYS-N")`.
+1. `systems.json` `profiles`에 항목 추가: `cluster`(clusters.json 키), `memories`, `primary`/`legacy`, `generation`(라벨), `link`(`ext_bw_scale`, provenance), `overrides`(예: dram `int_bw_bytes_per_s` + provenance), `emerging_scaling_note`. 새 GPU/클러스터는 `clusters.json`에 provenance와 함께 추가한다.
+2. 표 재생성: `python3 doc-mk/Evaluation/tools/gen_system_specs.py` (`--check`: 최신 여부 exit code).
+3. 2장 구성 표와 3장 한계에 항목을 추가하고 새 config revision으로 commit한다. 기존 profile 값은 수정하지 않는다 (H10).
+4. 로딩 확인: `model.load_profile(config_dir, "SYS-X")`, `qa_eval.py --system SYS-X`.
 
 # 6. 관련 문서
 

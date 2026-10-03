@@ -2,6 +2,22 @@
   "schema_version": 1,
   "_note": "DP1의 단위는 scale-up 도메인 하나다. 도메인 간 배치는 DP2 범위이므로 여기서는 도메인 수만 기록하고 모델링하지 않는다. per_gpu 값은 도메인 안에서 합산된다 (TP 가정).",
   "gpus": {
+    "a100": {
+      "hbm_capacity_bytes": 85899345920,
+      "hbm_bw_bytes_per_s": 2039000000000.0,
+      "dense_fp16_flops": 312000000000000.0,
+      "tdp_watts": 400.0,
+      "provenance": "PUBLIC (확인 필요): A100 SXM4 80GB = HBM2e 80 GiB / 2.039 TB/s / FP16 tensor dense 312 TFLOPS / TDP 400W / PCIe 4.0. (40GB 변형은 HBM2 1.555 TB/s, 본 profile은 80GB 사용). 용량은 B200 항목과 같은 GiB 관례(80 GiB).",
+      "hbm_medium": "HBM2e"
+    },
+    "h100": {
+      "hbm_capacity_bytes": 85899345920,
+      "hbm_bw_bytes_per_s": 3350000000000.0,
+      "dense_fp16_flops": 989000000000000.0,
+      "tdp_watts": 700.0,
+      "provenance": "PUBLIC (확인 필요): H100 SXM5 80GB = HBM3 80 GiB / 3.35 TB/s / FP16 tensor dense ~989 TFLOPS / TDP 700W / PCIe 5.0. (HBM3e는 H200이며 H100이 아니다.)",
+      "hbm_medium": "HBM3"
+    },
     "b200": {
       "hbm_capacity_bytes": 206158430208,
       "hbm_bw_bytes_per_s": 8000000000000.0,
@@ -20,6 +36,24 @@
     }
   },
   "clusters": {
+    "a100_8gpu": {
+      "gpu": "a100",
+      "gpus_per_scaleup_domain": 8,
+      "num_domains": 1,
+      "domain_interconnect": "nvlink3_within_node",
+      "custom_hbm_nodes_per_domain": 1,
+      "scale_attached": false,
+      "_why": "HGX A100 8-GPU baseboard 1개 = 도메인 1개 (NVLink3/NVSwitch). 도메인 구성은 B200 클러스터와 같은 8-GPU 가정."
+    },
+    "h100_8gpu": {
+      "gpu": "h100",
+      "gpus_per_scaleup_domain": 8,
+      "num_domains": 1,
+      "domain_interconnect": "nvlink4_within_node",
+      "custom_hbm_nodes_per_domain": 1,
+      "scale_attached": false,
+      "_why": "HGX H100 8-GPU baseboard 1개 = 도메인 1개 (NVLink4/NVSwitch)."
+    },
     "b200_8gpu": {
       "gpu": "b200",
       "gpus_per_scaleup_domain": 8,

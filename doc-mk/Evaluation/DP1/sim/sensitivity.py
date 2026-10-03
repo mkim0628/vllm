@@ -1,6 +1,6 @@
 """Post-stop sensitivity of the global design parameters (reporting only; no parameter is re-tuned).
 
-    python sensitivity.py [--system SYS-4]
+    python sensitivity.py [--system SYS-B200]
 
 One parameter at a time is moved away from its pre-registered value; all three benchmark sets are rerun.
 Output: results/data/sensitivity_<SYS>.json and a markdown table on stdout.
@@ -43,7 +43,7 @@ def apply(over):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--system", default="SYS-4")
+    ap.add_argument("--system", default="SYS-B200")
     ap.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1))
     a = ap.parse_args()
     load_profile(HERE / "configs", a.system)

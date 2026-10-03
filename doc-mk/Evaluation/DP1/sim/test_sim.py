@@ -385,5 +385,80 @@ class QaEvalTest(unittest.TestCase):
         self.assertEqual(lab["val"]["vs_baseline"][qa_eval.CANDS[1]]["verdict"], "win")
 
 
+class QA3PooledUtilizationTest(unittest.TestCase):  # anchor: qa3-v4-tests (agent B)
+    def test_pooled_equals_hand_value(self):
+        from simulator import pooled_capacity_util
+
+        # 2 seconds, 3 tiers. hbm cap 100: occ 50,70 ; dram cap 400: occ 100,100 ; ssd cap 1000: occ 0,0
+        occ = {"hbm": 50 + 70, "dram": 100 + 100, "ssd": 0.0}
+        cap = {"hbm": 200.0, "dram": 800.0, "ssd": 2000.0}
+        pooled, per, active = pooled_capacity_util(occ, cap)
+        self.assertAlmostEqual(pooled, (120 + 200) / 3000.0)          # 320 / 3000
+        self.assertAlmostEqual(per["hbm"], 0.6)
+        self.assertAlmostEqual(per["dram"], 0.25)
+        self.assertAlmostEqual(per["ssd"], 0.0)
+        self.assertAlmostEqual(active, (0.6 + 0.25) / 2)             # ssd holds no data -> excluded from the unweighted mean
+        # capacity weighting: the large empty tier dominates pooled but not the unweighted mean
+        self.assertLess(pooled, active)
+
+    def test_pooled_empty_and_disabled(self):
+        from simulator import pooled_capacity_util
+
+        self.assertEqual(pooled_capacity_util({}, {}), (0.0, {}, 0.0))
+        pooled, per, _ = pooled_capacity_util({"a": 10.0}, {"a": 20.0})  # a tier that was disabled is simply absent from the dicts
+        self.assertAlmostEqual(pooled, 0.5)
+
+    def test_dp1_relative_star_edges(self):
+        import dp1_rating as r
+
+        e = r.CFG["dp1_star"]["qa3_relative_edges"]
+        self.assertEqual(e, r.CFG["dp1_star"]["qa2_latency_improvement_edges"])  # fixed by analogy to QA2
+        self.assertEqual(r.CFG["version"], "dp1-rating-v3")
+        self.assertEqual(r.dp1_star(0.949, e), "★")
+        self.assertEqual(r.dp1_star(0.95, e), "★★")      # edge inclusive-lower
+        self.assertEqual(r.dp1_star(1.249, e), "★★")
+        self.assertEqual(r.dp1_star(1.25, e), "★★★")
+
+
+# --------------------------------------------------------------------------- generation profiles (agent C)
+class GenerationProfileTests(unittest.TestCase):
+    GEN = ("SYS-A100", "SYS-H100", "SYS-B200", "SYS-VR")
+    SIX = {"hbm", "custom_hbm", "cxl_pnm", "dram", "hbf", "ssd_pim"}
+
+    def test_all_six_memories_present(self):
+        for sid in self.GEN:
+            self.assertEqual(set(_system(sid).memories), self.SIX, sid)
+
+    def test_hbm_bw_monotonic(self):
+        bws = [_system(s).memories["hbm"].ext_bw for s in self.GEN]
+        self.assertEqual(bws, sorted(bws))
+        self.assertEqual(len(set(bws)), 4)
+
+    def test_link_bw_monotonic(self):
+        # PCIe 4 < 5 < 6 on every host-link-bound tier (H100 and B200 are both PCIe 5.0 -> equal)
+        for mem in ("custom_hbm", "cxl_pnm", "dram", "ssd_pim"):
+            v = [_system(s).memories[mem].ext_bw for s in self.GEN]
+            self.assertLess(v[0], v[1], mem)
+            self.assertEqual(v[1], v[2], mem)
+            self.assertLess(v[2], v[3], mem)
+
+    def test_hbf_not_link_scaled(self):
+        v = {_system(s).memories["hbf"].ext_bw for s in self.GEN}
+        self.assertEqual(len(v), 1)
+
+    def test_legacy_equivalence(self):
+        import dataclasses
+
+        def flat(s):
+            d = {"bw": s.gpu_hbm_bw, "fl": s.gpu_compute_flops, "tdp": s.gpu_tdp_watts}
+            for n, m in s.memories.items():
+                d.update({f"{n}.{f.name}": getattr(m, f.name) for f in dataclasses.fields(m)})
+            return d
+
+        self.assertEqual(flat(_system("SYS-4")), flat(_system("SYS-B200")))
+        diff = {k for k, v in flat(_system("SYS-5")).items() if v != flat(_system("SYS-VR"))[k]}
+        self.assertTrue(diff and all(k.split(".")[0] in ("custom_hbm", "cxl_pnm", "dram", "ssd_pim") for k in diff), diff)
+
+
 if __name__ == "__main__":
     unittest.main()
