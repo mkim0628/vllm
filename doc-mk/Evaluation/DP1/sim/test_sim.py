@@ -413,7 +413,9 @@ class QA3PooledUtilizationTest(unittest.TestCase):  # anchor: qa3-v4-tests (agen
 
         e = r.CFG["dp1_star"]["qa3_relative_edges"]
         self.assertEqual(e, r.CFG["dp1_star"]["qa2_latency_improvement_edges"])  # fixed by analogy to QA2
-        self.assertEqual(r.CFG["version"], "dp1-rating-v3")
+        self.assertEqual(r.CFG["version"], "dp1-rating-v4")
+        # v5 resource efficiency uses the same edges (chosen by analogy to QA2 before the numbers were seen)
+        self.assertEqual(r.CFG["dp1_star"]["qa3_eff_relative_edges"], r.CFG["dp1_star"]["qa2_latency_improvement_edges"])
         self.assertEqual(r.dp1_star(0.949, e), "★")
         self.assertEqual(r.dp1_star(0.95, e), "★★")      # edge inclusive-lower
         self.assertEqual(r.dp1_star(1.249, e), "★★")
