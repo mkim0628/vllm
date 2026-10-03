@@ -8,6 +8,8 @@
 | 근거 수준 | **[A]** 실측 / **[B]** 문헌 보고 수치 (as reported) / **[C]** 구조 논증·가설 |
 | 원칙 | 원본의 용어 고정(**Eviction = Drop**), "DP1 먼저·DP3는 실패 경로" 규칙(§2.4), B1 기준선(§9.2), 가정값 미기재 원칙(§9)을 **그대로 유지**한다 |
 
+> **⚠ 재작성 예정 (2026-10-03).** 사용자가 제공한 `DP3.pptx`(Query Sampler, KV Sampler, Attention Manager, KV Cache Compressor, Recompute Token Selector, Selective Recomputer로 구성된 구조도)를 확인한 결과, 이 초안의 다음 부분이 실제 구조와 다르다. (1) **Drop–Blend를 "폐기 후 복원" 한 쌍으로 본 가정** — 실제로 selective recompute는 압축된 context KV를 재사용할 때의 보정 단계다. (2) **§3.2의 컴포넌트 구성**(Policy, Registry, Metadata, Quality Guard 등)은 실제 모듈이 아니라 제안이다. (3) C1/C2는 **택일**이며 둘이 함께 존재하지 않는다. 실제 모듈 구조와 DP1·DP2 연결 계약을 기준으로 다시 쓴다.
+
 ---
 
 # 0. 한눈에 보기
