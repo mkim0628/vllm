@@ -36,7 +36,7 @@ def main():
         row = {}
         for cand in qa_eval.CANDS[1:]:
             q = qa[cand]
-            row[cand] = dict(qa1=q["qa1_ratio_geomean"], qa1_ci=q["qa1_ratio_ci95"], qa3=q["qa3_useful_hbm_util"],
+            row[cand] = dict(qa1=q["qa1_ratio_geomean"], qa1_ci=q["qa1_ratio_ci95"], qa3=q["qa3_useful_util"],
                              wtl=(len(t[cand]["win"]), len(t[cand]["tie"]), len(t[cand]["loss"])),
                              loss=t[cand]["loss"], mig_gib=q["migration_gib"])
         out[str(eps)] = row

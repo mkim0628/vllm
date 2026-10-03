@@ -12,7 +12,7 @@ doc-mk/Evaluation/
 ├── CLAUDE.md                    # 이 폴더 작업 규칙
 ├── qa-evaluation-criteria.md    # 공통 QA1~4, 별점, Evidence A/B/C (DP1~DP4 공통)
 ├── common-benchmark.md          # 공통 benchmark profile, baseline(T_ref), sweep/반복 규칙
-├── system-specs.md              # SYS-1..SYS-5 시스템 프로파일 (일부 자동 생성)
+├── system-specs.md              # 메모리 세대별 시스템 프로파일 SYS-A100/H100/B200/VR (+legacy SYS-1..5, 일부 자동 생성)
 ├── result-template.md           # 결과 문서 템플릿
 ├── tools/
 │   ├── gen_system_specs.py      # system-specs.md 생성 블록 렌더
@@ -44,6 +44,7 @@ doc-mk/Evaluation/
 - `system-specs.md`와 `DP1/benchmark.md`의 생성 블록은 수동 편집하지 않고 `tools/`의 스크립트로 재생성한다.
 - 시스템 spec은 Evidence [B], simulation 결과는 [B+C]이며 [A]로 쓰지 않는다.
 - QA 별점 threshold는 결과를 본 뒤 바꾸지 않는다. 평가 정의의 누락·오류 수정(예: QA3 v3)은 사유와 이전 값을 문서에 기록하고 허용한다.
+- 공통 시나리오(CB-n)는 `common-benchmark.md`, DP 전용 시나리오는 `DPn/benchmark.md`(시나리오당 한 줄). 시스템은 메모리 세대 4종으로 평가하고 결과는 세대별 매트릭스로 낸다. QA3는 전 메모리 풀 기준(v4), QA4는 module/공수/에이전트 비용 3 sub-metric(사전 등록).
 - 결과 문서는 §0 최종 요약으로 시작하고, 선택은 QA 우선순위 규칙(`tools/dp_selection.py`)으로 설명한다. 산출 PPT는 `tools/gen_dp_pptx.py`.
 
 ## 상태

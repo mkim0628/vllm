@@ -9,7 +9,7 @@ description: "Use whenever evaluating, benchmarking, simulating or scoring a Des
 
 ## Quick start
 1. `doc-mk/Evaluation/README.md`와 아래 [사전 체크리스트](#3-평가-전-체크리스트)의 문서를 읽는다.
-2. 후보와 DP, primary SYS id(`system-specs.md`)를 정하고 Baseline(T_ref)을 확인한다.
+2. 후보와 DP, 평가할 세대별 SYS 집합(`system-specs.md`, 기본 SYS-A100/H100/B200/VR)을 정하고 Baseline(T_ref)을 확인한다.
 3. simulator/test suite가 통과하는지 먼저 확인한다 (`DP1/sim/test_sim.py`).
 4. Common Benchmark + DP 전용 benchmark **둘 다** `qa_eval.py`로 실행한다 (seed >= 5, load sweep).
 5. raw 출력을 `DPn/results/data/`에 저장한다. 숫자는 손으로 쓰지 않고 코드 출력에서 옮긴다.
@@ -35,6 +35,10 @@ description: "Use whenever evaluating, benchmarking, simulating or scoring a Des
 - H15. **PPT 산출물.** (a) DP별 QA 결과 appendix 슬라이드: 기본 1장(QA 표 + trade-off + 선택 + 한계 한 줄), QA 행이 6개를 넘거나 내용이 넘치면 2장. (b) 보완 설계 택틱 슬라이드 1장. `tools/gen_dp_pptx.py`로 데이터에서 생성하고 `doc-mk/DPn/`에 둔다. 슬라이드의 숫자는 결과 문서와 같은 소스를 쓴다.
 - H16. **수치를 원하는 결론에 맞춰 조정하지 않는다.** 사용자가 "조금 조작해도 된다"고 해도 따르지 않는다. 결과가 마음에 안 들 때 허용되는 것은 (i) 평가 정의의 누락·오류 수정(예: 비용 항목 추가, 사유와 이전 정의를 문서에 기록), (ii) 공개된 가정의 변경과 그 민감도 보고, (iii) 시나리오 추가(실패한 것도 유지)뿐이다. 비용 항목을 넣었는데도 후보가 지배(dominate)하면 그것이 결론이다 — trade-off는 QA4·비용 쪽에 있다고 쓴다. 정의를 바꾸면 이전 값과 바뀐 별점을 결과 문서 한계에 적는다.
 - H17. **모델 오차 sweep.** 후보가 estimator/predictor에 의존하면 오차 e(lognormal sigma) 0/0.2/0.4/0.6 sweep을 보고한다(`DP1/sim/epsilon_sweep.py`, 정책 상수 재조정 금지). break-even이 없으면 "이 오차 모델에서는 없음"으로, 오차 모델이 한 종류뿐임을 한계에 적는다.
+- H18. **Benchmark 문서 구조.** Common Benchmark의 시나리오(CB-n)는 `doc-mk/Evaluation/common-benchmark.md`에 정의한다(workload 수준: ID, 한 줄 설명, 노브). DP 전용 시나리오는 `DPn/benchmark.md`에만 둔다. 모든 benchmark 문서는 **시나리오당 한 줄**(이름 | 무엇인가 60자 이내 | 드러내는 As-Is 약점 | 핵심 파라미터 짧게)이며 상세 config는 코드/생성 데이터를 가리킨다. 시나리오 한 줄 설명은 `Scenario.brief`, 결과 문서 §3도 이를 쓴다.
+- H19. **시스템은 메모리 세대 축으로 평가한다.** 6종 메모리가 모두 있는 profile을 세대별로 둔다(SYS-A100: HBM2e/PCIe4, SYS-H100: HBM3/PCIe5, SYS-B200: HBM3e/PCIe5, SYS-VR: HBM4/PCIe6; 정의는 `system-specs.md`). 한 시스템만의 결과를 주 결과로 쓰지 않는다: 결과 문서 §0은 **세대별 매트릭스**(QA x 시스템)로, 선택도 시스템별로 낸 뒤 전체(다수결, 동률이면 QA 우선순위의 별 합계)로 낸다. 구 SYS-1~5는 legacy(메모리 부분집합 ablation). 규격은 SPEC/PUBLIC/ASSUMED를 필드별로 표기하고, 확인하지 못한 값은 ASSUMED로 둔다. 신규 memory는 과거 세대가 없으므로 link 세대 스케일로만 표현하고 그 가정을 적는다.
+- H20. **QA3는 시스템의 모든 메모리를 본다(v4).** `U = (sum_m 평균 점유 / sum_m 용량) x SLO 만족 비율 x (1 - migration 링크 점유율)`. HBM 전용 값과 tier별 u_m은 diagnostic으로 병기한다. 풀 점유가 큰 cold tier에 지배될 수 있음을 한계에 적고 QA1/QA2와 함께 읽는다. DP1 별점은 Baseline 대비 상대값(QA2 개선 배수와 같은 경계).
+- H21. **QA4는 세 sub-metric이다.** (M1) 변경 module 수, (M2) 개발 공수(man-month), (M3) 코드 에이전트 토큰 **비용(금액)** — 모델 tier에 따라 토큰 수와 금액의 순위가 달라질 수 있으므로 금액으로 비교한다. 변경 시나리오(신규 memory / data type / policy / event)를 실제로 구현해 module/LOC를 측정하고, 공수·비용은 가정 상수로 계산하되 **측정 전에 사전 등록**(`DPn/qa4-preregistration.md`: 시나리오, 공식, 별 경계, 집계 규칙)한다. QA4 별 = 세 sub-star의 중앙값, 세 값을 모두 보인다. 가정 상수 민감도(낙관/비관)와 구조 대안을 함께 보고한다. 증거는 [B+C]이며 실제 에이전트 세션 측정이 아님을 한계에 적는다.
 
 ## 1. 폴더 구조 (single source of truth)
 ```
@@ -64,7 +68,7 @@ doc-mk/Evaluation/                 # 공통 문서
 ## 3. 평가 전 체크리스트
 - [ ] `qa-evaluation-criteria.md` 읽음 (QA1~QA4 threshold, §10 최종 표 형식)
 - [ ] `common-benchmark.md` 읽음
-- [ ] `system-specs.md` 읽음, primary SYS와 추가 SYS id 선택 (이유 기록)
+- [ ] `system-specs.md` 읽음, 세대별 SYS 집합 확인 (H19), 추가/제외 SYS는 이유 기록
 - [ ] `DPn/benchmark.md` 읽음
 - [ ] `DPn/simulation-plan.md` 읽음 (후보 정의, N_win 지정 여부 확인, 기본값 3)
 - [ ] 각 숫자의 Evidence Level을 정함
@@ -93,7 +97,7 @@ Fit label 정의: **comparison-valid** = Baseline이 SLO를 만족(feasible)하�
 ## 5. Baseline-regression loop
 **Baseline**: DP별 Common Reference Baseline(T_ref). DP1 = **Baseline-static** (As-Is proxy, 공통 initial placement 후 migration 없음, tier 순서 고정). Baseline보다 낮은 후보는 구조 도입 근거가 없다.
 
-**Trigger** (primary SYS 기준, 하나라도 해당): comparison-valid 시나리오 중 후보 < Baseline / 집계 QA1 ratio < 1.00 / QA2 별점 또는 값이 Baseline보다 나쁨 / QA3 Baseline보다 낮음. 95% CI 안이면 N(noise)으로 분류한다.
+**Trigger** (세대별 SYS 중 어느 하나라도, 하나라도 해당): comparison-valid 시나리오 중 후보 < Baseline / 집계 QA1 ratio < 1.00 / QA2 별점 또는 값이 Baseline보다 나쁨 / QA3 Baseline보다 낮음. 95% CI 안이면 N(noise)으로 분류한다.
 
 **각 iteration**
 1. (a) 진단: diagnostic으로 root cause를 하나로 분류.
@@ -135,7 +139,7 @@ Fit label 정의: **comparison-valid** = Baseline이 SLO를 만족(feasible)하�
 - 병렬 작업 후 orchestrator가 코드 변경 -> 전체 재실행 -> 문서 순서로 통합한다 (문서가 오래된 코드 결과를 인용하지 않게).
 
 ## 7. 재현성
-- 명령 예: `cd doc-mk/Evaluation/DP1/sim && python qa_eval.py --system SYS-4`
+- 명령 예: `cd doc-mk/Evaluation/DP1/sim && python qa_eval.py --system SYS-B200`
 - seed >= 5 (DP1 기본 11, 23, 37, 53, 71), load sweep (예: x0.5 / 1.0 / 1.5 / 2.0), 95% CI, CV 기록.
 - git revision(dirty 여부 포함)과 raw 출력(json/csv)을 `DPn/results/data/`에 저장하고 결과 문서가 파일명을 참조한다.
 - 같은 명령 + 같은 revision이면 같은 숫자가 나와야 한다. 아니면 결과를 final로 하지 않는다.

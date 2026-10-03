@@ -66,62 +66,73 @@ def stars(c):
 
 
 def qa_slide():
-    st = g.stars_combined()
-    sel = select(st, g.PRIO["priority"])
-    G = g.RT[g.PRIMARY]["sets"]["combined"]
-    Q = g.P["combined"]["qa_feasible"]
+    sel = g.overall_selection()
+    st = sel["stars"]
     B, C1, C2 = g.B, g.C1, g.C2
-    s = Slide("DP1 평가 결과 - QA별 후보 비교 (SYS-4, Common + Stress + Dynamic)")
-    cols = [("QA", 0.4, 1.55), ("지표 (DP1 별점 기준)", 1.95, 2.75), ("Baseline", 4.7, 1.7), ("C1 Resource-driven", 6.4, 2.0), ("C2 Behavior-driven", 8.4, 2.0), ("우세", 10.4, 2.5)]
+    SY = g.SYSIDS
+    m = g.QA4["mean_over_scenarios"]
+    s = Slide("DP1 평가 결과 - QA별 후보 비교 (메모리 세대별 4개 시스템, Common + Stress + Dynamic)")
+    cw = 2.55
+    cols = [("QA", 0.4, 1.9)] + [(sid, 2.3 + k * cw, cw) for k, sid in enumerate(SY)]
     y = 1.2
     for name, x, w in cols:
-        s.box(x, y, w, 0.34, name, "head", 9, True, "ctr", False)
-    n_ = lambda t: t.count("★")
-    win = lambda a, b: "동률" if n_(a) == n_(b) else ("C1" if n_(a) > n_(b) else "C2")
-    rows = [
-        ("QA1 Throughput [B]", "Baseline 대비 SLO goodput (geomean)", f"{G[B]['dp1_star']['qa1']} x1.00", f"{st[C1]['QA1']} x{G[C1]['qa1']['ratio']:.2f}", f"{st[C2]['QA1']} x{G[C2]['qa1']['ratio']:.2f}", win(st[C1]['QA1'], st[C2]['QA1'])),
-        ("QA2 Latency [B]", "TTFT/TPOT x P50/P95/P99 개선 배수 (geomean)", f"{G[B]['dp1_star']['qa2']} x1.00", f"{st[C1]['QA2']} x{G[C1]['qa2']['latency_improvement_geomean']:.2f}", f"{st[C2]['QA2']} x{G[C2]['qa2']['latency_improvement_geomean']:.2f}", win(st[C1]['QA2'], st[C2]['QA2'])),
-        ("QA3 Utilization [B]", "useful 활용률 (SLO 만족 비율 x HBM 점유 x (1-migration 링크 점유))", f"{G[B]['dp1_star']['qa3']} {G[B]['qa3']['useful_util']*100:.0f}%", f"{st[C1]['QA3']} {G[C1]['qa3']['useful_util']*100:.0f}% ({G[C1]['qa3']['delta_pp_vs_baseline']:+.0f}pp)", f"{st[C2]['QA3']} {G[C2]['qa3']['useful_util']*100:.0f}% ({G[C2]['qa3']['delta_pp_vs_baseline']:+.0f}pp)", win(st[C1]['QA3'], st[C2]['QA3'])),
-        ("QA4 Modifiability [C]", "신규 data type / memory 추가 시 변경 module 수 (논증)", "—", f"{st[C1]['QA4']} (1~2개)", f"{st[C2]['QA4']} (4개)", win(st[C1]['QA4'], st[C2]['QA4'])),
-    ]
+        s.box(x, y, w, 0.34, name if name == "QA" else f"{name} ({g.RT[name]['sets']['combined'][B]['n']}개)", "head", 9, True, "ctr", False)
+    def two(sid, key):
+        G = g.RT[sid]["sets"]["combined"]
+        f = {"QA1": lambda c: f"x{G[c]['qa1']['ratio']:.2f}", "QA2": lambda c: f"x{G[c]['qa2']['latency_improvement_geomean']:.2f}",
+             "QA3": lambda c: f"x{G[c]['qa3'].get('rel_vs_baseline', 1.0):.2f}"}.get(key)
+        out = []
+        for c, nm in ((C1, "C1"), (C2, "C2")):
+            v = f(c) if f else (f"{m[nm]['modules']:.1f}모듈 ${m[nm]['usd_T1']:.2f}")
+            out.append(f"{nm} {st[sid][c][key]} {v}")
+        return out
+    labels = {"QA1": "QA1 Throughput [B]\n(Baseline 대비 goodput)", "QA2": "QA2 Latency [B]\n(개선 배수)", "QA3": "QA3 Utilization [B]\n(전 메모리 풀 U 상대)", "QA4": "QA4 Modifiability [B+C]\n(module / 에이전트 비용)"}
     y = 1.58
-    for r in rows:
-        for (name, x, w), v in zip(cols, r):
-            s.box(x, y, w, 0.58, v, "dp" if name == "QA" else "cell", 10, name in ("QA", "우세"), "ctr" if name not in ("QA", "지표 (DP1 별점 기준)") else "l", False)
-        y += 0.6
-    s.box(0.4, y, 5.95, 0.4, "별 합계", "dp", 9, True, "ctr", False)
-    s.box(4.7, y, 1.7, 0.4, "—", "cell", 9, False, "ctr", False)
-    s.box(6.4, y, 2.0, 0.4, f"{sel['totals'][C1]}", "cell", 10, True, "ctr", False)
-    s.box(8.4, y, 2.0, 0.4, f"{sel['totals'][C2]}", "cell", 10, True, "ctr", False)
-    s.box(10.4, y, 2.5, 0.4, "동점" if sel["gap"] == 0 else f"차이 {sel['gap']}", "cell", 9, True, "ctr", False)
-    y += 0.55
-    q2, q1 = Q[C2], Q[C1]
-    s.box(0.4, y, 6.1, 1.75, [
+    for key in ("QA1", "QA2", "QA3", "QA4"):
+        s.box(0.4, y, 1.9, 0.56, labels[key].split("\n"), "dp", 9, True, "l", False)
+        for k, sid in enumerate(SY):
+            s.box(2.3 + k * cw, y, cw, 0.56, two(sid, key), "cell", 10, False, "ctr", False)
+        y += 0.58
+    s.box(0.4, y, 1.9, 0.4, "별 합계 (C1 / C2)", "dp", 9, True, "l", False)
+    for k, sid in enumerate(SY):
+        t = sel["per"][sid]["totals"]
+        s.box(2.3 + k * cw, y, cw, 0.4, f"{t[C1]} / {t[C2]}", "cell", 10, True, "ctr", False)
+    y += 0.42
+    nm = {C1: "C1", C2: "C2", None: "구분 불가"}
+    s.box(0.4, y, 1.9, 0.4, "선택 (우선순위 규칙)", "dp", 9, True, "l", False)
+    for k, sid in enumerate(SY):
+        w = sel["per"][sid]
+        s.box(2.3 + k * cw, y, cw, 0.4, f"{nm[w['winner']]}" + (f" ({w['deciding_qa']})" if w["deciding_qa"] else (" (합계)" if w["winner"] else "")), "sel", 10, True, "ctr", False)
+    y += 0.52
+    cells = g.tradeoff_cells()
+    Q = g.R[g.PRIMARY]["combined"]["qa_feasible"]
+    s.box(0.4, y, 6.1, 1.6, [
         "Trade-off",
-        f"- C2는 QA1에서 앞서고, C1은 QA4에서 앞선다. QA2·QA3는 같은 별이다.",
-        f"- C2의 비용: migration {q2['migration_gib']:,.0f} GiB (C1 {q1['migration_gib']:,.0f}), 링크 점유 {q2['migration_link_frac']*100:.1f}% (C1 {q1['migration_link_frac']*100:.1f}%), 신규 data type 추가 시 module 4개.",
-        "- 이득은 static 배치가 stale해지는 Dynamic 시나리오에 집중. Common/Stress는 Baseline과 동률."], "note", 10)
-    s.box(6.7, y, 6.2, 1.75, [
-        f"선택: {'C2' if sel['winner'] == g.C2 else 'C1'}",
-        f"- 규칙: 별 합계 차이 2 이상이면 합계, 아니면 QA 우선순위({' > '.join(g.PRIO['priority'])}).",
-        f"- 합계 {sel['totals'][C1]} 대 {sel['totals'][C2]} (동점)이므로 {sel['deciding_qa']}에서 앞선 후보 선택.",
-        f"- 우선순위를 뒤집으면 {'C2' if sel['reversed_winner'] == g.C2 else 'C1'} ({sel['reversed_deciding_qa']}). 선택은 우선순위 판단에 의존."], "sel", 10)
-    y += 1.85
-    s.box(0.4, y, 12.5, 0.6, [
-        "평가 조건 / 한계: Evidence [B] simulation(config 기반, [A] 실측 아님) + [C] 논증. DP1 별점 경계(QA1 1.30, QA3 +15pp)는 첫 결과를 본 뒤 정함. C2 QA3 +14pp는 경계 직전. 상세: DP1/results/2026-10-02_dp1-qa-evaluation.md"], "warn", 9)
+        f"- C2 우세 칸: {', '.join(cells[1]) or '없음'}",
+        f"- C1 우세 칸: {', '.join(cells[0]) or '없음'}",
+        f"- C2 비용({g.PRIMARY}): migration {Q[C2]['migration_gib']:,.0f} GiB (C1 {Q[C1]['migration_gib']:,.0f}), 링크 점유 {Q[C2]['migration_link_frac']*100:.1f}% (C1 {Q[C1]['migration_link_frac']*100:.1f}%)",
+        "- QA4는 두 후보 같은 별(추정), 값은 C1이 작음"], "note", 9.5)
+    s.box(6.7, y, 6.2, 1.6, [
+        f"선택: {nm[sel['winner']]}",
+        f"- 시스템별: 별 합계 차이 2 이상이면 합계, 아니면 QA 우선순위({' > '.join(g.PRIO['priority'])}).",
+        f"- 시스템별 승수 C1 {sel['wins'][C1]} 대 C2 {sel['wins'][C2]}. 우선순위를 뒤집으면 {nm[sel['reversed_winner']]}.",
+        f"- 우선순위 상태: {g.PRIO['status'].split(' - ')[0]}"], "sel", 9.5)
+    y += 1.7
+    s.box(0.4, y, 12.5, 0.55, [
+        "한계: [B] simulation(config 기반, [A] 실측 아님). A100/H100 규격·link 스케일 ASSUMED. QA3는 SSD-PIM이 풀의 약 75%라 U가 1~2%대(상대값으로 판정). QA4 공수·비용은 가정 상수 추정. 별 경계는 결과를 본 뒤 정한 값 포함."], "warn", 8.5)
     return s
 
 
 def tactics_slide():
     Q = g.P["combined"]["qa_feasible"]
     C1, C2 = g.C1, g.C2
-    s = Slide("DP1 선택 구조(C2)의 보완 설계 택틱 - 제안")
+    s = Slide("DP1 보완 설계 택틱 - 제안 (선택 구조 C2 기준)")
     cols = [("#", 0.4, 0.45), ("약점 (평가 근거)", 0.85, 3.2), ("보완 택틱", 4.05, 5.0), ("개선 QA", 9.05, 1.0), ("검증 상태", 10.05, 2.85)]
     for name, x, w in cols:
         s.box(x, 1.2, w, 0.34, name, "head", 9, True, "ctr", False)
     rows = [
-        ("W1", f"QA4 ★★: 신규 AI data type 추가 시 변경 module 4개 (class metadata, Behavior Monitor feature, Predictor input, Destination 선호)",
-         "T1 type 특성을 descriptor(데이터)로 외부화. descriptor가 없는 class는 type-agnostic 경로로 처리 -> 신규 type 추가 = descriptor 1개", "QA4", "[C] 논증, 미구현. 기대: 변경 module 4 -> 1~2 (미검증)"),
+        ("W1", f"QA4: 신규 AI data class 추가 시 C2 module {g.QA4['scenarios']['S2']['C2']['modules']}개(C1 {g.QA4['scenarios']['S2']['C1']['modules']}개), 신규 memory는 선호 목록에 명시해야 사용됨(C1은 코드 변경 없이 사용)",
+         "T1 type 특성을 descriptor(데이터)로 외부화. descriptor가 없는 class는 type-agnostic 경로로 처리 -> 신규 type 추가 = descriptor 1개", "QA4", "[C] 논증, 미구현. 기대: 변경 module 3 -> 1~2 (미검증)"),
         ("W2", f"migration 비용: C2 {Q[C2]['migration_gib']:,.0f} GiB (C1 {Q[C1]['migration_gib']:,.0f}), 링크 점유 {Q[C2]['migration_link_frac']*100:.1f}% (C1 {Q[C1]['migration_link_frac']*100:.1f}%)",
          "T2 link-time budget + 이득/비용 gating (simulator 적용). traffic class 우선순위(demand > prefetch > demotion). replica가 있으면 DROP 우선", "QA1 QA3", "budget/gating [B] 적용. class 우선순위·DROP 우선은 [C]"),
         ("W3", "예측 의존: C2는 predictor가 틀리면 잘못된 migration. 오차 e=0.6까지는 우위 유지(lognormal 한 종류, 결과 4.6)",
