@@ -45,7 +45,7 @@ BRIEFS={
  "cb_kv_8k_b32_ramp":"KV만, 8K/256, HBM 압박이 점진 증가",
  "cb_mixed_8k_b32":"KV+LoRA+MoE+Agent/Tool 혼합, HBM 빠듯",
  # DP1 stress benchmark
- "kv_b1_c32k_cold_cxl":"차가운 32K KV, Custom-HBM 불가 (CXL-PNM 경로)",
+ "kv_b1_c32k_cold_cxl":"차가운 32K KV, ScHBM 불가 (CXL-PNM 경로)",
  "kv_b16_c32k":"중간 batch/context KV 기준선",
  "kv_b16_c32k_burst_chbm":"32K KV, HBM 여유 적을 때 도착 burst",
  "kv_hbm_relief_behavior_recovery":"HBM 압박 후 회복, hot KV 재승격",
@@ -102,18 +102,18 @@ def scenarios():
     S=[]; add=S.append
 
     # Explicit batch/context cells for KV decode placement.
-    add(Scenario("kv_b1_c32k_cold_cxl","Cold latency-tolerant KV while Custom-HBM is reserved/unavailable; validates CXL-PNM Attention path.",{"KV_CACHE":1},32768,64,1,24,.15,
+    add(Scenario("kv_b1_c32k_cold_cxl","Cold latency-tolerant KV while ScHBM is reserved/unavailable; validates CXL-PNM Attention path.",{"KV_CACHE":1},32768,64,1,24,.15,
                  phase="cold_kv",disabled_tiers=("custom_hbm",),latency_sensitivity_override=.35,target_tiers=("hbm","cxl_pnm")))
     add(Scenario("kv_b16_c32k","KV baseline: moderate batch/context.",{"KV_CACHE":1},32768,64,16,24,1.0,
                  target_tiers=("hbm","custom_hbm","cxl_pnm")))
-    add(Scenario("kv_b16_c32k_burst_chbm","Burst at a batch/context where HBM headroom is tight and Custom-HBM Attention can still meet TPOT.",{"KV_CACHE":1},32768,64,16,30,1.45,
+    add(Scenario("kv_b16_c32k_burst_chbm","Burst at a batch/context where HBM headroom is tight and ScHBM Attention can still meet TPOT.",{"KV_CACHE":1},32768,64,16,30,1.45,
                  phase="arrival_burst",hbm_capacity_mult=.12,latency_sensitivity_override=.75,target_tiers=("hbm","custom_hbm","cxl_pnm")))
     add(Scenario("kv_hbm_relief_behavior_recovery","HBM starts pressured and then recovers; tests whether C2 can promote behaviorally hot KV while C1 remains resource-triggered.",{"KV_CACHE":1},32768,64,16,24,.35,
                  phase="hbm_relief",hbm_capacity_mult=.12,
                  latency_sensitivity_override=.55,target_tiers=("dram","hbm","custom_hbm","cxl_pnm")))
     add(Scenario("kv_b64_c128k_cold","Cold/latency-tolerant KV; CXL-PNM attention offload can be useful.",{"KV_CACHE":1},131072,64,64,24,.85,
                  phase="cold_kv",target_tiers=("hbm","cxl_pnm","custom_hbm")))
-    add(Scenario("kv_b256_c128k_burst","Large-batch burst; tests Custom-HBM attention offload and shared-link pressure.",{"KV_CACHE":1},131072,64,256,28,1.35,
+    add(Scenario("kv_b256_c128k_burst","Large-batch burst; tests ScHBM attention offload and shared-link pressure.",{"KV_CACHE":1},131072,64,256,28,1.35,
                  phase="arrival_burst",target_tiers=("hbm","custom_hbm","cxl_pnm")))
     add(Scenario("kv_b64_c512k_long","Long-context KV pressure at large batch.",{"KV_CACHE":1},524288,64,64,24,1.0,1.15,
                  target_tiers=("hbm","custom_hbm","cxl_pnm")))

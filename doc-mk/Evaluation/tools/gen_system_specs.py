@@ -123,12 +123,12 @@ def render_summary():
     add("FP16 dense / GPU", lambda p, c, g, n, e: tflops(g["dense_fp16_flops"]))
     add("Host link / CXL", lambda p, c, g, n, e: f"{p['generation']['host_link']} / {p['generation']['cxl'].split(' (')[0]}")
     add("Link BW (x16, per dir)", lambda p, c, g, n, e: bw(63e9 * p["link"]["ext_bw_scale"]))
-    add("Custom HBM: cap / int BW / ext BW", lambda p, c, g, n, e: f"{cap(e['custom_hbm']['capacity_bytes'])} / {bw(e['custom_hbm']['int_bw_bytes_per_s'])} / {bw(e['custom_hbm']['ext_bw_bytes_per_s'])}")
+    add("Samsung Custom HBM(ScHBM): cap / int BW / ext BW", lambda p, c, g, n, e: f"{cap(e['custom_hbm']['capacity_bytes'])} / {bw(e['custom_hbm']['int_bw_bytes_per_s'])} / {bw(e['custom_hbm']['ext_bw_bytes_per_s'])}")
     add("CXL-PNM: int / ext BW", lambda p, c, g, n, e: f"{bw(e['cxl_pnm']['int_bw_bytes_per_s'])} / {bw(e['cxl_pnm']['ext_bw_bytes_per_s'])}")
     add("DRAM gen: int / ext BW", lambda p, c, g, n, e: f"{p['generation']['dram']} : {bw(e['dram']['int_bw_bytes_per_s'])} / {bw(e['dram']['ext_bw_bytes_per_s'])}")
     add("HBF: read BW (link-independent)", lambda p, c, g, n, e: bw(e["hbf"]["ext_bw_bytes_per_s"]))
     add("SSD gen / SSD-PIM ext BW", lambda p, c, g, n, e: f"{p['generation']['ssd']} : {bw(e['ssd_pim']['ext_bw_bytes_per_s'])}")
-    L = ["> 4개 generation profile. **6종 메모리(HBM, Custom HBM, CXL-PNM, DRAM, HBF, SSD-PIM)는 모든 profile에 항상 존재**하고 "
+    L = ["> 4개 generation profile. **6종 메모리(HBM, Samsung Custom HBM(ScHBM), CXL-PNM, DRAM, HBF, SSD-PIM)는 모든 profile에 항상 존재**하고 "
          "세대(GPU/HBM, host link, DRAM, SSD)만 다르다. 값의 provenance는 아래 G.3 / G.4 및 3장. 이 블록은 `tools/gen_system_specs.py`가 생성한다.", ""]
     L += table(["Item"] + [f"**{k}**" for k in ids], rows)
     return "\n".join(L)

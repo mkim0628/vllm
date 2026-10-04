@@ -44,7 +44,7 @@
 
 | 시나리오 | 무엇인가 | 드러내는 As-Is 약점 | 핵심 파라미터 |
 |---|---|---|---|
-| `kv_b1_c32k_cold_cxl` | 차가운 32K KV, Custom-HBM 불가 (CXL-PNM 경로) | 차가운 KV를 비싼 tier에 상주 | KV 32K b1 cold-kv no custom_hbm |
+| `kv_b1_c32k_cold_cxl` | 차가운 32K KV, ScHBM 불가 (CXL-PNM 경로) | 차가운 KV를 비싼 tier에 상주 | KV 32K b1 cold-kv no custom_hbm |
 | `kv_b16_c32k` | 중간 batch/context KV 기준선 | 중간 규모 기준선 (대조군) | KV 32K b16 |
 | `kv_b16_c32k_burst_chbm` ★ | 32K KV, HBM 여유 적을 때 도착 burst | burst 시 HBM 부족분 전량 DRAM 복원 | KV 32K b16 hbm x0.12 arrival-burst |
 | `kv_hbm_relief_behavior_recovery` | HBM 압박 후 회복, hot KV 재승격 | HBM 회복 후에도 승격 안 함 | KV 32K b16 hbm x0.12 hbm-relief |

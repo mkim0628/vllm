@@ -282,13 +282,29 @@ def gm_abs(pairs, cand, getter):
     return math.exp(sum(math.log(max(1e-9, getter(RM[lab]["per_scenario"][k][cand]))) for lab, k in pairs) / len(pairs))
 
 
+def memory_line():
+    """Compact memory description from the loaded profiles (H100 / B200 values where they differ)."""
+    from model import load_profile
+    ms = {sid: load_profile(SIM / "configs", sid)[0].memories for sid in SYSIDS}
+    prof = json.load(open(SIM / "configs" / "systems.json"))["profiles"]
+    def cap(n):
+        v = [ms[sid][n].capacity_bytes / 2**30 for sid in SYSIDS]
+        f = lambda x: f"{x / 1024:g} TiB" if x >= 1024 and n != "hbm" else f"{x:,.0f} GiB"
+        return f(v[0]) if len(set(round(x) for x in v)) == 1 else " / ".join(f(x) for x in v)
+    lk = prof[SYSIDS[0]]["generation"]
+    comp = lambda n: " / ".join(dict.fromkeys(f"{ms[sid][n].compute_flops / 1e12:g}" for sid in SYSIDS))
+    return (f"HBM {cap('hbm')}(GPU 8장); Samsung Custom HBM(ScHBM) {cap('custom_hbm')}, CPU와 {lk['host_link']} x16, 연산 {comp('custom_hbm')} TFLOPS FP16(attention 연산 오프로드); "
+            f"CXL-PNM {cap('cxl_pnm')}(내부 DRAM), {lk['cxl']}, 연산 {comp('cxl_pnm')} TFLOPS(attention 오프로드); DRAM {cap('dram')}, {lk['host_link']} x16; "
+            f"HBF {cap('hbf')}, GPU 직접 접근(UCIe) 1 TB/s; SSD-PIM {cap('ssd_pim')}, {lk['ssd']}, GEMV {comp('ssd_pim')} TFLOPS")
+
+
 def system_note():
     prof = json.load(open(SIM / "configs" / "systems.json"))["profiles"]
     names = "; ".join(f"**{sid}** ({prof[sid]['name'].split(':')[0]}, {prof[sid]['generation']['gpu_hbm']}, {prof[sid]['generation']['host_link']}, {prof[sid]['generation']['dram']})" for sid in SYSIDS)
     pairs = valid_pairs([x for x, _ in SETS])
     per = ", ".join(f"{sid[4:]} {sum(1 for _, k in pairs if k.endswith('@' + sid[4:]))}쌍" for sid in SYSIDS)
     total = sum(len(RM[lab]["scenario_labels"]) for lab, _ in SETS)
-    return (f"**평가한 시스템:** {names}. 모두 6종 메모리(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD-PIM)를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. "
+    return (f"**평가한 시스템:** {names}. 모두 6종 메모리를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. 메모리({memory_line()}). "
             f"집계 단위는 (시나리오, 시스템) 쌍 {total}개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 {len(pairs)}쌍: {per}). "
             f"값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].")
 
@@ -517,7 +533,7 @@ status: draft
 | 표 생성 | `python3 doc-mk/Evaluation/tools/gen_dp1_result.py` |
 | Raw data | `DP1/results/data/SYS-{{H100,B200}}/qa_result.json`, 통합 `INT-H100-B200/qa_result.json`, `epsilon_SYS-B200.json`, `qa4_modifiability.json`, `sensitivity_SYS-4.json`(legacy, SYS-B200과 동일 수치) |
 
-시스템 profile 상세: [system-specs.md](../../system-specs.md). 세대별 profile의 H100 규격과 link 스케일링은 ASSUMED/PUBLIC(확인 필요)이며, CXL-PNM/HBF/SSD-PIM/Custom HBM 같은 신규 memory는 과거 세대가 없어 link 대역 스케일로만 세대를 표현했다(ASSUMED). 구 SYS-4 = SYS-B200(수치 동일), 구 SYS-5와 SYS-VR은 PCIe 6.0 반영으로 다르다.
+시스템 profile 상세: [system-specs.md](../../system-specs.md). 세대별 profile의 H100 규격과 link 스케일링은 ASSUMED/PUBLIC(확인 필요)이며, CXL-PNM/HBF/SSD-PIM/Samsung Custom HBM(ScHBM) 같은 신규 memory는 과거 세대가 없어 link 대역 스케일로만 세대를 표현했다(ASSUMED). 구 SYS-4 = SYS-B200(수치 동일), 구 SYS-5와 SYS-VR은 PCIe 6.0 반영으로 다르다.
 
 # 2. 평가 항목
 
@@ -670,7 +686,7 @@ e를 올려도 C2의 이득이 사라지는 지점(break-even)은 이 오차 모
 5. **미모델링:** capacity ramp(hard capacity limit 없음), HBM BW shock(offload가 건강한 HBM을 이길 수 없음), 다른 workload와의 링크 경합, HBF endurance, queueing/saturation(QA1이 load에 거의 비례). 개정된 **Memory Backend I/F 구조는 구현하지 않았다** (decision 로직은 기존 C1/C2, 개정 구조는 QA4에만 반영). DROP action은 이 평가에 포함하지 않았다.
 6. **임시 정의:** QA3 formula, tie 판정의 1% material 임계, "saturated" fit label(모든 후보 CI 이내 동일).
 7. **QA2 집계가 worst-case**라 Baseline 자체가 SLO를 못 맞추는 시나리오가 있는 set에서는 모든 후보가 ★로 나온다 (Stress set).
-8. **세대별 profile의 규격은 일부 ASSUMED**: H100 HBM·연산 값은 PUBLIC(확인 필요), PCIe 세대별 link 스케일은 가정이다(제외된 SYS-A100의 CXL-PNM은 가상 구성). 신규 memory(CXL-PNM, HBF, SSD-PIM, Custom HBM)는 과거 세대가 없어 link 대역으로만 세대를 표현했다.
+8. **세대별 profile의 규격은 일부 ASSUMED**: H100 HBM·연산 값은 PUBLIC(확인 필요), PCIe 세대별 link 스케일은 가정이다(제외된 SYS-A100의 CXL-PNM은 가상 구성). 신규 memory(CXL-PNM, HBF, SSD-PIM, Samsung Custom HBM(ScHBM))는 과거 세대가 없어 link 대역으로만 세대를 표현했다.
 9. **DP1 별점 기준(4.1)은 공통 룰(criteria rule 2: 같은 QA는 DP 간 같은 룰)과 의도적으로 다르며, 첫 결과를 본 뒤 정의했다** (`defined_after_first_look`). 공통 별점은 4.1a에 병기한다. 후보 간 ★ 차이는 QA1 ★★★ 경계(1.30)에 의존한다. 4.1b의 sensitivity에서 경계가 약 1.26~1.44일 때만 C1/C2가 갈리고 1.25 이하에서는 같으며 1.50이면 둘 다 ★★이다. 새 benchmark로 같은 경계를 재확인해야 한다. 집계는 comparison-valid 시나리오만 대상으로 하므로 feasible 전체 기준 값과 n이 다르다.
 
 10. **QA3는 HBM 사용량(v6)으로 재정의했다**(소유자 결정). 이력: v3(HBM 활용률) -> v4(전 메모리 풀 U) -> v5 초안(성능÷비용 가중 점유) -> v6(HBM 사용량). 모두 결과를 본 뒤의 변경이다(`defined_after_first_look`). 이유: 활용률 U는 처리량과 상관 0.99이고, 성능÷비용은 성능이 섞여 QA1/QA2와 겹치며, 풀 점유 총량은 이동과 무관하다. **한계:** HBM을 비우되 성능이 나빠지는 정책이 이 QA에서 유리하므로 QA1/QA2와 함께 읽어야 한다. HBM 사용량은 어느 메모리로 보냈는지(DRAM/HBF의 가격 차)를 구분하지 못한다(보조 지표로 비용 가중 점유를 병기하며 가격은 ASSUMED). 이 정의 변경으로 선택이 C2에서 C1로 바뀌었다(0.3).

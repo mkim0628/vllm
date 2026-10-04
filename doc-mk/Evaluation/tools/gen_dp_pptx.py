@@ -65,6 +65,41 @@ def stars(c):
     return g.stars_combined()[c]
 
 
+def system_slide():
+    """Memory configuration of the evaluated systems (capacity, host link, bandwidth, compute capability, what the simulator uses)."""
+    from model import load_profile
+    ms = {sid: load_profile(g.SIM / "configs", sid)[0].memories for sid in g.SYSIDS}
+    prof = g.json.load(open(g.SIM / "configs" / "systems.json"))["profiles"]
+    gen = prof[g.SYSIDS[0]]["generation"]
+    s = Slide("DP1 평가 시스템 - 메모리 구성 (H100x8 / B200x8, 값이 다르면 H100 / B200)")
+    cols = [("메모리", 0.4, 2.1), ("용량", 2.5, 1.6), ("연결 (host와)", 4.1, 2.9), ("대역폭 (외부 / 내부)", 7.0, 2.2), ("연산 능력 (FP16)과 지원 연산", 9.2, 3.7)]
+    for name, x, w in cols:
+        s.box(x, 1.15, w, 0.32, name, "head", 10, True, "ctr", False)
+    dd = lambda vals: " / ".join(dict.fromkeys(vals))
+    cap = lambda n: dd([(f"{ms[sid][n].capacity_bytes / 2**40:g} TiB" if ms[sid][n].capacity_bytes >= 2**40 and n != "hbm" else f"{ms[sid][n].capacity_bytes / 2**30:,.0f} GiB") for sid in g.SYSIDS])
+    bw = lambda n, attr: dd([f"{getattr(ms[sid][n], attr) / 1e9:,.0f}" for sid in g.SYSIDS])
+    ops = "QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK"
+    comp = lambda n: dd([f"{ms[sid][n].compute_flops / 1e12:g}" for sid in g.SYSIDS])
+    rows = [
+        ("HBM", cap("hbm") + " (GPU 8장 합)", "GPU 온패키지", f"{bw('hbm', 'ext_bw')} GB/s (GPU 합)", "—  (GPU가 attention·FFN 실행)"),
+        ("Samsung Custom HBM (ScHBM)", cap("custom_hbm") + " (노드 1개)", f"CPU와 {gen['host_link']} x16, GPU→host→ScHBM 2홉 (GPU 직접 접근 불가)", f"{bw('custom_hbm', 'ext_bw')} GB/s / {bw('custom_hbm', 'int_bw')} GB/s", f"{comp('custom_hbm')} TFLOPS · {ops} (attention 오프로드)"),
+        ("CXL-PNM", cap("cxl_pnm") + " (내부 DRAM)", f"{gen['cxl']}, host 경유", f"{bw('cxl_pnm', 'ext_bw')} GB/s / {bw('cxl_pnm', 'int_bw')} GB/s", f"{comp('cxl_pnm')} TFLOPS · {ops} (attention 오프로드)"),
+        ("DRAM (host)", cap("dram"), f"GPU와 {gen['host_link']} x16 ({gen['dram'].split('-')[0]})", f"{bw('dram', 'ext_bw')} GB/s / {bw('dram', 'int_bw')} GB/s", "—"),
+        ("HBF", cap("hbf"), "GPU 직접 접근 (UCIe), PCIe 아님", f"읽기 {bw('hbf', 'ext_bw')} GB/s, 쓰기 {bw('hbf', 'write_bw')} GB/s", "—"),
+        ("SSD-PIM", cap("ssd_pim"), gen["ssd"], f"{bw('ssd_pim', 'ext_bw')} GB/s / {bw('ssd_pim', 'int_bw')} GB/s", f"{comp('ssd_pim')} TFLOPS · GEMV (벡터 DB 유사도 계산만)"),
+    ]
+    y = 1.5
+    for r in rows:
+        for (name, x, w), v in zip(cols, r):
+            s.box(x, y, w, 0.62, v, "dp" if name == "메모리" else "cell", 9.5, name == "메모리", "l", False)
+        y += 0.64
+    s.box(0.4, y + 0.08, 12.5, 1.55, [
+        "시뮬레이션 반영: 용량, 외부·내부 대역폭, 지연, 쓰기 대역폭, 연산 능력과 지원 연산을 모두 쓴다. attention을 오프로드할 수 있는 tier는 4개 연산(QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK)과 연산 능력을 모두 가진 ScHBM과 CXL-PNM뿐이며, 그때의 지연은 max(내부 BW 기반 읽기 시간, 연산 시간) + 활성 전송 + layer별 왕복으로 계산한다. SSD-PIM은 GEMV로 벡터 DB 유사도 계산에만 쓴다.",
+        "미반영: HBF의 쓰기 증폭(3.0)과 endurance(100 PB), PCIe/CXL 프로토콜 오버헤드(링크는 이론 대역폭), 전력.",
+        "값의 출처: ScHBM 용량·내부 BW·연산은 페어링 GPU 상대 규칙(용량 2배, 내부 BW 2배, 연산 20%), CXL-PNM 연산(FP32 1.64 TFLOPS의 2배), HBF·SSD-PIM 일부 값은 ASSUMED. 상세: system-specs.md"], "note", 9)
+    return s
+
+
 def qa_slides():
     """Results deck: (1) result table + brief system info + selection, (2)(3) why each QA value comes out that way, (4) covered scenarios."""
     import math as _m
@@ -129,7 +164,7 @@ def qa_slides():
     prof = g.json.load(open(g.SIM / "configs" / "systems.json"))["profiles"]
     sysline = " + ".join(f"{sid[4:]}x8 ({prof[sid]['generation']['gpu_hbm'].split(' ')[0]}, {prof[sid]['generation']['host_link']}, {prof[sid]['generation']['dram']})" for sid in g.SYSIDS)
     s.box(0.4, y, 12.5, 0.95, [
-        f"시스템: {sysline}. 6종 메모리(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD-PIM)를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16.",
+        f"시스템: {sysline}. 8-GPU 1노드, Llama-3.1-70B BF16. 메모리(상세는 다음 장): " + g.memory_line().split("; ", 1)[1].replace("연산 ", "연산 ") + "." if False else f"시스템: {sysline}. 8-GPU 1노드, Llama-3.1-70B BF16. 6종 메모리 구성은 다음 장.",
         f"시나리오: 32개 x 2시스템 = 64쌍 중 비교 가능 {ft['comparison_valid']}쌍 기준(포화 {ft['saturated']}, Baseline도 SLO 불가 {ft['infeasible']}쌍 제외). 값은 쌍별 값의 기하평균, 괄호는 후보 ÷ Baseline(↑ 높을수록 좋음, ↓ 낮을수록 좋음). Evidence [B+C]."], "note", 9)
     y += 1.03
     why = (f"합계 {o['totals'][C1]} 대 {o['totals'][C2]}로 같아 우선순위({' > '.join(g.PRIO['priority'])})로 결정: {o['deciding']}에서 앞선 {nm[o['winner']]}" if o["rule"] == "priority"
@@ -211,7 +246,7 @@ def qa_slides():
         s4.box(0.4, yy, 2.9, 0.92, t, "dp", 10, True, "l", False)
         s4.box(3.3, yy, 9.6, 0.92, body, "cell", 10.5, False, "l", False)
         yy += 0.97
-    return [s, s2, s3, s4]
+    return [s, system_slide(), s2, s3, s4]
 
 
 def tactics_slide():

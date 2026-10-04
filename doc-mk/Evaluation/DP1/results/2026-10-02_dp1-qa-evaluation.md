@@ -3,7 +3,7 @@ date: 2026-10-02
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
 sys_ids: [SYS-H100, SYS-B200]
-git_rev: 26f8e4b (dirty)
+git_rev: 5473656 (dirty)
 evidence: { QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[B+C]" }
 status: draft
 ---
@@ -31,7 +31,7 @@ status: draft
 | **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
 | **별 합계** | | — | **10** | **9** |
 
-**평가한 시스템:** **SYS-H100** (H100x8 (Hopper-class), HBM3 (H100 SXM5 80GB), PCIe 5.0, DDR5-4800); **SYS-B200** (B200x8 (Blackwell-class), HBM3e (B200), PCIe 5.0, DDR5-6400). 모두 6종 메모리(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD-PIM)를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. 집계 단위는 (시나리오, 시스템) 쌍 64개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 21쌍: H100 9쌍, B200 12쌍). 값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].
+**평가한 시스템:** **SYS-H100** (H100x8 (Hopper-class), HBM3 (H100 SXM5 80GB), PCIe 5.0, DDR5-4800); **SYS-B200** (B200x8 (Blackwell-class), HBM3e (B200), PCIe 5.0, DDR5-6400). 모두 6종 메모리를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. 메모리(HBM 640 GiB / 1,536 GiB(GPU 8장); Samsung Custom HBM(ScHBM) 160 GiB / 384 GiB, CPU와 PCIe 5.0 x16, 연산 197.8 / 450 TFLOPS FP16(attention 연산 오프로드); CXL-PNM 512 GiB(내부 DRAM), CXL 2.0 (PCIe 5.0 PHY), 연산 3.28 TFLOPS(attention 오프로드); DRAM 1 TiB, PCIe 5.0 x16; HBF 2 TiB, GPU 직접 접근(UCIe) 1 TB/s; SSD-PIM 16 TiB, NVMe PCIe 5.0 x4, GEMV 2 TFLOPS). 집계 단위는 (시나리오, 시스템) 쌍 64개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 21쌍: H100 9쌍, B200 12쌍). 값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].
 
 Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이다. 별은 DP1 기준이며 공통 기준 별점은 4.1a에 참고로 둔다. 표 형식은 `qa-evaluation-criteria.md` §10.
 
@@ -83,14 +83,14 @@ Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이�
 | SYS id | **메모리 세대별 2개 profile** (모두 6종 메모리 포함): SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-A100(HBM2e, PCIe 4.0)과 SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정, 2026-10-03). 이전 문서의 A100/VR 결과는 `results/data/SYS-A100`, `SYS-VR`에 보존된다. 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
 | 범위 제약 | DP1의 data 이동은 **단일 노드(한 서버) 내부**의 메모리 계층 사이로 한정 (설계 문서 §3.3). 노드 간 이동은 DP0 소관이며 이 평가에 포함되지 않음 |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
-| Git revision | 26f8e4b (dirty) |
+| Git revision | 5473656 (dirty) |
 | Seeds / loads | seeds 11, 23, 37, 53, 71 (5회) / load x0.5, x1.0, x1.5, x2.0, 95% CI t=2.776 |
 | Tie 판정 | goodput 상대 차이 < 1% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
 | 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final && python3 merge_systems.py SYS-H100 SYS-B200 && python3 dp1_rating.py ../results/data/INT-H100-B200/qa_result.json` (시스템별 단독은 각 SYS의 `dp1_rating.py`), 단일: `python3 qa_eval.py --system SYS-B200` |
 | 표 생성 | `python3 doc-mk/Evaluation/tools/gen_dp1_result.py` |
 | Raw data | `DP1/results/data/SYS-{H100,B200}/qa_result.json`, 통합 `INT-H100-B200/qa_result.json`, `epsilon_SYS-B200.json`, `qa4_modifiability.json`, `sensitivity_SYS-4.json`(legacy, SYS-B200과 동일 수치) |
 
-시스템 profile 상세: [system-specs.md](../../system-specs.md). 세대별 profile의 H100 규격과 link 스케일링은 ASSUMED/PUBLIC(확인 필요)이며, CXL-PNM/HBF/SSD-PIM/Custom HBM 같은 신규 memory는 과거 세대가 없어 link 대역 스케일로만 세대를 표현했다(ASSUMED). 구 SYS-4 = SYS-B200(수치 동일), 구 SYS-5와 SYS-VR은 PCIe 6.0 반영으로 다르다.
+시스템 profile 상세: [system-specs.md](../../system-specs.md). 세대별 profile의 H100 규격과 link 스케일링은 ASSUMED/PUBLIC(확인 필요)이며, CXL-PNM/HBF/SSD-PIM/Samsung Custom HBM(ScHBM) 같은 신규 memory는 과거 세대가 없어 link 대역 스케일로만 세대를 표현했다(ASSUMED). 구 SYS-4 = SYS-B200(수치 동일), 구 SYS-5와 SYS-VR은 PCIe 6.0 반영으로 다르다.
 
 # 2. 평가 항목
 
@@ -118,7 +118,7 @@ Fit label: **V** = comparison-valid (Baseline이 SLO 만족), **I** = infeasible
 | Common | `cb_kv_8k_b32` | V | V | KV만, 8K/256, batch 32, HBM 빠듯 |
 | Common | `cb_kv_8k_b32_ramp` | V | V | KV만, 8K/256, HBM 압박이 점진 증가 |
 | Common | `cb_mixed_8k_b32` | V | S | KV+LoRA+MoE+Agent/Tool 혼합, HBM 빠듯 |
-| DP1 Stress | `kv_b1_c32k_cold_cxl` | S | V | 차가운 32K KV, Custom-HBM 불가 (CXL-PNM 경로) |
+| DP1 Stress | `kv_b1_c32k_cold_cxl` | S | V | 차가운 32K KV, ScHBM 불가 (CXL-PNM 경로) |
 | DP1 Stress | `kv_b16_c32k` | S | S | 중간 batch/context KV 기준선 |
 | DP1 Stress | `kv_b16_c32k_burst_chbm` | V | V | 32K KV, HBM 여유 적을 때 도착 burst |
 | DP1 Stress | `kv_hbm_relief_behavior_recovery` | S | V | HBM 압박 후 회복, hot KV 재승격 |
@@ -166,7 +166,7 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 | **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
 | **별 합계** | | — | **10** | **9** |
 
-**평가한 시스템:** **SYS-H100** (H100x8 (Hopper-class), HBM3 (H100 SXM5 80GB), PCIe 5.0, DDR5-4800); **SYS-B200** (B200x8 (Blackwell-class), HBM3e (B200), PCIe 5.0, DDR5-6400). 모두 6종 메모리(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD-PIM)를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. 집계 단위는 (시나리오, 시스템) 쌍 64개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 21쌍: H100 9쌍, B200 12쌍). 값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].
+**평가한 시스템:** **SYS-H100** (H100x8 (Hopper-class), HBM3 (H100 SXM5 80GB), PCIe 5.0, DDR5-4800); **SYS-B200** (B200x8 (Blackwell-class), HBM3e (B200), PCIe 5.0, DDR5-6400). 모두 6종 메모리를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. 메모리(HBM 640 GiB / 1,536 GiB(GPU 8장); Samsung Custom HBM(ScHBM) 160 GiB / 384 GiB, CPU와 PCIe 5.0 x16, 연산 197.8 / 450 TFLOPS FP16(attention 연산 오프로드); CXL-PNM 512 GiB(내부 DRAM), CXL 2.0 (PCIe 5.0 PHY), 연산 3.28 TFLOPS(attention 오프로드); DRAM 1 TiB, PCIe 5.0 x16; HBF 2 TiB, GPU 직접 접근(UCIe) 1 TB/s; SSD-PIM 16 TiB, NVMe PCIe 5.0 x4, GEMV 2 TFLOPS). 집계 단위는 (시나리오, 시스템) 쌍 64개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 21쌍: H100 9쌍, B200 12쌍). 값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].
 
 ### set별 (통합 시스템)
 
@@ -461,7 +461,7 @@ H100/B200 두 시스템, 3개 set 전체에서 **어느 후보도 Baseline 미�
 5. **미모델링:** capacity ramp(hard capacity limit 없음), HBM BW shock(offload가 건강한 HBM을 이길 수 없음), 다른 workload와의 링크 경합, HBF endurance, queueing/saturation(QA1이 load에 거의 비례). 개정된 **Memory Backend I/F 구조는 구현하지 않았다** (decision 로직은 기존 C1/C2, 개정 구조는 QA4에만 반영). DROP action은 이 평가에 포함하지 않았다.
 6. **임시 정의:** QA3 formula, tie 판정의 1% material 임계, "saturated" fit label(모든 후보 CI 이내 동일).
 7. **QA2 집계가 worst-case**라 Baseline 자체가 SLO를 못 맞추는 시나리오가 있는 set에서는 모든 후보가 ★로 나온다 (Stress set).
-8. **세대별 profile의 규격은 일부 ASSUMED**: H100 HBM·연산 값은 PUBLIC(확인 필요), PCIe 세대별 link 스케일은 가정이다(제외된 SYS-A100의 CXL-PNM은 가상 구성). 신규 memory(CXL-PNM, HBF, SSD-PIM, Custom HBM)는 과거 세대가 없어 link 대역으로만 세대를 표현했다.
+8. **세대별 profile의 규격은 일부 ASSUMED**: H100 HBM·연산 값은 PUBLIC(확인 필요), PCIe 세대별 link 스케일은 가정이다(제외된 SYS-A100의 CXL-PNM은 가상 구성). 신규 memory(CXL-PNM, HBF, SSD-PIM, Samsung Custom HBM(ScHBM))는 과거 세대가 없어 link 대역으로만 세대를 표현했다.
 9. **DP1 별점 기준(4.1)은 공통 룰(criteria rule 2: 같은 QA는 DP 간 같은 룰)과 의도적으로 다르며, 첫 결과를 본 뒤 정의했다** (`defined_after_first_look`). 공통 별점은 4.1a에 병기한다. 후보 간 ★ 차이는 QA1 ★★★ 경계(1.30)에 의존한다. 4.1b의 sensitivity에서 경계가 약 1.26~1.44일 때만 C1/C2가 갈리고 1.25 이하에서는 같으며 1.50이면 둘 다 ★★이다. 새 benchmark로 같은 경계를 재확인해야 한다. 집계는 comparison-valid 시나리오만 대상으로 하므로 feasible 전체 기준 값과 n이 다르다.
 
 10. **QA3는 HBM 사용량(v6)으로 재정의했다**(소유자 결정). 이력: v3(HBM 활용률) -> v4(전 메모리 풀 U) -> v5 초안(성능÷비용 가중 점유) -> v6(HBM 사용량). 모두 결과를 본 뒤의 변경이다(`defined_after_first_look`). 이유: 활용률 U는 처리량과 상관 0.99이고, 성능÷비용은 성능이 섞여 QA1/QA2와 겹치며, 풀 점유 총량은 이동과 무관하다. **한계:** HBM을 비우되 성능이 나빠지는 정책이 이 QA에서 유리하므로 QA1/QA2와 함께 읽어야 한다. HBM 사용량은 어느 메모리로 보냈는지(DRAM/HBF의 가격 차)를 구분하지 못한다(보조 지표로 비용 가중 점유를 병기하며 가격은 ASSUMED). 이 정의 변경으로 선택이 C2에서 C1로 바뀌었다(0.3).
