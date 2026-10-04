@@ -66,12 +66,16 @@ def stars(c):
 
 
 def qa_slides():
+    """Results deck: (1) result table + brief system info + selection, (2)(3) why each QA value comes out that way, (4) covered scenarios."""
+    import math as _m
     o = g.overall_selection()
     st = o["stars"][g.MERGED]
     G = g.RTM["sets"]["combined"]
     Qf = g.RM["combined"]["qa_feasible"]
+    T = g.RM["combined"]["tally"]
     B, C1, C2 = g.B, g.C1, g.C2
     m = g.QA4["mean_over_scenarios"]
+    sc4 = g.QA4["scenarios"]
     nm = {C1: "C1", C2: "C2", None: "구분 불가"}
     pairs = g.valid_pairs([x for x, _ in g.SETS])
     gm = lambda c, f: g.gm_abs(pairs, c, f)
@@ -80,13 +84,26 @@ def qa_slides():
     t99, t50 = (lambda p: p["ttft_p99_ms"]), (lambda p: p["ttft_p50_ms"])
     o99, o50 = (lambda p: p["tpot_p99_ms"]), (lambda p: p["tpot_p50_ms"])
     hb = lambda p: p["tier_occ_gib"]["hbm"]
-    import math as _m
     imp = lambda c, mm: _m.exp(sum(_m.log(G[c]["qa2"]["improvement_vs_baseline"][f"{mm}_{p}_ms"]) for p in ("p50", "p95", "p99")) / 3)
+    E1, E2 = G[C1]["eff"], G[C2]["eff"]
+
+    def pair(key):
+        for lab, _ in g.SETS:
+            if key in g.RM[lab]["per_scenario"]:
+                return g.RM[lab]["per_scenario"][key]
+        raise KeyError(key)
+
+    def ex(key, c, f):
+        return pair(key)[c][f]
+
+    # ---------------- slide 1: table + brief system + selection ----------------
     s = Slide("DP1 평가 결과 - QA별 정량 metric (H100 + B200 통합)")
     cols = [("QA / 평가 metric", 0.4, 3.0), ("Baseline", 3.4, 1.9), ("C1 Resource-driven", 5.3, 3.8), ("C2 Behavior-driven", 9.1, 3.8)]
     y = 1.15
     for name, x, w in cols:
         s.box(x, y, w, 0.32, name, "head", 10, True, "ctr", False)
+    h_prev = [0.34]
+
     def row(label, base, a, b, h=0.5, size=9.5):
         nonlocal y
         y += h_prev[0]
@@ -95,54 +112,106 @@ def qa_slides():
         s.box(5.3, y, 3.8, h, a, "cell", size, False, "ctr", False)
         s.box(9.1, y, 3.8, h, b, "cell", size, False, "ctr", False)
         h_prev[0] = h + 0.02
-    h_prev = [0.34]
-    row(["QA1 Throughput", "Max SLO goodput (tok/s) ↑"], f"{gm(B, gp):,.0f}",
-        f"{st[C1]['QA1']}  {gm(C1, gp):,.0f} (x{rt(C1, gp):.2f})", f"{st[C2]['QA1']}  {gm(C2, gp):,.0f} (x{rt(C2, gp):.2f})")
+
+    row(["QA1 Throughput", "Max SLO goodput (tok/s) ↑"], f"{gm(B, gp):,.0f}", f"{st[C1]['QA1']}  {gm(C1, gp):,.0f} (x{rt(C1, gp):.2f})", f"{st[C2]['QA1']}  {gm(C2, gp):,.0f} (x{rt(C2, gp):.2f})")
     row(["QA2 Latency — TTFT", "P99 · P50 (ms) ↓"], f"P99 {gm(B, t99):,.0f} · P50 {gm(B, t50):,.0f}",
         f"P99 {gm(C1, t99):,.0f} (x{rt(C1, t99):.2f}) · P50 {gm(C1, t50):,.0f} (x{rt(C1, t50):.2f})", f"P99 {gm(C2, t99):,.0f} (x{rt(C2, t99):.2f}) · P50 {gm(C2, t50):,.0f} (x{rt(C2, t50):.2f})")
     row(["QA2 Latency — TPOT", "P99 · P50 (ms) ↓"], f"P99 {gm(B, o99):,.1f} · P50 {gm(B, o50):,.1f}",
         f"P99 {gm(C1, o99):,.1f} (x{rt(C1, o99):.2f}) · P50 {gm(C1, o50):,.1f} (x{rt(C1, o50):.2f})", f"P99 {gm(C2, o99):,.1f} (x{rt(C2, o99):.2f}) · P50 {gm(C2, o50):,.1f} (x{rt(C2, o50):.2f})")
     row(["QA2 별점", "6개 지표 개선 배수 geomean"], "x1.00",
         f"{st[C1]['QA2']}  x{G[C1]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{imp(C1, 'ttft'):.2f} · TPOT x{imp(C1, 'tpot'):.2f})", f"{st[C2]['QA2']}  x{G[C2]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{imp(C2, 'ttft'):.2f} · TPOT x{imp(C2, 'tpot'):.2f})")
-    row(["QA3 Resource usage", "HBM 사용량 (GiB) ↓"], f"{gm(B, hb):,.1f}",
-        f"{st[C1]['QA3']}  {gm(C1, hb):,.1f} (x{rt(C1, hb):.2f})", f"{st[C2]['QA3']}  {gm(C2, hb):,.1f} (x{rt(C2, hb):.2f})")
+    row(["QA3 Resource usage", "HBM 사용량 (GiB) ↓"], f"{gm(B, hb):,.1f}", f"{st[C1]['QA3']}  {gm(C1, hb):,.1f} (x{rt(C1, hb):.2f})", f"{st[C2]['QA3']}  {gm(C2, hb):,.1f} (x{rt(C2, hb):.2f})")
     row(["QA4 Modifiability", "module · 공수(MM) · 에이전트 비용 ↓"], "—",
         f"{st[C1]['QA4']}  {m['C1']['modules']:.2f} · {m['C1']['man_months']:.2f} · ${m['C1']['usd_T1']:.2f}", f"{st[C2]['QA4']}  {m['C2']['modules']:.2f} · {m['C2']['man_months']:.2f} · ${m['C2']['usd_T1']:.2f}")
     row(["별 합계", ""], "—", f"{o['totals'][C1]}", f"{o['totals'][C2]}", h=0.36, size=11)
-    y += h_prev[0] + 0.05
-    s.box(0.4, y, 12.5, 0.72, [g.system_note().replace("**", "")], "note", 8.5)
-    y += 0.8
-    s.box(0.4, y, 6.2, 1.55, [
-        "Trade-off와 이유",
-        "- 성능은 C2: 데이터마다 접근 빈도·재사용·유휴를 보고 이동해 같은 종류(KV) 안의 hot/cold를 구분. C1은 자원 압박에만 반응.",
-        f"- 자원은 C1: HBM 사용량 C1 x{rt(C1, hb):.2f} 대 C2 x{rt(C2, hb):.2f}. C2는 성능을 위해 hot 데이터를 HBM에 올림(성능과 자원은 반대 방향).",
-        "- 확장성은 C1: 새 데이터 종류 추가 시 module 1개 (C2 3개).",
-        f"- 지연: C1은 TTFT P50은 줄었지만 P99는 x{rt(C1, t99):.2f}로 개선 없음. C2는 P99도 x{rt(C2, t99):.2f}. TPOT은 거의 불변."], "note", 9)
-    why = (f"합계 {o['totals'][C1]} 대 {o['totals'][C2]}로 같아 우선순위로 결정: {o['deciding']}에서 앞선 {nm[o['winner']]}" if o["rule"] == "priority"
-           else f"별 합계가 높은 {nm[o['winner']]} 후보 ({o['totals'][C1]} 대 {o['totals'][C2]})")
-    s.box(6.8, y, 6.1, 1.55, [
-        f"선택: {nm[o['winner']]}",
-        f"- 규칙: 별 합계가 높은 후보, 같을 때만 QA 우선순위({' > '.join(g.PRIO['priority'])}).",
-        f"- {why}. 합계 차이 1점이라 별 경계에 민감.",
-        "- 한계: [B] simulation. QA1 경계(1.30), QA3 정의(선택을 C2에서 C1로 바꿈), QA4 평균 집계는 결과를 본 뒤 정함. QA4 공수·비용은 ASSUMED."], "sel", 9)
-
-    # slide 2: scenarios in plain language
+    y += h_prev[0] + 0.06
     ft = g.fit_counts()
-    s2 = Slide("DP1 평가에서 고려한 시나리오")
-    s2.box(0.4, 1.2, 12.5, 0.55, [f"32개 시나리오를 H100과 B200에 각각 돌렸다(64쌍): 비교 가능 {ft['comparison_valid']}쌍, 포화 {ft['saturated']}쌍, Baseline도 SLO 불가라 비교 제외 {ft['infeasible']}쌍."], "note", 10)
+    prof = g.json.load(open(g.SIM / "configs" / "systems.json"))["profiles"]
+    sysline = " + ".join(f"{sid[4:]}x8 ({prof[sid]['generation']['gpu_hbm'].split(' ')[0]}, {prof[sid]['generation']['host_link']}, {prof[sid]['generation']['dram']})" for sid in g.SYSIDS)
+    s.box(0.4, y, 12.5, 0.95, [
+        f"시스템: {sysline}. 6종 메모리(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD-PIM)를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16.",
+        f"시나리오: 32개 x 2시스템 = 64쌍 중 비교 가능 {ft['comparison_valid']}쌍 기준(포화 {ft['saturated']}, Baseline도 SLO 불가 {ft['infeasible']}쌍 제외). 값은 쌍별 값의 기하평균, 괄호는 후보 ÷ Baseline(↑ 높을수록 좋음, ↓ 낮을수록 좋음). Evidence [B+C]."], "note", 9)
+    y += 1.03
+    why = (f"합계 {o['totals'][C1]} 대 {o['totals'][C2]}로 같아 우선순위({' > '.join(g.PRIO['priority'])})로 결정: {o['deciding']}에서 앞선 {nm[o['winner']]}" if o["rule"] == "priority"
+           else f"별 합계가 높은 {nm[o['winner']]} 후보 ({o['totals'][C1]} 대 {o['totals'][C2]})")
+    s.box(0.4, y, 12.5, 0.8, [
+        f"선택: {nm[o['winner']]}  —  {why}. 합계 차이 1점이라 별 경계에 민감하다.",
+        "한계: [B] simulation, 별 경계(QA1 1.30)와 QA3 정의(선택을 C2에서 C1로 바꿈), QA4 평균 집계는 결과를 본 뒤 정함. QA4 공수·비용은 ASSUMED."], "sel", 9)
+
+    # ---------------- slide 2: why QA1, TTFT, TPOT ----------------
+    def why_slide(title, items):
+        sl = Slide(title)
+        for name, x, w in (("QA / 수치", 0.4, 2.9), ("왜 이런 값이 나왔나", 3.3, 6.5), ("근거 (시나리오·측정값)", 9.8, 3.1)):
+            sl.box(x, 1.15, w, 0.32, name, "head", 10, True, "ctr", False)
+        yy = 1.5
+        for h, a, b, c in items:
+            sl.box(0.4, yy, 2.9, h, a, "dp", 9.5, True, "l", False)
+            sl.box(3.3, yy, 6.5, h, b, "cell", 9.5, False, "l", False)
+            sl.box(9.8, yy, 3.1, h, c, "note", 8.5, False, "l", False)
+            yy += h + 0.05
+        return sl
+
+    kA, kB, kC = "dyn_kv_hotset_recency_shift@B200", "cb_kv_8k_b32@B200", "dyn_rag_shard_hotset_shift@B200"
+    s2 = why_slide("DP1 평가 결과 - QA별로 왜 이런 값이 나왔나 (1/2: 처리량, 지연)", [
+        (1.75, [f"QA1 처리량", f"C1 x{rt(C1, gp):.2f} · C2 x{rt(C2, gp):.2f}"],
+         [f"- 비교 가능·포화 {g.RM['combined']['n_feasible']}쌍 중 C1 {len(T[C1]['tie'])}쌍, C2 {len(T[C2]['tie'])}쌍은 Baseline과 같다. Baseline이 이미 SLO를 만족하면 올릴 여지가 없기 때문이다 (공통 시나리오 x1.00).",
+          f"- 이득은 hot 대상이 시간에 따라 옮겨 가는 Dynamic 시나리오에 집중된다 (승 C1 {len(T[C1]['win'])}, C2 {len(T[C2]['win'])}쌍).",
+          "- C2는 데이터마다 접근 빈도·재사용·유휴를 보고 이동해 같은 종류(KV) 안의 hot/cold를 구분한다. C1은 자원 압박에만 반응해 구분하지 못한다."],
+         [f"{kA.split('@')[0]} (B200): C1 x{ex(kA, C1, 'max_goodput_tps') / ex(kA, B, 'max_goodput_tps'):.2f}, C2 x{ex(kA, C2, 'max_goodput_tps') / ex(kA, B, 'max_goodput_tps'):.2f}. 이동량 C1 {ex(kA, C1, 'migration_gib'):,.0f} GiB 대 C2 {ex(kA, C2, 'migration_gib'):,.0f} GiB.",
+          f"공통 {kB.split('@')[0]}: 모두 x1.00"]),
+        (1.65, ["QA2 TTFT", f"P50 C1 x{rt(C1, t50):.2f} · C2 x{rt(C2, t50):.2f}", f"P99 C1 x{rt(C1, t99):.2f} · C2 x{rt(C2, t99):.2f}"],
+         ["- P50이 크게 줄어드는 가장 큰 이유로 보이는 것: hot 데이터가 느린 tier(DRAM/HBF)에서 HBM으로 올라가 첫 토큰 전 복원 대기가 줄어든다(요청 단위로 분해하지는 않았다).",
+          f"- C1의 P99는 개선이 없다(x{rt(C1, t99):.2f}). 진단한 `cb_kv_8k_b32`에서는 C1이 DRAM 링크 포화 신호에 반응해 이득 없는 재배치를 하고 그 이동이 링크를 나눠 써 꼬리가 늘었다(다른 시나리오의 원인은 분해하지 않음). C2는 hot 데이터를 HBM으로 올리는 이동이라 꼬리도 줄었다(x{rt(C2, t99):.2f}).",
+          "- 이동이 같은 링크의 서빙 대역폭을 나눠 쓰는 간섭 모델을 반영했다."],
+         [f"{kB.split('@')[0]} (B200) TTFT P99: Baseline {ex(kB, B, 't' + 'tft_p99_ms'):,.0f} ms, C1 {ex(kB, C1, 'ttft_p99_ms'):,.0f}, C2 {ex(kB, C2, 'ttft_p99_ms'):,.0f}.",
+          f"C1은 재배치 {ex(kB, C1, 'rebalance'):.0f}회({ex(kB, C1, 'migration_gib'):,.0f} GiB), C2는 승격 {ex(kB, C2, 'promotion'):.0f}회"]),
+        (1.35, ["QA2 TPOT", f"P99 C1 x{rt(C1, o99):.2f} · C2 x{rt(C2, o99):.2f}"],
+         [f"- 거의 변하지 않는다. TPOT는 매 토큰 디코드가 HBM 대역폭에 묶여 정해지고, DP1은 데이터 위치만 바꾸지 디코드 방식은 바꾸지 못한다. Baseline의 TPOT P99가 {gm(B, o99):.1f} ms로 SLO(50 ms)보다 훨씬 낮아 개선 여지도 작다.",
+          "- 개선이 있다면 KV가 HBM 밖에 있어 복원 비용이 TPOT에 섞이는 경우뿐이다. LoRA·MoE expert가 원격에 있을 때도 영향이 있으나 이번 비교 가능 시나리오에는 거의 없다(Baseline도 SLO 불가)."],
+         ["Baseline TPOT P99 geomean " + f"{gm(B, o99):.1f} ms, SLO 50 ms", "LoRA·MoE 시나리오는 Baseline이 TPOT SLO를 못 맞춰 비교에서 제외"]),
+    ])
+
+    # ---------------- slide 3: why QA3, QA4 ----------------
+    s3 = why_slide("DP1 평가 결과 - QA별로 왜 이런 값이 나왔나 (2/2: 자원, 확장성)", [
+        (1.9, ["QA3 자원 사용 (HBM)", f"C1 x{rt(C1, hb):.2f} · C2 x{rt(C2, hb):.2f}", f"(HBM을 줄인/늘린 시나리오 C1 {E1['hbm']['n_reduced']}/{E1['hbm']['n_increased']}, C2 {E2['hbm']['n_reduced']}/{E2['hbm']['n_increased']})"],
+         ["- 이동은 데이터 총량을 바꾸지 않고 어느 메모리에 두느냐만 바꾼다. 그래서 전 메모리 합 점유는 후보와 무관하고, 'HBM에 얼마나 두는가'가 차이를 만든다.",
+          f"- C2는 성능을 위해 hot 데이터를 HBM으로 올려 HBM 사용이 늘어난다(비교 가능 {len(pairs)}쌍 중 {E2['hbm']['n_increased']}쌍에서 증가). C1은 HBM 압박이 있으면 데이터를 내리고(HBM 감소), DRAM 링크가 포화로 보일 때는 DRAM에서 더 싼 HBF로 옮겨 HBM 사용을 늘리지 않는다.",
+          "- 성능과 자원은 반대 방향이다: C2는 성능을 얻는 대신 HBM을 더 쓰고, C1은 덜 쓰되 성능 이득이 작다.",
+          f"- 보조 지표: 비용 가중 점유(DRAM 대비 상대 가격, ASSUMED) C1 x{E1['cost_ratio']:.2f}, C2 x{E2['cost_ratio']:.2f}로 같은 방향."],
+         [f"{kB.split('@')[0]} (B200) HBM 사용: Baseline {ex(kB, B, 'tier_occ_gib')['hbm']:.0f} GiB, C1 {ex(kB, C1, 'tier_occ_gib')['hbm']:.0f}, C2 {ex(kB, C2, 'tier_occ_gib')['hbm']:.0f}",
+          "정의 이력: 활용률 -> 풀 -> 성능÷비용 -> HBM 사용량. 마지막 변경으로 선택이 C2에서 C1로 바뀜"]),
+        (1.75, ["QA4 확장성", f"C1 module {m['C1']['modules']:.2f} · C2 {m['C2']['modules']:.2f}", f"공수 {m['C1']['man_months']:.2f} vs {m['C2']['man_months']:.2f} MM", f"에이전트 비용 ${m['C1']['usd_T1']:.2f} vs ${m['C2']['usd_T1']:.2f}"],
+         ["- 변경 시나리오 4종(새 메모리, 새 데이터 종류, 정책 교체, 새 event)을 시뮬레이터 복사본에 실제로 구현해 module 수를 쟀다.",
+          "- C1은 데이터 종류를 모르는 구조라 새 데이터 종류를 추가해도 고칠 곳이 거의 없다. C2는 종류별 특성과 선호 목록을 알고 있어 새 데이터 종류는 module 3개, 새 메모리는 선호 목록에 올려야 쓰이므로 2개를 고친다.",
+          "- 정책 교체와 새 event 추가는 두 후보가 같다(공유 module). 공수·비용은 가정 상수로 계산한 추정이다."],
+         [f"새 메모리: C1 {sc4['S1']['C1']['modules']} / C2 {sc4['S1']['C2']['modules']}", f"새 데이터 종류: C1 {sc4['S2']['C1']['modules']} / C2 {sc4['S2']['C2']['modules']}", f"정책 교체: {sc4['S3']['C1']['modules']} / {sc4['S3']['C2']['modules']}", f"새 event: {sc4['S4']['C1']['modules']} / {sc4['S4']['C2']['modules']}"]),
+        (1.1, ["결론: trade-off", f"성능 C2, 자원·확장성 C1"],
+         [f"- C2는 처리량(x{rt(C2, gp):.2f})과 지연에서 앞서는 대신 HBM을 더 쓰고(x{rt(C2, hb):.2f}) 구조 변경 비용이 크다. C1은 반대다.",
+          f"- 별 합계는 C1 {o['totals'][C1]}, C2 {o['totals'][C2]}로 근소해 선택({nm[o['winner']]})은 별 경계와 QA 정의에 민감하다."],
+         ["TTFT P99: C1 개선 없음, C2 x" + f"{rt(C2, t99):.2f}", "TPOT: 두 후보 모두 거의 불변"]),
+    ])
+
+    # ---------------- slide 4: scenarios ----------------
+    s4 = Slide("DP1 평가에서 고려한 시나리오")
+    per_set = []
+    for lab, name in g.SETS:
+        fit = g.json.load(open(g.DATA / g.MERGED / "qa_result.json"))[lab]["fit"]
+        cnt = {k: sum(1 for v in fit.values() if v == k) for k in ("comparison_valid", "saturated", "infeasible")}
+        per_set.append(f"{name} {len(fit) // 2}개 (쌍: 비교 {cnt['comparison_valid']}, 포화 {cnt['saturated']}, 불가 {cnt['infeasible']})")
+    s4.box(0.4, 1.2, 12.5, 0.6, [f"32개 시나리오를 H100과 B200에 각각 돌렸다(64쌍). " + " · ".join(per_set) + ". 비교 불가 쌍은 결과에서 빼지 않고 별도 표시했다."], "note", 10)
     blocks = [
-        ("기본 서비스 상황 (공통)", "8K 토큰 입력, 256 토큰 생성, 동시 32 요청의 대화 서비스. HBM이 빠듯한 경우 / 시간이 갈수록 여유가 줄어드는 경우 / KV cache에 LoRA·MoE·Agent 데이터가 섞이는 경우. 결과: 두 후보 모두 Baseline과 같다."),
+        ("기본 서비스 상황 (공통)", "8K 토큰 입력, 256 토큰 생성, 동시 32 요청의 대화 서비스. HBM이 빠듯한 경우 / 시간이 갈수록 여유가 줄어드는 경우 / KV cache에 LoRA·MoE·Agent 데이터가 섞이는 경우. 결과: 두 후보 모두 처리량은 Baseline과 같다."),
         ("데이터 종류별", "대화 문맥(KV cache, 32K~512K 토큰, 동시 1~256) · 여러 고객이 쓰는 LoRA 어댑터(몇 개만 인기) · MoE expert(라우팅 쏠림) · 수 TiB 벡터 DB(RAG) · 오래 보관되는 Agent 기억과 Tool 결과(드물게 재사용 / 한꺼번에 생성 후 반복 참조)."),
         ("접근이 쏠리는 정도(hotness)", "소수만 인기 있는 skew · 거의 안 쓰이는 cold 데이터가 상위 메모리를 차지 · 갑자기 hot해지는 burst · hot/cold 급반전 · hot 대상이 옮겨 감(최근 세션으로 이동, 사용자 그룹이 번갈아 활성, 인기 검색 shard가 바뀜). 고르게 접근되는 전용 시나리오는 아직 없음(중간 KV 기준선이 대조군)."),
         ("자원 조건이 바뀌는 경우", "HBM 용량 압박(고정 / 점진 증가) · HBM 대역폭 급락 · 다른 작업과 공유하는 host 링크 경합(대역폭 25%로 저하) · 6개 메모리 용량을 모두 써야 하는 큰 용량 부담."),
         ("처음엔 문제없다가 나빠지는 경우 (Dynamic 6개)", "Baseline이 처음엔 SLO를 만족하다 중간에 working set이 바뀐다. 예: 오래 보관만 되던 Agent 기억이 HBM을 차지한 채 채팅이 몰림 / hot 대화가 초기 세션에서 최근 세션으로 이동. Baseline의 실패 양상을 알고 설계했으므로 이득은 이 상황에 한정."),
     ]
-    y = 1.85
+    yy = 1.9
     for t, body in blocks:
-        s2.box(0.4, y, 2.9, 0.92, t, "dp", 10, True, "l", False)
-        s2.box(3.3, y, 9.6, 0.92, body, "cell", 11, False, "l", False)
-        y += 0.97
-    return [s, s2]
+        s4.box(0.4, yy, 2.9, 0.92, t, "dp", 10, True, "l", False)
+        s4.box(3.3, yy, 9.6, 0.92, body, "cell", 10.5, False, "l", False)
+        yy += 0.97
+    return [s, s2, s3, s4]
 
 
 def tactics_slide():
