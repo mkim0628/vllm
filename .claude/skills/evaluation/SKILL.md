@@ -152,3 +152,9 @@ Fit label 정의: **comparison-valid** = Baseline이 SLO를 만족(feasible)하�
 - 숫자에는 단위와 Evidence 표기. "~정도" 같은 모호한 표현 대신 값과 CI.
 - 원인 분석은 diagnostic(tier별 access, migration 횟수/bytes, decision overhead 등)을 인용한다.
 - 새 QA가 필요하면 결과 문서가 아니라 qa-evaluation-criteria.md §9 형식으로 먼저 추가한다 (결과 보기 전에).
+
+## 9. Ablation(구성요소 제거) 규칙
+- 선정된 구조의 핵심 구성요소(예: C1 Data-Memory Affinity)는 제거 변형을 같은 시나리오·시스템·seed로 실행해 비교한다 (`DP1_C1_AFFINITY=full|none|no_score|no_promo`, `loop_run.py --final --tag ablation/<mode>`, `merge_systems.py --tag`).
+- 대조군(`full`)은 본 결과와 수치가 일치해야 한다. 불일치하면 ablation 결과를 쓰지 않는다.
+- 제거 변형의 별 합계와 선정 결과를 함께 보고한다 ("제거 시 순위가 바뀌는가"가 보완 설계 근거). 효과가 어느 하위 메커니즘에서 오는지(score vs promotion) 분해해 적는다.
+- 시스템 슬라이드에는 GPU FP16 dense 연산량(GPU 1개당)을 참고로 병기해 PNM/ScHBM 연산량과 비교 가능하게 한다.

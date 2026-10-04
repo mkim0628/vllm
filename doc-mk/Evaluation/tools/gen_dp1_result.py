@@ -346,6 +346,70 @@ def final_qa_table(key="combined"):
 
 
 
+def ablation_metrics(tag):
+    """Metrics of the C1 variant run under results/data/ablation/<tag>/ (tag == 'main' -> the evaluated C1 with affinity)."""
+    base = DATA / "ablation" / tag / MERGED if tag != "main" else DATA / MERGED
+    r = json.load(open(base / "qa_result.json"))
+    gr = json.load(open(base / "dp1_rating.json"))["sets"]["combined"]
+    pr = [(lab, k) for lab, _ in SETS for k, l in r[lab]["scenario_labels"].items() if l["fit"] == "comparison_valid"]
+    def gm(c, f):
+        return math.exp(sum(math.log(max(1e-9, f(r[lab]["per_scenario"][k][c]))) for lab, k in pr) / len(pr))
+    out = {}
+    for c in (B, C1, C2):
+        d = gr[c]["dp1_star"]
+        w = r["combined"]["tally"].get(c)
+        out[c] = dict(gp=gm(c, lambda p: p["max_goodput_tps"]), t99=gm(c, lambda p: p["ttft_p99_ms"]), o99=gm(c, lambda p: p["tpot_p99_ms"]), hbm=gm(c, lambda p: p["tier_occ_gib"]["hbm"]),
+                      star=dict(QA1=d["qa1"], QA2=d["qa2"], QA3=d["qa3"]), imp=gr[c]["qa2"]["latency_improvement_geomean"],
+                      wtl=(len(w["win"]), len(w["tie"]), len(w["loss"])) if w else None)
+    return out
+
+
+def ablation_table():
+    modes = [("none", "C1 affinity 전부 제거"), ("main", "C1 (affinity 포함, 평가 대상)")]
+    A = {t: ablation_metrics(t) for t in ("none", "main", "no_score", "no_promo")}
+    C2m = A["main"][C2]
+    bs = A["main"][B]
+    rows = ["| 지표 | Baseline | C1 affinity 제거 | C1 (affinity 포함) | C2 |", "|---|---:|---|---|---|"]
+    def cell(m, key, fmt):
+        return f"{fmt(m[key])} (x{m[key] / bs[key]:.2f})"
+    f0, f1 = (lambda v: f"{v:,.0f}"), (lambda v: f"{v:,.1f}")
+    def col(m, c, star):
+        return {"QA1": f"**{m[c]['star']['QA1']}** " + cell(m[c], "gp", f0), "t99": cell(m[c], "t99", f0), "o99": cell(m[c], "o99", f1),
+                "QA2": f"**{m[c]['star']['QA2']}** x{m[c]['imp']:.2f}", "QA3": f"**{m[c]['star']['QA3']}** " + cell(m[c], "hbm", f1), "wtl": f"{m[c]['wtl'][0]}승 {m[c]['wtl'][1]}무 {m[c]['wtl'][2]}패"}[star]
+    def tot(m, c, qa4):
+        return sum(m[c]["star"][k].count("★") for k in ("QA1", "QA2", "QA3")) + qa4.count("★")
+    q4 = {C1: QA4_STARS[C1], C2: QA4_STARS[C2]}
+    items = [("QA1 goodput (tok/s) ↑", "QA1", f0(bs["gp"])), ("QA2 TTFT P99 (ms) ↓", "t99", f0(bs["t99"])), ("QA2 TPOT P99 (ms) ↓", "o99", f1(bs["o99"])),
+             ("QA2 별점 (개선 배수)", "QA2", "x1.00"), ("QA3 HBM 사용량 (GiB) ↓", "QA3", f1(bs["hbm"])), ("Baseline 대비 승/무/패", "wtl", "—")]
+    for label, key, base in items:
+        rows.append(f"| {label} | {base} | {col(A['none'], C1, key)} | {col(A['main'], C1, key)} | {col(A['main'], C2, key)} |")
+    t_none, t_main, t_c2 = tot(A["none"], C1, q4[C1]), tot(A["main"], C1, q4[C1]), tot(A["main"], C2, q4[C2])
+    rows.append(f"| **별 합계** (QA4: C1 {q4[C1]}, C2 {q4[C2]} 동일 적용) | — | **{t_none}** | **{t_main}** | **{t_c2}** |")
+    sel = lambda a, b: select_candidate({"C1": {"QA1": A[a][C1]["star"]["QA1"], "QA2": A[a][C1]["star"]["QA2"], "QA3": A[a][C1]["star"]["QA3"], "QA4": q4[C1]},
+                                         "C2": {"QA1": C2m["star"]["QA1"], "QA2": C2m["star"]["QA2"], "QA3": C2m["star"]["QA3"], "QA4": q4[C2]}}, PRIO["priority"])
+    s_none, s_main = sel("none", None), sel("main", None)
+    ctrl = "full" if (DATA / "ablation" / "full").exists() else None
+    dec = lambda a, rr: ("C1" if rr["winner"] == "C1" else "C2") + (" (합계)" if rr["rule"] == "total" else f" (합계 동점, 우선순위 {rr['deciding_qa']})")
+    rows.append(f"| **선택** | | **{dec('none', s_none)}** | **{dec('main', s_main)}** | |")
+    part = ["", "| 변형 (C1) | QA1 배수 | QA2 개선 배수 | TTFT P99 배수 | 승/무/패 |", "|---|---|---|---|---|"]
+    for t, lab in (("main", "affinity 포함 (평가 대상)"), ("no_score", "affinity 점수만 제거 (Destination Tier Selector)"), ("no_promo", "정적 affinity 승격만 제거"), ("none", "둘 다 제거")):
+        m = A[t][C1]
+        part.append(f"| {lab} | x{m['gp'] / bs['gp']:.3f} ({m['star']['QA1']}) | x{m['imp']:.2f} ({m['star']['QA2']}) | x{m['t99'] / bs['t99']:.2f} | {m['wtl'][0]}/{m['wtl'][1]}/{m['wtl'][2]} |")
+    return "\n".join(rows) + "\n" + "\n".join(part), dict(A=A, t_none=t_none, t_main=t_main, t_c2=t_c2, sel_none=s_none, sel_main=s_main)
+
+
+
+def ablation_note():
+    _, d = ablation_table()
+    A = d["A"]; bs = A["main"][B]
+    n, m, c2 = A["none"][C1], A["main"][C1], A["main"][C2]
+    return (f"- **affinity가 없으면** C1은 자원 압박에만 반응해 처리량이 x{n['gp'] / bs['gp']:.2f}에 그치고 TTFT P99는 x{n['t99'] / bs['t99']:.2f}로 나빠진다(승/무/패 {n['wtl'][0]}/{n['wtl'][1]}/{n['wtl'][2]}). "
+            f"별 합계는 C1 {d['t_none']}, C2 {d['t_c2']}로 동점이라 QA 우선순위로 **C2가 선택**된다.\n"
+            f"- **affinity를 포함하면** 처리량 x{m['gp'] / bs['gp']:.2f}, QA2 ★★★이 되고 별 합계가 C1 {d['t_main']}로 C2({d['t_c2']})를 넘어 **C1이 선택**된다. 즉 affinity 보완 설계가 선택을 바꾼다.\n"
+            f"- **효과의 출처는 정적 affinity 승격 pass**다. affinity 점수만 빼면 x{A['no_score'][C1]['gp'] / bs['gp']:.3f}로 거의 변화가 없고(affinity 점수는 이 평가에서 측정 가능한 기여가 없음), 승격 pass를 빼면 x{A['no_promo'][C1]['gp'] / bs['gp']:.3f}로 떨어진다.\n"
+            f"- **한계:** affinity를 포함해도 C1의 처리량(x{m['gp'] / bs['gp']:.2f})은 C2(x{c2['gp'] / bs['gp']:.2f})보다 낮다. affinity는 격차를 대부분 줄이지만 C2를 이기게 하지는 않는다. 선택이 바뀐 것은 QA3(HBM 사용량)과 QA4 우위, QA2 별 경계(C1 x{m['imp']:.2f} vs 경계 1.25)에서 오며 경계에 민감하다. 승격 pass는 접근 비용 추정기(공유 module)에 의존하고, 이 비교에서 QA4 별은 affinity 유무와 무관하게 같게 두었다.")
+
+
 def conclusion_bullets():
     o = overall_selection()
     nm = {C1: "C1", C2: "C2", None: "구분 불가"}
@@ -646,6 +710,14 @@ access-cost 추정(두 후보 공통, 시스템적 편향)과 C2의 predicted ho
 {eps_table()}
 
 e를 올려도 C2의 이득이 사라지는 지점(break-even)은 이 오차 모델에서는 나타나지 않았다. 오차가 커질수록 두 후보의 절대 이득이 오히려 e=0 일 때보다 커지는 구간이 있는데, 이는 e=0의 cost 추정식이 최적이 아님을 의미하며 오차가 정책을 개선한다는 뜻이 아니다. 이 결과는 lognormal 한 종류, 5 seed 기준이며 실제 workload 분포 이동에 대한 robustness는 확인하지 않았다.
+
+## 4.7 Data-Memory Affinity 제거 변형 (C1 ablation, `DP1/sim`의 `DP1_C1_AFFINITY`)
+
+C1에서 Data-Memory Affinity를 쓰는 곳은 두 군데다. (1) Destination Tier Selector의 affinity 점수(정적 지연·대역폭·용량 민감도 힌트), (2) 정적 affinity 승격 pass(설계 17.2: 힌트와 접근 비용 추정으로 "HBM에 있어야 SLO를 만족하는데 낮은 tier에 있는" 객체를 HBM으로 올리고, 자리가 없으면 정적 페널티가 훨씬 작은 HBM 거주 객체와 교환). 두 후보가 공유하는 접근 비용 추정기(operation class와 shape 힌트)는 모든 변형에 남겨 두었다. 같은 파이프라인(5 seed, 동일 시나리오)으로 돌렸고 대조군(`full`)은 본 결과와 정확히 일치한다.
+
+{ablation_table()[0]}
+
+{ablation_note()}
 
 # 5. 결과 분석
 

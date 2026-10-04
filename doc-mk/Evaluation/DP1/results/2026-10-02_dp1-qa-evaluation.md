@@ -3,7 +3,7 @@ date: 2026-10-02
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
 sys_ids: [SYS-H100, SYS-B200]
-git_rev: 5473656 (dirty)
+git_rev: a3a64f3 (dirty)
 evidence: { QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[B+C]" }
 status: draft
 ---
@@ -83,7 +83,7 @@ Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이�
 | SYS id | **메모리 세대별 2개 profile** (모두 6종 메모리 포함): SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-A100(HBM2e, PCIe 4.0)과 SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정, 2026-10-03). 이전 문서의 A100/VR 결과는 `results/data/SYS-A100`, `SYS-VR`에 보존된다. 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
 | 범위 제약 | DP1의 data 이동은 **단일 노드(한 서버) 내부**의 메모리 계층 사이로 한정 (설계 문서 §3.3). 노드 간 이동은 DP0 소관이며 이 평가에 포함되지 않음 |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
-| Git revision | 5473656 (dirty) |
+| Git revision | a3a64f3 (dirty) |
 | Seeds / loads | seeds 11, 23, 37, 53, 71 (5회) / load x0.5, x1.0, x1.5, x2.0, 95% CI t=2.776 |
 | Tie 판정 | goodput 상대 차이 < 1% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
 | 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final && python3 merge_systems.py SYS-H100 SYS-B200 && python3 dp1_rating.py ../results/data/INT-H100-B200/qa_result.json` (시스템별 단독은 각 SYS의 `dp1_rating.py`), 단일: `python3 qa_eval.py --system SYS-B200` |
@@ -414,6 +414,33 @@ access-cost 추정(두 후보 공통, 시스템적 편향)과 C2의 predicted ho
 | 0.6 | x1.284±0.080 | x1.464±0.035 | x1.140 | (3, 15, 0) | (6, 12, 0) | 2% | 2% |
 
 e를 올려도 C2의 이득이 사라지는 지점(break-even)은 이 오차 모델에서는 나타나지 않았다. 오차가 커질수록 두 후보의 절대 이득이 오히려 e=0 일 때보다 커지는 구간이 있는데, 이는 e=0의 cost 추정식이 최적이 아님을 의미하며 오차가 정책을 개선한다는 뜻이 아니다. 이 결과는 lognormal 한 종류, 5 seed 기준이며 실제 workload 분포 이동에 대한 robustness는 확인하지 않았다.
+
+## 4.7 Data-Memory Affinity 제거 변형 (C1 ablation, `DP1/sim`의 `DP1_C1_AFFINITY`)
+
+C1에서 Data-Memory Affinity를 쓰는 곳은 두 군데다. (1) Destination Tier Selector의 affinity 점수(정적 지연·대역폭·용량 민감도 힌트), (2) 정적 affinity 승격 pass(설계 17.2: 힌트와 접근 비용 추정으로 "HBM에 있어야 SLO를 만족하는데 낮은 tier에 있는" 객체를 HBM으로 올리고, 자리가 없으면 정적 페널티가 훨씬 작은 HBM 거주 객체와 교환). 두 후보가 공유하는 접근 비용 추정기(operation class와 shape 힌트)는 모든 변형에 남겨 두었다. 같은 파이프라인(5 seed, 동일 시나리오)으로 돌렸고 대조군(`full`)은 본 결과와 정확히 일치한다.
+
+| 지표 | Baseline | C1 affinity 제거 | C1 (affinity 포함) | C2 |
+|---|---:|---|---|---|
+| QA1 goodput (tok/s) ↑ | 336 | **★★** 354 (x1.05) | **★★** 436 (x1.30) | **★★★** 478 (x1.42) |
+| QA2 TTFT P99 (ms) ↓ | 1,084 | 1,372 (x1.27) | 1,128 (x1.04) | 785 (x0.72) |
+| QA2 TPOT P99 (ms) ↓ | 17.1 | 18.2 (x1.06) | 18.3 (x1.07) | 16.0 (x0.94) |
+| QA2 별점 (개선 배수) | x1.00 | **★★** x1.07 | **★★★** x1.28 | **★★★** x1.56 |
+| QA3 HBM 사용량 (GiB) ↓ | 146.6 | **★★** 144.6 (x0.99) | **★★** 142.7 (x0.97) | **★** 178.0 (x1.21) |
+| Baseline 대비 승/무/패 | — | 2승 29무 0패 | 6승 25무 0패 | 10승 21무 0패 |
+| **별 합계** (QA4: C1 ★★★, C2 ★★ 동일 적용) | — | **9** | **10** | **9** |
+| **선택** | | **C2 (합계 동점, 우선순위 QA1)** | **C1 (합계)** | |
+
+| 변형 (C1) | QA1 배수 | QA2 개선 배수 | TTFT P99 배수 | 승/무/패 |
+|---|---|---|---|---|
+| affinity 포함 (평가 대상) | x1.298 (★★) | x1.28 (★★★) | x1.04 | 6/25/0 |
+| affinity 점수만 제거 (Destination Tier Selector) | x1.299 (★★) | x1.28 (★★★) | x1.04 | 6/25/0 |
+| 정적 affinity 승격만 제거 | x1.053 (★★) | x1.07 (★★) | x1.27 | 2/29/0 |
+| 둘 다 제거 | x1.053 (★★) | x1.07 (★★) | x1.27 | 2/29/0 |
+
+- **affinity가 없으면** C1은 자원 압박에만 반응해 처리량이 x1.05에 그치고 TTFT P99는 x1.27로 나빠진다(승/무/패 2/29/0). 별 합계는 C1 9, C2 9로 동점이라 QA 우선순위로 **C2가 선택**된다.
+- **affinity를 포함하면** 처리량 x1.30, QA2 ★★★이 되고 별 합계가 C1 10로 C2(9)를 넘어 **C1이 선택**된다. 즉 affinity 보완 설계가 선택을 바꾼다.
+- **효과의 출처는 정적 affinity 승격 pass**다. affinity 점수만 빼면 x1.299로 거의 변화가 없고(affinity 점수는 이 평가에서 측정 가능한 기여가 없음), 승격 pass를 빼면 x1.053로 떨어진다.
+- **한계:** affinity를 포함해도 C1의 처리량(x1.30)은 C2(x1.42)보다 낮다. affinity는 격차를 대부분 줄이지만 C2를 이기게 하지는 않는다. 선택이 바뀐 것은 QA3(HBM 사용량)과 QA4 우위, QA2 별 경계(C1 x1.28 vs 경계 1.25)에서 오며 경계에 민감하다. 승격 pass는 접근 비용 추정기(공유 module)에 의존하고, 이 비교에서 QA4 별은 affinity 유무와 무관하게 같게 두었다.
 
 # 5. 결과 분석
 

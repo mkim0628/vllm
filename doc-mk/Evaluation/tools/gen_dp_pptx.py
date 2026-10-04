@@ -68,9 +68,12 @@ def stars(c):
 def system_slide():
     """Memory configuration of the evaluated systems (capacity, host link, bandwidth, compute capability, what the simulator uses)."""
     from model import load_profile
-    ms = {sid: load_profile(g.SIM / "configs", sid)[0].memories for sid in g.SYSIDS}
+    loaded = {sid: load_profile(g.SIM / "configs", sid)[0] for sid in g.SYSIDS}
+    ms = {sid: loaded[sid].memories for sid in g.SYSIDS}
     prof = g.json.load(open(g.SIM / "configs" / "systems.json"))["profiles"]
     gen = prof[g.SYSIDS[0]]["generation"]
+    gpu = {sid: loaded[sid].gpu_compute_flops / 8 / 1e12 for sid in g.SYSIDS}   # dense FP16 per GPU (domain total / 8 GPUs)
+    pct = lambda n: " / ".join(dict.fromkeys(f"{ms[sid][n].compute_flops / 1e12 / gpu[sid] * 100:.2g}%" for sid in g.SYSIDS))
     s = Slide("DP1 평가 시스템 - 메모리 구성 (H100x8 / B200x8, 값이 다르면 H100 / B200)")
     cols = [("메모리", 0.4, 2.1), ("용량", 2.5, 1.6), ("연결 (host와)", 4.1, 2.9), ("대역폭 (외부 / 내부)", 7.0, 2.2), ("연산 능력 (FP16)과 지원 연산", 9.2, 3.7)]
     for name, x, w in cols:
@@ -81,12 +84,12 @@ def system_slide():
     ops = "QK_GEMM, SOFTMAX, AV_GEMM, CAUSAL_MASK"
     comp = lambda n: dd([f"{ms[sid][n].compute_flops / 1e12:g}" for sid in g.SYSIDS])
     rows = [
-        ("HBM", cap("hbm") + " (GPU 8장 합)", "GPU 온패키지", f"{bw('hbm', 'ext_bw')} GB/s (GPU 합)", "—  (GPU가 attention·FFN 실행)"),
-        ("Samsung Custom HBM (ScHBM)", cap("custom_hbm") + " (노드 1개)", f"CPU와 {gen['host_link']} x16, GPU→host→ScHBM 2홉 (GPU 직접 접근 불가)", f"{bw('custom_hbm', 'ext_bw')} GB/s / {bw('custom_hbm', 'int_bw')} GB/s", f"{comp('custom_hbm')} TFLOPS · {ops} (attention 오프로드)"),
-        ("CXL-PNM", cap("cxl_pnm") + " (내부 DRAM)", f"{gen['cxl']}, host 경유", f"{bw('cxl_pnm', 'ext_bw')} GB/s / {bw('cxl_pnm', 'int_bw')} GB/s", f"{comp('cxl_pnm')} TFLOPS · {ops} (attention 오프로드)"),
+        ("HBM", cap("hbm") + " (GPU 8장 합)", "GPU 온패키지", f"{bw('hbm', 'ext_bw')} GB/s (GPU 합)", f"GPU FP16 dense {' / '.join(f'{gpu[sid]:,.0f}' for sid in g.SYSIDS)} TFLOPS/GPU (참고, 8장 합 {' / '.join(f'{gpu[sid] * 8:,.0f}' for sid in g.SYSIDS)}) · GPU가 attention·FFN 실행"),
+        ("Samsung Custom HBM (ScHBM)", cap("custom_hbm") + " (노드 1개)", f"CPU와 {gen['host_link']} x16, GPU→host→ScHBM 2홉 (GPU 직접 접근 불가)", f"{bw('custom_hbm', 'ext_bw')} GB/s / {bw('custom_hbm', 'int_bw')} GB/s", f"{comp('custom_hbm')} TFLOPS (GPU 1장의 {pct('custom_hbm')}) · {ops} (attention 오프로드)"),
+        ("CXL-PNM", cap("cxl_pnm") + " (내부 DRAM)", f"{gen['cxl']}, host 경유", f"{bw('cxl_pnm', 'ext_bw')} GB/s / {bw('cxl_pnm', 'int_bw')} GB/s", f"{comp('cxl_pnm')} TFLOPS (GPU 1장의 {pct('cxl_pnm')}) · {ops} (attention 오프로드)"),
         ("DRAM (host)", cap("dram"), f"GPU와 {gen['host_link']} x16 ({gen['dram'].split('-')[0]})", f"{bw('dram', 'ext_bw')} GB/s / {bw('dram', 'int_bw')} GB/s", "—"),
         ("HBF", cap("hbf"), "GPU 직접 접근 (UCIe), PCIe 아님", f"읽기 {bw('hbf', 'ext_bw')} GB/s, 쓰기 {bw('hbf', 'write_bw')} GB/s", "—"),
-        ("SSD-PIM", cap("ssd_pim"), gen["ssd"], f"{bw('ssd_pim', 'ext_bw')} GB/s / {bw('ssd_pim', 'int_bw')} GB/s", f"{comp('ssd_pim')} TFLOPS · GEMV (벡터 DB 유사도 계산만)"),
+        ("SSD-PIM", cap("ssd_pim"), gen["ssd"], f"{bw('ssd_pim', 'ext_bw')} GB/s / {bw('ssd_pim', 'int_bw')} GB/s", f"{comp('ssd_pim')} TFLOPS (GPU 1장의 {pct('ssd_pim')}) · GEMV (벡터 DB 유사도 계산만)"),
     ]
     y = 1.5
     for r in rows:
@@ -226,6 +229,59 @@ def qa_slides():
          ["TTFT P99: C1 개선 없음, C2 x" + f"{rt(C2, t99):.2f}", "TPOT: 두 후보 모두 거의 불변"]),
     ])
 
+    # ---------------- ablation slide: Data-Memory Affinity ----------------
+    _, ad = g.ablation_table()
+    A = ad["A"]; bs = A["main"][B]; q4 = {C1: g.QA4_STARS[C1], C2: g.QA4_STARS[C2]}
+    sa = Slide("C1의 Data-Memory Affinity 효과 - 제거 변형 비교 (H100 + B200 통합)")
+    acols = [("지표", 0.4, 2.8), ("Baseline", 3.2, 1.5), ("C1 affinity 제거", 4.7, 2.7), ("C1 (affinity 포함, 평가 대상)", 7.4, 2.7), ("C2", 10.1, 2.8)]
+    for name, x, w in acols:
+        sa.box(x, 1.15, w, 0.32, name, "head", 10, True, "ctr", False)
+    f0, f1 = (lambda v: f"{v:,.0f}"), (lambda v: f"{v:,.1f}")
+    def cc(m, c, key, fmt=None):
+        mm = m[c]
+        if key == "gp":
+            return f"{mm['star']['QA1']}  {f0(mm['gp'])} (x{mm['gp'] / bs['gp']:.2f})"
+        if key == "t99":
+            return f"{f0(mm['t99'])} (x{mm['t99'] / bs['t99']:.2f})"
+        if key == "o99":
+            return f"{f1(mm['o99'])} (x{mm['o99'] / bs['o99']:.2f})"
+        if key == "qa2":
+            return f"{mm['star']['QA2']}  x{mm['imp']:.2f}"
+        if key == "hbm":
+            return f"{mm['star']['QA3']}  {f1(mm['hbm'])} (x{mm['hbm'] / bs['hbm']:.2f})"
+        return f"{mm['wtl'][0]}승 {mm['wtl'][1]}무 {mm['wtl'][2]}패"
+    arows = [("QA1 goodput (tok/s) ↑", "gp", f0(bs["gp"])), ("QA2 TTFT P99 (ms) ↓", "t99", f0(bs["t99"])), ("QA2 TPOT P99 (ms) ↓", "o99", f1(bs["o99"])),
+             ("QA2 별점 (개선 배수)", "qa2", "x1.00"), ("QA3 HBM 사용량 (GiB) ↓", "hbm", f1(bs["hbm"])), ("Baseline 대비 승/무/패", "wtl", "—")]
+    yy = 1.5
+    for label, key, base in arows:
+        sa.box(0.4, yy, 2.8, 0.4, label, "dp", 9.5, True, "l", False)
+        sa.box(3.2, yy, 1.5, 0.4, base, "cell", 9.5, False, "ctr", False)
+        sa.box(4.7, yy, 2.7, 0.4, cc(A["none"], C1, key), "cell", 9.5, False, "ctr", False)
+        sa.box(7.4, yy, 2.7, 0.4, cc(A["main"], C1, key), "cell", 9.5, False, "ctr", False)
+        sa.box(10.1, yy, 2.8, 0.4, cc(A["main"], C2, key), "cell", 9.5, False, "ctr", False)
+        yy += 0.42
+    dec = lambda r: ("C1" if r["winner"] == "C1" else "C2") + (" (합계)" if r["rule"] == "total" else f" (동점, 우선순위 {r['deciding_qa']})")
+    sa.box(0.4, yy, 2.8, 0.4, "별 합계 → 선택", "dp", 9.5, True, "l", False)
+    sa.box(3.2, yy, 1.5, 0.4, "—", "cell", 9.5, False, "ctr", False)
+    sa.box(4.7, yy, 2.7, 0.4, f"{ad['t_none']} → {dec(ad['sel_none'])}", "sel", 9.5, True, "ctr", False)
+    sa.box(7.4, yy, 2.7, 0.4, f"{ad['t_main']} → {dec(ad['sel_main'])}", "sel", 9.5, True, "ctr", False)
+    sa.box(10.1, yy, 2.8, 0.4, f"{ad['t_c2']}", "cell", 9.5, True, "ctr", False)
+    yy += 0.52
+    n, mm_, c2_ = A["none"][C1], A["main"][C1], A["main"][C2]
+    ns, np_ = A["no_score"][C1], A["no_promo"][C1]
+    sa.box(0.4, yy, 6.2, 2.45, [
+        "보완 설계 스토리: affinity 추가",
+        f"- affinity가 없는 C1은 자원 압박에만 반응한다. 처리량 x{n['gp'] / bs['gp']:.2f}, TTFT P99 x{n['t99'] / bs['t99']:.2f}(악화)로 C2(x{c2_['gp'] / bs['gp']:.2f})에 크게 못 미치고, 별 합계가 동점이라 우선순위로 C2가 선택된다.",
+        f"- 정적 Data-Memory Affinity를 추가하면(힌트와 접근 비용 추정으로 'HBM에 있어야 SLO를 만족하는' 객체를 승격, 필요하면 교환) 처리량 x{mm_['gp'] / bs['gp']:.2f}, QA2 ★★★이 되어 합계 {ad['t_main']} 대 {ad['t_c2']}로 C1이 선택된다.",
+        f"- 효과의 출처는 정적 승격 pass다: 점수만 제거 x{ns['gp'] / bs['gp']:.3f}(변화 없음), 승격 제거 x{np_['gp'] / bs['gp']:.3f}.",
+        "- 승격은 두 후보가 공유하는 접근 비용 추정기(operation class·shape 힌트)에 의존한다."], "sel", 9.5)
+    sa.box(6.8, yy, 6.1, 2.45, [
+        "한계 (솔직하게)",
+        f"- affinity를 넣어도 C1 처리량(x{mm_['gp'] / bs['gp']:.2f})은 C2(x{c2_['gp'] / bs['gp']:.2f})보다 낮다. 격차를 약 {(mm_['gp'] - n['gp']) / (c2_['gp'] - n['gp']) * 100:.0f}% 줄였지만 C2를 이기지는 못한다.",
+        f"- 선택이 C1로 바뀐 것은 QA3(HBM x{mm_['hbm'] / bs['hbm']:.2f} 대 C2 x{c2_['hbm'] / bs['hbm']:.2f})·QA4 우위와 QA2 별 경계(x{mm_['imp']:.2f} vs 1.25)에서 온다. 합계 차이 1점이라 경계에 민감하다.",
+        "- affinity 제거 변형에서도 QA4 별은 C1 ★★★로 같게 두었다(affinity 모듈은 C1 설계에 원래 포함).",
+        "- 대조군(affinity 포함 재실행)은 본 결과와 정확히 일치. 5 seed, 동일 시나리오. 4.7절 참고."], "note", 9.5)
+
     # ---------------- slide 4: scenarios ----------------
     s4 = Slide("DP1 평가에서 고려한 시나리오")
     per_set = []
@@ -246,35 +302,43 @@ def qa_slides():
         s4.box(0.4, yy, 2.9, 0.92, t, "dp", 10, True, "l", False)
         s4.box(3.3, yy, 9.6, 0.92, body, "cell", 10.5, False, "l", False)
         yy += 0.97
-    return [s, system_slide(), s2, s3, s4]
+    return [s, system_slide(), s2, s3, sa, s4]
 
 
 def tactics_slide():
+    """Complement design for the SELECTED structure (C1): what the evaluation shows is weak and the tactic that addresses it."""
+    o = g.overall_selection()
+    nm = {g.C1: "C1", g.C2: "C2"}
+    sel = nm.get(o["winner"], "C1")
+    A = {t: g.ablation_metrics(t) for t in ("none", "main")}
+    C1, C2, B = g.C1, g.C2, g.B
+    bs = A["main"][B]
+    n, m, c2 = A["none"][C1], A["main"][C1], A["main"][C2]
+    r = lambda x: x["gp"] / bs["gp"]
     Q = g.RM["combined"]["qa_feasible"]
-    C1, C2 = g.C1, g.C2
-    s = Slide("DP1 보완 설계 택틱 - 제안 (선택 구조 C2 기준)")
-    cols = [("#", 0.4, 0.45), ("약점 (평가 근거)", 0.85, 3.2), ("보완 택틱", 4.05, 5.0), ("개선 QA", 9.05, 1.0), ("검증 상태", 10.05, 2.85)]
+    s = Slide(f"DP1 보완 설계 택틱 - 선택 구조 {sel} 기준")
+    cols = [("#", 0.4, 0.45), ("약점 (평가 근거)", 0.85, 3.6), ("보완 택틱", 4.45, 4.9), ("개선 QA", 9.35, 0.9), ("검증 상태", 10.25, 2.65)]
     for name, x, w in cols:
         s.box(x, 1.2, w, 0.34, name, "head", 9, True, "ctr", False)
     rows = [
-        ("W1", f"QA4: 신규 AI data class 추가 시 C2 module {g.QA4['scenarios']['S2']['C2']['modules']}개(C1 {g.QA4['scenarios']['S2']['C1']['modules']}개), 신규 memory는 선호 목록에 명시해야 사용됨(C1은 코드 변경 없이 사용)",
-         "T1 type 특성을 descriptor(데이터)로 외부화. descriptor가 없는 class는 type-agnostic 경로로 처리 -> 신규 type 추가 = descriptor 1개", "QA4", "[C] 논증, 미구현. 기대: 변경 module 3 -> 1~2 (미검증)"),
-        ("W2", f"migration 비용: C2 {Q[C2]['migration_gib']:,.0f} GiB (C1 {Q[C1]['migration_gib']:,.0f}), 링크 점유 {Q[C2]['migration_link_frac']*100:.1f}% (C1 {Q[C1]['migration_link_frac']*100:.1f}%)",
-         "T2 link-time budget + 이득/비용 gating (simulator 적용). traffic class 우선순위(demand > prefetch > demotion). replica가 있으면 DROP 우선", "QA1 QA2", "budget/gating [B] 적용. class 우선순위·DROP 우선은 [C]"),
-        ("W3", "예측 의존: C2는 predictor가 틀리면 잘못된 migration. 오차 e=0.6까지는 우위 유지(lognormal 한 종류, 결과 4.6)",
-         "T3 신뢰도 gating (낮으면 C1의 resource-pressure 트리거로 대체) + 이득 미실현 시 자동 중단(do-no-harm guard) + hysteresis", "QA1 안정성", "[C] 미구현. 실제 workload 이동 robustness는 미확인"),
-        ("W4", f"decision overhead {Q[C2]['decision_overhead_ms']:.0f} ms/run (C1 {Q[C1]['decision_overhead_ms']:.0f} ms). SLO(초 단위) 영향은 작음",
-         "T4 event coalescing(구현), feature 점진 갱신, decision을 critical path 밖에서 비동기 실행", "QA2", "coalescing [B], 나머지 [C]"),
+        ("T1", f"자원 압박에만 반응하는 C1은 처리량 x{r(n):.2f}, TTFT P99 x{n['t99'] / bs['t99']:.2f}(악화)로 C2(x{r(c2):.2f})에 크게 못 미침",
+         "정적 Data-Memory Affinity 승격 추가: operation class·shape 힌트와 접근 비용 추정으로 'HBM에 있어야 SLO를 만족하는' 객체를 승격, 자리가 없으면 정적 페널티가 작은 HBM 거주 객체와 교환",
+         "QA1 QA2", f"[B] 구현·측정됨: 처리량 x{r(n):.2f} -> x{r(m):.2f}, QA2 ★★ -> ★★★ (제거 변형 비교, 결과 4.7). 선택이 C2에서 C1로 바뀜"),
+        ("T2", f"TTFT P99 꼬리 개선 없음(x{m['t99'] / bs['t99']:.2f}). 진단한 시나리오에서 이득 없는 재배치(DRAM 링크 포화 신호에 반응)가 링크를 나눠 씀",
+         "재배치에도 이득/비용 gating 적용(C2에 있는 것과 같은 방식): 예상 서빙 이득이 이동 비용보다 작으면 이동하지 않음", "QA2", "[C] 미구현. 원인은 `cb_kv_8k_b32` 한 시나리오에서만 진단"),
+        ("T3", f"같은 종류(KV) 안의 hot/cold를 구분하지 못해 C2보다 처리량이 낮음(x{r(m):.2f} 대 x{r(c2):.2f}), QA1 별 경계(1.30) 바로 아래",
+         "affinity 힌트에 경량 접근 신호(최근 접근 시각, 접근 횟수)를 추가해 구조를 type-agnostic으로 유지하면서 hot/cold 승격 반영", "QA1", "[C] 미구현. C2의 behavior 모듈 전체를 들이지 않는 대안"),
+        ("T4", "정적 힌트(operation class·shape)가 틀리거나 신규 메모리에 없으면 승격이 오작동. 승격이 공유 접근 비용 추정기에 의존",
+         "힌트를 Memory Backend I/F의 descriptor에서 자동 도출하고, 힌트가 없으면 승격을 끄는 안전 장치(do-no-harm)", "QA4 안정성", "[C] 미구현"),
     ]
     y = 1.6
-    for r in rows:
+    for r_ in rows:
         h = 1.12
-        for (name, x, w), v in zip(cols, r):
-            s.box(x, y, w, h, v, "dp" if name == "#" else ("c2" if name == "보완 택틱" else "cell"), 10, name == "#", "ctr" if name in ("#", "개선 QA") else "l", False)
+        for (name, x, w), v in zip(cols, r_):
+            s.box(x, y, w, h, v, "dp" if name == "#" else ("c2" if name == "보완 택틱" else "cell"), 9.5, name == "#", "ctr" if name in ("#", "개선 QA") else "l", False)
         y += h + 0.06
-    s.box(0.4, y + 0.05, 12.5, 0.75, [
-        "적용 우선순위 제안: T1(QA4 직접 보완) > T3(예측 의존 리스크) > T2 잔여 항목 > T4. T1, T3는 simulator 적용 전까지 효과를 수치로 주장하지 않는다.",
-        "택틱은 C2 구조에 추가되는 module(Descriptor Registry, Confidence Gate, Do-no-harm Guard)로 표현할 수 있다."], "note", 10)
+    s.box(0.4, y + 0.05, 12.5, 0.6, [
+        "T1은 이미 C1 설계(Data-Memory Affinity)에 포함된 구성요소를 평가에서 켠 것이다. 제거 변형으로 효과를 측정했다. T2~T4는 평가가 드러낸 약점에 대한 제안이며 simulator 적용 전까지 효과를 수치로 주장하지 않는다."], "note", 9.5)
     return s
 
 

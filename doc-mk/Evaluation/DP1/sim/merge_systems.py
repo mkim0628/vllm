@@ -20,8 +20,8 @@ DATA = HERE.parent / "results" / "data"
 SETS = ("common_benchmark", "dp1_stress_benchmark", "dp1_dynamic_benchmark")
 
 
-def merge(systems):
-    src = {s: json.loads((DATA / s / "qa_result.json").read_text()) for s in systems}
+def merge(systems, root=DATA):
+    src = {s: json.loads((root / s / "qa_result.json").read_text()) for s in systems}
     result, all_ps, all_lab = {}, {}, {}
     for label in SETS:
         ps = {}
@@ -51,9 +51,13 @@ def merge(systems):
 
 
 if __name__ == "__main__":
-    systems = sys.argv[1:] or ["SYS-H100", "SYS-B200"]
-    res = merge(systems)
-    out = DATA / res["meta"]["system"]
+    args = sys.argv[1:]
+    root = DATA
+    if "--tag" in args:
+        i = args.index("--tag"); root = DATA / args[i + 1]; del args[i:i + 2]
+    systems = args or ["SYS-H100", "SYS-B200"]
+    res = merge(systems, root)
+    out = root / res["meta"]["system"]
     out.mkdir(parents=True, exist_ok=True)
     (out / "qa_result.json").write_text(json.dumps(res, indent=1, sort_keys=True))
     print("wrote", out / "qa_result.json", "n_feasible", res["combined"]["n_feasible"], "n_valid", res["combined"]["n_discriminating"])
