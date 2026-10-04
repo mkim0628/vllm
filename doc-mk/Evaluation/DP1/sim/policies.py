@@ -703,6 +703,8 @@ class FutureBehaviorPredictor:
 def expected_rate(rec, feat) -> float:
     """Predicted near-future accesses/s: observed rate blended with the class prior while the object is young
     (same prior weight as BehaviorBasedTrendAnalyzer; 0.35/s == hotness 1.0 as in that analyzer)."""
+    if "oracle_rate_per_s" in feat:   # Oracle-approx only: true mean rate over the benefit horizon
+        return feat["oracle_rate_per_s"]
     prior_rate = float(rec.class_metadata.get("hotness", 0.5)) * 0.35
     obs = feat.get("rate_per_s")
     if obs is None:
@@ -939,3 +941,64 @@ class C2BehaviorDrivenMigration:
         else:
             self.registry.move(decision.object_id, decision.target_tier)
         self.last_migration[decision.object_id] = now_s
+
+
+class OracleBehaviorMonitor(DataBehaviorMonitor):
+    """Replaces the EWMA behaviour estimate by the TRUE trace rate (perfect knowledge of the future access rate)."""
+
+    def __init__(self, ctx_holder, horizon_s: float):
+        super().__init__()
+        self.ctx_holder = ctx_holder
+        self.horizon_s = horizon_s
+
+    def features(self, oid: int, now_s: float) -> dict[str, float]:
+        f = super().features(oid, now_s)
+        ctx = self.ctx_holder[0]
+        o = ctx.objects.get(oid)
+        if o is None:
+            return f
+        scale = getattr(ctx, "load_scale", 1.0)
+        steps = max(1, int(self.horizon_s))
+        mean_rate = sum(o.rate_at(now_s + k) * scale for k in range(steps)) / steps
+        now_rate = o.rate_at(now_s) * scale
+        f.update(
+            oracle_rate_per_s=mean_rate,
+            rate=now_rate,
+            samples=100.0,                 # no prior blending: the estimate is exact
+            reuse_interval_s=1.0 / max(1e-3, now_rate),
+            idle_s=0.0,
+        )
+        return f
+
+
+class OracleBoundMigration(C2BehaviorDrivenMigration):
+    """ORACLE-APPROX upper-bound reference (not a candidate): the C2 pipeline (type-aware destination, benefit-vs-cost
+    gating, cooldown, the SAME MigrationBudget and link-interference model) driven by perfect knowledge of the future access
+    rate and the exact access-cost estimator (eps=0). It is an approximate bound, not a proven optimum: a candidate that
+    exceeds it in a pair means the bound is not tight there (reported)."""
+
+    name = "Oracle-approx"
+
+    def __init__(self, system, priors, drop_enabled: bool = False):
+        super().__init__(system, priors, drop_enabled)
+        self._ctx = [None]
+        self.monitor = OracleBehaviorMonitor(self._ctx, self.horizon_s)
+
+    def on_event(self, ev, ctx):
+        self._ctx[0] = ctx
+        return super().on_event(ev, ctx)
+
+
+class OracleIdealMigration(OracleBoundMigration):
+    """Oracle-ideal: the Oracle-approx pipeline with FREE, instantaneous migration (no transfer time, no link interference,
+    no budget, no cooldown). It removes every migration cost, so it is the reference for what perfect placement knowledge can
+    buy under the capacity/bandwidth constraints. Still a heuristic placement (type preference lists, greedy by net benefit),
+    hence 'ideal' not 'optimal'."""
+
+    name = "Oracle-ideal"
+    free_migration = True
+
+    def __init__(self, system, priors, drop_enabled: bool = False):
+        super().__init__(system, priors, drop_enabled)
+        self.budget = MigrationBudget(share=1e9)
+        self.cooldown_s = 0.0

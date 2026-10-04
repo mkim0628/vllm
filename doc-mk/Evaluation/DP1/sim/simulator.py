@@ -353,6 +353,12 @@ def _policy(system, candidate, priors, drop_enabled=False):
         return C1ResourceDrivenMigration(system, drop_enabled)
     if candidate == "C2-behavior-driven":
         return C2BehaviorDrivenMigration(system, priors, drop_enabled)
+    if candidate == "Oracle-ideal":
+        from policies import OracleIdealMigration
+        return OracleIdealMigration(system, priors, drop_enabled)
+    if candidate == "Oracle-approx":
+        from policies import OracleBoundMigration
+        return OracleBoundMigration(system, priors, drop_enabled)
     raise ValueError(candidate)
 
 
@@ -399,6 +405,7 @@ def run_sim(
         FIRST_RESPONSE_SLO_S,
         TPOT_SLO_S,
     )
+    ctx.load_scale = load_scale  # read only by the Oracle-approx reference policy
     policy = _policy(system, candidate, priors, drop_enabled)
     scheduler = MigrationScheduler()
     replicas: dict[int, str] = {}
@@ -620,6 +627,8 @@ def run_sim(
                 sc,
                 t,
             )
+            if getattr(policy, "free_migration", False):
+                dt = 0.0  # Oracle-ideal reference only: migration costs nothing
             occupancy[d.source_tier] -= obj.size_bytes
             occupancy[d.target_tier] += obj.size_bytes - replica_at_target
             if replica_at_target:
