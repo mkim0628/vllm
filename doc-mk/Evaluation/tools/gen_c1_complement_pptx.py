@@ -59,8 +59,13 @@ def wrap(text, width_in, size, margin=0.12):
     out, cur = [], ""
     for ch in text:
         if cur and text_w(cur + ch, size) > maxw:
-            out.append(cur)
-            cur = ch.lstrip()
+            sp = cur.rfind(" ")
+            if sp > 0 and ch.isascii() and ch != " " and cur[-1].isascii():
+                out.append(cur[:sp])  # break latin words at the last space instead of mid-word
+                cur = cur[sp + 1:] + ch
+            else:
+                out.append(cur)
+                cur = ch.lstrip()
         else:
             cur += ch
     if cur:
