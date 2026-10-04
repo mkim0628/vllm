@@ -6,6 +6,8 @@
 
 # 1. 정의 위치와 구성
 
+> **범위 제약:** DP1의 data 이동은 **단일 노드(한 서버) 내부**의 메모리 계층 사이로 한정한다 (설계 문서 §3.3). 노드 간 이동은 DP0 소관이라 이 benchmark의 시나리오와 시뮬레이터는 노드 간 전송을 다루지 않는다.
+
 - **단일 소스는 `DP1/sim/scenarios.py`** 이다 (context, batch, knob, 한 줄 요약 `Scenario.brief`). 4장 표는 `tools/gen_dp1_benchmark_doc.py`가 생성한다 (`--check`로 최신 여부 확인).
 - 범주는 `simulation-plan.md` 13.2, diagnostic은 14.2 참조.
 

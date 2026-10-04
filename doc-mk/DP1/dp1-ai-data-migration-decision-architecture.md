@@ -218,6 +218,7 @@ DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
 - Prefill execution resource 선택 — DP2
 - Agent tool-call lifecycle에 따른 KV residency 관리 — 별도 DP
 - KV compression / recompute policy
+- **노드 간(inter-node) data 이동** — 서버 밖(다른 노드, 원격 메모리)으로의 이동·전송 결정은 DP0 소관이다 (아래 §3.3)
 
 특히 **Agent-aware KV 관리**는 DP1의 data movement policy와 구분한다.
 
@@ -234,6 +235,12 @@ Agent Tool-aware KV Residency
 따라서 C1에서 동적 Agent lifecycle을 직접 해석하지 않더라도,
 대표적인 KV 특성은 static affinity hint로 반영하고,
 tool-call 시점의 세밀한 KV lifecycle 제어는 별도 구조에서 보완한다.
+
+## 3.3 설계 제약 (Constraints)
+
+- **C-S1. 이동 범위는 단일 노드(한 서버) 내부로 한정한다.** DP1의 migration은 한 서버 안의 메모리 계층(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD/SSD-PIM) 사이의 data 이동만 결정한다. 다른 노드나 원격 메모리를 tier로 보는 이동은 DP1이 결정하지 않는다.
+- **C-S2. 노드 간 이동은 DP0의 결정이며, DP1과는 접점 계약(DP0 C5: vLLM KV 이벤트의 `medium` 필드, 메트릭, `kv_transfer_params`, NIXL 전송)으로만 연결한다.** DP1은 노드 간 전송 결과로 들어온 data를 노드 안 tier에 배치·재배치할 뿐, 노드 간 전송 여부를 정하지 않는다.
+- **C-S3. 평가(Evaluation/DP1)도 단일 노드 시스템(GPU 8장 서버 1대, SYS profile)만 모델링한다.** 노드 간 전송 비용과 원격 tier는 시뮬레이터에 없다.
 
 ---
 

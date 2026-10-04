@@ -451,6 +451,7 @@ status: draft
 | 항목 | 값 |
 |---|---|
 | SYS id | **메모리 세대별 2개 profile** (모두 6종 메모리 포함): SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-A100(HBM2e, PCIe 4.0)과 SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정, 2026-10-03). 이전 문서의 A100/VR 결과는 `results/data/SYS-A100`, `SYS-VR`에 보존된다. 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
+| 범위 제약 | DP1의 data 이동은 **단일 노드(한 서버) 내부**의 메모리 계층 사이로 한정 (설계 문서 §3.3). 노드 간 이동은 DP0 소관이며 이 평가에 포함되지 않음 |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
 | Git revision | {rev()} |
 | Seeds / loads | seeds {', '.join(map(str, meta['seeds']))} (5회) / load x{', x'.join(map(str, meta['loads']))}, 95% CI t={meta['t95']} |
