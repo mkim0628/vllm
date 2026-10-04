@@ -15,7 +15,7 @@
 | 결과 스키마 | `sim/configs/result_schema.json` | draft |
 | 참조값 생성·검증 | `sim/m0_check.py`, `sim/m0_reference_values.json` | `python m0_check.py --verify` 통과 |
 
-**M0에서 새로 확인한 것 (참조값 계산 결과, 시뮬레이션 아님)**
+**M0에서 새로 확인한 것 (참조값 계산 결과, 시뮬레이션 아님; F-6~F-8은 Baseline-only 제어 실행 결과)**
 
 | # | 발견 | 조치 |
 |---|---|---|
@@ -23,6 +23,9 @@
 | F-2 | **128K~256K cold Prefill은 TTFT 2 s를 단독으로 넘는다.** `dp2_long_ctx_decode_offload`를 cold 세션 시작으로 두면 항상 infeasible | 이미 resident한 긴 History의 **재개 Turn**(tool 2K)으로 변경. DP1도 증분 query만 Prefill하는 같은 관례 |
 | F-3 | **DP1 모델은 HBF를 GPU-direct Decode attention 대상으로 다루지 않는다** (`decode_step_s`가 `attention_capable`이 아닌 Tier에 inf). DP2는 HBF 읽기 Decode를 후보로 쓴다 | 새 규칙 A12 정의 (§4.5) |
 | F-4 | **CXL-PNM Decode는 컨텍스트 약 38K 이하에서만 TPOT 50 ms 충족** (batch 1), HBF 약 120K(H100)/129K(B200). 앞선 rationale의 "약 60K"/"약 150K"는 KV 읽기만의 하한 | rationale 수정, 후보 feasibility는 §6.3 제약으로 처리 |
+| F-6 | **CB 1P+1D는 Baseline이 구조적으로 infeasible.** 노드 하나가 8K를 0.34 s에 Prefill하므로 동시 32 클라이언트는 TTFT 2 s를 못 지킨다(처리율 약 3 req/s) | CB를 4P+1D로 변경, 동시성 grid {8..64} (Baseline-only 제어, loop-log 0회차) |
+| F-7 | Turn마다 Tool 결과가 History에 누적되어 `tool_large_result`(16K×8턴)는 후반 턴의 Prefill이 단독 2 s를 넘는다 | turns 3으로 제한 |
+| F-8 | 일부 시나리오에서 Baseline goodput의 peak가 grid 끝에 있었다 | grid 확장(`m0-spec` §5.3, 공통 규칙 5.2) |
 | F-5 | **CB-1은 H100에서만 압박이 걸린다.** KV 풀 76.8 GiB(H100) 대비 수요 약 82.5 GiB, B200은 풀 184 GiB로 압박 없음 | DP1 CB와 같은 관례 유지. B200의 CB는 `saturated` 예상 (DP1 결과와 일치) |
 
 # 1. 범위 (동결 대상)
@@ -134,14 +137,14 @@ DP1 As-Is와 같다. GPU attention만 쓰고 오프로드 Tier를 쓰지 않는�
 
 | 시나리오 | 파라미터 |
 |---|---|
-| `cb_kv_8k_b32` | 1P+1D · closed C=32 · prompt 8192 · out 256 · 단일 턴 · hbm_mult 0.12 |
-| `cb_kv_8k_b32_ramp` | 1P+1D · closed C=32 · prompt 8192 · out 256 · hbm_mult 0.2 + DP1 capacity_ramp |
-| `cb_mixed_8k_b32` | 1P+1D · closed C=32 · prompt 8192 · out 256 · hbm_mult 0.12 · 비-KV는 용량 점유만 |
+| `cb_kv_8k_b32` | **4P+1D** · closed C {8..64} · prompt 8192 · out 256 · 단일 턴 · hbm_mult 0.12 |
+| `cb_kv_8k_b32_ramp` | **4P+1D** · closed C {8..64} · prompt 8192 · out 256 · hbm_mult 0.2 + DP1 capacity_ramp |
+| `cb_mixed_8k_b32` | **4P+1D** · closed C {8..64} · prompt 8192 · out 256 · hbm_mult 0.12 · 비-KV는 D HBM 풀의 30%를 차지하는 점유(ASSUMED) |
 | `dp2_turn_hbm_small_tool` | 2P+2D · 세션 24 {12..48} · hist0 32768 · tool 512 · out 256 · tier HBM 고정 · hbm 1.0 · bg 0 |
 | `dp2_turn_dram_small_tool` | 2P+2D · 세션 24 · hist0 65536 · tool 512 · tier DRAM 고정 · hbm 0.35 · bg 16 |
 | `dp2_turn_hbf_hist` | 2P+2D · 세션 16 {8..32} · hist0 131072 · tool 2048 · tier HBF 고정 · hbm 0.35 · bg 16 |
 | `dp2_turn_ssd_hist` | 2P+2D · 세션 8 {4..16} · hist0 65536 · tool 512 · tier SSD-PIM 고정 · hbm 0.35 · bg 16 |
-| `dp2_tool_large_result` | 2P+2D · 세션 16 {8..32} · hist0 16384 · **tool 16384** · tier HBM · hbm 1.0 · bg 16 |
+| `dp2_tool_large_result` | 2P+2D · 세션 {4..24} · hist0 16384 · **tool 16384 · turns 3** · tier HBM · hbm 1.0 · bg 16 |
 | `dp2_prefill_burst_p_saturated` | 2P+2D · open λ0, MMPP on-phase 3x λ0 10 s/60 s · 단일 턴 · **prompt U{8192, 12288, 16384}** · out 256 |
 | `dp2_decode_heavy_p_idle` | 2P+2D · closed 64 chat 세션 · prompt 2048 · out 2048 · 8 turns |
 | `dp2_long_ctx_decode_offload` | 1P+2D · 세션 8 {4..16} · **hist0 U[131072, 262144] · tool 2048** · turns 4 · allocator 배치 · hbm 0.3 · 오프로드 Tier 허용 |
@@ -163,21 +166,25 @@ DP1 As-Is와 같다. GPU attention만 쓰고 오프로드 Tier를 쓰지 않는�
 - 2P+2D 기준 `|n_p| × |n_d| = 4 × 16 = 64`개. 이것이 결정 비용의 기준 K다(`K_ref = 64`). top-k pruning은 옵션: P 4개, D 4개로 제한.
 - **재계산(recompute) 후보는 넣지 않는다**(소유자 결정, §13 O11).
 
-## 6.2 Cost 정의 (A19, 단위: request-seconds)
+## 6.2 Cost 정의 (A19 v2, 단위: SLO 분율)
+
+v1(초안)은 request-seconds로 TTFT 초와 Decode 초를 같은 무게로 더했다. TTFT는 SLO 여유가 작고 TPOT는 여유가 큰데도 같은 초로 세어 TPOT 쪽 외부효과가 과대평가되었다. 후보 평가 전에 **SLO 분율**로 바꿨다(`loop-log.md` 0회차).
 
 ```text
-Cost(n_p, n_d) = E2E_self(n_p, n_d) + X(n_p, n_d)
+Cost(n_p, n_d) = TTFT_est / SLO_TTFT                         # 자기 TTFT
+               + TPOT_est(n_d) / SLO_TPOT                    # 자기 TPOT
+               + Thandoff / (N̂_out − 1) / SLO_TPOT           # handoff 정체는 출력 토큰에 분산 (TPOT_req 정의)
+               + X1 + X2 + X3                                # 타 요청에서 가져가는 SLO 분율
 
-E2E_self = Wait(n_p) + Tstage(History → n_p) + Tprefill(n_p)
-         + Thandoff(n_p → n_d) + Wait_dec(n_d) + (N̂_out − 1) × TPOT_est(n_d)
-
-X (타 요청에 주는 지연)  =  |D_run(n_p)| × n_iter_pf × ΔT_iter_chunk           # Prefill chunk가 co-resident Decode를 늦춤
-                         +  |큐에서 이 요청 뒤의 Prefill| × Tprefill(n_p)         # 뒤 요청 대기 증가
-                         +  |D_run(n_d)| × N̂_out × (T_iter(|D|+1) − T_iter(|D|))   # n_d batch 증가에 의한 Decode 지연
+TTFT_est = Wait(n_p) + Tstage(History → n_p) + Tprefill(n_p)
+X1 = |D_run(n_p)| × ( n_chunk × ΔT_iter / (N̂_out / 2) ) / SLO_TPOT      # Prefill chunk가 running Decode의 평균 TPOT을 늘림
+X2 = λ_node × Tprefill² / 2 / SLO_TTFT                                    # 뒤따라 도착할 요청의 TTFT 증가 (λ_node = Planner 자신의 dispatch rate EWMA)
+X3 = |D_res(n_d)| × ( T_iter(|D|+1) − T_iter(|D|) ) / SLO_TPOT           # n_d batch 증가가 resident Decode의 TPOT을 늘림
 ```
 
-- `Wait(n_p) = 큐 앞 Prefill 토큰 ÷ n_p의 Prefill 처리율 추정`, `Wait_dec(n_d)`는 swap-in/승격 대기와 batch 합류 지연.
-- 모든 항은 §4의 `execmodel` 함수로 계산한다. 즉 estimator와 실행은 같은 식이고 **차이는 상태(telemetry 연령)와 오차 ε**뿐이다.
+- `Wait(n_p) = 큐 앞 Prefill 토큰 ÷ n_p의 Prefill 처리율 추정`.
+- 모든 항은 §4의 `execmodel` 함수로 계산한다. estimator와 실행은 같은 식이고 **차이는 상태(telemetry 연령 + Planner 자신의 dispatch 반영)와 오차 ε**뿐이다.
+- Router는 자기 dispatch를 즉시 안다(local bookkeeping): telemetry snapshot에 자기가 보낸 Prefill 토큰과 예약한 KV를 바로 더한다. Baseline의 JSQ도 같은 정보를 쓴다.
 - `N̂_out`은 시나리오의 `out` (정확히 안다고 가정, ASSUMED).
 
 ## 6.3 제약과 선택

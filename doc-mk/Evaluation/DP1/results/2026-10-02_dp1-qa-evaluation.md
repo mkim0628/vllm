@@ -3,7 +3,7 @@ date: 2026-10-02
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
 sys_ids: [SYS-H100, SYS-B200]
-git_rev: 8007ebe (dirty)
+git_rev: fc1d221 (dirty)
 evidence: { QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[B+C]" }
 status: draft
 ---
@@ -83,7 +83,7 @@ Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이�
 | SYS id | **메모리 세대별 2개 profile** (모두 6종 메모리 포함): SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-A100(HBM2e, PCIe 4.0)과 SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정, 2026-10-03). 이전 문서의 A100/VR 결과는 `results/data/SYS-A100`, `SYS-VR`에 보존된다. 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
 | 범위 제약 | DP1의 data 이동은 **단일 노드(한 서버) 내부**의 메모리 계층 사이로 한정 (설계 문서 §3.3). 노드 간 이동은 DP0 소관이며 이 평가에 포함되지 않음 |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
-| Git revision | 8007ebe (dirty) |
+| Git revision | fc1d221 (dirty) |
 | Seeds / loads | seeds 11, 23, 37, 53, 71 (5회) / load x0.5, x1.0, x1.5, x2.0, 95% CI t=2.776 |
 | Tie 판정 | goodput 상대 차이 < 1% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
 | 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final && python3 merge_systems.py SYS-H100 SYS-B200 && python3 dp1_rating.py ../results/data/INT-H100-B200/qa_result.json` (시스템별 단독은 각 SYS의 `dp1_rating.py`), 단일: `python3 qa_eval.py --system SYS-B200` |
@@ -471,6 +471,17 @@ comparison-valid 21쌍 중 TTFT P99가 Baseline보다 나쁜 쌍은 C1 6개, C2 
 | QA3 HBM 절감 배수 | 0.984 ~ 1.016 | 0.009 | 0.95 |
 
 QA1 하한 0.97은 잡음 대역의 아래쪽 끝과 같다. QA2/QA3의 0.95는 잡음보다 느슨하지만 잡음 기준(0.97/0.98)으로 조여도 현재 별은 바뀌지 않는다. **상한(★★/★★★)은 측정으로 정할 수 없다.** 환산: QA1 x1.30 = 같은 수요를 77% 하드웨어로 처리 = 8-GPU 노드에서 약 1.85 GPU 절감(x1.14가 1 GPU), QA2 x1.25 = latency 20% 감소(TTFT P99 1,084 -> 867 ms), QA3 x1.25 = HBM 20% 감소(146.6 GiB 중 약 29 GiB, 8K KV object 약 1.6개). 이 값들은 "도입 가치가 있는 크기"라는 정책 선택이며 QA1의 1.30은 결과를 본 뒤 정한 값이다. 상한을 QA1/2/3에 똑같이 적용하면 선택은 상한 <= 1.298 또는 > 1.422에서 C1, 1.30~1.40에서 C2(동점, QA1 우선)로 갈린다. 현재 경계는 C1의 QA1(x1.298)과 0.2% 차이이므로 **선택은 경계 선택에 민감**하다.
+
+## 4.10 QA1 별 기준의 문헌 근거: Oracle 대비 이득 달성률 (`DP1/qa-capture-literature.md`)
+
+별 경계를 "Baseline 대비 몇 배"가 아니라 **Oracle(미래 접근률 완전 정보 + 무비용 즉시 이동을 준 `Oracle-ideal`)이 낼 수 있는 이득 중 얼마를 얻었나**로 정의해 시나리오마다 다른 개선 여지를 정규화한다. 달성률 = (후보 − Baseline) ÷ (Oracle − Baseline). 개선 여지가 잡음(3.3%) 이하인 쌍은 집계에서 제외한다(비교 가능 21쌍 중 여지 있는 10쌍 사용, Oracle 이득 geomean x2.43). ★★★ 경계 x는 문헌의 이득 달성률에서 정했다: Mockingjay(HPCA'22) Table I의 SHiP 57%, Hawkeye 75%, Mockingjay 95%(Belady MIN 대비 IPC 개선)와 ARMS(arXiv 2508.04417)의 87% 이상(환산)의 **중앙값 81% -> x = 80%**. 출처 5개와 제외 사유, LLM 서빙에 직접 해당하는 문헌을 찾지 못했다는 한계는 `qa-capture-literature.md`에 있다.
+
+| 후보 | pooled 달성률 | 쌍별 평균 | Oracle을 1% 넘은 쌍 | QA1 별 (x = 80%) | 현재 공식 QA1 별 |
+|---|---|---|---|---|---|
+| C1 | 0.62 | 0.59 | 0 | ★★ | ★★ (x1.30 경계, 값 x1.298) |
+| C2 | 0.83 | 0.75 | 1 | ★★★ | ★★★ (값 x1.422) |
+
+두 정의에서 QA1 별이 같고 선택도 같다. 다만 (1) pooled 대신 쌍별 평균을 쓰면 C2는 0.75라 ★★이 되고(집계 방식은 두 값을 본 뒤 문헌의 관례에 맞춰 pooled로 정했다), (2) 10쌍뿐이라 쌍 부트스트랩 95% 구간이 C1 0.33~0.87, C2 0.70~0.93으로 겹쳐 **C2가 C1보다 더 가깝다고 통계적으로 단정할 수 없고**, (3) Oracle-ideal은 증명된 최적이 아니라 휴리스틱이다. QA2(Oracle이 지연 꼬리를 최적화하지 않아 후보가 Oracle을 넘는 쌍이 많음)와 QA3(Oracle 미정의)에는 적용하지 않았다.
 
 # 5. 결과 분석
 

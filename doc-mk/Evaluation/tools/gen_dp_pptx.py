@@ -333,6 +333,27 @@ def qa_slides():
         "- 기본값은 유지했다. 필요한 것은 큰 이동을 여러 tick에 나누는 staged 이동과 이동 중 접근에 대한 do-no-harm 검사이며 보완 설계 택틱([C], 미구현)이다.",
         "- 한계: 링크 간섭이 평균장 근사(대역폭 배율)라 꼬리가 과대일 수 있다. 사전 판정 규칙이 '이득이 0인 퇴화 해'를 허용하는 결함이 있었음을 loop-log에 기록했다."], "note", 9.5)
 
+    # ---------------- slide: QA1 star basis = Oracle capture ratio ----------------
+    cs = g.capture_stats()
+    sq = Slide("QA1 별 기준의 문헌 근거 - Oracle 대비 이득 달성률")
+    for name, x, w in (("후보", 0.4, 1.6), ("pooled 달성률", 2.0, 2.2), ("쌍별 평균", 4.2, 2.0), ("Oracle 초과 쌍", 6.2, 2.0), ("QA1 별 (x = 80%)", 8.2, 2.2), ("현재 공식 별", 10.4, 2.5)):
+        sq.box(x, 1.15, w, 0.32, name, "head", 10, True, "ctr", False)
+    for i, (nm, k, a, b) in enumerate((("C1", "c1", "★★", "★★ (x1.298)"), ("C2", "c2", "★★★", "★★★ (x1.422)"))):
+        yy = 1.5 + i * 0.42
+        for (x, w, v) in ((0.4, 1.6, nm), (2.0, 2.2, f"{cs[k]['pooled']:.2f}"), (4.2, 2.0, f"{cs[k]['mean']:.2f}"), (6.2, 2.0, str(cs[k]["over"])), (8.2, 2.2, a), (10.4, 2.5, b)):
+            sq.box(x, yy, w, 0.4, v, "cell", 9.5, i >= 0 and x in (0.4, 8.2), "ctr", False)
+    sq.box(0.4, 2.5, 6.2, 4.2, [
+        "정의와 x의 근거",
+        f"- 달성률 = (후보 - Baseline) / (Oracle - Baseline), 시나리오 쌍마다. Oracle = 미래 접근률 완전 정보 + 무비용 즉시 이동을 준 정책(Oracle-ideal, 증명된 최적은 아님). 개선 여지 3.3% 이하인 쌍은 제외(비교 가능 {cs['n_pairs']}쌍 중 {cs['n_head']}쌍 사용).",
+        "- x = 80%: 문헌의 이득 달성률 {57, 75, 87, 95}%의 중앙값 81%를 반올림. Mockingjay(HPCA'22) Table I: SHiP 57%, Hawkeye 75%, Mockingjay 95%(Belady MIN 대비 IPC 개선), ARMS(arXiv 2508.04417): 튜닝 최적의 97% 이상 -> 87% 이상(환산).",
+        "- ★/★★ 경계는 기존 잡음 기준(Baseline 대비 0.97) 유지."], "sel", 9.5)
+    sq.box(6.8, 2.5, 6.1, 4.2, [
+        "솔직한 한계",
+        "- 문헌은 CPU 캐시 교체와 tiered memory 연구다. LLM 서빙에 직접 해당하는 이득 달성률 문헌은 찾지 못했다. LLM KV 연구(arXiv 2609.16215)는 대역폭이 경합하면 oracle prefetch도 이득이 없었다고 보고했고, 이는 우리 링크 간섭 결과와 같은 방향이다.",
+        "- 쌍 10개뿐이라 부트스트랩 95% 구간이 C1 0.33~0.87, C2 0.70~0.93으로 겹친다. C2가 더 가깝다고 단정할 수 없다.",
+        f"- 쌍별 평균을 쓰면 C2는 {cs['c2']['mean']:.2f}로 ★★이다(pooled는 문헌의 관례). 두 방식 모두 선택은 C1.",
+        "- QA2(Oracle을 넘는 쌍 6개)와 QA3(Oracle 미정의)에는 적용하지 않았다. 출처 5개와 제외 사유: qa-capture-literature.md."], "note", 9.5)
+
     # ---------------- slide 4: scenarios ----------------
     s4 = Slide("DP1 평가에서 고려한 시나리오")
     per_set = []
@@ -353,7 +374,7 @@ def qa_slides():
         s4.box(0.4, yy, 2.9, 0.92, t, "dp", 10, True, "l", False)
         s4.box(3.3, yy, 9.6, 0.92, body, "cell", 10.5, False, "l", False)
         yy += 0.97
-    return [s, system_slide(), s2, s3, sa, st_, sbs, s4]
+    return [s, system_slide(), s2, s3, sa, st_, sbs, sq, s4]
 
 
 def tactics_slide():

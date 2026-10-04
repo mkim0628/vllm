@@ -5,35 +5,38 @@
   {
    "name": "cb_kv_8k_b32",
    "set": "common",
-   "topology": "1P+1D",
+   "topology": "4P+1D",
    "load": "closed:C=32 grid{16,32,48,64,96}",
    "turns": 1,
    "prompt": 8192,
    "out": 256,
    "hbm_mult": 0.12,
-   "note": "DP1 CB-1 pressure on D KV pool"
+   "note": "DP1 CB-1 pressure on D KV pool",
+   "_m0_fix2": "1P+1D -> 4P+1D: one P node prefills 8K in 0.34 s (3 req/s) so 32 closed-loop clients cannot meet TTFT 2 s on 1P; 4P+1D gives ~32 in-flight decodes at P utilization ~67% (Baseline-only control, loop-log iteration 0)"
   },
   {
    "name": "cb_kv_8k_b32_ramp",
    "set": "common",
-   "topology": "1P+1D",
+   "topology": "4P+1D",
    "load": "closed:C=32 grid{16,32,48,64,96}",
    "turns": 1,
    "prompt": 8192,
    "out": 256,
    "hbm_mult": 0.2,
-   "ramp": "mult x max(0.45, 1-0.55*t/T) (DP1 capacity_ramp)"
+   "ramp": "mult x max(0.45, 1-0.55*t/T) (DP1 capacity_ramp)",
+   "_m0_fix2": "1P+1D -> 4P+1D: one P node prefills 8K in 0.34 s (3 req/s) so 32 closed-loop clients cannot meet TTFT 2 s on 1P; 4P+1D gives ~32 in-flight decodes at P utilization ~67% (Baseline-only control, loop-log iteration 0)"
   },
   {
    "name": "cb_mixed_8k_b32",
    "set": "common",
-   "topology": "1P+1D",
+   "topology": "4P+1D",
    "load": "closed:C=32 grid{16,32,48,64,96}",
    "turns": 1,
    "prompt": 8192,
    "out": 256,
    "hbm_mult": 0.12,
-   "non_kv": "LoRA15/MoE15/Agent10/Tool10 (% of objects, DP1 mix) modeled as capacity occupants only"
+   "non_kv": "LoRA15/MoE15/Agent10/Tool10 (% of objects, DP1 mix) modeled as capacity occupants only",
+   "_m0_fix2": "1P+1D -> 4P+1D: one P node prefills 8K in 0.34 s (3 req/s) so 32 closed-loop clients cannot meet TTFT 2 s on 1P; 4P+1D gives ~32 in-flight decodes at P utilization ~67% (Baseline-only control, loop-log iteration 0)"
   },
   {
    "name": "dp2_turn_hbm_small_tool",
