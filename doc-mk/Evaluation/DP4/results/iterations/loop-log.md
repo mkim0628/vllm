@@ -39,3 +39,12 @@ Baseline = Baseline-RDMA (T_ref, 점대점 RDMA 전송 + 중앙 인덱스). 규�
 **실행 (d).** 전체 benchmark set(Common + DP4)을 SYS-H100, SYS-B200, 통합, ablation, star basis 전부 재실행하고, Iteration 1의 η_cxl × 배경 격자와 break-even도 같은 모델로 재산출한다. 이전 값과 바뀐 값을 결과 문서 한계에 적는다.
 
 **판정 규칙(사전).** 수정 후 결과가 main이 된다(이전 main은 superseded로 보존). 후보가 여전히 Baseline 미만이면 §5 (ii)에 따라 "tested conditions에서 Baseline 대비 이득 없음"으로 보고한다 — 추가 iteration으로 η_cxl 등을 조정하지 않는다. QA3 tier-weighted residency는 결과를 본 뒤 정의한 것이므로 **민감도로만** 낸다(`defined_after_first_look`, H11), 별점에 쓰지 않는다.
+
+## Iteration 2 — 결과 (2026-10-04)
+
+- 변경: 후보 move path를 write(P egress+풀, prefill과만 겹침) → publish → pin → read(풀+D ingress) → decode 순차로 수정. Baseline 경로·모든 파라미터 불변. 테스트 69 통과(기존 62 + 신규 7, 기존 수정 없음). 수정 전 결과는 `../data/pre_serial_read/`에 보존.
+- 통합(INT-H100-B200) 수정 전 → 후: QA1 ratio 0.733 → **0.704** (H100 0.812→0.783, B200 0.663→0.634); QA3 절감 배수 0.230 → **0.223**; TTFT P99 공통 부하 악화 쌍 5/6 → **6/6**(최악 ×25.1, B200 `cb_kv_8k_b32`); 승/무/패(44쌍) 2/34/8 → **4/33/7**. TPOT 동일. C1·C2 차이 ≤ 0.03%.
+- break-even η_cxl*(parity ratio ≥ 0.99, bg 0.85): 0.671 → **0.703**(가설 "η* > 0.67" 확인). QA3 η* 0.741 → 0.803, bg ≤ 0.5에서는 격자 내 없음. TTFT P99 악화 쌍 0은 격자 내 어떤 bg에서도 없음(최소 1쌍).
+- fit label 변화는 기계적: DP4 행에서 read가 TTFT에 노출되어 goodput 동률 행도 TTFT가 Baseline과 유의하게 달라짐(comparison-valid 6→37, saturated 32→1). 구조적 새 발견 아님.
+- 생략: control-plane 민감도(S, probe, cs, threads, batch, metadata cost)는 move path 수정과 무관하여 재실행하지 않음(Iteration 1에서 CB 결과를 움직이지 않음).
+- **판정 (사전 등록 규칙).** 후보는 tested 조건에서 Baseline 미만 → SKILL §5 중단 조건 (ii)의 문장을 쓴다: *under the tested conditions the architecture shows no benefit over the baseline* (CXL 공유 풀 data plane 기준; η_cxl ≥ 0.70 이상이면 QA1 parity 가능하나 이는 ASSUMED 범위의 민감도이며 main 아님). 추가 iteration으로 파라미터를 조정하지 않는다. 시도한 변경: Iteration 1 (진단 sweep, 변경 없음), Iteration 2 (M: serial read).
