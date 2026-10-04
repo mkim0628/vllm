@@ -51602,13 +51602,13 @@
    "C1-central-serialization",
    "C2-distributed-lock"
   ],
-  "command": "python3 qa_eval.py --system SYS-B200 --sets common_benchmark dp4_benchmark --jobs 4 --out-dir ../results/data/SYS-B200",
+  "command": "python3 qa_eval.py --system SYS-B200 --jobs 4 --out-dir ../results/data/SYS-B200",
   "config": "doc-mk/Evaluation/DP4/sim/configs/cluster_dp4.json",
   "config_sha1": "8812188fbd34bee16c9160502154e5e1c1e28ac3",
   "evidence": "[B+C] simulation; not [A]",
   "git": {
    "dirty": true,
-   "revision": "fb9ecab"
+   "revision": "cb98109"
   },
   "loads": [
    0.5,

@@ -100259,7 +100259,7 @@
   "evidence": "[B+C] simulation; not [A]",
   "git": {
    "dirty": true,
-   "revision": "fb9ecab"
+   "revision": "cb98109"
   },
   "loads": [
    0.5,
@@ -100289,17 +100289,17 @@
    "dp4_benchmark"
   ],
   "source_commands": {
-   "SYS-B200": "python3 qa_eval.py --system SYS-B200 --sets common_benchmark dp4_benchmark --jobs 4 --out-dir ../results/data/SYS-B200",
-   "SYS-H100": "python3 qa_eval.py --system SYS-H100 --sets common_benchmark dp4_benchmark --jobs 4 --out-dir ../results/data/SYS-H100"
+   "SYS-B200": "python3 qa_eval.py --system SYS-B200 --jobs 4 --out-dir ../results/data/SYS-B200",
+   "SYS-H100": "python3 qa_eval.py --system SYS-H100 --jobs 4 --out-dir ../results/data/SYS-H100"
   },
   "source_git": {
    "SYS-B200": {
     "dirty": true,
-    "revision": "fb9ecab"
+    "revision": "cb98109"
    },
    "SYS-H100": {
-    "dirty": true,
-    "revision": "fb9ecab"
+    "dirty": false,
+    "revision": "cb98109"
    }
   },
   "system": "INT-H100-B200",
