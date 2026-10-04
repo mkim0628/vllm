@@ -40,6 +40,7 @@ CANDS = (BASE, C1, C2)
 SEEDS = (11, 23, 37, 53, 71)
 LOADS = (0.5, 1.0, 1.5, 2.0)
 MAX_LOAD = 8.0
+MIN_LOAD = 0.0625  # downward extension floor (peak at the lowest grid point, see DESIGN_NOTES 7)
 T95 = 2.776
 MATERIAL_REL = 0.01
 SETS = (("common_benchmark", common_benchmark), ("dp4_benchmark", dp4_benchmark))
@@ -127,7 +128,8 @@ def next_load(cur):
 
 
 def sweep(sys_id, label, jobs=1, arms=CANDS, cfg=None, overrides=None, seeds=SEEDS, loads=LOADS):
-    """Load sweep with peak-at-grid-end extension (x3, x4, ... up to x8) shared by all arms of a row."""
+    """Load sweep with peak-at-grid-end extension (x3, x4, ... up to x8) shared by all arms of a row. A peak at the lowest
+    grid point (x0.5) extends downward (x0.25, x0.125, x0.0625) so that a peak below the grid is not missed either."""
     ov = tuple(sorted(overrides.items())) if overrides else None
     cfg = str(cfg) if cfg else None
     rows = [n for n, _, _ in rows_of(label)]
@@ -149,8 +151,8 @@ def sweep(sys_id, label, jobs=1, arms=CANDS, cfg=None, overrides=None, seeds=SEE
             for r in runs:
                 if r["row"] == n:
                     gp.setdefault((r["arm"], r["load_scale"]), []).append(r["goodput_tps"])
-            mx = max(ran[n])
-            peak_at_end = False
+            mx, mn = max(ran[n]), min(ran[n])
+            peak_at_end = peak_at_start = False
             anyg = False
             for a in arms:
                 means = {ld: statistics.mean(gp[(a, ld)]) for ld in ran[n]}
@@ -159,8 +161,12 @@ def sweep(sys_id, label, jobs=1, arms=CANDS, cfg=None, overrides=None, seeds=SEE
                     anyg = True
                     if best == mx:
                         peak_at_end = True
+                    if best == mn:
+                        peak_at_start = True
             if peak_at_end and anyg and mx < MAX_LOAD:
                 nxt[n] = [next_load(mx)]
+            elif peak_at_start and anyg and mn > MIN_LOAD:
+                nxt[n] = [mn / 2.0]
         todo = nxt
     return runs, ran
 
@@ -310,7 +316,9 @@ def qa_table(ps, names=None, cands=CANDS):
             if ls:
                 seed_gm.append(math.exp(statistics.mean(ls)))
         gm_ci = T95 * statistics.stdev(seed_gm) / math.sqrt(len(seed_gm)) if len(seed_gm) > 1 else 0.0
-        d = dict(qa1_ratio_geomean=gm, qa1_ratio_ci95=gm_ci, qa1=stars_q1(gm) if ratios else "n/a", qa1_n_valid=len(ratios),
+        zero = [sn for sn, v in valid.items() if v[cand]["max_goodput_tps"] <= 0]
+        gm_nz = geomean(r_ for r_ in ratios if r_ > 0) if any(r_ > 0 for r_ in ratios) else 0.0
+        d = dict(qa1_n_cand_zero=len(zero), qa1_cand_zero_scenarios=zero, qa1_ratio_geomean_excl_zero=gm_nz, qa1_ratio_geomean=gm, qa1_ratio_ci95=gm_ci, qa1=stars_q1(gm) if ratios else "n/a", qa1_n_valid=len(ratios),
                  qa1_per_scenario={sn: (v[cand]["max_goodput_tps"] / base[sn] if base[sn] > 0 else None) for sn, v in sub.items()},
                  qa1_abs_goodput_geomean_tps=geomean(v[cand]["max_goodput_tps"] for v in valid.values()) if valid else float("nan"),
                  qa1_t_ref_geomean_tps=geomean(base[sn] for sn in valid) if valid else float("nan"), n_scenarios=len(sub))

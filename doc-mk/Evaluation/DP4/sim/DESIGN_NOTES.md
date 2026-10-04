@@ -25,6 +25,9 @@ favour a candidate. Nothing below was tuned after seeing results (H16). Simulati
    (`node_loss` = 30 s index rebuild, ASSUMED range value of the plan).
 7. **Load grid** `x0.5/1.0/1.5/2.0`, all arms identical. If any arm's mean Max-goodput peak is at the grid end (and > 0)
    the grid is extended by x3, x4, ... up to x8 for all arms of that scenario. A peak at x8 stays flagged in `meta.loads_run`.
+   Deviation in the spirit of common-benchmark 5.2 ("a missed peak is invalid"): a peak at the lowest point (x0.5) extends downward
+   (x0.25, x0.125, x0.0625) because link-bound rows (B200 CB-3) peak below the grid. `qa1_n_cand_zero` counts scenarios where a candidate has zero goodput
+   at every load (the QA1 geometric mean then collapses; `qa1_ratio_geomean_excl_zero` is stored next to it).
 8. **Goodput** counts a request when its own TTFT <= 2 s and TPOT <= 50 ms (per-request SLO). Cohort = arrivals after the
    10 % warm-up; all requests are drained (so overload shows up as SLO violations, not as a vanishing denominator). Consequence:
    the goodput peak can sit at a load where the P99 TTFT already violates the SLO (the P99 star then drops). QA2 star follows

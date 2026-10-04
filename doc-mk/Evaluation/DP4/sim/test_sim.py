@@ -390,6 +390,13 @@ class StatsTest(unittest.TestCase):
             _, ran = q.sweep("SYS-H100", "common_benchmark", 1, (BASE, C1), None, None, (11,))
         self.assertEqual(ran["cb_kv_8k_b32"], [0.5, 1.0, 1.5, 2.0])
 
+    def test_load_sweep_extends_downward_when_peak_at_lowest_point(self):
+        def fake(tasks, jobs):  # goodput peaks at load 0.2
+            return [dict(row=r[2], arm=r[3], load_scale=r[4], seed=r[5], goodput_tps=1000.0 - abs(r[4] - 0.2) * 100.0) for r in tasks]
+        with mock.patch.object(q, "run_tasks", fake):
+            _, ran = q.sweep("SYS-H100", "common_benchmark", 1, (BASE, C1), None, None, (11,))
+        self.assertEqual(sorted(ran["cb_kv_8k_b32"]), [0.125, 0.25, 0.5, 1.0, 1.5, 2.0])
+
     def test_load_sweep_capped_at_x8(self):
         with mock.patch.object(q, "run_tasks", self._fake_runner(1e9)):
             _, ran = q.sweep("SYS-H100", "common_benchmark", 1, (BASE, C1), None, None, (11,))
