@@ -2,10 +2,11 @@
 
 > 상태: **draft** (평가 구현 전). 이 문서는 설계 근거와 사전 가설을 기록한다. 평가 정의와 시나리오는 `doc-mk/Evaluation/DP2/`가 원천이다.
 >
-> - 구조/결정 시점: [`dp2-prefill-execution-planning-decision-timing.md`](dp2-prefill-execution-planning-decision-timing.md)
+> - 구조/결정 시점: [`dp2-prefill-decode-execution-planning-decision-timing.md`](dp2-prefill-decode-execution-planning-decision-timing.md)
 > - QA 정의: [`../Evaluation/DP2/qa-criteria-dp2.md`](../Evaluation/DP2/qa-criteria-dp2.md)
 > - 평가 방법: [`../Evaluation/DP2/simulation-plan.md`](../Evaluation/DP2/simulation-plan.md)
 > - 시나리오: [`../Evaluation/DP2/benchmark.md`](../Evaluation/DP2/benchmark.md)
+> - Simulator 확장 범위: [`../Evaluation/DP2/sim-extension-scope.md`](../Evaluation/DP2/sim-extension-scope.md)
 
 ---
 
@@ -50,7 +51,7 @@
 | Tier | 외부 BW | 내부 BW | 비고 |
 |---|---:|---:|---|
 | HBM (GPU 8장 합) | 26,800 GB/s | — | GPU가 attention·FFN 실행 |
-| ScHBM (노드 1개, 160 GiB) | 63 GB/s (PCIe 5.0 x16, GPU→host→ScHBM) | 6,700 GB/s | attention 오프로드 가능 |
+| ScHBM = Samsung Custom HBM (노드 1개, 160 GiB) | 63 GB/s (PCIe 5.0 x16, GPU→host→ScHBM) | 6,700 GB/s | attention 오프로드 가능 |
 | CXL-PNM (512 GiB) | 63 GB/s | 400 GB/s | attention 오프로드 가능 |
 | DRAM (1 TiB) | 64 GB/s | — | |
 | HBF (2 TiB) | 읽기 1,000 / 쓰기 50 GB/s (GPU 직접) | — | |
@@ -176,4 +177,4 @@ DP1 simulator는 단일 노드 가정이고 노드 간 전송을 다루지 않�
 5. **QA5 Scalability**: 공통 QA 문서에 추가할지, DP2 전용으로 둘지, threshold(0.70/0.90은 제안값) 확정.
 6. **재계산 후보**: SSD Tier의 History를 로드하지 않고 재계산하는 후보를 ExecutionPlan 후보 집합에 넣을지.
 7. **DP1과의 상호작용**: DP2 결과는 DP1 정책이 만든 Tier 분포에 의존한다. Baseline-static 고정을 주 결과로, DP1-C1 on을 민감도로 둔다.
-8. `vllm-cost-model-prefill-execution-planning-architecture.md`는 아직 `PrefillExecutionPlanner` 명칭과 Prefill 단일 결정을 쓴다. 본 변경(ExecutionPlanner, (n_p, n_d))에 맞춰 후속 정리가 필요하다.
+8. `vllm-cost-model-prefill-decode-execution-planning-architecture.md`는 명칭(ExecutionPlanner, ExecutionCostModel)과 ExecutionPlan 구조(`prefill` + `decode_start`)만 맞췄다. Sequence diagram, 상태 머신, 코드 변경 범위 표는 Prefill 단일 결정 기준으로 쓰인 채 남아 있어 후속 정리가 필요하다.

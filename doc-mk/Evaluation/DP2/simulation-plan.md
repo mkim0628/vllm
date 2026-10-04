@@ -18,7 +18,7 @@ DP2 후보(C1 스케줄링 시점 결정, C2 사전 계획 결정)를 Common Ref
 - **Cost**: `Cost(n_p,n_d) = Tmove(KV→n_p) + Tprefill(n_p) + Tqueue/간섭(n_p) + Tmove(KV n_p→n_d) + ΔTPOT(n_d)`, n_d의 KV 용량·SLO feasible 제약. **C1과 C2는 같은 Cost Model을 쓴다**(차이는 결정 시점과 plan lifecycle).
 - **C1**: scheduler가 request와 token budget을 확정한 시점에 최신 Resource State로 결정한다.
 - **C2**: waiting 중 Planner가 비동기로 plan을 만들어 Plan Cache에 두고, dispatch 직전 Late Validation(자원 health, 용량, queue guardrail, plan age, 경로)을 한 뒤 사용한다. 실패 시 backup 후보 또는 re-plan.
-- 자세한 구조는 `doc-mk/DP2/dp2-prefill-execution-planning-decision-timing.md`.
+- 자세한 구조는 `doc-mk/DP2/dp2-prefill-decode-execution-planning-decision-timing.md`.
 
 # 3. 평가 환경
 
@@ -34,20 +34,9 @@ DP2 후보(C1 스케줄링 시점 결정, C2 사전 계획 결정)를 Common Ref
 
 # 4. Simulator 확장 필요 항목
 
-DP1 simulator(`DP1/sim/`)는 **단일 노드 가정이고 노드 간 전송을 다루지 않는다**(`../DP1/benchmark.md` 범위 제약). 아래를 새로 구현해야 한다.
+DP1 simulator(`DP1/sim/`)는 1초 time-step의 데이터 객체 모델이고 요청 큐가 없으며, 단일 노드 가정이라 노드 간 전송을 다루지 않는다. 그래서 C1/C2의 차이(결정 지연, plan age, stale telemetry, 큐)를 표현하지 못한다.
 
-| 구분 | 항목 | DP1 재사용 여부 |
-|---|---|---|
-| 재사용 | 물리 모델(`model.py`: prefill/decode/offloaded attention 시간, 메모리 spec), `configs/`, 같은 trace 비교, TTFT/TPOT 계산 방식 | 재사용 |
-| 신규 | 노드 모델 (P/D 역할, 큐, continuous batching, Prefill–Decode 간섭 계수) | 신규 |
-| 신규 | 노드 간 링크 모델 (대역폭, 경합. DP1 `link_interference`와 같은 방식, SKILL H22 취지) | 확장 |
-| 신규 | 멀티턴 세션 workload (History, Tool 결과 크기, tool wait, 도착 과정) | 신규 (`scenarios.py` 패턴 참고) |
-| 신규 | Planner: Candidate Generator, Cost Evaluator, ExecutionRouter, C1 경로, C2 경로(Plan Cache, Late Validation, re-plan) | 신규 |
-| 신규 | Resource State telemetry 모델 (갱신 주기, 지연), 결정 비용 모델 (후보당 µs~ms) | 신규 |
-| 신규 | 참고 정책: D-local-always, Oracle | 신규 |
-| 신규 | QA 계산 (`qa_eval.py` 확장: useful utilization, scaling efficiency, 진단 지표) | 확장 |
-
-DP1 doc이 밝힌 대로 노드 간 이동 메커니즘은 DP0/substrate 소관이므로 DP2 simulator는 DP1의 idealized MigrationExecutor와 같이 **전송을 이상적 executor + 링크 모델로** 반영한다.
+**결론: Turn 단위 이산 사건 simulator를 새로 만들고, DP1의 `model.py`·`configs/`·통계 규칙을 재사용한다. DP1 코드는 수정하지 않는다.** 모듈 구성, 모델링 요구사항(F1~F13), 시나리오별 필요 기능, 단계(M0~M6)와 종료 기준, 테스트 계획, 소유자 결정 사항은 [`sim-extension-scope.md`](sim-extension-scope.md)에 둔다.
 
 # 5. 민감도와 오차
 

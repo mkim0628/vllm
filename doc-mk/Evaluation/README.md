@@ -24,7 +24,7 @@ doc-mk/Evaluation/
 │   ├── qa-criteria-dp1.md       # DP1 보조 평가 기준 (세부 tier, 집계, C1 vs C2 직접 비교)
 │   ├── results/                 # 결과 문서 (YYYY-MM-DD_<topic>.md), data/ (qa_result.json), iterations/ (loop-log.md)
 │   └── sim/                     # simulator (scenarios.py, policies.py, simulator.py, qa_eval.py, configs/)
-├── DP2/  README.md, qa-criteria-dp2.md, simulation-plan.md, benchmark.md (draft), results/
+├── DP2/  README.md, qa-criteria-dp2.md, simulation-plan.md, sim-extension-scope.md, benchmark.md (draft), results/
 ├── DP3/  README.md, benchmark.md (TBD), results/
 └── DP4/  README.md, benchmark.md (TBD), results/
 ~~~

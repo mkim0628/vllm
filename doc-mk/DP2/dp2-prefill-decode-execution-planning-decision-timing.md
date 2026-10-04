@@ -1,7 +1,7 @@
 # DP2 — Cost-based Prefill/Decode Execution Planning: Resource 결정 시점 구조
 
 > 대상 브랜치: `claude/vllm-call-path-analysis-qxulkr`  
-> 상세 공통 Architecture: `doc-mk/DP2/vllm-cost-model-prefill-execution-planning-architecture.md`
+> 상세 공통 Architecture: `doc-mk/DP2/vllm-cost-model-prefill-decode-execution-planning-architecture.md`
 >
 > **목적:** 동일한 cost-based Prefill/Decode Execution Planning 정책을 구현할 때,
 > 실행 Resource 결정 기능을 runtime의 어느 시점에 배치할 것인지 비교한다.
@@ -10,8 +10,8 @@
 
 # 1. Background / Problem
 
-이기종 AI Serving Runtime에서는 Prefill 연산을 GPU/HBM, GPU/HBF, PNM/CXL 등
-서로 다른 compute-memory resource에서 실행할 수 있다.
+이기종 AI Serving Runtime에서는 Prefill 연산과 Decode를 GPU/HBM, GPU/HBF, PNM/CXL 등
+서로 다른 compute-memory resource에서 실행(시작)할 수 있다.
 
 공통 정책은 다음과 같다.
 
