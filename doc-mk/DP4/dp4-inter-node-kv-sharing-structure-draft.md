@@ -4,7 +4,7 @@
 |---|---|
 | 상태 | **초안 (제안)** |
 | 작성 일자 | 2026-10-04 |
-| 기준 자료 | [`../DP2/dp2-prefill-execution-planning-decision-timing.md`](../DP2/dp2-prefill-execution-planning-decision-timing.md), 사용자 DP2 슬라이드(13~14쪽의 P/D 노드 구조와 Turn 예시), [`../DP3/dp3-kv-compression-reuse-structure-draft.md`](../DP3/dp3-kv-compression-reuse-structure-draft.md), [`../DP1/dp1-ai-data-migration-decision-architecture.md`](../DP1/dp1-ai-data-migration-decision-architecture.md), 문헌 조사 |
+| 기준 자료 | [`../DP2/dp2-prefill-decode-execution-planning-decision-timing.md`](../DP2/dp2-prefill-decode-execution-planning-decision-timing.md), 사용자 DP2 슬라이드(13~14쪽의 P/D 노드 구조와 Turn 예시), [`../DP3/dp3-kv-compression-reuse-structure-draft.md`](../DP3/dp3-kv-compression-reuse-structure-draft.md), [`../DP1/dp1-ai-data-migration-decision-architecture.md`](../DP1/dp1-ai-data-migration-decision-architecture.md), 문헌 조사 |
 | 슬라이드 초안 | [`DP4-slides-draft.pptx`](DP4-slides-draft.pptx) (1쪽 배경, 2쪽 설계), [`DP-overview-slide-draft.pptx`](DP-overview-slide-draft.pptx) (전체 DP 연결 표) |
 | 근거 수준 | **[A]** 실측 / **[B]** 문헌 보고 (as reported) / **[C]** 구조 논증·가설 |
 | 환경 전제 | 서버 2대(각 GPU 8장), **CXL 공유 풀 없음**(사용자 확인), RDMA 유무 미확인, Kubernetes 숙련도 낮음 |

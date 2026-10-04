@@ -99,7 +99,7 @@ Prefix reuse는 baseline에서 제거/통제한다. 후보가 prefix reuse 계�
 | DP | 실현 문서 | Serving 구조 | 상태 |
 |---|---|---|---|
 | DP1 | CB-1~3 = `cb_kv_8k_b32`, `cb_kv_8k_b32_ramp`, `cb_mixed_8k_b32` (`scenarios.common_benchmark()`). DP 전용 시나리오: `DP1/benchmark.md` | vLLM 중심 (simulator) | 실현됨 (3/3) |
-| DP2 | CB-1~3 실현 TBD. DP 전용: `DP2/benchmark.md` | TBD | TBD |
+| DP2 | CB-1~3 실현 계획: `DP2/benchmark.md` 2장. DP 전용: `DP2/benchmark.md` | P/D 노드 (llm-d + vLLM worker, simulator 확장 필요: `DP2/simulation-plan.md`) | 계획 (미실현) |
 | DP3 | CB-1~3 실현 TBD. DP 전용: `DP3/benchmark.md` | TBD | TBD |
 | DP4 | CB-1~3 실현 TBD. DP 전용: `DP4/benchmark.md` | TBD | TBD |
 

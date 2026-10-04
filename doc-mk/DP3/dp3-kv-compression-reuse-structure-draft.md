@@ -4,7 +4,7 @@
 |---|---|
 | 상태 | **초안 (제안)** — 원본 `dp3-long-context-kv-cache-eviction.md`는 수정하지 않았다 |
 | 작성 일자 | 2026-10-03 |
-| 기준 자료 | 사용자 제공 `DP3.pptx`(모듈 구조도), [`dp3-long-context-kv-cache-eviction.md`](dp3-long-context-kv-cache-eviction.md), [`../DP1/dp1-ai-data-migration-decision-architecture.md`](../DP1/dp1-ai-data-migration-decision-architecture.md), [`../DP2/dp2-prefill-execution-planning-decision-timing.md`](../DP2/dp2-prefill-execution-planning-decision-timing.md) |
+| 기준 자료 | 사용자 제공 `DP3.pptx`(모듈 구조도), [`dp3-long-context-kv-cache-eviction.md`](dp3-long-context-kv-cache-eviction.md), [`../DP1/dp1-ai-data-migration-decision-architecture.md`](../DP1/dp1-ai-data-migration-decision-architecture.md), [`../DP2/dp2-prefill-decode-execution-planning-decision-timing.md`](../DP2/dp2-prefill-decode-execution-planning-decision-timing.md) |
 | 슬라이드 초안 | [`DP3-slides-draft.pptx`](DP3-slides-draft.pptx) (슬라이드 1 배경, 슬라이드 2 설계 구조도) |
 | 근거 수준 | **[A]** 실측 / **[B]** 문헌 보고 (as reported) / **[C]** 구조 논증·가설. 사용자가 직접 설명한 내용은 "(사용자 설명)"으로 표기 |
 | 이 문서가 대체하는 것 | 이전 초안 `dp3-scope-extension-draft.md`. 그 문서의 Drop–Blend 가정과 컴포넌트 구성은 실제 모듈 구조와 달라 폐기했다 |

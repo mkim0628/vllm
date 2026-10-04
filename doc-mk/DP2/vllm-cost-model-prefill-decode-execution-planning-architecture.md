@@ -1,10 +1,10 @@
-# vLLM Cost-Model-Based Prefill Execution Planning — Architecture Design
+# vLLM Cost-Model-Based Prefill/Decode Execution Planning — Architecture Design
 
 > 기준 브랜치: `claude/vllm-call-path-analysis-qxulkr`  
 > 기준 코드 분석: `doc-mk/vllm-call-path-analysis.md` 및 `doc-mk/vllm-*.md` 중 DP 문서 제외  
-> 설계 범위: **Prefill 실행 위치를 cost model로 선택하고, 선택 결과를 실제 execution resource까지 전달·실행하는 runtime 구조**
+> 설계 범위: **Turn 단위로 Prefill 실행 위치(n_p)와 Decode 시작 위치(n_d)를 cost model로 선택하고, 선택 결과를 실제 execution resource까지 전달·실행하는 runtime 구조**
 >
-> 이 문서는 후보 구조 비교가 아니라, **cost-model-based prefill execution plan을 vLLM V1에 실제로 넣는다면 어떤 layer/module/component 경계를 가져야 하는지**를 정의한다.
+> 이 문서는 후보 구조 비교가 아니라, **cost-model-based prefill/decode execution plan을 vLLM V1에 실제로 넣는다면 어떤 layer/module/component 경계를 가져야 하는지**를 정의한다.
 
 ---
 
@@ -47,7 +47,7 @@ model.forward()
 
 핵심 원칙은 다음과 같다.
 
-> **Scheduler는 "언제/얼마나 실행할지"를 결정하고, Prefill Execution Planning 계층은 "어디서 실행할지"를 결정한다. Cost Model은 실행 위치를 직접 dispatch하지 않는다.**
+> **Scheduler는 "언제/얼마나 실행할지"를 결정하고, Prefill/Decode Execution Planning 계층은 "어디서 실행할지"를 결정한다. Cost Model은 실행 위치를 직접 dispatch하지 않는다.**
 
 ---
 
@@ -81,20 +81,30 @@ Cost model은 최소한 다음 입력을 사용할 수 있어야 한다.
   - 현재 decode load
   - competing prefill
   - shared memory/fabric contention
+- Decode 시작 후보 (n_d)
+  - Decode 노드의 KV 수용 용량 (Tier별), 현재 batch 크기, TPOT 여유
+  - 결과 KV를 n_p에서 n_d로 전달하는 경로와 비용
+  - n_d의 Tier별 attention 처리 능력 (HBM, HBF 직접 읽기, ScHBM·CXL-PNM 오프로드)
 
-출력은 단순한 `device_id`가 아니라 다음과 같은 **ExecutionPlan**여야 한다.
+출력은 단순한 `device_id`가 아니라 다음과 같은 **ExecutionPlan**여야 한다. Prefill 실행 위치(n_p)와 Decode 시작 위치(n_d)를 하나의 plan으로 결정한다.
 
 ```text
 ExecutionPlan
- ├─ compute_resource_id
- ├─ memory_resource_id
- ├─ execution_group_id
- ├─ required_data_moves
- ├─ estimated_cost
+ ├─ prefill
+ │   ├─ compute_resource_id
+ │   ├─ memory_resource_id
+ │   └─ execution_group_id
+ ├─ decode_start
+ │   ├─ compute_resource_id
+ │   ├─ memory_resource_id        # 결과 KV가 놓일 Tier
+ │   └─ execution_group_id
+ ├─ required_data_moves           # History KV 이동 + 결과 KV의 n_p → n_d 전달
+ ├─ estimated_cost                # Cost(n_p, n_d)
  └─ decision_metadata
 ```
 
-즉 "GPU 1에서 실행"이 아니라 **Compute + Memory + Data Movement를 포함한 실행 계획**이다.
+즉 "GPU 1에서 실행"이 아니라 **Compute + Memory + Data Movement를 포함하고 Prefill과 Decode 시작 위치를 함께 정하는 실행 계획**이다.
+Decode 실행 중 Tier 간 KV 이동은 이 계층의 책임이 아니다(DP1).
 
 ## 1.2 Quality Attributes
 
@@ -122,8 +132,8 @@ graph TB
         KVM["KVCacheManager"]
     end
 
-    subgraph L3["L3. Prefill Execution Planning Layer — 신규"]
-        PM["PrefillExecutionPlanner<br/>execution planning orchestration"]
+    subgraph L3["L3. Prefill/Decode Execution Planning Layer — 신규"]
+        PM["ExecutionPlanner<br/>execution planning orchestration"]
         CG["ExecutionCandidateGenerator"]
         CE["CostEvaluator"]
         POLICY["ExecutionResourceSelector<br/>feasibility + argmin"]
@@ -131,7 +141,7 @@ graph TB
     end
 
     subgraph L4["L4. Runtime Resource Intelligence Layer — 신규/확장"]
-        COST["PrefillCostModel"]
+        COST["ExecutionCostModel"]
         STATE["RuntimeStateStore"]
         TEL["TelemetryCollector"]
         TOPO["ResourceTopology"]
@@ -201,7 +211,7 @@ graph TB
 |---|---|---|
 | Serving/API | request ingress/egress | execution plan을 모름 |
 | Engine/Scheduling | continuous batching, token budget, KV allocation | **execution planning 요청을 생성하고 결과를 SchedulerOutput에 반영** |
-| Prefill Execution Planning | 후보 생성 → 비용 평가 → 선택 | **의사결정의 중심** |
+| Prefill/Decode Execution Planning | 후보 생성 → 비용 평가 → 선택 | **의사결정의 중심** |
 | Resource Intelligence | resource/data/topology/runtime state를 표준화 | cost model에 raw HW 지식이 새지 않게 함 |
 | Execution/Dispatch | execution plan을 실제 execution group으로 routing | **결정을 실행으로 변환** |
 | Hardware | 실제 compute/memory | 플러그인/adapter 뒤에 숨김 |
@@ -210,7 +220,7 @@ graph TB
 
 # 3. Module View
 
-기존 vLLM package 구조를 최대한 유지하면서 신규 모듈을 `vllm/v1/prefill_planning/`에 모은다.
+기존 vLLM package 구조를 최대한 유지하면서 신규 모듈을 `vllm/v1/execution_planning/`에 모은다.
 
 ```text
 vllm/
@@ -226,11 +236,11 @@ vllm/
     │   └── kv_cache_manager.py             # modified only if execution planning affects KV allocation
     │
     ├── execution planning/                          # NEW
-    │   ├── manager.py                      # PrefillExecutionPlanner
+    │   ├── manager.py                      # ExecutionPlanner
     │   ├── candidate.py                    # CandidateGenerator / ExecutionCandidate
     │   ├── selector.py                     # ExecutionResourceSelector
     │   ├── cost/
-    │   │   ├── base.py                     # PrefillCostModel interface
+    │   │   ├── base.py                     # ExecutionCostModel interface
     │   │   ├── model.py                    # concrete cost model
     │   │   └── evaluator.py                # batch evaluation + cost breakdown
     │   ├── resource/
@@ -256,10 +266,10 @@ vllm/
 graph TD
     CORE["vllm.v1.engine.core"]
     SCHED["vllm.v1.core.sched"]
-    PLACE["vllm.v1.prefill_planning"]
-    COST["vllm.v1.prefill_planning.cost"]
-    RES["vllm.v1.prefill_planning.resource"]
-    DATA["vllm.v1.prefill_planning.data"]
+    PLACE["vllm.v1.execution_planning"]
+    COST["vllm.v1.execution_planning.cost"]
+    RES["vllm.v1.execution_planning.resource"]
+    DATA["vllm.v1.execution_planning.data"]
     EXEC["vllm.v1.executor"]
     WORK["vllm.v1.worker"]
     MODEL["vllm.model_executor"]
@@ -285,8 +295,8 @@ graph TD
 
 ### 의존성 규칙
 
-1. `Scheduler`는 구체적인 cost-model 구현을 import하지 않는다. `PrefillExecutionPlanner`만 호출한다.
-2. `PrefillCostModel`은 Worker/Executor를 호출하지 않는다. **pure estimation** 역할만 가진다.
+1. `Scheduler`는 구체적인 cost-model 구현을 import하지 않는다. `ExecutionPlanner`만 호출한다.
+2. `ExecutionCostModel`은 Worker/Executor를 호출하지 않는다. **pure estimation** 역할만 가진다.
 3. `Executor`는 cost를 다시 계산하지 않는다. `ExecutionPlan`를 소비한다.
 4. Telemetry producer와 decision consumer 사이에는 `RuntimeStateSnapshot`을 둔다.
 5. Hardware-specific adapter는 `ResourceRegistry` 또는 Worker 쪽에 위치시키고 Scheduler까지 노출하지 않는다.
@@ -302,17 +312,19 @@ classDiagram
         -schedule_prefill(...)
     }
 
-    class PrefillExecutionPlanner {
+    class ExecutionPlanner {
         -ExecutionCandidateGenerator candidate_generator
         -CostEvaluator cost_evaluator
         -ExecutionResourceSelector selector
-        +place(ctx: PrefillExecutionContext) ExecutionPlan
+        +place(ctx: ExecutionContext) ExecutionPlan
         +place_batch(ctxs) list~ExecutionPlan~
     }
 
-    class PrefillExecutionContext {
+    class ExecutionContext {
         +request_id
         +num_prefill_tokens
+        +expected_output_tokens
+        +decode_slo
         +scheduled_tokens
         +model_id
         +kv_location
@@ -326,19 +338,18 @@ classDiagram
 
     class ExecutionCandidate {
         +candidate_id
-        +compute_resource_id
-        +memory_resource_id
-        +execution_group_id
+        +prefill_resource  // compute, memory, group
+        +decode_start_resource  // compute, memory, group
         +data_path
         +constraints
     }
 
     class CostEvaluator {
-        -PrefillCostModel model
+        -ExecutionCostModel model
         +evaluate(ctx, candidates, snapshot) list~CostEstimate~
     }
 
-    class PrefillCostModel {
+    class ExecutionCostModel {
         <<interface>>
         +estimate(ctx, candidate, snapshot) CostEstimate
         +estimate_batch(ctxs, candidates, snapshot) list~CostEstimate~
@@ -359,9 +370,8 @@ classDiagram
     }
 
     class ExecutionPlan {
-        +compute_resource_id
-        +memory_resource_id
-        +execution_group_id
+        +prefill_resource
+        +decode_start_resource
         +data_moves
         +estimated_cost
         +fallback
@@ -393,7 +403,7 @@ classDiagram
     class SchedulerOutput {
         +scheduled_new_reqs
         +scheduled_cached_reqs
-        +prefill_execution_plans
+        +execution_plans
     }
 
     class ExecutionPlanAwareExecutor {
@@ -401,21 +411,21 @@ classDiagram
         +dispatch_by_placement(...)
     }
 
-    Scheduler --> PrefillExecutionPlanner
-    PrefillExecutionPlanner --> PrefillExecutionContext
-    PrefillExecutionPlanner --> ExecutionCandidateGenerator
-    PrefillExecutionPlanner --> CostEvaluator
-    PrefillExecutionPlanner --> ExecutionResourceSelector
+    Scheduler --> ExecutionPlanner
+    ExecutionPlanner --> ExecutionContext
+    ExecutionPlanner --> ExecutionCandidateGenerator
+    ExecutionPlanner --> CostEvaluator
+    ExecutionPlanner --> ExecutionResourceSelector
 
     ExecutionCandidateGenerator --> ResourceRegistry
     ExecutionCandidateGenerator --> ResourceTopology
     ExecutionCandidateGenerator --> DataLocationResolver
 
-    CostEvaluator --> PrefillCostModel
-    PrefillCostModel --> CostEstimate
-    PrefillCostModel --> RuntimeStateStore
-    PrefillCostModel --> ResourceTopology
-    PrefillCostModel --> DataLocationResolver
+    CostEvaluator --> ExecutionCostModel
+    ExecutionCostModel --> CostEstimate
+    ExecutionCostModel --> RuntimeStateStore
+    ExecutionCostModel --> ResourceTopology
+    ExecutionCostModel --> DataLocationResolver
 
     ExecutionResourceSelector --> ExecutionPlan
     Scheduler --> SchedulerOutput
@@ -426,15 +436,15 @@ classDiagram
 
 ## 4.1 C1/C2 Class Delta
 
-Core domain model은 대부분 공통이다. `PrefillExecutionPlanner`, `ExecutionCandidateGenerator`,
-`PrefillCostModel`, `ExecutionResourceSelector`, `ExecutionRouter`는 두 후보가 동일하게 사용한다.
+Core domain model은 대부분 공통이다. `ExecutionPlanner`, `ExecutionCandidateGenerator`,
+`ExecutionCostModel`, `ExecutionResourceSelector`, `ExecutionRouter`는 두 후보가 동일하게 사용한다.
 
 - **C1**: 위 공통 class만으로 동작한다. Scheduler가 `plan_batch()`를 직접 호출한다.
 - **C2**: 사전 계획의 lifecycle을 위해 아래 세 class가 추가되는 것이 핵심 delta다.
 
 ~~~mermaid
 classDiagram
-    class PrefillExecutionPlanner {
+    class ExecutionPlanner {
         +plan(ctx) ExecutionPlan
     }
     class ExecutionPlanCache {
@@ -455,11 +465,11 @@ classDiagram
         +replan(ctx, latest_state) ExecutionPlan
     }
 
-    PrefillExecutionPlanner --> ExecutionPlanCache : C2 only
+    ExecutionPlanner --> ExecutionPlanCache : C2 only
     ExecutionPlanCache --> ExecutionPlan
     PlanValidator --> ExecutionPlan
     PlanValidator --> Replanner : stale/invalid
-    Replanner --> PrefillExecutionPlanner
+    Replanner --> ExecutionPlanner
 ~~~
 
 C2의 복잡도는 Cost Model 자체가 아니라 **plan age / cache / validation / invalidation / re-plan**
@@ -478,7 +488,7 @@ flowchart LR
     R["Runtime State<br/>utilization, queue,<br/>capacity, BW pressure"]
     T["Topology / Data Path<br/>residency, distance,<br/>transfer path"]
 
-    CM["PrefillCostModel"]
+    CM["ExecutionCostModel"]
 
     OUT["CostEstimate<br/>compute<br/>memory<br/>transfer<br/>queue<br/>interference<br/>confidence"]
 
@@ -505,7 +515,7 @@ TotalCost(candidate)
     + Penalty / Risk
 ```
 
-실제 구현은 analytical / learned / hybrid 중 무엇이든 `PrefillCostModel` 뒤에서 교체 가능하다.
+실제 구현은 analytical / learned / hybrid 중 무엇이든 `ExecutionCostModel` 뒤에서 교체 가능하다.
 아키텍처는 cost model의 내부 알고리즘에 의존하지 않는다.
 
 ---
@@ -515,7 +525,7 @@ TotalCost(candidate)
 ## 6.1 공통 경계
 
 두 후보 모두 Scheduler가 **어떤 request를 이번 step에서 몇 token 실행할지**를 결정하고,
-`PrefillExecutionPlanner`가 **어느 compute-memory resource에서 prefill을 실행할지**를
+`ExecutionPlanner`가 **어느 compute-memory resource에서 prefill을 실행할지**를
 cost 기반으로 결정한다는 책임 분리는 동일하다.
 
 차이는 **Execution Planning을 언제 수행하느냐**이다.
@@ -538,11 +548,11 @@ flowchart TD
     B["1. waiting/running request 선택"]
     C["2. token budget 결정<br/>chunked prefill 포함"]
     D["3. KV requirement / prefix-cache 정보 확정"]
-    E["4. PrefillExecutionContext 생성"]
-    F["5. PrefillExecutionPlanner.plan_batch()"]
+    E["4. ExecutionContext 생성"]
+    F["5. ExecutionPlanner.plan_batch()"]
     RS["ResourceStateMonitor<br/>latest snapshot"]
-    CM["PrefillCostModel"]
-    G["6. SchedulerOutput 생성<br/>+ prefill_execution_plans"]
+    CM["ExecutionCostModel"]
+    G["6. SchedulerOutput 생성<br/>+ execution_plans"]
     H["Executor.execute_model()"]
 
     A --> B --> C --> D --> E --> F --> G --> H
@@ -565,9 +575,9 @@ plan lookup과 빠른 validation만 수행한다.
 ~~~mermaid
 flowchart TD
     ARR["Request Arrival / Waiting"]
-    P["PrefillExecutionPlanner<br/>async planning"]
+    P["ExecutionPlanner<br/>async planning"]
     RS["ResourceStateMonitor<br/>planning-time snapshot"]
-    CM["PrefillCostModel"]
+    CM["ExecutionCostModel"]
     PC["ExecutionPlanCache<br/>ranked candidates + snapshot version"]
 
     S["Scheduler.schedule()"]
@@ -604,7 +614,7 @@ flowchart TD
 API Server / EngineCore / Worker라는 현재 vLLM V1 프로세스 경계는 두 후보 모두 유지한다.
 또한 다음 책임도 공통이다.
 
-- **EngineCore**: Scheduler + PrefillExecutionPlanner + Cost Model + Resource State snapshot
+- **EngineCore**: Scheduler + ExecutionPlanner + Cost Model + Resource State snapshot
 - **Worker**: telemetry producer + 실제 model execution
 - **ExecutionRouter**: 선택된 Execution Plan을 적절한 execution group/worker로 전달
 - **Cost Model**: Worker 내부가 아니라 EngineCore control plane에서 전체 candidate를 비교
@@ -623,8 +633,8 @@ graph LR
     subgraph P2["Process: EngineCore"]
         EC["EngineCore"]
         SCH["Scheduler"]
-        PLAN["PrefillExecutionPlanner"]
-        CM["PrefillCostModel"]
+        PLAN["ExecutionPlanner"]
+        CM["ExecutionCostModel"]
         RS["ResourceStateMonitor / RuntimeStateStore"]
         EX["ExecutionPlanAwareExecutor"]
         ER["ExecutionRouter"]
@@ -664,8 +674,8 @@ graph LR
     subgraph P2["Process: EngineCore"]
         EC["EngineCore"]
         SCH["Scheduler"]
-        BG["PrefillExecutionPlanner<br/>Background Planning Task"]
-        CM["PrefillCostModel"]
+        BG["ExecutionPlanner<br/>Background Planning Task"]
+        CM["ExecutionCostModel"]
         RS["ResourceStateMonitor / RuntimeStateStore"]
         CACHE["ExecutionPlanCache"]
         VAL["PlanValidator"]
@@ -775,7 +785,7 @@ feasible ExecutionCandidate
 
 ---
 
-# 9. Main Sequence Diagram — Cost-Based Prefill Execution Planning
+# 9. Main Sequence Diagram — Cost-Based Prefill/Decode Execution Planning
 
 Data movement 계산, candidate feasibility, Cost Model 자체는 두 후보가 동일하다.
 가장 큰 sequence 차이는 **Cost evaluation과 resource decision이 언제 일어나는가**이다.
@@ -786,16 +796,16 @@ Data movement 계산, candidate feasibility, Cost Model 자체는 두 후보가 
 sequenceDiagram
     participant EC as EngineCore
     participant S as Scheduler
-    participant P as PrefillExecutionPlanner
+    participant P as ExecutionPlanner
     participant RS as ResourceStateMonitor
-    participant CM as PrefillCostModel
+    participant CM as ExecutionCostModel
     participant ER as ExecutionRouter
     participant W as Selected Worker
 
     EC->>S: schedule()
     Note over S: request 선택 + token budget 확정
 
-    S->>P: plan_batch(PrefillExecutionContext[])
+    S->>P: plan_batch(ExecutionContext[])
     P->>RS: latest snapshot()
     RS-->>P: RuntimeStateSnapshot
 
@@ -819,9 +829,9 @@ C1은 `schedule() → Cost evaluation → resource decision → dispatch`가 한
 ~~~mermaid
 sequenceDiagram
     participant EC as EngineCore
-    participant P as PrefillExecutionPlanner
+    participant P as ExecutionPlanner
     participant RS as ResourceStateMonitor
-    participant CM as PrefillCostModel
+    participant CM as ExecutionCostModel
     participant PC as ExecutionPlanCache
     participant S as Scheduler
     participant V as PlanValidator
@@ -874,9 +884,9 @@ C2의 핵심 위험은 **plan-time state와 execution-time state의 drift**다.
 
 ```mermaid
 sequenceDiagram
-    participant PM as PrefillExecutionPlanner
+    participant PM as ExecutionPlanner
     participant CG as CandidateGenerator
-    participant CM as PrefillCostModel
+    participant CM as ExecutionCostModel
     participant DM as DataMover / TransferEstimator
     participant EX as ExecutionRouter
     participant SRC as Source Memory
@@ -922,7 +932,7 @@ sequenceDiagram
     participant W as Worker / Resource Agent
     participant TC as TelemetryCollector
     participant RS as RuntimeStateStore
-    participant PM as PrefillExecutionPlanner
+    participant PM as ExecutionPlanner
 
     loop periodic / event-driven
         W->>TC: utilization, queue, memory, BW, health
@@ -999,7 +1009,7 @@ Cost Model 또는 target resource의 실패가 serving availability를 깨면 �
 
 ~~~mermaid
 flowchart TD
-    A["PrefillExecutionPlanner.plan()"]
+    A["ExecutionPlanner.plan()"]
     B{"fresh snapshot?"}
     C{"feasible candidate?"}
     D{"cost evaluation success?"}
@@ -1106,14 +1116,14 @@ ExecutionPlanningDecisionRecord
 
 | 현재 파일/영역 | 변경 | 이유 |
 |---|---|---|
-| `vllm/v1/core/sched/scheduler.py` | 수정 | prefill execution context 생성 및 execution planner 연계 |
+| `vllm/v1/core/sched/scheduler.py` | 수정 | execution context 생성(Prefill/Decode) 및 execution planner 연계 |
 | `SchedulerOutput` 관련 type | 수정 | request별 `ExecutionPlan` 전달 |
 | `vllm/v1/engine/core.py` | 소폭 수정 | execution planning subsystem lifecycle/init, telemetry wiring |
 | `vllm/v1/executor/abstract.py` | interface 확장 | execution-plan-aware dispatch contract |
 | `vllm/v1/executor/multiproc_executor.py` | 수정 | 단일 broadcast 외 execution-group routing 지원 |
 | `vllm/v1/worker/gpu_worker.py` | 수정 | execution plan metadata 소비, telemetry publish |
 | `vllm/v1/worker/gpu_model_runner.py` | 최소 수정/adapter | 선택된 memory/compute path 실행 |
-| `vllm/v1/prefill_planning/*` | 신규 | execution planning/cost/resource intelligence 책임 |
+| `vllm/v1/execution_planning/*` | 신규 | execution planning/cost/resource intelligence 책임 |
 | KV cache 관련 manager | 조건부 수정 | execution planning가 KV allocation tier까지 결정할 경우 |
 
 ---
@@ -1124,7 +1134,7 @@ ExecutionPlanningDecisionRecord
 
 ### Phase 1 — Decision path만 삽입
 
-- `PrefillExecutionPlanner`, `PrefillCostModel`, `ExecutionPlan` 추가
+- `ExecutionPlanner`, `ExecutionCostModel`, `ExecutionPlan` 추가
 - candidate는 기존 GPU execution group들만 사용
 - SchedulerOutput에 execution plan metadata 추가
 - predicted/actual latency logging
@@ -1155,10 +1165,10 @@ ExecutionPlanningDecisionRecord
                     │          Scheduler           │
                     │  Who / When / How many token │
                     └──────────────┬───────────────┘
-                                   │ PrefillExecutionContext
+                                   │ ExecutionContext
                                    ▼
                     ┌──────────────────────────────┐
-                    │  PrefillExecutionPlanner     │
+                    │  ExecutionPlanner     │
                     └───────┬─────────┬────────────┘
                             │         │
                   candidates│         │cost

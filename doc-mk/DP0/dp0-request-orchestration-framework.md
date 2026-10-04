@@ -37,7 +37,7 @@
 |---|---|---|
 | **DP0 (본 문서)** | 서버 간 요청 조율 계층(cluster-level request orchestration framework): OSS 확장 vs 자체 구현 | [`DP0/dp0-request-orchestration-framework.md`](dp0-request-orchestration-framework.md) |
 | DP1 | 이기종 메모리 기반 AI 데이터 배치(heterogeneous-memory data migration decision) | [`DP1/dp1-ai-data-migration-decision-architecture.md`](../DP1/dp1-ai-data-migration-decision-architecture.md) |
-| DP2 | Prefill 실행 계획 결정 시점(prefill execution planning) | [`DP2/dp2-prefill-execution-planning-decision-timing.md`](../DP2/dp2-prefill-execution-planning-decision-timing.md) |
+| DP2 | Prefill/Decode 실행 계획 결정 시점(prefill/decode execution planning) | [`DP2/dp2-prefill-decode-execution-planning-decision-timing.md`](../DP2/dp2-prefill-decode-execution-planning-decision-timing.md) |
 | DP3 | 메모리 배치 추상화(memory placement abstraction) | [`vllm-dp3-memory-placement-abstraction-candidates.md`](../vllm-dp3-memory-placement-abstraction-candidates.md) |
 | DP4 | 연산 배치 스케줄링(compute placement scheduling) | [`vllm-dp4-compute-placement-scheduling-candidates.md`](../vllm-dp4-compute-placement-scheduling-candidates.md) |
 
@@ -619,7 +619,7 @@ RDMA 근거: `mkim0628/llm-d@4cd4ed4:docs/architecture/advanced/disaggregation/R
 | DP | 관계 |
 |---|---|
 | DP1 (migration) | node 내부 결정이라 orchestrator와 독립. 접점은 KV events의 `medium`과 `OffloadingSpec`/`SecondaryTierManager`/`CachePolicy` hook. **DP0과 병렬 진행 가능** |
-| DP2 (prefill execution planning 결정 시점) | prefill 실행 위치는 cluster 성분(pod 선택, P/D 결정 = P4)과 node 성분(인스턴스 내부 resource 선택)으로 나뉜다 |
+| DP2 (prefill/decode execution planning 결정 시점) | prefill 실행 위치와 decode 시작 위치는 cluster 성분(pod 선택, P/D 결정 = P4)과 node 성분(인스턴스 내부 resource 선택)으로 나뉜다 |
 | DP3, DP4 | 2-level(cluster/node) contract를 전제한다 |
 
 ## 10.2 upstream vLLM의 multi-tier offload (코드 재확인)
