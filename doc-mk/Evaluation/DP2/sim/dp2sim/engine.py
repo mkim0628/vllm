@@ -23,7 +23,7 @@ class Req:
     __slots__ = ("rid", "sess", "hist", "q", "out", "t_arr", "bg", "n_p", "n_d", "plan", "t_disp", "t_dec", "t_plan",
                  "t_stage0", "t_stage1", "t_enq", "t_first", "t_hand", "t_done", "gpu_s", "resv", "ctx_end", "hist_tier",
                  "promoted", "pend", "plan_ready", "plan_obj", "meas", "fallback", "regret", "plan_age", "wait_flows",
-                 "t_pfstart", "decision_k")
+                 "t_pfstart", "decision_k", "ledger")
 
     def __init__(self, rid, sess, hist, q, out, t_arr):
         self.rid, self.sess, self.hist, self.q, self.out, self.t_arr = rid, sess, hist, q, out, t_arr
@@ -47,6 +47,7 @@ class Req:
         self.plan_age = None
         self.wait_flows = 0
         self.decision_k = 0
+        self.ledger = None
 
 
 class Sim:
@@ -86,6 +87,9 @@ class Sim:
         self.snap = None
         self.est = Estimator(self, o["eps"])
         self.planner_q: list[Req] = []
+        self.planned = defaultdict(float)          # C2: the planner's ledger of its own not-yet-dispatched plans
+        self.planned_cnt = defaultdict(int)
+        self.planned_free = defaultdict(float)
         self.workers_busy = 0
         self.fault = False
         self.horizon = o["horizon"]
@@ -189,6 +193,36 @@ class Sim:
         for nd in self.nodes:
             nd.advance(self.now)
         return self.make_view()
+
+    def plan_view(self):
+        """Snapshot + the planner's own pending plans (C2 knows what it has planned but not yet dispatched)."""
+        v = self.est_view()
+        nodes = []
+        for nv in v.nodes:
+            c = NodeView(nv.idx, nv.role, nv.ndec, nv.groups, nv.pf_tokens + self.planned[nv.idx], nv.njobs + self.planned_cnt[nv.idx],
+                         dict(nv.free), nv.evictable)
+            for t in c.free:
+                c.free[t] -= self.planned_free.get((nv.idx, t), 0.0)
+            nodes.append(c)
+        return View(nodes, v.flows)
+
+    def ledger_add(self, req, plan):
+        d, t = plan.n_d
+        sess = req.sess
+        delta = req.ctx_end * self.P.kvb - (sess.kv_bytes if sess.owner == (d, t) else 0.0)
+        req.ledger = (plan.n_p, req.q, (d, t), delta)
+        self.planned[plan.n_p] += req.q
+        self.planned_cnt[plan.n_p] += 1
+        self.planned_free[(d, t)] += delta
+
+    def ledger_release(self, req):
+        if req.ledger is None:
+            return
+        n_p, q, key, delta = req.ledger
+        self.planned[n_p] -= q
+        self.planned_cnt[n_p] -= 1
+        self.planned_free[key] -= delta
+        req.ledger = None
 
     def take_snapshot(self):
         for nd in self.nodes:
@@ -413,8 +447,10 @@ class Sim:
                 r.plan_ready = True
                 r.plan_obj = None
                 continue
-            view = self.est_view()
+            view = self.plan_view()
             plan = self.plan_with(view, r, self.now, gate=False)
+            if plan is not None:
+                self.ledger_add(r, plan)
             self.workers_busy += 1
             k = plan.k if plan else self.kcount(range(self.N))
             self.push(self.now + self.t_dec_for(k), "planready", r, plan)
@@ -425,8 +461,9 @@ class Sim:
         sess = req.sess
         d, t = plan.n_d
         i = plan.n_p
-        if self.outstanding(i) >= self.o["qcap"] * (2.0 if self.cand == C2 else 1.0):
+        if self.outstanding(i) >= self.o["qcap"]:
             return False
+        self.ledger_release(req)
         delta = req.ctx_end * self.P.kvb - (sess.kv_bytes if sess.owner == (d, t) else 0.0)
         flows = []
         if self.kv.free(d, t) < delta:
@@ -616,8 +653,7 @@ class Sim:
             self.kv.sessions.pop(sess.sid, None)
             if sess.owner:
                 self.kv.occ[sess.owner] -= sess.kv_bytes
-            s2 = self.new_session()
-            self.start_turn(s2)
+            self.push(self.now + self.rng.uniform(0.0, 0.2), "sess_replace")     # client jitter: breaks lock-step convoys of identical clients
             return
         if sess.turns_left > 0:
             self.push(self.now + self.think(), "turn", sess)
@@ -661,7 +697,7 @@ class Sim:
             for k in range(pop):
                 s = self.new_session()
                 if sc.mode == "closed_clients":
-                    self.push(1e-3 * k, "turn", s)
+                    self.push(self.rng.uniform(0.0, 2.0), "turn", s)
                 else:
                     self.push(self.rng.uniform(0, sc.think_median), "turn", s)
         else:
@@ -757,7 +793,7 @@ class Sim:
             nv = view.nodes[i]
             if age > self.o["plan_age_max"]:
                 break
-            if nv.pf_tokens >= 2 * self.o["qcap"]:
+            if nv.pf_tokens >= self.o["qcap"]:
                 continue
             delta = r.ctx_end * self.P.kvb - (sess.kv_bytes if sess.owner == (d, t) else 0.0)
             if self.kv.free(d, t) + (view.nodes[d].evictable if t == "hbm" else 0) < delta:
@@ -771,7 +807,8 @@ class Sim:
             okplan = None
         # re-plan synchronously (C1-like cost)
         self.stats["replans"] += 1
-        plan2 = self.plan_with(view, r, self.now)
+        self.ledger_release(r)
+        plan2 = self.plan_with(self.plan_view(), r, self.now)
         if plan2 is None:
             self.gq.insert(0, r)
             r.plan_ready = False

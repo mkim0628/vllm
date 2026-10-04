@@ -35,3 +35,14 @@ SKILL §5 Baseline-regression loop와 사전 등록 기록. 실행 전에 가설
 ## 0.3 중단 조건
 
 SKILL §5: 모든 comparison_valid 쌍·집계 QA에서 후보 ≥ Baseline(CI 내 parity 포함)이고 최소 N_win=3개 시나리오에서 유의한 이득이면 결과 문서를 쓴다. 최대 6회차까지.
+
+## 0.4 실행 전 추가 변경 (사전 등록, 최종 실행 전에 기록)
+
+| class | 변경 | 이유 / 공개 |
+|---|---|---|
+| M | **C2의 queue guardrail이 C1의 2배(`2×node_queue_cap`)였던 비대칭 제거** | 개발 점검(`cb_kv_8k_b32` load 24, H100, seed 11)에서 C2 goodput 800 대 C1 1213. 원인은 C2만 노드 큐를 2배 깊게 허용해 Prefill이 직렬 대기(prefill 성분 1.8 s 대 1.24 s)한 것. 명세에 근거 없는 비대칭이라 제거 후 C2 1267 / C1 1213. 두 후보는 같은 큐 한도를 쓴다 |
+| M | C2 planner 자체 ledger(자기가 계획한 대기 Prefill을 plan_view에 반영) | 같은 시점에 계획된 요청들이 한 노드로 쏠리는 것을 막는 planner의 로컬 bookkeeping (Router의 local bookkeeping과 같은 위상) |
+| M | closed-loop client 재발행 jitter U(0, 0.2 s), 초기 offset U(0, 2 s) | lock-step convoy 인공물(P50 = P99) 제거. 모든 후보 동일 |
+| A | **QA2/QA3 집계를 iso-load로 정의**: Baseline의 최대 SLO goodput 부하점에서 후보와 비교. 각자의 최적 부하는 민감도로 병기 | CB 2쌍을 본 뒤 정의했다. **`defined_after_first_look`로 공개** (SKILL H16). QA1은 원래 정의(각자 최적 부하의 Max SLO Goodput) 유지 |
+
+개발 점검 공개: 위 변경을 찾는 과정에서 `cb_kv_8k_b32`(load 24), `link_contention`, `long_ctx`, `turn_hbf_hist` 등을 seed 11로 1회씩 돌려 보았다. 평가 데이터(5 seed 전체 grid)는 이 변경들 이후에 새로 생성한다. 정책 상수·시나리오별 조정은 하지 않았다.
