@@ -15,7 +15,7 @@ import statistics
 import sys
 import time
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
+import multiprocessing as mp
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -124,7 +124,7 @@ def run_all(out_dir, jobs, workers=4):
     t0 = time.time()
     fhs = {s: open(p, "a") for s, p in paths.items()}
     n = 0
-    with ProcessPoolExecutor(workers) as pool:
+    with mp.Pool(workers) as pool:
         for res in pool.imap_unordered(_job, todo, chunksize=4):
             fhs[res["meta"]["system"]].write(json.dumps(res) + "\n")
             n += 1
@@ -147,14 +147,43 @@ def load_rows(data_dir):
     return rows
 
 
+def record(rs, load):
+    g, ci, cv = mean_ci([r["qa"]["goodput_tok_s"] for r in rs])
+    return dict(
+        load=load, goodput=g, goodput_ci=ci, goodput_cv=cv,
+        ttft_p50=statistics.mean(r["qa"]["ttft_p50_s"] for r in rs), ttft_p95=statistics.mean(r["qa"]["ttft_p95_s"] for r in rs),
+        ttft_p99=statistics.mean(r["qa"]["ttft_p99_s"] for r in rs), tpot_p50=statistics.mean(r["qa"]["tpot_p50_s"] for r in rs),
+        tpot_p95=statistics.mean(r["qa"]["tpot_p95_s"] for r in rs), tpot_p99=statistics.mean(r["qa"]["tpot_p99_s"] for r in rs),
+        useful_util=statistics.mean(r["qa"]["useful_utilization"] for r in rs),
+        slo_met=statistics.mean(r["qa"]["slo_met_frac"] for r in rs),
+        pool_p=statistics.mean(r["pool"]["P"] for r in rs), pool_d=statistics.mean(r["pool"]["D"] for r in rs),
+        cv_p=statistics.mean(r["cv_p"] for r in rs), cv_d=statistics.mean(r["cv_d"] for r in rs),
+        gib_turn=statistics.mean(r["gib_turn"] for r in rs), link=statistics.mean(r["link"] for r in rs),
+        t_dec_ms=1e3 * statistics.mean(r["planner"]["t_dec_mean_s"] for r in rs),
+        plan_age_ms=1e3 * statistics.mean(r["planner"]["plan_age_mean_s"] for r in rs),
+        replans=statistics.mean(r["planner"]["replans"] for r in rs), fallbacks=statistics.mean(r["planner"]["fallbacks"] for r in rs),
+        regret=statistics.mean(r["planner"]["regret_mean_s"] for r in rs), mis=statistics.mean(r["planner"]["mis_selection_rate"] for r in rs),
+        comp={k: statistics.mean(r["comp"][k] for r in rs) for k in rs[0]["comp"]},
+        seeds_goodput=[r["qa"]["goodput_tok_s"] for r in rs], seeds_ttft99=[r["qa"]["ttft_p99_s"] for r in rs],
+        seeds_tpot99=[r["qa"]["tpot_p99_s"] for r in rs], seeds_util=[r["qa"]["useful_utilization"] for r in rs],
+        n_seeds=len(rs))
+
+
 def per_scenario(rows, cands=ALL_CANDS):
-    """{(sys, scn): {cand: best-load record}}; best load = argmax mean goodput over seeds (DP1 semantics)."""
+    """{(sys, scn): {cand: record at its own best load + 'iso': record at the Baseline's best load}}.
+    Best load = argmax mean goodput over seeds (DP1 semantics). QA1 uses each candidate's own best load; QA2/QA3 are compared
+    at the Baseline's best load (iso-load, amendment 1 in loop-log 0.4); own-best-load values are kept as a sensitivity."""
     idx = defaultdict(dict)
     for r in rows:
         m = r["meta"]
         idx[(m["system"], m["scenario"], m["candidate"], float(m["load"]))][m["seed"]] = r
     out = {}
-    pairs = sorted({(k[0], k[1]) for k in idx})
+    pairs = []
+    for (sysid, scn) in sorted({(k[0], k[1]) for k in idx}):
+        need = {(c, float(l), sd) for c in cands for l in SCENARIOS[scn].grid for sd in SEEDS}
+        have = {(k[2], k[3], sd) for k in idx if k[0] == sysid and k[1] == scn for sd in idx[k]}
+        if need <= have:
+            pairs.append((sysid, scn))                      # only fully completed (scenario, system) pairs
     for (sysid, scn) in pairs:
         out[(sysid, scn)] = {}
         loads = sorted({k[3] for k in idx if k[0] == sysid and k[1] == scn})
@@ -164,30 +193,14 @@ def per_scenario(rows, cands=ALL_CANDS):
                 rs = idx.get((sysid, scn, cand, load))
                 if not rs or len(rs) < len(SEEDS):
                     continue
-                rs = [rs[s] for s in SEEDS]
-                g, ci, cv = mean_ci([r["qa"]["goodput_tok_s"] for r in rs])
-                if best is None or g > best["goodput"]:
-                    f = lambda path: [r[path[0]][path[1]] if len(path) == 2 else r[path[0]] for r in rs]
-                    best = dict(
-                        load=load, goodput=g, goodput_ci=ci, goodput_cv=cv,
-                        ttft_p50=statistics.mean(r["qa"]["ttft_p50_s"] for r in rs), ttft_p95=statistics.mean(r["qa"]["ttft_p95_s"] for r in rs),
-                        ttft_p99=statistics.mean(r["qa"]["ttft_p99_s"] for r in rs), tpot_p50=statistics.mean(r["qa"]["tpot_p50_s"] for r in rs),
-                        tpot_p95=statistics.mean(r["qa"]["tpot_p95_s"] for r in rs), tpot_p99=statistics.mean(r["qa"]["tpot_p99_s"] for r in rs),
-                        useful_util=statistics.mean(r["qa"]["useful_utilization"] for r in rs),
-                        slo_met=statistics.mean(r["qa"]["slo_met_frac"] for r in rs),
-                        pool_p=statistics.mean(r["pool"]["P"] for r in rs), pool_d=statistics.mean(r["pool"]["D"] for r in rs),
-                        cv_p=statistics.mean(r["cv_p"] for r in rs), cv_d=statistics.mean(r["cv_d"] for r in rs),
-                        gib_turn=statistics.mean(r["gib_turn"] for r in rs), link=statistics.mean(r["link"] for r in rs),
-                        t_dec_ms=1e3 * statistics.mean(r["planner"]["t_dec_mean_s"] for r in rs),
-                        plan_age_ms=1e3 * statistics.mean(r["planner"]["plan_age_mean_s"] for r in rs),
-                        replans=statistics.mean(r["planner"]["replans"] for r in rs), fallbacks=statistics.mean(r["planner"]["fallbacks"] for r in rs),
-                        regret=statistics.mean(r["planner"]["regret_mean_s"] for r in rs), mis=statistics.mean(r["planner"]["mis_selection_rate"] for r in rs),
-                        comp={k: statistics.mean(r["comp"][k] for r in rs) for k in rs[0]["comp"]},
-                        seeds_goodput=[r["qa"]["goodput_tok_s"] for r in rs], seeds_ttft99=[r["qa"]["ttft_p99_s"] for r in rs],
-                        seeds_tpot99=[r["qa"]["tpot_p99_s"] for r in rs], seeds_util=[r["qa"]["useful_utilization"] for r in rs],
-                        n_seeds=len(rs),
-                    )
+                rec = record([rs[s] for s in SEEDS], load)
+                if best is None or rec["goodput"] > best["goodput"]:
+                    best = rec
             out[(sysid, scn)][cand] = best
+        bl = out[(sysid, scn)][BASELINE]["load"]
+        for cand in cands:
+            rs = idx[(sysid, scn, cand, bl)]
+            out[(sysid, scn)][cand]["iso"] = record([rs[s] for s in SEEDS], bl)
     return out
 
 
@@ -209,8 +222,8 @@ def compare(ps_pair, cands=ALL_CANDS):
         if c is None or b is None:
             continue
         vg, mg, cg, rg = paired(b["seeds_goodput"], c["seeds_goodput"], True)
-        vt, mt, ct, rt = paired(b["seeds_ttft99"], c["seeds_ttft99"], False)
-        vp, mp, cp, rp = paired(b["seeds_tpot99"], c["seeds_tpot99"], False)
+        vt, mt, ct, rt = paired(b["iso"]["seeds_ttft99"], c["iso"]["seeds_ttft99"], False)
+        vp, mp, cp, rp = paired(b["iso"]["seeds_tpot99"], c["iso"]["seeds_tpot99"], False)
         v = vg
         if "loss" in (vt, vp) and vg != "win":
             v = "loss"
@@ -248,23 +261,27 @@ def qa_table(ps, lab, pairs, cands=ALL_CANDS):
             seed_gm.append(geomean(ls))
         gm = geomean(rat)
         gci = T95 * statistics.stdev(seed_gm) / math.sqrt(len(seed_gm)) if len(seed_gm) > 1 else 0.0
-        def abs_gm(key):
-            return geomean([ps[p][cand][key] for p in valid])
-        def rel_gm(key, inv=True):
-            return geomean([(ps[p][BASELINE][key] / max(1e-12, ps[p][cand][key])) if inv else (ps[p][cand][key] / max(1e-12, ps[p][BASELINE][key])) for p in valid])
+        def abs_gm(key, iso=True):
+            return geomean([(ps[p][cand]["iso"] if iso else ps[p][cand])[key] for p in valid])
+        def rel_gm(key, inv=True, iso=True):
+            g_ = lambda p, c: (ps[p][c]["iso"] if iso else ps[p][c])[key]
+            return geomean([(g_(p, BASELINE) / max(1e-12, g_(p, cand))) if inv else (g_(p, cand) / max(1e-12, g_(p, BASELINE))) for p in valid])
         six = [rel_gm(k) for k in ("ttft_p50", "ttft_p95", "ttft_p99", "tpot_p50", "tpot_p95", "tpot_p99")]
+        six_own = [rel_gm(k, iso=False) for k in ("ttft_p50", "ttft_p95", "ttft_p99", "tpot_p50", "tpot_p95", "tpot_p99")]
         res[cand] = dict(
-            n=len(valid), qa1_ratio=gm, qa1_ci=gci, qa1_abs=abs_gm("goodput"),
+            n=len(valid), qa1_ratio=gm, qa1_ci=gci, qa1_abs=abs_gm("goodput", iso=False),
             ttft_p99=abs_gm("ttft_p99"), ttft_p50=abs_gm("ttft_p50"), tpot_p99=abs_gm("tpot_p99"), tpot_p50=abs_gm("tpot_p50"),
             ttft_p99_x=1.0 / rel_gm("ttft_p99"), ttft_p50_x=1.0 / rel_gm("ttft_p50"), tpot_p99_x=1.0 / rel_gm("tpot_p99"), tpot_p50_x=1.0 / rel_gm("tpot_p50"),
             ttft_impr=geomean(six[:3]), tpot_impr=geomean(six[3:]), qa2_impr=geomean(six),
-            util=statistics.mean(ps[p][cand]["useful_util"] for p in valid), util_x=rel_gm("useful_util", inv=False),
-            pool_p=statistics.mean(ps[p][cand]["pool_p"] for p in valid), pool_d=statistics.mean(ps[p][cand]["pool_d"] for p in valid),
-            cv_p=statistics.mean(ps[p][cand]["cv_p"] for p in valid), cv_d=statistics.mean(ps[p][cand]["cv_d"] for p in valid),
-            gib_turn=statistics.mean(ps[p][cand]["gib_turn"] for p in valid),
-            t_dec_ms=statistics.mean(ps[p][cand]["t_dec_ms"] for p in valid), plan_age_ms=statistics.mean(ps[p][cand]["plan_age_ms"] for p in valid),
-            regret=statistics.mean(ps[p][cand]["regret"] for p in valid), mis=statistics.mean(ps[p][cand]["mis"] for p in valid),
-            ttft_worst=max(ps[p][cand]["ttft_p99"] for p in valid), tpot_worst=max(ps[p][cand]["tpot_p99"] for p in valid),
+            qa2_impr_ownload=geomean(six_own), ttft_impr_ownload=geomean(six_own[:3]), tpot_impr_ownload=geomean(six_own[3:]),
+            util=statistics.mean(ps[p][cand]["iso"]["useful_util"] for p in valid), util_x=rel_gm("useful_util", inv=False),
+            util_x_ownload=rel_gm("useful_util", inv=False, iso=False),
+            pool_p=statistics.mean(ps[p][cand]["iso"]["pool_p"] for p in valid), pool_d=statistics.mean(ps[p][cand]["iso"]["pool_d"] for p in valid),
+            cv_p=statistics.mean(ps[p][cand]["iso"]["cv_p"] for p in valid), cv_d=statistics.mean(ps[p][cand]["iso"]["cv_d"] for p in valid),
+            gib_turn=statistics.mean(ps[p][cand]["iso"]["gib_turn"] for p in valid),
+            t_dec_ms=statistics.mean(ps[p][cand]["iso"]["t_dec_ms"] for p in valid), plan_age_ms=statistics.mean(ps[p][cand]["iso"]["plan_age_ms"] for p in valid),
+            regret=statistics.mean(ps[p][cand]["iso"]["regret"] for p in valid), mis=statistics.mean(ps[p][cand]["iso"]["mis"] for p in valid),
+            ttft_worst=max(ps[p][cand]["iso"]["ttft_p99"] for p in valid), tpot_worst=max(ps[p][cand]["iso"]["tpot_p99"] for p in valid),
         )
         r = res[cand]
         r["star_qa1"] = star(gm, EDGES["qa1"])
@@ -286,7 +303,7 @@ def aggregate(data_dir):
         sets.setdefault(sc.set, []).append(sc.name)
     out = dict(n_rows=len(rows), pairs={f"{a}|{b}": lab[(a, b)]["fit"] for (a, b) in pairs_all}, tables={}, per_scenario={}, labels={})
     for (a, b), v in ps.items():
-        out["per_scenario"][f"{a}|{b}"] = {c: ({k: x for k, x in d.items() if not k.startswith("seeds_")} if d else None) for c, d in v.items()}
+        out["per_scenario"][f"{a}|{b}"] = {c: ({k: (({kk: xx for kk, xx in x.items() if not kk.startswith("seeds_")}) if k == "iso" else x) for k, x in d.items() if not k.startswith("seeds_")} if d else None) for c, d in v.items()}
         out["labels"][f"{a}|{b}"] = lab[(a, b)]
     out["tables"]["combined"] = qa_table(ps, lab, pairs_all)
     for name, ns in sets.items():
