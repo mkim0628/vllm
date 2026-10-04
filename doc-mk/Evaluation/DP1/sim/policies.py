@@ -1002,3 +1002,67 @@ class OracleIdealMigration(OracleBoundMigration):
         super().__init__(system, priors, drop_enabled)
         self.budget = MigrationBudget(share=1e9)
         self.cooldown_s = 0.0
+
+
+class OracleLeanMigration(C2BehaviorDrivenMigration):
+    """Oracle-lean: reference for QA2 (latency) and QA3 (HBM use). FREE, instantaneous migration (like Oracle-ideal) with
+    perfect knowledge of THIS tick's accesses: every object accessed this tick is placed on its lowest-service-penalty tier
+    that has room (HBM first), every object not accessed this tick is parked on the non-HBM tier with the least service
+    penalty that still meets the SLO. So the time-averaged HBM occupancy is the footprint of the per-tick active set
+    (a lower bound for any policy that serves the same accesses) and accessed objects see HBM service wherever capacity allows.
+    Not a candidate; a reference bound."""
+
+    name = "Oracle-lean"
+    free_migration = True
+
+    def __init__(self, system, priors, drop_enabled: bool = False):
+        super().__init__(system, priors, drop_enabled)
+        self.cooldown_s = 0.0
+        self.budget = MigrationBudget(share=1e9)
+        self._active = set()
+
+    def on_event(self, ev, ctx):
+        if ev.type is EventType.ACCESSED:
+            if ev.count > 0:
+                self._active.add(ev.object_id)
+            return super().on_event(ev, ctx)
+        if ev.type is not EventType.TELEMETRY:
+            return super().on_event(ev, ctx)
+        slo = (ctx.slo_ttft_s, ctx.slo_tpot_s)
+        est = self.estimator
+        occ = dict(ctx.occupancy)
+        cap = ctx.effective_capacity
+        decisions = []
+        free = lambda t, size: cap.get(t, self.system.memories[t].capacity_bytes) - occ.get(t, 0.0) + 1e-6 >= size
+        recs = list(self.registry)
+        # park inactive objects first (frees HBM), then fetch active ones
+        order = sorted(recs, key=lambda r: (r.object_id in self._active, r.object_id))
+        for rec in order:
+            hint = ctx.static_affinity_hints.get(rec.object_id, {})
+            active = rec.object_id in self._active
+            best, best_pen = rec.tier, est.service_extra_s(rec.tier, hint, rec.size_bytes)
+            tiers = [t for t in self.system.memories if t != rec.tier]
+            if active:
+                cand = []
+                for t in tiers:
+                    pen = est.service_extra_s(t, hint, rec.size_bytes)
+                    if pen is not None and best_pen is not None and pen < best_pen - 1e-12 and free(t, rec.size_bytes):
+                        cand.append((pen, t))
+                if cand:
+                    best = min(cand)[1]
+            elif rec.tier == "hbm":
+                cand = []
+                for t in tiers:
+                    if t == "hbm" or not est.slo_ok(t, hint, rec.size_bytes, *slo) or not free(t, rec.size_bytes):
+                        continue
+                    pen = est.service_extra_s(t, hint, rec.size_bytes)
+                    cand.append((pen if pen is not None else 0.0, t))
+                if cand:
+                    best = min(cand)[1]
+            if best != rec.tier:
+                direction = "promotion" if best == "hbm" else "demotion" if rec.tier == "hbm" else "rebalance"
+                occ[rec.tier] = occ.get(rec.tier, 0.0) - rec.size_bytes
+                occ[best] = occ.get(best, 0.0) + rec.size_bytes
+                decisions.append(MigrationDecision(rec.object_id, rec.tier, best, reason="oracle_lean", score=1.0, direction=direction))
+        self._active = set()
+        return decisions, self.decision_cost_us * max(1, len(self.registry))

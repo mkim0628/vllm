@@ -353,6 +353,9 @@ def _policy(system, candidate, priors, drop_enabled=False):
         return C1ResourceDrivenMigration(system, drop_enabled)
     if candidate == "C2-behavior-driven":
         return C2BehaviorDrivenMigration(system, priors, drop_enabled)
+    if candidate == "Oracle-lean":
+        from policies import OracleLeanMigration
+        return OracleLeanMigration(system, priors, drop_enabled)
     if candidate == "Oracle-ideal":
         from policies import OracleIdealMigration
         return OracleIdealMigration(system, priors, drop_enabled)

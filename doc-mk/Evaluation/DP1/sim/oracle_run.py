@@ -7,7 +7,7 @@ import qa_eval as Q
 
 DATA = Path(__file__).resolve().parent.parent / "results" / "data"
 import sys
-ORA = "Oracle-ideal" if "--ideal" in sys.argv else "Oracle-approx"
+ORA = "Oracle-lean" if "--lean" in sys.argv else "Oracle-ideal" if "--ideal" in sys.argv else "Oracle-approx"
 SYS = ("SYS-H100", "SYS-B200")
 LAB = ("common_benchmark", "dp1_stress_benchmark", "dp1_dynamic_benchmark")
 
@@ -18,7 +18,7 @@ def one(a):
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--jobs", type=int, default=4); ap.add_argument("--only", default=None); ap.add_argument("--ideal", action="store_true")
+    ap = argparse.ArgumentParser(); ap.add_argument("--jobs", type=int, default=4); ap.add_argument("--only", default=None); ap.add_argument("--ideal", action="store_true"); ap.add_argument("--lean", action="store_true")
     a = ap.parse_args()
     pairs = []
     for s in SYS:
@@ -40,7 +40,7 @@ def main():
     for (s, l, k), rs in by.items():
         out.setdefault(s, {}).setdefault(l, {})[k] = Q.per_scenario(rs)[k][ORA]
     for s, v in out.items():
-        fn = "oracle_ideal.json" if ORA == "Oracle-ideal" else "oracle.json"
+        fn = {"Oracle-ideal": "oracle_ideal.json", "Oracle-lean": "oracle_lean.json"}.get(ORA, "oracle.json")
         (DATA / "oracle" / s).mkdir(parents=True, exist_ok=True)
         json.dump(v, open(DATA / "oracle" / s / fn, "w"))
     print("done", {s: sum(len(x) for x in v.values()) for s, v in out.items()})

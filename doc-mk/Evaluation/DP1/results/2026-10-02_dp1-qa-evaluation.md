@@ -3,7 +3,7 @@ date: 2026-10-02
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
 sys_ids: [SYS-H100, SYS-B200]
-git_rev: fc1d221 (dirty)
+git_rev: 7db430e (dirty)
 evidence: { QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[B+C]" }
 status: draft
 ---
@@ -23,13 +23,13 @@ status: draft
 
 | QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
 |---|---|---:|---|---|
-| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 336 | **★★** 436 (x1.30) [B+C] | **★★★** 478 (x1.42) [B+C] |
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 336 | **★★** 436 (x1.30) · Oracle 달성률 62% [B+C] | **★★★** 478 (x1.42) · Oracle 달성률 83% [B+C] |
 | **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 1,084 · P50 407 | P99 1,128 ms (x1.04) · P50 181 ms (x0.44) | P99 785 ms (x0.72) · P50 118 ms (x0.29) |
 | **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 17.1 · P50 14.0 | P99 18.3 ms (x1.07) · P50 12.7 ms (x0.91) | P99 16.0 ms (x0.94) · P50 12.0 ms (x0.86) |
-| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★★** x1.28 (TTFT x1.58 · TPOT x1.04) [B+C] | **★★★** x1.56 (TTFT x2.18 · TPOT x1.12) [B+C] |
-| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 146.6 | **★★** 142.7 (x0.97) [B+C] | **★** 178.0 (x1.21) [B+C] |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★** x1.28 (TTFT x1.58 · TPOT x1.04) · Oracle 달성률 23% [B+C] | **★★** x1.56 (TTFT x2.18 · TPOT x1.12) · Oracle 달성률 42% [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 146.6 | **★★** 142.7 (x0.97) · Oracle 달성률 3% [B+C] | **★** 178.0 (x1.21) · Oracle 달성률 -15% [B+C] |
 | **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
-| **별 합계** | | — | **10** | **9** |
+| **별 합계** | | — | **9** | **8** |
 
 **평가한 시스템:** **SYS-H100** (H100x8 (Hopper-class), HBM3 (H100 SXM5 80GB), PCIe 5.0, DDR5-4800); **SYS-B200** (B200x8 (Blackwell-class), HBM3e (B200), PCIe 5.0, DDR5-6400). 모두 6종 메모리를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. 메모리(HBM 640 GiB / 1,536 GiB(GPU 8장); Samsung Custom HBM(ScHBM) 160 GiB / 384 GiB, CPU와 PCIe 5.0 x16, 연산 197.8 / 450 TFLOPS FP16(attention 연산 오프로드); CXL-PNM 512 GiB(내부 DRAM), CXL 2.0 (PCIe 5.0 PHY), 연산 3.28 TFLOPS(attention 오프로드); DRAM 1 TiB, PCIe 5.0 x16; HBF 2 TiB, GPU 직접 접근(UCIe) 1 TB/s; SSD-PIM 16 TiB, NVMe PCIe 5.0 x4, GEMV 2 TFLOPS). 집계 단위는 (시나리오, 시스템) 쌍 64개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 21쌍: H100 9쌍, B200 12쌍). 값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].
 
@@ -40,7 +40,7 @@ Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이�
 **성능(QA1)은 C2가, 자원 사용(QA3: HBM을 덜 씀)과 확장성(QA4)은 C1이 앞선다. 지연(QA2)은 별이 같지만 값은 C2가 높다.** 이동의 링크 비용은 지연·처리량에 반영되어 있고(링크 간섭 모델), 비싼 메모리(HBM)를 얼마나 쓰는지는 QA3가 잰다. 성능과 자원은 반대 방향으로 움직이는 것이 이 trade-off의 핵심이다.
 
 - **왜 C2의 처리량(QA1)과 지연(QA2)이 좋은가.** C2는 데이터 하나하나의 접근 빈도, 재사용, 유휴 시간을 보고 "곧 뜨거워질 것/식을 것"을 판단해 이동한다. 같은 종류(예: 모두 KV cache) 안에서도 방금 활발해진 세션과 오래 놀고 있는 세션을 구분할 수 있다. C1은 메모리 자원 상태(용량 압박, 대역폭)에만 반응하고 데이터를 종류로 구분하지 않아 같은 종류 안의 hot/cold를 구분하지 못한다. 그래서 같은 종류의 데이터에서 hot 대상이 시간에 따라 바뀌는 시나리오(hot 대화가 옮겨 감, 사용자 그룹이 번갈아 활성)에서 C2만 이기고 C1은 Baseline과 같다. Dynamic에서 Baseline을 유의하게 이긴 쌍은 C1 5개, C2 8개(비교 가능 8개 중)이다.
-- **왜 QA2는 별이 같은가.** 두 후보 모두 개선 배수가 ★★★ 경계(1.25)를 넘는다. 값은 C1 x1.28, C2 x1.56로 C2가 낫지만 3단계 별에서는 가려진다. 지연 분포의 꼬리(P99)는 간섭 모델 반영 후 차이가 더 벌어졌다(중앙값 TTFT P99 C1 1,411 ms 대 C2 663 ms).
+- **왜 QA2는 별이 같은가.** 두 후보 모두 Oracle(accessed 객체를 무비용·즉시 HBM에 두는 `Oracle-lean`)이 낼 수 있는 지연 개선의 일부만 얻는다: Oracle 달성률 C1 23%, C2 42%로 ★★★ 기준(80%)에 한참 못 미쳐 둘 다 ★★이다. 값은 C1 x1.28, C2 x1.56로 C2가 낫다. 지연 분포의 꼬리(P99)는 간섭 모델 반영 후 차이가 더 벌어졌다(중앙값 TTFT P99 C1 1,411 ms 대 C2 663 ms).
 - **왜 C1이 HBM을 덜 쓰는가(QA3).** 이동은 데이터 총량을 바꾸지 않고 어느 메모리에 두느냐만 바꾼다. C1은 HBM 사용량을 Baseline 대비 x0.97로 유지·소폭 줄이고(21쌍 중 9개 줄임, 3개 늘림) DRAM 링크가 포화로 보일 때 DRAM의 데이터를 더 싼 HBF로 옮긴다(DRAM 평균 점유 121 GiB, Baseline 213; 산술평균). C2는 성능을 위해 hot 데이터를 HBM으로 올려 HBM 사용량이 x1.21(18개 시나리오에서 늘림)이 된다. 즉 **C2는 성능을 얻기 위해 HBM을 더 쓰고, C1은 덜 쓰되 성능 이득이 작다.** 보조 지표인 비용 가중 점유(DRAM 대비 상대 가격, ASSUMED)도 같은 방향이다(C1 x0.94, C2 x1.04; HBM 가중 3배/10배에서 C1 x0.84/x0.91, C2 x0.93/x1.09).
 - **이동 비용은 어디에 반영되나.** 이동은 같은 링크의 서빙 대역폭을 나눠 쓰므로(간섭 모델) C2의 migration 1,339 GiB(C1 138 GiB), 링크 점유 10.5%(C1 1.6%)는 지연 개선 배수를 낮췄다(C2 x1.66에서 x1.56, C1 x1.40에서 x1.28; 비교 가능한 쌍 수가 달라져 단순 비교는 아니다). 결정 연산은 C2 111 ms/run(C1 3 ms).
 - **왜 C1의 확장성(QA4)이 높은가.** C1은 데이터 종류를 모르는 구조라 새 종류의 데이터(예: sparse embedding)를 추가해도 고칠 곳이 거의 없다(module 1개). C2는 종류별 선호와 특성을 알고 있어 새 데이터 종류에 module 3개, 새 메모리를 선호 목록에 올려야 쓰이는 문제(module 2개)가 있다. 공수와 에이전트 비용도 C2가 1.3배 안팎이다. 이 값들은 시뮬레이터 복사본에 변경을 구현해 module/LOC를 측정하고 공수·비용은 가정 상수로 계산한 추정이다.
@@ -49,9 +49,9 @@ Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이�
 
 1. QA 우선순위는 QA1 > QA2 > QA3 > QA4이다 (confirmed by owner 2026-10-03). 근거: DP1의 1차 목적은 이기종 메모리에서 SLO를 만족하는 처리량(QA1)과 지연(QA2)을 높이는 것이다. QA3(자원 사용)는 그 성능을 얻기 위해 비싼 메모리(HBM)를 얼마나 쓰는가이고, 확장성(QA4)은 구조 비용이다. 성능÷비용 형태의 효율은 성능이 섞여 QA1/QA2와 겹치므로 쓰지 않고, 풀 활용률 U는 처리량과 상관 0.99라 진단으로 둔다 (소유자 결정 2026-10-03).
 2. 규칙: 별 합계가 높은 후보를 선택하고, **합계가 같을 때만** 우선순위로 가른다 (`tools/dp_selection.py`).
-3. 결과: C1 10, C2 9. 별 합계가 높은 C1 후보를 선택한다. **선택: C1.**
+3. 결과: C1 9, C2 8. 별 합계가 높은 C1 후보를 선택한다. **선택: C1.**
 4. 결정 민감도: 선택은 별 합계로 정해져 QA 우선순위와 무관하다. 다만 합계 차이는 1점으로 근소해 별 경계와 QA 정의에 민감하다(5번).
-5. 경계 취약성: QA1 ★★★ 경계(1.30)는 결과를 본 뒤 정했고 C1(x1.298)은 그 바로 아래(95% CI가 경계에 걸침), C2(x1.422)는 위에 있다. C1의 QA2(x1.28)도 ★★★ 경계(1.25) 바로 위다. QA4 평균 집계도 결과를 본 뒤 바꿨고 C2의 공수 평균이 경계(0.5 MM)를 0.006 넘은 수준이라 상수에 민감하다. 값 자체의 차이(C2/C1 goodput x1.10)는 경계와 무관하다. **QA3 정의 이력에 따라 선택이 달라진다:** 성능÷비용 형태(v5 초안)로는 C1 11, C2 11 동점이라 우선순위로 C2였으나, 성능이 섞인 지표라 QA1/QA2와 겹쳐 소유자가 HBM 사용량으로 바꿨고 그 결과 합계로 C1이 선택된다. 정의는 지표의 타당성(성능과 자원을 분리)을 근거로 정했고 결과가 아니다. 그럼에도 결과를 본 뒤의 변경이므로 `defined_after_first_look`이다.
+5. 경계 취약성: QA1~QA3의 ★★★ 기준(Oracle 달성률 80%)은 문헌에서 정했고(`DP1/qa-capture-literature.md`) C2의 QA1 달성률(0.83)은 그 바로 위, C1(0.62)은 아래다. 쌍별 평균으로 집계하면 C2는 0.80로 ★★이 된다(집계 방식은 두 값을 본 뒤 문헌의 관례에 맞춰 정했다). 쌍 부트스트랩 구간이 넓다(QA1 C1 0.32~0.87, C2 0.70~0.93). QA2·QA3의 Oracle은 QA1보다 훨씬 이상적(accessed 객체만 HBM에 두는 무비용 정책)이라 80%는 사실상 도달하기 어렵고, 그 결과 두 QA에서 후보를 가르는 별은 QA3 C2의 ★(HBM을 더 씀)뿐이다. QA4 평균 집계도 결과를 본 뒤 바꿨고 C2의 공수 평균이 경계(0.5 MM)를 0.006 넘은 수준이라 상수에 민감하다. 값 자체의 차이(C2/C1 goodput x1.10)는 경계와 무관하다. **QA3 정의 이력에 따라 선택이 달라진다:** 성능÷비용 형태(v5 초안)로는 C1 11, C2 11 동점이라 우선순위로 C2였으나, 성능이 섞인 지표라 QA1/QA2와 겹쳐 소유자가 HBM 사용량으로 바꿨고 그 결과 합계로 C1이 선택된다. 정의는 지표의 타당성(성능과 자원을 분리)을 근거로 정했고 결과가 아니다. 그럼에도 결과를 본 뒤의 변경이므로 `defined_after_first_look`이다.
 
 ## 0.4 선택한 구조의 부족한 부분과 보완 설계
 
@@ -83,7 +83,7 @@ Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이�
 | SYS id | **메모리 세대별 2개 profile** (모두 6종 메모리 포함): SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-A100(HBM2e, PCIe 4.0)과 SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정, 2026-10-03). 이전 문서의 A100/VR 결과는 `results/data/SYS-A100`, `SYS-VR`에 보존된다. 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
 | 범위 제약 | DP1의 data 이동은 **단일 노드(한 서버) 내부**의 메모리 계층 사이로 한정 (설계 문서 §3.3). 노드 간 이동은 DP0 소관이며 이 평가에 포함되지 않음 |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
-| Git revision | fc1d221 (dirty) |
+| Git revision | 7db430e (dirty) |
 | Seeds / loads | seeds 11, 23, 37, 53, 71 (5회) / load x0.5, x1.0, x1.5, x2.0, 95% CI t=2.776 |
 | Tie 판정 | goodput 상대 차이 < 1% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
 | 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final && python3 merge_systems.py SYS-H100 SYS-B200 && python3 dp1_rating.py ../results/data/INT-H100-B200/qa_result.json` (시스템별 단독은 각 SYS의 `dp1_rating.py`), 단일: `python3 qa_eval.py --system SYS-B200` |
@@ -96,9 +96,9 @@ Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이�
 
 | 항목 | 정의 / formula | 출처 |
 |---|---|---|
-| QA1 Max SLO Goodput | load sweep(x0.5~2.0) 중 SLO를 만족한 output token/s의 최대값. 시나리오별 Baseline 대비 비율의 **geometric mean**. **DP1 별점:** < 0.97 ★ / 0.97~1.30 ★★ / >= 1.30 ★★★. 공통 별점(참고): criteria §4.3 (0.90 / 1.10) | criteria §4 + `DP1/qa-criteria-dp1.md` |
-| QA2 Latency | Max goodput load point의 TTFT/TPOT P50/P95/P99. **DP1 별점:** 6개 improvement factor(Baseline / 후보)의 geometric mean, < 0.95 ★ / 0.95~1.25 ★★ / >= 1.25 ★★★. 공통 별점(참고): P99 worst-case, criteria §5 (≤2 s & ≤50 ms ★★★ / ≤4 s & ≤100 ms ★★) | criteria §5 + DP1 criteria |
-| QA3 Resource usage (v6, HBM 사용량) | HBM 사용량 = tier `hbm`의 시간 평균 점유 GiB(시나리오별), Baseline 대비 비율(시나리오별 비율의 geomean, 낮을수록 좋음). **DP1 별점:** 절감 배수 = 1/비율, < 0.95 ★ / 0.95~1.25 ★★ / >= 1.25 ★★★ (QA2와 같은 숫자 경계). 성능은 섞지 않는다(성능은 QA1/QA2). 보조: 비용 가중 점유(`sim/cost_model.py`, DRAM 대비 상대 $/GiB, ASSUMED). 진단: 풀 활용률 U(v4), 성능÷비용(v5 초안) | **임시 정의** + `DP1/qa-criteria-dp1.md` §I |
+| QA1 Max SLO Goodput | load sweep(x0.5~2.0) 중 SLO를 만족한 output token/s의 최대값. 시나리오별 Baseline 대비 비율의 **geometric mean**. **DP1 별점(v6):** Baseline 대비 < 0.97 ★ / 그 이상이면서 Oracle(`Oracle-ideal`) 이득 달성률 < 80% ★★ / >= 80% ★★★. 공통 별점(참고): criteria §4.3 (0.90 / 1.10) | criteria §4 + `DP1/qa-criteria-dp1.md` |
+| QA2 Latency | Max goodput load point의 TTFT/TPOT P50/P95/P99. **DP1 별점(v6):** 6개 improvement factor(Baseline / 후보)의 geometric mean < 0.95 ★ / 그 이상이면서 Oracle(`Oracle-lean`) 달성률 < 80% ★★ / >= 80% ★★★. 공통 별점(참고): P99 worst-case, criteria §5 (≤2 s & ≤50 ms ★★★ / ≤4 s & ≤100 ms ★★) | criteria §5 + DP1 criteria |
+| QA3 Resource usage (v6, HBM 사용량) | HBM 사용량 = tier `hbm`의 시간 평균 점유 GiB(시나리오별), Baseline 대비 비율(시나리오별 비율의 geomean, 낮을수록 좋음). **DP1 별점(v6):** 절감 배수 = 1/비율 < 0.95 ★ / 그 이상이면서 Oracle(`Oracle-lean`: 틱마다 접근된 객체만 HBM에 두는 무비용 정책) 달성률 < 80% ★★ / >= 80% ★★★. 성능은 섞지 않는다(성능은 QA1/QA2). 보조: 비용 가중 점유(`sim/cost_model.py`, DRAM 대비 상대 $/GiB, ASSUMED). 진단: 풀 활용률 U(v4), 성능÷비용(v5 초안) | **임시 정의** + `DP1/qa-criteria-dp1.md` §I |
 | QA4 Modifiability | 변경 시나리오 4개(신규 memory / data type / policy / event)에 대해 (M1) 변경 module 수, (M2) 개발 공수(man-month), (M3) 코드 에이전트 토큰 비용(USD, 모델 tier 2종). 시나리오별 최악값으로 sub-star를 정하고 QA4 = 세 sub-star의 중앙값 | `DP1/qa4-modifiability.md` (사전 등록: `qa4-preregistration.md`) |
 | 집계 범위 | **DP1 별점은 comparison-valid만** 집계. 공통 별점(참고)은 "feasible" = Baseline goodput > 0 (comparison-valid + saturated). Combined는 3개 set 합산 | 본 평가 정의 |
 | Diagnostic | migration 횟수/bytes/time, decision overhead, tier별 access, SLO 만족률 | DP1 전용 |
@@ -158,13 +158,13 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 
 | QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
 |---|---|---:|---|---|
-| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 336 | **★★** 436 (x1.30) [B+C] | **★★★** 478 (x1.42) [B+C] |
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 336 | **★★** 436 (x1.30) · Oracle 달성률 62% [B+C] | **★★★** 478 (x1.42) · Oracle 달성률 83% [B+C] |
 | **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 1,084 · P50 407 | P99 1,128 ms (x1.04) · P50 181 ms (x0.44) | P99 785 ms (x0.72) · P50 118 ms (x0.29) |
 | **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 17.1 · P50 14.0 | P99 18.3 ms (x1.07) · P50 12.7 ms (x0.91) | P99 16.0 ms (x0.94) · P50 12.0 ms (x0.86) |
-| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★★** x1.28 (TTFT x1.58 · TPOT x1.04) [B+C] | **★★★** x1.56 (TTFT x2.18 · TPOT x1.12) [B+C] |
-| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 146.6 | **★★** 142.7 (x0.97) [B+C] | **★** 178.0 (x1.21) [B+C] |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★** x1.28 (TTFT x1.58 · TPOT x1.04) · Oracle 달성률 23% [B+C] | **★★** x1.56 (TTFT x2.18 · TPOT x1.12) · Oracle 달성률 42% [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 146.6 | **★★** 142.7 (x0.97) · Oracle 달성률 3% [B+C] | **★** 178.0 (x1.21) · Oracle 달성률 -15% [B+C] |
 | **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
-| **별 합계** | | — | **10** | **9** |
+| **별 합계** | | — | **9** | **8** |
 
 **평가한 시스템:** **SYS-H100** (H100x8 (Hopper-class), HBM3 (H100 SXM5 80GB), PCIe 5.0, DDR5-4800); **SYS-B200** (B200x8 (Blackwell-class), HBM3e (B200), PCIe 5.0, DDR5-6400). 모두 6종 메모리를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. 메모리(HBM 640 GiB / 1,536 GiB(GPU 8장); Samsung Custom HBM(ScHBM) 160 GiB / 384 GiB, CPU와 PCIe 5.0 x16, 연산 197.8 / 450 TFLOPS FP16(attention 연산 오프로드); CXL-PNM 512 GiB(내부 DRAM), CXL 2.0 (PCIe 5.0 PHY), 연산 3.28 TFLOPS(attention 오프로드); DRAM 1 TiB, PCIe 5.0 x16; HBF 2 TiB, GPU 직접 접근(UCIe) 1 TB/s; SSD-PIM 16 TiB, NVMe PCIe 5.0 x4, GEMV 2 TFLOPS). 집계 단위는 (시나리오, 시스템) 쌍 64개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 21쌍: H100 9쌍, B200 12쌍). 값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].
 
@@ -174,11 +174,11 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 
 | QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
 |---|---|---:|---|---|
-| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 3,374 | **★★** 3,360 (x1.00) [B+C] | **★★** 3,373 (x1.00) [B+C] |
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 3,374 | **★★** 3,360 (x1.00) · Oracle 달성률 62% [B+C] | **★★** 3,373 (x1.00) · Oracle 달성률 83% [B+C] |
 | **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 356 · P50 139 | P99 1,051 ms (x2.95) · P50 74 ms (x0.53) | P99 368 ms (x1.03) · P50 67 ms (x0.49) |
 | **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 7.9 · P50 7.0 | P99 10.8 ms (x1.37) · P50 6.7 ms (x0.96) | P99 7.9 ms (x1.00) · P50 6.7 ms (x0.95) |
-| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★** x0.94 (TTFT x0.95 · TPOT x0.93) [B+C] | **★★** x1.22 (TTFT x1.42 · TPOT x1.04) [B+C] |
-| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 54.2 | **★★** 50.0 (x0.92) [B+C] | **★** 71.8 (x1.32) [B+C] |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★** x0.94 (TTFT x0.95 · TPOT x0.93) · Oracle 달성률 23% [B+C] | **★★** x1.22 (TTFT x1.42 · TPOT x1.04) · Oracle 달성률 42% [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 54.2 | **★★** 50.0 (x0.92) · Oracle 달성률 3% [B+C] | **★** 71.8 (x1.32) · Oracle 달성률 -15% [B+C] |
 | **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
 | **별 합계** | | — | **8** | **7** |
 
@@ -186,11 +186,11 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 
 | QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
 |---|---|---:|---|---|
-| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 287 | **★★** 293 (x1.02) [B+C] | **★★** 303 (x1.06) [B+C] |
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 287 | **★★** 293 (x1.02) · Oracle 달성률 62% [B+C] | **★★** 303 (x1.06) · Oracle 달성률 83% [B+C] |
 | **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 680 · P50 160 | P99 580 ms (x0.85) · P50 134 ms (x0.84) | P99 499 ms (x0.73) · P50 84 ms (x0.53) |
 | **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 12.2 · P50 10.2 | P99 12.5 ms (x1.02) · P50 9.8 ms (x0.96) | P99 11.0 ms (x0.90) · P50 9.8 ms (x0.96) |
-| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★** x1.16 (TTFT x1.32 · TPOT x1.02) [B+C] | **★★★** x1.44 (TTFT x1.88 · TPOT x1.11) [B+C] |
-| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 219.1 | **★★** 222.9 (x1.02) [B+C] | **★** 264.0 (x1.21) [B+C] |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★** x1.16 (TTFT x1.32 · TPOT x1.02) · Oracle 달성률 23% [B+C] | **★★★** x1.44 (TTFT x1.88 · TPOT x1.11) · Oracle 달성률 42% [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 219.1 | **★★** 222.9 (x1.02) · Oracle 달성률 3% [B+C] | **★** 264.0 (x1.21) · Oracle 달성률 -15% [B+C] |
 | **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
 | **별 합계** | | — | **9** | **8** |
 
@@ -198,11 +198,11 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 
 | QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
 |---|---|---:|---|---|
-| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 93 | **★★★** 182 (x1.95) [B+C] | **★★★** 223 (x2.39) [B+C] |
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 93 | **★★★** 182 (x1.95) · Oracle 달성률 62% [B+C] | **★★★** 223 (x2.39) · Oracle 달성률 83% [B+C] |
 | **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 3,472 · P50 2,035 | P99 2,292 ms (x0.66) · P50 427 ms (x0.21) | P99 1,979 ms (x0.57) · P50 233 ms (x0.11) |
 | **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 39.1 · P50 29.6 | P99 37.1 ms (x0.95) · P50 24.7 ms (x0.84) | P99 36.3 ms (x0.93) · P50 21.3 ms (x0.72) |
-| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★★** x1.72 (TTFT x2.59 · TPOT x1.14) [B+C] | **★★★** x1.99 (TTFT x3.29 · TPOT x1.20) [B+C] |
-| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 182.7 | **★★** 176.1 (x0.96) [B+C] | **★** 211.8 (x1.16) [B+C] |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★★** x1.72 (TTFT x2.59 · TPOT x1.14) · Oracle 달성률 23% [B+C] | **★★★** x1.99 (TTFT x3.29 · TPOT x1.20) · Oracle 달성률 42% [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 182.7 | **★★** 176.1 (x0.96) · Oracle 달성률 3% [B+C] | **★** 211.8 (x1.16) · Oracle 달성률 -15% [B+C] |
 | **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
 | **별 합계** | | — | **11** | **9** |
 
@@ -222,7 +222,7 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 | | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 1,721/2,685/2,688 ms, TPOT 45.8/62.1/62.1 ms) [B+C] | **★★★** x1.72 (TTFT P50/P95/P99 537/1,686/2,093 ms, TPOT 34.6/54.2/61.0 ms) [B+C] | **★★★** x1.99 (TTFT P50/P95/P99 241/1,784/2,140 ms, TPOT 32.3/55.2/61.5 ms) [B+C] |
 | | QA3 Resource usage (HBM) | **★★** HBM x1.00 (절감 배수 1.00) · 보조: 비용 가중 점유 x1.00 [B+C] | **★★** HBM x0.96 (절감 배수 1.04) · 보조: 비용 가중 점유 x0.91 [B+C] | **★** HBM x1.16 (절감 배수 0.86) · 보조: 비용 가중 점유 x1.03 [B+C] |
 | **Combined** (21) | QA1 Throughput | **★★** x1.000±0.000 [B+C] | **★★** x1.298±0.063 (CI가 경계에 걸침) [B+C] | **★★★** x1.422±0.054 [B+C] |
-| | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 242/707/793 ms, TPOT 13.0/13.0/13.0 ms) [B+C] | **★★★** x1.28 (TTFT P50/P95/P99 119/446/1,411 ms, TPOT 13.0/13.0/15.3 ms) [B+C] | **★★★** x1.56 (TTFT P50/P95/P99 118/335/663 ms, TPOT 13.0/13.0/13.0 ms) [B+C] |
+| | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 242/707/793 ms, TPOT 13.0/13.0/13.0 ms) [B+C] | **★★** x1.28 (TTFT P50/P95/P99 119/446/1,411 ms, TPOT 13.0/13.0/15.3 ms) [B+C] | **★★** x1.56 (TTFT P50/P95/P99 118/335/663 ms, TPOT 13.0/13.0/13.0 ms) [B+C] |
 | | QA3 Resource usage (HBM) | **★★** HBM x1.00 (절감 배수 1.00) · 보조: 비용 가중 점유 x1.00 [B+C] | **★★** HBM x0.97 (절감 배수 1.03) · 보조: 비용 가중 점유 x0.94 [B+C] | **★** HBM x1.21 (절감 배수 0.82) · 보조: 비용 가중 점유 x1.04 [B+C] |
 | **QA4 Modifiability** | | — | ★★★ [C] | ★★ [C] |
 
@@ -240,7 +240,7 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 | | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 4,879/6,578/6,581 ms, TPOT 29.6/47.8/47.8 ms) [B+C] | **★★★** x1.69 (TTFT P50/P95/P99 537/1,636/6,438 ms, TPOT 24.9/40.9/57.6 ms) [B+C] | **★★★** x2.16 (TTFT P50/P95/P99 541/1,322/2,329 ms, TPOT 24.8/36.3/37.1 ms) [B+C] |
 | | QA3 Resource usage (HBM) | **★★** HBM x1.00 (절감 배수 1.00) · 보조: 비용 가중 점유 x1.00 [B+C] | **★★** HBM x0.98 (절감 배수 1.02) · 보조: 비용 가중 점유 x0.69 [B+C] | **★** HBM x1.27 (절감 배수 0.79) · 보조: 비용 가중 점유 x0.78 [B+C] |
 | **Combined** (9) | QA1 Throughput | **★★** x1.000±0.000 [B+C] | **★★★** x1.322±0.122 (CI가 경계에 걸침) [B+C] | **★★★** x1.346±0.110 (CI가 경계에 걸침) [B+C] |
-| | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 242/707/793 ms, TPOT 13.0/13.0/13.0 ms) [B+C] | **★★** x1.20 (TTFT P50/P95/P99 132/446/1,625 ms, TPOT 13.0/13.0/15.4 ms) [B+C] | **★★★** x1.57 (TTFT P50/P95/P99 120/335/663 ms, TPOT 13.0/13.0/13.0 ms) [B+C] |
+| | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 242/707/793 ms, TPOT 13.0/13.0/13.0 ms) [B+C] | **★★** x1.20 (TTFT P50/P95/P99 132/446/1,625 ms, TPOT 13.0/13.0/15.4 ms) [B+C] | **★★** x1.57 (TTFT P50/P95/P99 120/335/663 ms, TPOT 13.0/13.0/13.0 ms) [B+C] |
 | | QA3 Resource usage (HBM) | **★★** HBM x1.00 (절감 배수 1.00) · 보조: 비용 가중 점유 x1.00 [B+C] | **★★** HBM x0.98 (절감 배수 1.02) · 보조: 비용 가중 점유 x0.94 [B+C] | **★** HBM x1.29 (절감 배수 0.77) · 보조: 비용 가중 점유 x1.04 [B+C] |
 | **QA4 Modifiability** | | — | ★★★ [C] | ★★ [C] |
 
@@ -258,12 +258,12 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 | | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 1,721/2,174/2,174 ms, TPOT 50.3/62.1/62.1 ms) [B+C] | **★★★** x1.72 (TTFT P50/P95/P99 669/1,686/2,064 ms, TPOT 39.0/54.2/61.0 ms) [B+C] | **★★★** x1.93 (TTFT P50/P95/P99 230/1,784/2,120 ms, TPOT 32.3/55.2/61.8 ms) [B+C] |
 | | QA3 Resource usage (HBM) | **★★** HBM x1.00 (절감 배수 1.00) · 보조: 비용 가중 점유 x1.00 [B+C] | **★★** HBM x0.96 (절감 배수 1.04) · 보조: 비용 가중 점유 x0.93 [B+C] | **★** HBM x1.12 (절감 배수 0.89) · 보조: 비용 가중 점유 x1.05 [B+C] |
 | **Combined** (12) | QA1 Throughput | **★★** x1.000±0.000 [B+C] | **★★** x1.281±0.109 (CI가 경계에 걸침) [B+C] | **★★★** x1.483±0.027 [B+C] |
-| | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 403/1,221/1,223 ms, TPOT 10.4/12.1/12.2 ms) [B+C] | **★★★** x1.35 (TTFT P50/P95/P99 59/489/1,024 ms, TPOT 10.0/11.8/14.6 ms) [B+C] | **★★★** x1.56 (TTFT P50/P95/P99 57/507/601 ms, TPOT 9.9/10.7/11.4 ms) [B+C] |
+| | QA2 Latency | **★★** x1.00 (TTFT P50/P95/P99 403/1,221/1,223 ms, TPOT 10.4/12.1/12.2 ms) [B+C] | **★★** x1.35 (TTFT P50/P95/P99 59/489/1,024 ms, TPOT 10.0/11.8/14.6 ms) [B+C] | **★★** x1.56 (TTFT P50/P95/P99 57/507/601 ms, TPOT 9.9/10.7/11.4 ms) [B+C] |
 | | QA3 Resource usage (HBM) | **★★** HBM x1.00 (절감 배수 1.00) · 보조: 비용 가중 점유 x1.00 [B+C] | **★★** HBM x0.97 (절감 배수 1.03) · 보조: 비용 가중 점유 x0.94 [B+C] | **★** HBM x1.16 (절감 배수 0.86) · 보조: 비용 가중 점유 x1.04 [B+C] |
 | **QA4 Modifiability** | | — | ★★★ [C] | ★★ [C] |
 
-> QA1 = Baseline 대비 goodput ratio(± 95% CI), 별 경계 0.97 / 1.30. QA2 = TTFT/TPOT x P50/P95/P99 6개 improvement factor의 geometric mean (>1이면 Baseline보다 빠름), 경계 0.95 / 1.25. QA3 = Baseline 대비 변화(pp), 경계 -5 / +15.
-> **이 경계는 첫 결과를 본 뒤 정한 값이다.** 아래 4.1b에서 경계에 따른 별점 변화를 확인할 수 있다.
+> 별은 v6(Oracle 달성률)이다. 표의 x는 Baseline 대비 값(± 95% CI)이고 별 판정은 하한(QA1 0.97, QA2 0.95, QA3 절감 0.95: Baseline끼리 비교한 잡음 대역에서 정함)과 Oracle 달성률 80%(문헌에서 정함)로 한다. v5 별(Baseline 대비 경계 1.30/1.25/1.25)은 `dp1_star_legacy`로 보존했고 4.1b에 민감도가 있다.
+> **v6 기준 중 집계 방식과 QA2/QA3 Oracle 정의는 결과를 본 뒤 정했다**(`defined_after_first_look`, 4.10, `DP1/qa-criteria-dp1.md` §K, §L).
 
 ## 4.1a 공통 기준 별점 (참고, DP 간 비교용)
 
@@ -287,7 +287,7 @@ DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) �
 
 (n = 집계된 시나리오 수. ratio의 ± 값은 95% CI)
 
-## 4.1b QA1 별점 경계 민감도 (SYS-B200, Combined)
+## 4.1b QA1 별점 경계 민감도 (v5 기준 참고: Baseline 대비 경계, SYS-B200, Combined)
 
 DP1 별점의 차이가 경계 선택에 얼마나 의존하는지 보인다. 하한(0.97)은 고정하고 ★★★ 경계만 움직였다.
 
@@ -388,8 +388,8 @@ n_seeds = 5, 95% CI는 t 분포, V/I/S = Fit, ratio = 후보 / Baseline (Baselin
 
 | SYS | 구성 | 공통 QA1 combined C1 / C2 | **DP1 별점 (QA1/QA2/QA3) C1** | **DP1 별점 C2** | C1 win/tie/loss | C2 win/tie/loss | dynamic: C1 / C2 win |
 |---|---|---|---|---|---|---|---|
-| SYS-H100 | H100x8 (Hopper-class): HBM3 + PCIe5 + DDR5-4800 + six memory kinds | ★★★ x1.212±0.076 / ★★★ x1.228±0.069 | ★★★ / ★★ / ★★ | ★★★ / ★★★ / ★ | 3/10/0 | 4/9/0 | 2 / 2 (of 6) |
-| SYS-B200 | B200x8 (Blackwell-class): HBM3e + PCIe5 + DDR5-6400 + six memory kinds | ★★★ x1.179±0.066 / ★★★ x1.324±0.043 | ★★ / ★★★ / ★★ | ★★★ / ★★★ / ★ | 3/15/0 | 6/12/0 | 3 / 6 (of 6) |
+| SYS-H100 | H100x8 (Hopper-class): HBM3 + PCIe5 + DDR5-4800 + six memory kinds | ★★★ x1.212±0.076 / ★★★ x1.228±0.069 | ★★★ / ★★ / ★★ | ★★★ / ★★ / ★ | 3/10/0 | 4/9/0 | 2 / 2 (of 6) |
+| SYS-B200 | B200x8 (Blackwell-class): HBM3e + PCIe5 + DDR5-6400 + six memory kinds | ★★★ x1.179±0.066 / ★★★ x1.324±0.043 | ★★ / ★★ / ★★ | ★★★ / ★★ / ★ | 3/15/0 | 6/12/0 | 3 / 6 (of 6) |
 
 ## 4.5 Iteration summary
 
@@ -425,23 +425,24 @@ C1에서 Data-Memory Affinity를 쓰는 곳은 두 군데다. (1) Destination Ti
 | QA1 goodput (tok/s) ↑ | 336 | **★★** 354 (x1.05) | **★★** 436 (x1.30) | **★★★** 478 (x1.42) |
 | QA2 TTFT P99 (ms) ↓ | 1,084 | 1,372 (x1.27) | 1,128 (x1.04) | 785 (x0.72) |
 | QA2 TPOT P99 (ms) ↓ | 17.1 | 18.2 (x1.06) | 18.3 (x1.07) | 16.0 (x0.94) |
-| QA2 별점 (개선 배수) | x1.00 | **★★** x1.07 | **★★★** x1.28 | **★★★** x1.56 |
+| QA2 별점 (개선 배수) | x1.00 | **★★** x1.07 | **★★** x1.28 | **★★** x1.56 |
 | QA3 HBM 사용량 (GiB) ↓ | 146.6 | **★★** 144.6 (x0.99) | **★★** 142.7 (x0.97) | **★** 178.0 (x1.21) |
 | Baseline 대비 승/무/패 | — | 2승 29무 0패 | 6승 25무 0패 | 10승 21무 0패 |
-| **별 합계** (QA4: C1 ★★★, C2 ★★ 동일 적용) | — | **9** | **10** | **9** |
-| **선택** | | **C2 (합계 동점, 우선순위 QA1)** | **C1 (합계)** | |
+| **별 합계** (QA4: C1 ★★★, C2 ★★ 동일 적용) | — | **9** | **9** | **8** |
+| **선택** | | **C1 (합계)** | **C1 (합계)** | |
 
 | 변형 (C1) | QA1 배수 | QA2 개선 배수 | TTFT P99 배수 | 승/무/패 |
 |---|---|---|---|---|
-| affinity 포함 (평가 대상) | x1.298 (★★) | x1.28 (★★★) | x1.04 | 6/25/0 |
-| affinity 점수만 제거 (Destination Tier Selector) | x1.299 (★★) | x1.28 (★★★) | x1.04 | 6/25/0 |
+| affinity 포함 (평가 대상) | x1.298 (★★) | x1.28 (★★) | x1.04 | 6/25/0 |
+| affinity 점수만 제거 (Destination Tier Selector) | x1.299 (★★) | x1.28 (★★) | x1.04 | 6/25/0 |
 | 정적 affinity 승격만 제거 | x1.053 (★★) | x1.07 (★★) | x1.27 | 2/29/0 |
 | 둘 다 제거 | x1.053 (★★) | x1.07 (★★) | x1.27 | 2/29/0 |
 
-- **affinity가 없으면** C1은 자원 압박에만 반응해 처리량이 x1.05에 그치고 TTFT P99는 x1.27로 나빠진다(승/무/패 2/29/0). 별 합계는 C1 9, C2 9로 동점이라 QA 우선순위로 **C2가 선택**된다.
-- **affinity를 포함하면** 처리량 x1.30, QA2 ★★★이 되고 별 합계가 C1 10로 C2(9)를 넘어 **C1이 선택**된다. 즉 affinity 보완 설계가 선택을 바꾼다.
+- **affinity가 없으면** C1은 자원 압박에만 반응해 처리량이 x1.05(Oracle 달성률 13%)에 그치고 TTFT P99는 x1.27로 나빠진다(승/무/패 2/29/0).
+- **affinity를 포함하면** 처리량 x1.30(달성률 62%), 승/무/패 6/25/0이 된다. C2는 x1.42(달성률 83%).
 - **효과의 출처는 정적 affinity 승격 pass**다. affinity 점수만 빼면 x1.299로 거의 변화가 없고(affinity 점수는 이 평가에서 측정 가능한 기여가 없음), 승격 pass를 빼면 x1.053로 떨어진다.
-- **한계:** affinity를 포함해도 C1의 처리량(x1.30)은 C2(x1.42)보다 낮다. affinity는 격차를 대부분 줄이지만 C2를 이기게 하지는 않는다. 선택이 바뀐 것은 QA3(HBM 사용량)과 QA4 우위, QA2 별 경계(C1 x1.28 vs 경계 1.25)에서 오며 경계에 민감하다. 승격 pass는 접근 비용 추정기(공유 module)에 의존하고, 이 비교에서 QA4 별은 affinity 유무와 무관하게 같게 두었다.
+- **Oracle 달성률 별(v6)에서는 affinity 제거가 선택을 바꾸지 못한다.** 두 변형 모두 QA1/QA2/QA3가 ★★로 같고 별 합계는 C1 9(제거) / 9(포함) 대 C2 8라 둘 다 C1이 선택된다. 3단계 별이 값의 차이(x1.05 대 x1.30, 달성률 13% 대 62%)를 가린다. 이전 기준(v5, 경계 1.30/1.25)에서는 QA2가 ★★★이 되어 제거 시 동점(C2 선택), 포함 시 C1 선택으로 갈렸으나, 그것은 경계 선택에 의존한 결과였다. 따라서 'affinity가 선택을 바꾼다'는 서사는 v6에서는 성립하지 않고, affinity의 효과는 **값**(처리량, TTFT P99, 승/무/패)에서만 보인다.
+- **한계:** affinity를 포함해도 C1의 처리량(x1.30)은 C2(x1.42)보다 낮다. 선택이 C1인 것은 QA3(HBM 사용량)과 QA4 우위에서 온다. 승격 pass는 접근 비용 추정기(공유 컴포넌트)에 의존한다. 대조군(`full`)은 본 결과와 정확히 일치한다(`DP1/results/data/ablation/`).
 
 ## 4.8 TTFT P99 꼬리 악화 (Baseline-regression loop iteration 4, `loop-log.md`)
 
@@ -460,7 +461,9 @@ comparison-valid 21쌍 중 TTFT P99가 Baseline보다 나쁜 쌍은 C1 6개, C2 
 
 용량을 줄이면 꼬리가 줄지만 이득이 같이 사라진다(0.5 s에서 C1 QA1 x1.00, 0.25 s에서는 C1이 Baseline과 동일). 즉 **P50 개선과 P99 악화는 같은 메커니즘의 양면**이고 용량 상수 하나로 둘을 동시에 얻지 못한다. 필요한 것은 이동을 여러 tick에 나누는 staged 이동과 이동 중 접근에 대한 do-no-harm 검사 같은 구조 변경이며, 보완 설계 택틱([C], 미구현)으로 남긴다. 링크 간섭이 평균장 근사(배율)라 꼬리가 과대일 수 있다는 점도 한계다(M-class 후보).
 
-## 4.9 별점 경계의 근거 (`DP1/qa-criteria-dp1.md` §J, `DP1/sim/star_basis.py`)
+## 4.9 별점 하한(잡음)의 근거와 v5 상한 환산 (`DP1/qa-criteria-dp1.md` §J, `DP1/sim/star_basis.py`)
+
+> v6에서도 ★/★★ 하한은 아래 잡음 측정을 그대로 쓴다. ★★/★★★ 경계는 v6에서 Oracle 달성률 80%(4.10)로 바뀌었고, 아래 상한 환산(GPU 수, ms, GiB)은 v5의 Baseline 대비 경계에 대한 설명이다.
 
 **하한(★/★★)은 측정으로 정했다.** Baseline끼리(겹치지 않는 seed 묶음) 비교한 순수 잡음 대역이다.
 
@@ -472,16 +475,21 @@ comparison-valid 21쌍 중 TTFT P99가 Baseline보다 나쁜 쌍은 C1 6개, C2 
 
 QA1 하한 0.97은 잡음 대역의 아래쪽 끝과 같다. QA2/QA3의 0.95는 잡음보다 느슨하지만 잡음 기준(0.97/0.98)으로 조여도 현재 별은 바뀌지 않는다. **상한(★★/★★★)은 측정으로 정할 수 없다.** 환산: QA1 x1.30 = 같은 수요를 77% 하드웨어로 처리 = 8-GPU 노드에서 약 1.85 GPU 절감(x1.14가 1 GPU), QA2 x1.25 = latency 20% 감소(TTFT P99 1,084 -> 867 ms), QA3 x1.25 = HBM 20% 감소(146.6 GiB 중 약 29 GiB, 8K KV object 약 1.6개). 이 값들은 "도입 가치가 있는 크기"라는 정책 선택이며 QA1의 1.30은 결과를 본 뒤 정한 값이다. 상한을 QA1/2/3에 똑같이 적용하면 선택은 상한 <= 1.298 또는 > 1.422에서 C1, 1.30~1.40에서 C2(동점, QA1 우선)로 갈린다. 현재 경계는 C1의 QA1(x1.298)과 0.2% 차이이므로 **선택은 경계 선택에 민감**하다.
 
-## 4.10 QA1 별 기준의 문헌 근거: Oracle 대비 이득 달성률 (`DP1/qa-capture-literature.md`)
+## 4.10 별 기준 v6: Oracle 대비 이득 달성률 (`DP1/qa-capture-literature.md`, `DP1/qa-criteria-dp1.md` §K, §L)
 
-별 경계를 "Baseline 대비 몇 배"가 아니라 **Oracle(미래 접근률 완전 정보 + 무비용 즉시 이동을 준 `Oracle-ideal`)이 낼 수 있는 이득 중 얼마를 얻었나**로 정의해 시나리오마다 다른 개선 여지를 정규화한다. 달성률 = (후보 − Baseline) ÷ (Oracle − Baseline). 개선 여지가 잡음(3.3%) 이하인 쌍은 집계에서 제외한다(비교 가능 21쌍 중 여지 있는 10쌍 사용, Oracle 이득 geomean x2.43). ★★★ 경계 x는 문헌의 이득 달성률에서 정했다: Mockingjay(HPCA'22) Table I의 SHiP 57%, Hawkeye 75%, Mockingjay 95%(Belady MIN 대비 IPC 개선)와 ARMS(arXiv 2508.04417)의 87% 이상(환산)의 **중앙값 81% -> x = 80%**. 출처 5개와 제외 사유, LLM 서빙에 직접 해당하는 문헌을 찾지 못했다는 한계는 `qa-capture-literature.md`에 있다.
+별 경계를 "Baseline 대비 몇 배"가 아니라 **그 시나리오에서 Oracle이 낼 수 있는 이득 중 얼마를 얻었나**로 정의해 시나리오마다 다른 개선 여지를 정규화한다. 달성률(쌍별) = ln(후보 이득) ÷ ln(Oracle 이득), 집계 = 로그 이득 합의 비율(pooled). 개선 여지가 잡음 이하인 쌍은 집계에서 뺀다. Oracle은 둘이다: QA1 = `Oracle-ideal`(C2 파이프라인 + 미래 접근률 완전 정보 + 무비용 즉시 이동), QA2·QA3 = `Oracle-lean`(무비용 즉시 이동, 틱마다 접근된 객체만 HBM에 두고 나머지는 SLO를 만족하는 더 싼 tier로 내림). 둘 다 증명된 최적이 아닌 근사 상한이며 후보가 1% 넘게 넘은 쌍 수를 아래에 적었다. ★★★ 기준 x = 80%는 문헌의 이득 달성률 (57, 75, 87, 95)%의 중앙값 81%에서 정했다(Mockingjay HPCA'22 Table I, ARMS arXiv 2508.04417 등; 출처와 제외 사유는 `qa-capture-literature.md`). ★ 기준은 기존 잡음 하한(Baseline 대비 QA1 0.97, QA2 0.95, QA3 절감 0.95).
 
-| 후보 | pooled 달성률 | 쌍별 평균 | Oracle을 1% 넘은 쌍 | QA1 별 (x = 80%) | 현재 공식 QA1 별 |
-|---|---|---|---|---|---|
-| C1 | 0.62 | 0.59 | 0 | ★★ | ★★ (x1.30 경계, 값 x1.298) |
-| C2 | 0.83 | 0.75 | 1 | ★★★ | ★★★ (값 x1.422) |
+| QA | Oracle | 개선 여지 있는 쌍 | Oracle 이득 geomean | C1 달성률 (평균, 95% 구간) | C2 달성률 (평균, 95% 구간) | Oracle 초과 쌍 C1/C2 | 별 C1 / C2 (v6) | 별 C1 / C2 (v5) |
+|---|---|---|---|---|---|---|---|---|
+| QA1 | Oracle-ideal | 10/21 | x2.43 | 62% (63%, 32~87%) | 83% (80%, 70~93%) | 0/1 | ★★ / ★★★ | ★★ / ★★★ |
+| QA2 | Oracle-lean | 19/21 | x3.22 | 23% (16%, 9~37%) | 42% (39%, 34~51%) | 0/0 | ★★ / ★★ | ★★★ / ★★★ |
+| QA3 | Oracle-lean | 14/21 | x2.45 | 3% (12%, -0~10%) | -15% (-36%, -36~-5%) | 0/0 | ★★ / ★ | ★★ / ★ |
 
-두 정의에서 QA1 별이 같고 선택도 같다. 다만 (1) pooled 대신 쌍별 평균을 쓰면 C2는 0.75라 ★★이 되고(집계 방식은 두 값을 본 뒤 문헌의 관례에 맞춰 pooled로 정했다), (2) 10쌍뿐이라 쌍 부트스트랩 95% 구간이 C1 0.33~0.87, C2 0.70~0.93으로 겹쳐 **C2가 C1보다 더 가깝다고 통계적으로 단정할 수 없고**, (3) Oracle-ideal은 증명된 최적이 아니라 휴리스틱이다. QA2(Oracle이 지연 꼬리를 최적화하지 않아 후보가 Oracle을 넘는 쌍이 많음)와 QA3(Oracle 미정의)에는 적용하지 않았다.
+**해석과 한계.**
+- 별 합계는 C1 9, C2 8로 선택(C1)은 v5와 같다(v5는 10 대 9). 바뀐 것은 QA2(두 후보 ★★★ -> ★★)다. QA2·QA3의 Oracle은 "접근된 객체를 무비용으로 HBM에 두는" 매우 이상적인 정책이라 두 후보 모두 80%에 크게 못 미친다.
+- 문헌의 80%는 CPU 캐시 교체와 tiered memory 연구에서 나왔고, 이동 비용이 있는 실제 Belady 계열 상한과 우리의 무비용 이상 상한은 같은 종류가 아니다. LLM 서빙에 직접 해당하는 달성률 문헌은 찾지 못했다. 같은 80%가 QA2/QA3에서 더 엄격하다.
+- 개선 여지 있는 쌍이 QA1 10개뿐이라 구간이 넓고 C1/C2 구간이 겹친다. QA1 C2(83%)는 기준 80% 바로 위이고 쌍별 평균으로 집계하면 80%로 ★★이다.
+- QA3 C2의 음수 달성률은 C2가 HBM을 Baseline보다 더 쓰기 때문이다(성능을 위해 승격).
 
 # 5. 결과 분석
 
@@ -530,7 +538,7 @@ H100/B200 두 시스템, 3개 set 전체에서 **어느 후보도 Baseline 미�
 6. **임시 정의:** QA3 formula, tie 판정의 1% material 임계, "saturated" fit label(모든 후보 CI 이내 동일).
 7. **QA2 집계가 worst-case**라 Baseline 자체가 SLO를 못 맞추는 시나리오가 있는 set에서는 모든 후보가 ★로 나온다 (Stress set).
 8. **세대별 profile의 규격은 일부 ASSUMED**: H100 HBM·연산 값은 PUBLIC(확인 필요), PCIe 세대별 link 스케일은 가정이다(제외된 SYS-A100의 CXL-PNM은 가상 구성). 신규 memory(CXL-PNM, HBF, SSD-PIM, Samsung Custom HBM(ScHBM))는 과거 세대가 없어 link 대역으로만 세대를 표현했다.
-9. **DP1 별점 기준(4.1)은 공통 룰(criteria rule 2: 같은 QA는 DP 간 같은 룰)과 의도적으로 다르며, 첫 결과를 본 뒤 정의했다** (`defined_after_first_look`). 공통 별점은 4.1a에 병기한다. 후보 간 ★ 차이는 QA1 ★★★ 경계(1.30)에 의존한다. 4.1b의 sensitivity에서 경계가 약 1.26~1.44일 때만 C1/C2가 갈리고 1.25 이하에서는 같으며 1.50이면 둘 다 ★★이다. 새 benchmark로 같은 경계를 재확인해야 한다. 집계는 comparison-valid 시나리오만 대상으로 하므로 feasible 전체 기준 값과 n이 다르다.
+9. **DP1 별점 기준(4.1, v6)은 공통 룰(criteria rule 2: 같은 QA는 DP 간 같은 룰)과 의도적으로 다르며, 결과를 본 뒤 정의했다** (`defined_after_first_look`). 공통 별점은 4.1a에 병기한다. v6은 Oracle 달성률 80%를 ★★★ 기준으로 쓴다. 문헌은 CPU 캐시 교체와 tiered memory 연구이고 LLM 서빙에 직접 해당하는 달성률 문헌을 찾지 못했으며(`qa-capture-literature.md`), QA2/QA3의 Oracle은 QA1의 것보다 이상적이라 같은 80%가 더 엄격하다. v5(Baseline 대비 경계)에서는 후보 간 별 차이가 QA1 ★★★ 경계(1.30)에 의존했다(4.1b).
 
 10. **QA3는 HBM 사용량(v6)으로 재정의했다**(소유자 결정). 이력: v3(HBM 활용률) -> v4(전 메모리 풀 U) -> v5 초안(성능÷비용 가중 점유) -> v6(HBM 사용량). 모두 결과를 본 뒤의 변경이다(`defined_after_first_look`). 이유: 활용률 U는 처리량과 상관 0.99이고, 성능÷비용은 성능이 섞여 QA1/QA2와 겹치며, 풀 점유 총량은 이동과 무관하다. **한계:** HBM을 비우되 성능이 나빠지는 정책이 이 QA에서 유리하므로 QA1/QA2와 함께 읽어야 한다. HBM 사용량은 어느 메모리로 보냈는지(DRAM/HBF의 가격 차)를 구분하지 못한다(보조 지표로 비용 가중 점유를 병기하며 가격은 ASSUMED). 이 정의 변경으로 선택이 C2에서 C1로 바뀌었다(0.3).
 11. **링크 간섭 모델(2026-10-03)은 모델 결함 수정이다.** 이전에는 이동이 지연에 첫 접근 한 번의 0.20 x 전송시간으로만 반영되어 C2의 10배 이동이 지연에 거의 안 나타났다. 수정: 이동이 쓰는 링크 시간만큼 해당 tier의 서빙 대역폭을 줄인다(HBM 제외, 상한 90%). 수정 전 결과는 `results/data/pre_interference/`에 보존했고 수치 변화는 0.2에 있다. 남은 한계: 다른 workload와의 링크 경합, HBF endurance, 전력은 모델링하지 않았다.
@@ -540,7 +548,7 @@ H100/B200 두 시스템, 3개 set 전체에서 **어느 후보도 Baseline 미�
 
 - H100/B200 두 시스템, 3개 set 전체에서 **어느 후보도 Baseline 미만(loss)인 시나리오가 없다** (4.4의 loss 열). Dynamic에서 유의하게 이긴 시나리오 수(C1 / C2, 전체): SYS-H100 2 / 2 (of 6), SYS-B200 3 / 6 (of 6). first-pass의 Baseline 미만 결과는 정책 결함(P: serving 비용 무시, migration budget 없음)과 benchmark 부적합(B)에서 왔고 iteration 1~3(당시 SYS-4=SYS-B200)에서 해소되었다.
 - **이득은 "static 배치가 runtime에 stale해지는" 조건에서만 확인된다.** Common과 feasible Stress에서는 대부분 동률이다. 이것은 일반 이득 주장이 아니다.
-- **통합 DP1 별점 (QA1 / QA2 / QA3 / QA4):** C1 ★★ / ★★★ / ★★ / ★★★, C2 ★★★ / ★★★ / ★ / ★★. 별 합계 C1 10, C2 9 -> **C1** (별 합계가 높은 후보). 시스템별 단독 합계는 H100 단독 10 대 9, B200 단독 10 대 9이다(통합과 같은 방향인지 확인용). 별점 경계 의존성은 6장 9, 10.
+- **통합 DP1 별점 (QA1 / QA2 / QA3 / QA4):** C1 ★★ / ★★ / ★★ / ★★★, C2 ★★★ / ★★ / ★ / ★★. 별 합계 C1 9, C2 8 -> **C1** (별 합계가 높은 후보). 시스템별 단독 합계는 H100 단독 10 대 8, B200 단독 9 대 8이다(통합과 같은 방향인지 확인용). 별점 경계 의존성은 6장 9, 10.
 - **trade-off:** 성능(QA1)은 C2, 리소스 효율(QA3 값)과 확장성(QA4)은 C1이 앞선다. 이득은 H100/B200 모두에서 hot set이 이동하는 Dynamic 시나리오에 집중된다.
 - **다음 단계:** (1) Destination Tier Selector의 serving-cost 입력, link-time migration budget, C2 benefit-vs-cost gating, C1 promotion 경로를 설계 문서에 반영한다 (loop-log '설계 문서에 미치는 영향'). (2) vLLM trace 수집과 HBM↔DRAM 실측으로 access-cost 모델의 오차를 [A]로 확인하고, 오차를 넣은 estimator로 재평가한다. (3) budget 파라미터 근거 확보. (4) 개정 구조(Backend I/F, snapshot)를 simulator에 반영한다.
 
