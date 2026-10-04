@@ -17,7 +17,7 @@ DP0은 기존 DP1~DP4 **앞에 오는 최상위 Design Point**다. 기존 DP 번
 |---|---|
 | DP0 | 이 폴더 |
 | DP1 | [`../DP1/dp1-ai-data-migration-decision-architecture.md`](../DP1/dp1-ai-data-migration-decision-architecture.md) |
-| DP2 | [`../DP2/dp2-prefill-execution-planning-decision-timing.md`](../DP2/dp2-prefill-execution-planning-decision-timing.md) |
+| DP2 | [`../DP2/dp2-prefill-decode-execution-planning-decision-timing.md`](../DP2/dp2-prefill-decode-execution-planning-decision-timing.md) |
 | DP3 | [`../vllm-dp3-memory-placement-abstraction-candidates.md`](../vllm-dp3-memory-placement-abstraction-candidates.md) |
 | DP4 | [`../vllm-dp4-compute-placement-scheduling-candidates.md`](../vllm-dp4-compute-placement-scheduling-candidates.md) |
 

@@ -75,6 +75,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iter", type=int, default=None)
     ap.add_argument("--final", action="store_true")
+    ap.add_argument("--tag", default=None, help="write to results/data/<tag>/<SYS>/ (ablation runs) instead of results/data/<SYS>/")
     ap.add_argument("--systems", nargs="*", default=list(SYSTEMS))
     ap.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1))
     a = ap.parse_args()
@@ -83,7 +84,7 @@ def main():
         res = evaluate(sid, [s for s in ("common_benchmark", "dp1_stress_benchmark", "dp1_dynamic_benchmark")
                              if _nonempty(s)], a.jobs, None)
         if a.final:
-            d = RES / "data" / sid
+            d = (RES / "data" / a.tag / sid) if a.tag else (RES / "data" / sid)
             d.mkdir(parents=True, exist_ok=True)
             (d / "qa_result.json").write_text(json.dumps(res, indent=1, sort_keys=True))
         else:

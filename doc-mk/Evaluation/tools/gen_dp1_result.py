@@ -346,6 +346,89 @@ def final_qa_table(key="combined"):
 
 
 
+def ablation_metrics(tag):
+    """Metrics of the C1 variant run under results/data/ablation/<tag>/ (tag == 'main' -> the evaluated C1 with affinity)."""
+    base = DATA / "ablation" / tag / MERGED if tag != "main" else DATA / MERGED
+    r = json.load(open(base / "qa_result.json"))
+    gr = json.load(open(base / "dp1_rating.json"))["sets"]["combined"]
+    pr = [(lab, k) for lab, _ in SETS for k, l in r[lab]["scenario_labels"].items() if l["fit"] == "comparison_valid"]
+    def gm(c, f):
+        return math.exp(sum(math.log(max(1e-9, f(r[lab]["per_scenario"][k][c]))) for lab, k in pr) / len(pr))
+    out = {}
+    for c in (B, C1, C2):
+        d = gr[c]["dp1_star"]
+        w = r["combined"]["tally"].get(c)
+        out[c] = dict(gp=gm(c, lambda p: p["max_goodput_tps"]), t99=gm(c, lambda p: p["ttft_p99_ms"]), o99=gm(c, lambda p: p["tpot_p99_ms"]), hbm=gm(c, lambda p: p["tier_occ_gib"]["hbm"]),
+                      star=dict(QA1=d["qa1"], QA2=d["qa2"], QA3=d["qa3"]), imp=gr[c]["qa2"]["latency_improvement_geomean"],
+                      wtl=(len(w["win"]), len(w["tie"]), len(w["loss"])) if w else None)
+    return out
+
+
+def ablation_table():
+    modes = [("none", "C1 affinity 전부 제거"), ("main", "C1 (affinity 포함, 평가 대상)")]
+    A = {t: ablation_metrics(t) for t in ("none", "main", "no_score", "no_promo")}
+    C2m = A["main"][C2]
+    bs = A["main"][B]
+    rows = ["| 지표 | Baseline | C1 affinity 제거 | C1 (affinity 포함) | C2 |", "|---|---:|---|---|---|"]
+    def cell(m, key, fmt):
+        return f"{fmt(m[key])} (x{m[key] / bs[key]:.2f})"
+    f0, f1 = (lambda v: f"{v:,.0f}"), (lambda v: f"{v:,.1f}")
+    def col(m, c, star):
+        return {"QA1": f"**{m[c]['star']['QA1']}** " + cell(m[c], "gp", f0), "t99": cell(m[c], "t99", f0), "o99": cell(m[c], "o99", f1),
+                "QA2": f"**{m[c]['star']['QA2']}** x{m[c]['imp']:.2f}", "QA3": f"**{m[c]['star']['QA3']}** " + cell(m[c], "hbm", f1), "wtl": f"{m[c]['wtl'][0]}승 {m[c]['wtl'][1]}무 {m[c]['wtl'][2]}패"}[star]
+    def tot(m, c, qa4):
+        return sum(m[c]["star"][k].count("★") for k in ("QA1", "QA2", "QA3")) + qa4.count("★")
+    q4 = {C1: QA4_STARS[C1], C2: QA4_STARS[C2]}
+    items = [("QA1 goodput (tok/s) ↑", "QA1", f0(bs["gp"])), ("QA2 TTFT P99 (ms) ↓", "t99", f0(bs["t99"])), ("QA2 TPOT P99 (ms) ↓", "o99", f1(bs["o99"])),
+             ("QA2 별점 (개선 배수)", "QA2", "x1.00"), ("QA3 HBM 사용량 (GiB) ↓", "QA3", f1(bs["hbm"])), ("Baseline 대비 승/무/패", "wtl", "—")]
+    for label, key, base in items:
+        rows.append(f"| {label} | {base} | {col(A['none'], C1, key)} | {col(A['main'], C1, key)} | {col(A['main'], C2, key)} |")
+    t_none, t_main, t_c2 = tot(A["none"], C1, q4[C1]), tot(A["main"], C1, q4[C1]), tot(A["main"], C2, q4[C2])
+    rows.append(f"| **별 합계** (QA4: C1 {q4[C1]}, C2 {q4[C2]} 동일 적용) | — | **{t_none}** | **{t_main}** | **{t_c2}** |")
+    sel = lambda a, b: select_candidate({"C1": {"QA1": A[a][C1]["star"]["QA1"], "QA2": A[a][C1]["star"]["QA2"], "QA3": A[a][C1]["star"]["QA3"], "QA4": q4[C1]},
+                                         "C2": {"QA1": C2m["star"]["QA1"], "QA2": C2m["star"]["QA2"], "QA3": C2m["star"]["QA3"], "QA4": q4[C2]}}, PRIO["priority"])
+    s_none, s_main = sel("none", None), sel("main", None)
+    ctrl = "full" if (DATA / "ablation" / "full").exists() else None
+    dec = lambda a, rr: ("C1" if rr["winner"] == "C1" else "C2") + (" (합계)" if rr["rule"] == "total" else f" (합계 동점, 우선순위 {rr['deciding_qa']})")
+    rows.append(f"| **선택** | | **{dec('none', s_none)}** | **{dec('main', s_main)}** | |")
+    part = ["", "| 변형 (C1) | QA1 배수 | QA2 개선 배수 | TTFT P99 배수 | 승/무/패 |", "|---|---|---|---|---|"]
+    for t, lab in (("main", "affinity 포함 (평가 대상)"), ("no_score", "affinity 점수만 제거 (Destination Tier Selector)"), ("no_promo", "정적 affinity 승격만 제거"), ("none", "둘 다 제거")):
+        m = A[t][C1]
+        part.append(f"| {lab} | x{m['gp'] / bs['gp']:.3f} ({m['star']['QA1']}) | x{m['imp']:.2f} ({m['star']['QA2']}) | x{m['t99'] / bs['t99']:.2f} | {m['wtl'][0]}/{m['wtl'][1]}/{m['wtl'][2]} |")
+    return "\n".join(rows) + "\n" + "\n".join(part), dict(A=A, t_none=t_none, t_main=t_main, t_c2=t_c2, sel_none=s_none, sel_main=s_main)
+
+
+
+def star_basis_section():
+    sb = json.load(open(DATA / "star_basis.json"))["summary"]
+    row = lambda name, k, edge: (f"| {name} | {sb[k]['min']:.3f} ~ {sb[k]['max']:.3f} | {sb[k]['sd']:.3f} | {edge} |")
+    return "\n".join([
+        "| 지표 (Baseline vs Baseline, 20개 비교) | 관측 범위 | 표준편차 | 현재 하한 |", "|---|---|---|---|",
+        row("QA1 처리량 비율", "qa1_ratio", "0.97"), row("QA2 개선 배수", "qa2_improvement", "0.95"), row("QA3 HBM 절감 배수", "qa3_saving", "0.95")])
+
+
+def burst_section():
+    bs = json.load(open(DATA / "burst" / "summary.json"))
+    lines = ["| BURST_CAP_S | 후보 | QA1 (x) | QA2 개선 (x) | HBM 절감 (x) | TTFT P99 geomean (x) | P99 악화 쌍 | 최악 쌍 (x) |", "|---|---|---|---|---|---|---|---|"]
+    for cap in ("2.0", "1.0", "0.5", "0.25"):
+        for c, nm in ((C1, "C1"), (C2, "C2")):
+            x = bs[cap][c]
+            lines.append(f"| {cap}{' (대조군)' if cap == '2.0' else ''} | {nm} | {x['qa1']:.3f} | {x['qa2']:.3f} | {x['hbm_saving']:.3f} | {x['ttft99_geo']:.3f} | {x['n_worse']} | {x['worst']:.2f} |")
+    return "\n".join(lines)
+
+
+
+def ablation_note():
+    _, d = ablation_table()
+    A = d["A"]; bs = A["main"][B]
+    n, m, c2 = A["none"][C1], A["main"][C1], A["main"][C2]
+    return (f"- **affinity가 없으면** C1은 자원 압박에만 반응해 처리량이 x{n['gp'] / bs['gp']:.2f}에 그치고 TTFT P99는 x{n['t99'] / bs['t99']:.2f}로 나빠진다(승/무/패 {n['wtl'][0]}/{n['wtl'][1]}/{n['wtl'][2]}). "
+            f"별 합계는 C1 {d['t_none']}, C2 {d['t_c2']}로 동점이라 QA 우선순위로 **C2가 선택**된다.\n"
+            f"- **affinity를 포함하면** 처리량 x{m['gp'] / bs['gp']:.2f}, QA2 ★★★이 되고 별 합계가 C1 {d['t_main']}로 C2({d['t_c2']})를 넘어 **C1이 선택**된다. 즉 affinity 보완 설계가 선택을 바꾼다.\n"
+            f"- **효과의 출처는 정적 affinity 승격 pass**다. affinity 점수만 빼면 x{A['no_score'][C1]['gp'] / bs['gp']:.3f}로 거의 변화가 없고(affinity 점수는 이 평가에서 측정 가능한 기여가 없음), 승격 pass를 빼면 x{A['no_promo'][C1]['gp'] / bs['gp']:.3f}로 떨어진다.\n"
+            f"- **한계:** affinity를 포함해도 C1의 처리량(x{m['gp'] / bs['gp']:.2f})은 C2(x{c2['gp'] / bs['gp']:.2f})보다 낮다. affinity는 격차를 대부분 줄이지만 C2를 이기게 하지는 않는다. 선택이 바뀐 것은 QA3(HBM 사용량)과 QA4 우위, QA2 별 경계(C1 x{m['imp']:.2f} vs 경계 1.25)에서 오며 경계에 민감하다. 승격 pass는 접근 비용 추정기(공유 module)에 의존하고, 이 비교에서 QA4 별은 affinity 유무와 무관하게 같게 두었다.")
+
+
 def conclusion_bullets():
     o = overall_selection()
     nm = {C1: "C1", C2: "C2", None: "구분 불가"}
@@ -638,6 +721,7 @@ Baseline-regression loop가 발동했다 (first-pass에서 두 후보 모두 Bas
 | 1 | P | 공통 access-cost estimator, SLO filter와 do-no-harm(C1 destination 선택), link-time migration budget, cooldown, C2 benefit-vs-cost gating, C2 demotion은 HBM pressure일 때만 | C1 x1.000 / C2 x1.028, **loss 0**, win 0 (Common/Stress는 parity) |
 | 2 | B | `dynamic_benchmark()` 6개 + controls 추가 (policy 불변) | dynamic: C1 x1.106 (win 1), C2 x2.211 (win 6) |
 | 3 | P | C1 promotion path (설계 §17.2): static 추정으로 SLO를 위반하는 object를 HBM으로 승격, HBM 거주 object와 swap, budget 예약 | dynamic: C1 x1.643 (win 3), C2 불변 |
+| 4 | P(sweep, 정책 불변) | 링크 간섭 도입 후 TTFT P99 꼬리 재점검: burst 용량 {2.0, 1.0, 0.5, 0.25} s sweep (4.8절) | 기본값 유지: 꼬리를 줄이면 이득도 사라짐 (C1 P99 악화 쌍 6 -> 0이지만 QA1 x1.30 -> x1.00) |
 
 ## 4.6 모델 오차 e sweep (SYS-B200, Combined, comparison-valid, 보고용)
 
@@ -646,6 +730,30 @@ access-cost 추정(두 후보 공통, 시스템적 편향)과 C2의 predicted ho
 {eps_table()}
 
 e를 올려도 C2의 이득이 사라지는 지점(break-even)은 이 오차 모델에서는 나타나지 않았다. 오차가 커질수록 두 후보의 절대 이득이 오히려 e=0 일 때보다 커지는 구간이 있는데, 이는 e=0의 cost 추정식이 최적이 아님을 의미하며 오차가 정책을 개선한다는 뜻이 아니다. 이 결과는 lognormal 한 종류, 5 seed 기준이며 실제 workload 분포 이동에 대한 robustness는 확인하지 않았다.
+
+## 4.7 Data-Memory Affinity 제거 변형 (C1 ablation, `DP1/sim`의 `DP1_C1_AFFINITY`)
+
+C1에서 Data-Memory Affinity를 쓰는 곳은 두 군데다. (1) Destination Tier Selector의 affinity 점수(정적 지연·대역폭·용량 민감도 힌트), (2) 정적 affinity 승격 pass(설계 17.2: 힌트와 접근 비용 추정으로 "HBM에 있어야 SLO를 만족하는데 낮은 tier에 있는" 객체를 HBM으로 올리고, 자리가 없으면 정적 페널티가 훨씬 작은 HBM 거주 객체와 교환). 두 후보가 공유하는 접근 비용 추정기(operation class와 shape 힌트)는 모든 변형에 남겨 두었다. 같은 파이프라인(5 seed, 동일 시나리오)으로 돌렸고 대조군(`full`)은 본 결과와 정확히 일치한다.
+
+{ablation_table()[0]}
+
+{ablation_note()}
+
+## 4.8 TTFT P99 꼬리 악화 (Baseline-regression loop iteration 4, `loop-log.md`)
+
+comparison-valid 21쌍 중 TTFT P99가 Baseline보다 나쁜 쌍은 C1 6개, C2 5개다(>1.02배). C1의 최악은 Common `cb_kv_8k_b32`(H100 x4.15, B200 x3.88)와 `cb_mixed_8k_b32`(H100 x4.32)이며 같은 쌍에서 TTFT P50은 x0.32~0.67로 **개선**된다(중앙값은 좋아지고 꼬리가 나빠진다). 진단: 꼬리는 이동된 object가 아니라 **이동하지 않고 DRAM에 남은 KV**의 첫 응답(2.3~2.8 s, Baseline 0.38 s)이다. C1의 migration 19건(object 15 GiB급)이 초반 20% 구간에 몰려 같은 DRAM 링크의 서빙 대역폭 배율이 0.10까지 떨어지고, 이 구간의 접근 43건(2.5%)이 P99를 정한다. 원인을 token bucket의 burst 용량(2.0 s 링크 시간)으로 분류하고(P), 용량만 바꾼 sweep을 돌렸다(기본값은 유지).
+
+{burst_section()}
+
+용량을 줄이면 꼬리가 줄지만 이득이 같이 사라진다(0.5 s에서 C1 QA1 x1.00, 0.25 s에서는 C1이 Baseline과 동일). 즉 **P50 개선과 P99 악화는 같은 메커니즘의 양면**이고 용량 상수 하나로 둘을 동시에 얻지 못한다. 필요한 것은 이동을 여러 tick에 나누는 staged 이동과 이동 중 접근에 대한 do-no-harm 검사 같은 구조 변경이며, 보완 설계 택틱([C], 미구현)으로 남긴다. 링크 간섭이 평균장 근사(배율)라 꼬리가 과대일 수 있다는 점도 한계다(M-class 후보).
+
+## 4.9 별점 경계의 근거 (`DP1/qa-criteria-dp1.md` §J, `DP1/sim/star_basis.py`)
+
+**하한(★/★★)은 측정으로 정했다.** Baseline끼리(겹치지 않는 seed 묶음) 비교한 순수 잡음 대역이다.
+
+{star_basis_section()}
+
+QA1 하한 0.97은 잡음 대역의 아래쪽 끝과 같다. QA2/QA3의 0.95는 잡음보다 느슨하지만 잡음 기준(0.97/0.98)으로 조여도 현재 별은 바뀌지 않는다. **상한(★★/★★★)은 측정으로 정할 수 없다.** 환산: QA1 x1.30 = 같은 수요를 77% 하드웨어로 처리 = 8-GPU 노드에서 약 1.85 GPU 절감(x1.14가 1 GPU), QA2 x1.25 = latency 20% 감소(TTFT P99 1,084 -> 867 ms), QA3 x1.25 = HBM 20% 감소(146.6 GiB 중 약 29 GiB, 8K KV object 약 1.6개). 이 값들은 "도입 가치가 있는 크기"라는 정책 선택이며 QA1의 1.30은 결과를 본 뒤 정한 값이다. 상한을 QA1/2/3에 똑같이 적용하면 선택은 상한 <= 1.298 또는 > 1.422에서 C1, 1.30~1.40에서 C2(동점, QA1 우선)로 갈린다. 현재 경계는 C1의 QA1(x1.298)과 0.2% 차이이므로 **선택은 경계 선택에 민감**하다.
 
 # 5. 결과 분석
 

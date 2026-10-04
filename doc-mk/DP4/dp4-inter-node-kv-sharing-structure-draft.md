@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 상태 | **초안 (제안)** — 2026-10-04 재작성. 이전 판("전송 vs 공유 풀")은 설계 포인트가 너무 커서 폐기하고 **문제를 좁혀** 다시 썼다 |
-| 기준 자료 | [`../DP2/dp2-prefill-execution-planning-decision-timing.md`](../DP2/dp2-prefill-execution-planning-decision-timing.md), [`../DP3/dp3-kv-compression-reuse-structure-draft.md`](../DP3/dp3-kv-compression-reuse-structure-draft.md), [`../DP1/dp1-ai-data-migration-decision-architecture.md`](../DP1/dp1-ai-data-migration-decision-architecture.md), TraCT·Beluga 본문(직접 열람) |
+| 기준 자료 | [`../DP2/dp2-prefill-decode-execution-planning-decision-timing.md`](../DP2/dp2-prefill-decode-execution-planning-decision-timing.md), [`../DP3/dp3-kv-compression-reuse-structure-draft.md`](../DP3/dp3-kv-compression-reuse-structure-draft.md), [`../DP1/dp1-ai-data-migration-decision-architecture.md`](../DP1/dp1-ai-data-migration-decision-architecture.md), TraCT·Beluga 본문(직접 열람) |
 | 평가 계획 | [`../Evaluation/DP4/simulation-plan.md`](../Evaluation/DP4/simulation-plan.md) (사전 등록), [`qa-criteria-dp4`](../Evaluation/DP4/qa-criteria-dp4.md), [`qa4-preregistration`](../Evaluation/DP4/qa4-preregistration.md), [`benchmark`](../Evaluation/DP4/benchmark.md) |
 | 슬라이드 초안 | [`DP4-slides-draft.pptx`](DP4-slides-draft.pptx), [`DP-overview-slide-draft.pptx`](DP-overview-slide-draft.pptx) |
 | 근거 수준 | **[A]** 실측 / **[B]** 문헌 보고 (as reported) / **[C]** 구조 논증·시뮬레이션 |

@@ -3,7 +3,7 @@ date: 2026-10-02
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
 sys_ids: [SYS-H100, SYS-B200]
-git_rev: 5473656 (dirty)
+git_rev: 8007ebe (dirty)
 evidence: { QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[B+C]" }
 status: draft
 ---
@@ -83,7 +83,7 @@ Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이�
 | SYS id | **메모리 세대별 2개 profile** (모두 6종 메모리 포함): SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-A100(HBM2e, PCIe 4.0)과 SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정, 2026-10-03). 이전 문서의 A100/VR 결과는 `results/data/SYS-A100`, `SYS-VR`에 보존된다. 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
 | 범위 제약 | DP1의 data 이동은 **단일 노드(한 서버) 내부**의 메모리 계층 사이로 한정 (설계 문서 §3.3). 노드 간 이동은 DP0 소관이며 이 평가에 포함되지 않음 |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
-| Git revision | 5473656 (dirty) |
+| Git revision | 8007ebe (dirty) |
 | Seeds / loads | seeds 11, 23, 37, 53, 71 (5회) / load x0.5, x1.0, x1.5, x2.0, 95% CI t=2.776 |
 | Tie 판정 | goodput 상대 차이 < 1% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
 | 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final && python3 merge_systems.py SYS-H100 SYS-B200 && python3 dp1_rating.py ../results/data/INT-H100-B200/qa_result.json` (시스템별 단독은 각 SYS의 `dp1_rating.py`), 단일: `python3 qa_eval.py --system SYS-B200` |
@@ -401,6 +401,7 @@ Baseline-regression loop가 발동했다 (first-pass에서 두 후보 모두 Bas
 | 1 | P | 공통 access-cost estimator, SLO filter와 do-no-harm(C1 destination 선택), link-time migration budget, cooldown, C2 benefit-vs-cost gating, C2 demotion은 HBM pressure일 때만 | C1 x1.000 / C2 x1.028, **loss 0**, win 0 (Common/Stress는 parity) |
 | 2 | B | `dynamic_benchmark()` 6개 + controls 추가 (policy 불변) | dynamic: C1 x1.106 (win 1), C2 x2.211 (win 6) |
 | 3 | P | C1 promotion path (설계 §17.2): static 추정으로 SLO를 위반하는 object를 HBM으로 승격, HBM 거주 object와 swap, budget 예약 | dynamic: C1 x1.643 (win 3), C2 불변 |
+| 4 | P(sweep, 정책 불변) | 링크 간섭 도입 후 TTFT P99 꼬리 재점검: burst 용량 (2.0, 1.0, 0.5, 0.25) s sweep (4.8절) | 기본값 유지: 꼬리를 줄이면 이득도 사라짐 (C1 P99 악화 쌍 6 -> 0이지만 QA1 x1.30 -> x1.00) |
 
 ## 4.6 모델 오차 e sweep (SYS-B200, Combined, comparison-valid, 보고용)
 
@@ -414,6 +415,62 @@ access-cost 추정(두 후보 공통, 시스템적 편향)과 C2의 predicted ho
 | 0.6 | x1.284±0.080 | x1.464±0.035 | x1.140 | (3, 15, 0) | (6, 12, 0) | 2% | 2% |
 
 e를 올려도 C2의 이득이 사라지는 지점(break-even)은 이 오차 모델에서는 나타나지 않았다. 오차가 커질수록 두 후보의 절대 이득이 오히려 e=0 일 때보다 커지는 구간이 있는데, 이는 e=0의 cost 추정식이 최적이 아님을 의미하며 오차가 정책을 개선한다는 뜻이 아니다. 이 결과는 lognormal 한 종류, 5 seed 기준이며 실제 workload 분포 이동에 대한 robustness는 확인하지 않았다.
+
+## 4.7 Data-Memory Affinity 제거 변형 (C1 ablation, `DP1/sim`의 `DP1_C1_AFFINITY`)
+
+C1에서 Data-Memory Affinity를 쓰는 곳은 두 군데다. (1) Destination Tier Selector의 affinity 점수(정적 지연·대역폭·용량 민감도 힌트), (2) 정적 affinity 승격 pass(설계 17.2: 힌트와 접근 비용 추정으로 "HBM에 있어야 SLO를 만족하는데 낮은 tier에 있는" 객체를 HBM으로 올리고, 자리가 없으면 정적 페널티가 훨씬 작은 HBM 거주 객체와 교환). 두 후보가 공유하는 접근 비용 추정기(operation class와 shape 힌트)는 모든 변형에 남겨 두었다. 같은 파이프라인(5 seed, 동일 시나리오)으로 돌렸고 대조군(`full`)은 본 결과와 정확히 일치한다.
+
+| 지표 | Baseline | C1 affinity 제거 | C1 (affinity 포함) | C2 |
+|---|---:|---|---|---|
+| QA1 goodput (tok/s) ↑ | 336 | **★★** 354 (x1.05) | **★★** 436 (x1.30) | **★★★** 478 (x1.42) |
+| QA2 TTFT P99 (ms) ↓ | 1,084 | 1,372 (x1.27) | 1,128 (x1.04) | 785 (x0.72) |
+| QA2 TPOT P99 (ms) ↓ | 17.1 | 18.2 (x1.06) | 18.3 (x1.07) | 16.0 (x0.94) |
+| QA2 별점 (개선 배수) | x1.00 | **★★** x1.07 | **★★★** x1.28 | **★★★** x1.56 |
+| QA3 HBM 사용량 (GiB) ↓ | 146.6 | **★★** 144.6 (x0.99) | **★★** 142.7 (x0.97) | **★** 178.0 (x1.21) |
+| Baseline 대비 승/무/패 | — | 2승 29무 0패 | 6승 25무 0패 | 10승 21무 0패 |
+| **별 합계** (QA4: C1 ★★★, C2 ★★ 동일 적용) | — | **9** | **10** | **9** |
+| **선택** | | **C2 (합계 동점, 우선순위 QA1)** | **C1 (합계)** | |
+
+| 변형 (C1) | QA1 배수 | QA2 개선 배수 | TTFT P99 배수 | 승/무/패 |
+|---|---|---|---|---|
+| affinity 포함 (평가 대상) | x1.298 (★★) | x1.28 (★★★) | x1.04 | 6/25/0 |
+| affinity 점수만 제거 (Destination Tier Selector) | x1.299 (★★) | x1.28 (★★★) | x1.04 | 6/25/0 |
+| 정적 affinity 승격만 제거 | x1.053 (★★) | x1.07 (★★) | x1.27 | 2/29/0 |
+| 둘 다 제거 | x1.053 (★★) | x1.07 (★★) | x1.27 | 2/29/0 |
+
+- **affinity가 없으면** C1은 자원 압박에만 반응해 처리량이 x1.05에 그치고 TTFT P99는 x1.27로 나빠진다(승/무/패 2/29/0). 별 합계는 C1 9, C2 9로 동점이라 QA 우선순위로 **C2가 선택**된다.
+- **affinity를 포함하면** 처리량 x1.30, QA2 ★★★이 되고 별 합계가 C1 10로 C2(9)를 넘어 **C1이 선택**된다. 즉 affinity 보완 설계가 선택을 바꾼다.
+- **효과의 출처는 정적 affinity 승격 pass**다. affinity 점수만 빼면 x1.299로 거의 변화가 없고(affinity 점수는 이 평가에서 측정 가능한 기여가 없음), 승격 pass를 빼면 x1.053로 떨어진다.
+- **한계:** affinity를 포함해도 C1의 처리량(x1.30)은 C2(x1.42)보다 낮다. affinity는 격차를 대부분 줄이지만 C2를 이기게 하지는 않는다. 선택이 바뀐 것은 QA3(HBM 사용량)과 QA4 우위, QA2 별 경계(C1 x1.28 vs 경계 1.25)에서 오며 경계에 민감하다. 승격 pass는 접근 비용 추정기(공유 module)에 의존하고, 이 비교에서 QA4 별은 affinity 유무와 무관하게 같게 두었다.
+
+## 4.8 TTFT P99 꼬리 악화 (Baseline-regression loop iteration 4, `loop-log.md`)
+
+comparison-valid 21쌍 중 TTFT P99가 Baseline보다 나쁜 쌍은 C1 6개, C2 5개다(>1.02배). C1의 최악은 Common `cb_kv_8k_b32`(H100 x4.15, B200 x3.88)와 `cb_mixed_8k_b32`(H100 x4.32)이며 같은 쌍에서 TTFT P50은 x0.32~0.67로 **개선**된다(중앙값은 좋아지고 꼬리가 나빠진다). 진단: 꼬리는 이동된 object가 아니라 **이동하지 않고 DRAM에 남은 KV**의 첫 응답(2.3~2.8 s, Baseline 0.38 s)이다. C1의 migration 19건(object 15 GiB급)이 초반 20% 구간에 몰려 같은 DRAM 링크의 서빙 대역폭 배율이 0.10까지 떨어지고, 이 구간의 접근 43건(2.5%)이 P99를 정한다. 원인을 token bucket의 burst 용량(2.0 s 링크 시간)으로 분류하고(P), 용량만 바꾼 sweep을 돌렸다(기본값은 유지).
+
+| BURST_CAP_S | 후보 | QA1 (x) | QA2 개선 (x) | HBM 절감 (x) | TTFT P99 geomean (x) | P99 악화 쌍 | 최악 쌍 (x) |
+|---|---|---|---|---|---|---|---|
+| 2.0 (대조군) | C1 | 1.298 | 1.282 | 1.027 | 1.040 | 6 | 4.32 |
+| 2.0 (대조군) | C2 | 1.422 | 1.564 | 0.823 | 0.723 | 5 | 1.30 |
+| 1.0 | C1 | 1.206 | 1.225 | 1.039 | 0.913 | 6 | 2.61 |
+| 1.0 | C2 | 1.207 | 1.386 | 0.839 | 0.802 | 5 | 1.24 |
+| 0.5 | C1 | 1.000 | 1.048 | 1.011 | 1.002 | 3 | 1.20 |
+| 0.5 | C2 | 1.017 | 1.113 | 0.866 | 0.983 | 4 | 1.23 |
+| 0.25 | C1 | 1.000 | 1.000 | 0.999 | 1.000 | 0 | 1.00 |
+| 0.25 | C2 | 1.000 | 1.043 | 0.880 | 1.039 | 6 | 1.17 |
+
+용량을 줄이면 꼬리가 줄지만 이득이 같이 사라진다(0.5 s에서 C1 QA1 x1.00, 0.25 s에서는 C1이 Baseline과 동일). 즉 **P50 개선과 P99 악화는 같은 메커니즘의 양면**이고 용량 상수 하나로 둘을 동시에 얻지 못한다. 필요한 것은 이동을 여러 tick에 나누는 staged 이동과 이동 중 접근에 대한 do-no-harm 검사 같은 구조 변경이며, 보완 설계 택틱([C], 미구현)으로 남긴다. 링크 간섭이 평균장 근사(배율)라 꼬리가 과대일 수 있다는 점도 한계다(M-class 후보).
+
+## 4.9 별점 경계의 근거 (`DP1/qa-criteria-dp1.md` §J, `DP1/sim/star_basis.py`)
+
+**하한(★/★★)은 측정으로 정했다.** Baseline끼리(겹치지 않는 seed 묶음) 비교한 순수 잡음 대역이다.
+
+| 지표 (Baseline vs Baseline, 20개 비교) | 관측 범위 | 표준편차 | 현재 하한 |
+|---|---|---|---|
+| QA1 처리량 비율 | 0.968 ~ 1.033 | 0.020 | 0.97 |
+| QA2 개선 배수 | 0.973 ~ 1.028 | 0.016 | 0.95 |
+| QA3 HBM 절감 배수 | 0.984 ~ 1.016 | 0.009 | 0.95 |
+
+QA1 하한 0.97은 잡음 대역의 아래쪽 끝과 같다. QA2/QA3의 0.95는 잡음보다 느슨하지만 잡음 기준(0.97/0.98)으로 조여도 현재 별은 바뀌지 않는다. **상한(★★/★★★)은 측정으로 정할 수 없다.** 환산: QA1 x1.30 = 같은 수요를 77% 하드웨어로 처리 = 8-GPU 노드에서 약 1.85 GPU 절감(x1.14가 1 GPU), QA2 x1.25 = latency 20% 감소(TTFT P99 1,084 -> 867 ms), QA3 x1.25 = HBM 20% 감소(146.6 GiB 중 약 29 GiB, 8K KV object 약 1.6개). 이 값들은 "도입 가치가 있는 크기"라는 정책 선택이며 QA1의 1.30은 결과를 본 뒤 정한 값이다. 상한을 QA1/2/3에 똑같이 적용하면 선택은 상한 <= 1.298 또는 > 1.422에서 C1, 1.30~1.40에서 C2(동점, QA1 우선)로 갈린다. 현재 경계는 C1의 QA1(x1.298)과 0.2% 차이이므로 **선택은 경계 선택에 민감**하다.
 
 # 5. 결과 분석
 

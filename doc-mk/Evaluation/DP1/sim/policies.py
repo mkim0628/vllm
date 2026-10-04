@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import random
 import zlib
 from collections import defaultdict, deque
@@ -37,6 +38,7 @@ class ResourceState:
 MIGRATION_EXPOSURE = 0.20   # fraction of a transfer's duration exposed to the next access (executor, single source)
 LINK_SHARE = 0.25           # migration may use at most this share of link time (token-bucket refill rate)
 COOLDOWN_S = 8.0            # per-object cooldown == budget window
+BURST_CAP_S = float(os.environ["DP1_BURST_CAP_S"]) if os.environ.get("DP1_BURST_CAP_S") else None  # iteration 4 sweep knob; None = LINK_SHARE x window (registered behaviour)
 MODEL_ERROR = 0.0   # eps: lognormal sigma on access-cost estimates (systematic, both candidates) and on C2's
                     # predicted hotness (per call, C2 only). 0.0 = registered setting. Reporting-only knob.
 _ERR_SEED = 0
@@ -154,7 +156,7 @@ class MigrationBudget:
 
     def __init__(self, share: float = LINK_SHARE, window_s: float = COOLDOWN_S):
         self.share = share
-        self.cap = share * window_s
+        self.cap = share * window_s if BURST_CAP_S is None else min(share * window_s, BURST_CAP_S)
         self.tokens = self.cap
         self.last = None
         self.spent_s = 0.0
@@ -277,6 +279,13 @@ class DataMemoryAffinityMapper:
         )
 
 
+# Data-Memory Affinity ablation (reporting only): DP1_C1_AFFINITY = full | no_score | no_promo | none
+#   score  = affinity score in the Destination Tier Selector (static latency/bandwidth/capacity sensitivity hints)
+#   promo  = static-affinity promotion/swap pass (design 17.2)
+# The shared access-cost estimator (op class + shape) stays in every variant: it is a module C1 and C2 share.
+C1_AFFINITY_MODE = os.environ.get("DP1_C1_AFFINITY", "full")
+
+
 class DestinationTierSelectorC1:
     """Capability/transfer-cost/affinity based destination choice (type-agnostic).
 
@@ -288,7 +297,8 @@ class DestinationTierSelectorC1:
       * score = affinity - serving penalty as a fraction of the SLO budget
     """
 
-    def __init__(self, system, affinity: DataMemoryAffinityMapper, estimator: AccessCostEstimator | None = None):
+    def __init__(self, system, affinity: DataMemoryAffinityMapper, estimator: AccessCostEstimator | None = None, use_score: bool = True):
+        self.use_score = use_score
         self.system = system
         self.affinity = affinity
         self.estimator = estimator or AccessCostEstimator(system)
@@ -315,7 +325,8 @@ class DestinationTierSelectorC1:
                     continue
                 if source != "hbm" and pen > src_pen + 1e-9:
                     continue  # do-no-harm: lateral/downward rebalance must not slow serving
-            score = self.affinity.score(mem, states[name], hint) - est.budget_fraction(
+            base = self.affinity.score(mem, states[name], hint) if self.use_score else max(0.0, 1.0 - states[name].predicted_pressure)
+            score = base - est.budget_fraction(
                 name, hint, rec.size_bytes, *slo
             )
             candidates.append((score, name))
@@ -347,7 +358,9 @@ class C1ResourceDrivenMigration:
         self.eviction = DataEvictionManager(self.registry)
         self.affinity = DataMemoryAffinityMapper()
         self.estimator = AccessCostEstimator(system)
-        self.destination = DestinationTierSelectorC1(system, self.affinity, self.estimator)
+        self.use_aff_score = C1_AFFINITY_MODE in ("full", "no_promo")
+        self.use_aff_promo = C1_AFFINITY_MODE in ("full", "no_score")
+        self.destination = DestinationTierSelectorC1(system, self.affinity, self.estimator, use_score=self.use_aff_score)
         self.selector = MigrationDataSelectorC1()
         self.budget = MigrationBudget()
         self.cooldown_s = COOLDOWN_S
@@ -442,7 +455,8 @@ class C1ResourceDrivenMigration:
                             direction="demotion" if source == "hbm" else "rebalance",
                         )
                     )
-        decisions += self._promotion_pass(ev, ctx, states, slo, decisions)
+        if self.use_aff_promo:
+            decisions += self._promotion_pass(ev, ctx, states, slo, decisions)
         return decisions, self.decision_cost_us * max(1, len(decisions))
 
     def _promotion_pass(self, ev, ctx, states, slo, planned):

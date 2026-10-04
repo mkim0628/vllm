@@ -1,0 +1,333 @@
+{
+ "schema_version": 1,
+ "_note": "DP2 M0 parameter register. owner_confirm=true -> needs owner decision before M0 freeze. evidence: SPEC/PUBLIC/ASSUMED/DP1(inherited, DP1 evidence applies).",
+ "params": {
+  "cluster_default": {
+   "id": "A01",
+   "value": "1P+1D (CB), 2P+2D (Stress/Dynamic), 2P+4D (session_size_skew)",
+   "unit": "nodes",
+   "evidence": "ASSUMED",
+   "basis": "benchmark.md; 1:1 P:D ratio, >=2 nodes per role so that balance/herding is expressible",
+   "sweep": null,
+   "owner_confirm": true
+  },
+  "internode_link": {
+   "id": "A02",
+   "value": "rdma_400g_1rail",
+   "unit": "profile",
+   "evidence": "ASSUMED",
+   "basis": "internode_links.json",
+   "sweep": [
+    "rdma_100g",
+    "rdma_400g_1rail",
+    "rdma_400g_4rail",
+    "rdma_400g_8rail"
+   ],
+   "owner_confirm": true
+  },
+  "fabric_model": {
+   "id": "A05",
+   "value": "per-node NIC egress/ingress, non-blocking core, max-min fair share",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "m0-spec.md 4.4",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "iteration_scheduler": {
+   "id": "A06",
+   "value": "decode-first, then FCFS chunked prefill within token budget",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "vLLM V1-like semantics; verify in M6",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "token_budget_per_iteration": {
+   "id": "A06b",
+   "value": 8192,
+   "unit": "tokens",
+   "evidence": "ASSUMED",
+   "basis": "vLLM max_num_batched_tokens-like; hardware/version dependent",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "max_num_seqs": {
+   "id": "A06c",
+   "value": 256,
+   "unit": "seqs",
+   "evidence": "ASSUMED",
+   "basis": "vLLM-like",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "prefill_chunk": {
+   "id": "A06d",
+   "value": 2048,
+   "unit": "tokens",
+   "evidence": "ASSUMED",
+   "basis": "chunked prefill chunk size",
+   "sweep": [
+    1024,
+    2048,
+    4096
+   ],
+   "owner_confirm": false
+  },
+  "kappa_mix": {
+   "id": "A07",
+   "value": 1.0,
+   "unit": "x",
+   "evidence": "ASSUMED",
+   "basis": "residual inefficiency multiplier on mixed prefill+decode iterations; iteration time itself is composed from DP1 model.py primitives (m0-spec 4.2)",
+   "sweep": [
+    1.0,
+    1.15,
+    1.3
+   ],
+   "owner_confirm": true
+  },
+  "kv_pool_convention": {
+   "id": "A08",
+   "value": "HBM KV pool = HBM capacity x hbm_capacity_mult; weights excluded",
+   "unit": "-",
+   "evidence": "DP1",
+   "basis": "DP1 convention (CB hbm x0.12 / x0.20 are fractions of full HBM)",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "external_allocator": {
+   "id": "A09",
+   "value": "order hbm(80%) > dram > cxl_pnm > hbf > ssd_pim > custom_hbm (90%)",
+   "unit": "-",
+   "evidence": "DP1",
+   "basis": "DP1 simulator.initial_external_placement / allocate_new_object",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "p_node_state": {
+   "id": "A10",
+   "value": "stateless (no KV retained after handoff)",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "slide 14 As-Is (D->P history transfer); prefix reuse controlled in Baseline (common-benchmark 3). Reference row P-retain reported separately",
+   "sweep": null,
+   "owner_confirm": true
+  },
+  "prefill_attention": {
+   "id": "A11",
+   "value": "GPU only; non-GPU-reachable history is promoted to HBM first (sequential, no overlap); GPU-reachable HBF read in place",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "offloaded prefill attention is compute-infeasible on PNM (3.28 TFLOPS); overlap factor sweep optional",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "gpu_direct_read_efficiency": {
+   "id": "A12",
+   "value": 0.9,
+   "unit": "x",
+   "evidence": "DP1",
+   "basis": "= system.gpu_bw_eff; layer latency charged once (layers x latency_s)",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "decode_attention_offload": {
+   "id": "A13",
+   "value": "custom_hbm, cxl_pnm via DP1 offloaded_attention_s (unchanged)",
+   "unit": "-",
+   "evidence": "DP1",
+   "basis": "model.py",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "baseline_decode_semantics": {
+   "id": "A14",
+   "value": "GPU attention only; KV outside HBM/HBF is swapped in before decode (blocking, needs free HBM KV pool)",
+   "unit": "-",
+   "evidence": "DP1",
+   "basis": "DP1 tpot_s As-Is branch, made capacity-aware",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "telemetry_refresh_s": {
+   "id": "A15",
+   "value": 0.05,
+   "unit": "s",
+   "evidence": "ASSUMED",
+   "basis": "same mechanism for C1 and C2 (llm-d style metrics scraping)",
+   "sweep": [
+    0.01,
+    0.1,
+    1.0
+   ],
+   "owner_confirm": true
+  },
+  "node_queue_cap_tokens": {
+   "id": "A16",
+   "value": 16384,
+   "unit": "tokens",
+   "evidence": "ASSUMED",
+   "basis": "2 x token budget; beyond it requests wait in the global queue (this is where C2 plan age arises)",
+   "sweep": null,
+   "owner_confirm": true
+  },
+  "decision_cost_ref_s": {
+   "id": "A17",
+   "value": 0.001,
+   "unit": "s per decision at K=64 candidates (2P+2D, 4 decode tiers), linear in K",
+   "evidence": "ASSUMED",
+   "basis": "scheduler (C1) is a single server; C2 planner workers parallel. K_ref=64 = 4 prefill nodes x 4 (node,tier) decode candidates x ... see m0-spec 6.1",
+   "sweep": [
+    0.0001,
+    0.001,
+    0.01
+   ],
+   "owner_confirm": true
+  },
+  "planner_workers_c2": {
+   "id": "A17b",
+   "value": 4,
+   "unit": "workers",
+   "evidence": "ASSUMED",
+   "basis": "",
+   "sweep": [
+    1,
+    4,
+    16
+   ],
+   "owner_confirm": false
+  },
+  "validation_cost_s": {
+   "id": "A17c",
+   "value": 2e-05,
+   "unit": "s",
+   "evidence": "ASSUMED",
+   "basis": "C2 Late Validation, serial at dispatch",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "plan_age_max_s": {
+   "id": "A17d",
+   "value": 2.0,
+   "unit": "s",
+   "evidence": "ASSUMED",
+   "basis": "C2 re-plan trigger",
+   "sweep": null,
+   "owner_confirm": true
+  },
+  "backup_candidates": {
+   "id": "A17e",
+   "value": 3,
+   "unit": "count",
+   "evidence": "ASSUMED",
+   "basis": "C2 ranked list kept in plan cache",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "estimator_error_eps": {
+   "id": "A18",
+   "value": 0.0,
+   "unit": "lognormal sigma",
+   "evidence": "ASSUMED",
+   "basis": "default exact estimator; sweep per SKILL H17",
+   "sweep": [
+    0.0,
+    0.2,
+    0.4,
+    0.6
+   ],
+   "owner_confirm": false
+  },
+  "cost_definition": {
+   "id": "A19",
+   "value": "Cost = E2E_self + interference externality (seconds); constraints: n_d KV capacity, TTFT_est<=SLO, TPOT_est<=SLO; none feasible -> min violation",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "m0-spec 6.3",
+   "sweep": null,
+   "owner_confirm": true
+  },
+  "session_defaults": {
+   "id": "A20",
+   "value": "out 256, 8 turns/session, tool wait lognormal(median 10 s, sigma 0.5), horizon 300 s, warm-up 30 s, >=1000 measured turns (extend up to 1800 s)",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "P99 needs >=1000 samples",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "load_rule": {
+   "id": "A21",
+   "value": "lambda0 = 0.6 x lambda_sat(Baseline), frozen after M1 control runs; grid x{0.5,0.75,1,1.25,1.5,2.0}, extended until Baseline goodput peaks",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "common-benchmark 5.2",
+   "sweep": null,
+   "owner_confirm": true
+  },
+  "cb_load": {
+   "id": "A22",
+   "value": "closed loop concurrency 32; sweep {16,32,48,64,96}",
+   "unit": "clients",
+   "evidence": "ASSUMED",
+   "basis": "CB fixes batch 32; peak extension rule applies",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "seeds": {
+   "id": "A23",
+   "value": [
+    11,
+    23,
+    37,
+    53,
+    71
+   ],
+   "unit": "-",
+   "evidence": "DP1",
+   "basis": "same as DP1",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "capacity_fit_demotion": {
+   "id": "A24",
+   "value": "promotion into a full HBM pool demotes LRU idle sessions to the next tier with space; link time consumed (DP1 link_interference principle); not a DP1 policy",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "needed for physical consistency; boundary item with DP1",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "step_coalescing": {
+   "id": "A25",
+   "value": "iteration-level for N<=8 nodes; coalesce 10 iterations for N>8; equivalence check at N=8 within 2% on P50 TTFT/TPOT",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "simulator run time",
+   "sweep": null,
+   "owner_confirm": true
+  },
+  "metric_defs": {
+   "id": "A26",
+   "value": "TTFT = first token at end of prefill on n_p minus arrival; TPOT_req = (t_done - t_first)/(N_out-1); request meets SLO iff TTFT<=2 s and TPOT_req<=50 ms",
+   "unit": "-",
+   "evidence": "ASSUMED",
+   "basis": "m0-spec 8",
+   "sweep": null,
+   "owner_confirm": false
+  },
+  "slo": {
+   "id": "A27",
+   "value": {
+    "ttft_p99_s": 2.0,
+    "tpot_p99_s": 0.05
+   },
+   "unit": "s",
+   "evidence": "SPEC",
+   "basis": "qa-evaluation-criteria 8 (fixed)",
+   "sweep": null,
+   "owner_confirm": false
+  }
+ }
+}
