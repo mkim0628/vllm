@@ -38,6 +38,7 @@ class ResourceState:
 MIGRATION_EXPOSURE = 0.20   # fraction of a transfer's duration exposed to the next access (executor, single source)
 LINK_SHARE = 0.25           # migration may use at most this share of link time (token-bucket refill rate)
 COOLDOWN_S = 8.0            # per-object cooldown == budget window
+BURST_CAP_S = float(os.environ["DP1_BURST_CAP_S"]) if os.environ.get("DP1_BURST_CAP_S") else None  # iteration 4 sweep knob; None = LINK_SHARE x window (registered behaviour)
 MODEL_ERROR = 0.0   # eps: lognormal sigma on access-cost estimates (systematic, both candidates) and on C2's
                     # predicted hotness (per call, C2 only). 0.0 = registered setting. Reporting-only knob.
 _ERR_SEED = 0
@@ -155,7 +156,7 @@ class MigrationBudget:
 
     def __init__(self, share: float = LINK_SHARE, window_s: float = COOLDOWN_S):
         self.share = share
-        self.cap = share * window_s
+        self.cap = share * window_s if BURST_CAP_S is None else min(share * window_s, BURST_CAP_S)
         self.tokens = self.cap
         self.last = None
         self.spent_s = 0.0

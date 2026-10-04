@@ -407,3 +407,26 @@ QA4 (Modifiability)는 이 loop에서 변경하지 않았다 (first-pass의 arch
 
 - **SYS-5 loader 수정:** loop 종료 후 `model.load_system`이 `custom_hbm`을 paired-GPU 규격(용량 x2, 내부 BW x2, 연산 20%, TDP/3)으로 계산하도록 고쳤다 (SYS-1~4는 값이 동일해 결과 불변). `results/data/SYS-5/qa_result.json`은 수정 후 재생성했다. **`it0`~`it3`의 SYS-5 요약과 console 출력은 수정 전 값**이므로 최종 결과와 직접 비교하지 않는다 (이력 보존).
 - 통합 결과 문서: [`../2026-10-02_dp1-qa-evaluation.md`](../2026-10-02_dp1-qa-evaluation.md)
+
+---
+
+## Iteration 4 — [사전 등록] 링크 간섭 모델 도입 후 Baseline-regression 재점검 (TTFT P99)
+
+> 이 절은 iteration 4 sweep을 실행하기 전에 작성했다. 이전 iteration 결과는 수정하지 않는다. 통합 결과(SYS-H100+SYS-B200, comparison-valid 21쌍, seed 11/23/37/53/71) 기준.
+
+**Trigger (현재 `results/data/SYS-*/qa_result.json`, 코드 변경 없음)**: comparison-valid 쌍 중 **C1 TTFT P99가 Baseline보다 나쁜 쌍 6개 / C2 5개**(>1.02배). 가장 큰 것은 Common `cb_kv_8k_b32`(H100 x4.15, B200 x3.88), `cb_kv_8k_b32_ramp`(H100 x3.76), `cb_mixed_8k_b32`(H100 x4.32), `kv_hbm_relief_behavior_recovery`(B200 x1.89). 이 시나리오들은 Baseline이 SLO 만족률 1.00이다. 같은 쌍에서 **TTFT P50은 개선**(C1 x0.32~0.67)된다. 쌍 geomean TTFT P99: Baseline 1,084 ms, C1 1,128 ms(x1.04), C2 785 ms(x0.72).
+
+**진단 (a) — 정책 변경 없이 계측만 수행(`cb_kv_8k_b32`, SYS-H100, seed 11, load 2.0)**
+- 꼬리 샘플(상위 2%)은 **이동된 object가 아니라 이동하지 않고 DRAM에 남은 KV**의 첫 응답이다(TTFT 2.3~2.8 s vs Baseline 0.38 s). `migration_debt`(이동 직후 접근이 내는 노출 비용)를 가진 접근은 상위 2%에 0%다(debt max 0.08 s).
+- 원인은 링크 간섭 모델이다. C1의 migration 19건(object 중앙값 15 GiB)이 실행 초반 20% 구간에 몰리면서 DRAM tier의 serving 대역폭 배율이 최저 0.10까지 떨어진다. 이 구간의 DRAM 접근 43건(전체 1,748건의 2.5%)이 P99를 정한다. C2는 같은 시나리오에서 배율 최저 0.65, 간섭 구간 접근 0건이다(migration 132건이지만 object가 작고 분산됨).
+- 분류: **P** (정책: 같은 링크를 쓰는 서빙 접근을 고려하지 않은 token bucket **burst 용량**. 용량 = LINK_SHARE x COOLDOWN_S = 2.0 s 링크 시간이라 한 tick에 한꺼번에 소진할 수 있음). M(모델: 배율 평균장 근사가 FIFO 대기보다 과대할 수 있음)은 부차 후보이며 이번에는 건드리지 않는다.
+
+**변경 (c) — P-class 1개, C1/C2 공통 `MigrationBudget`**: burst 용량을 cooldown/window와 분리해 `BURST_CAP_S` 로 둔다(env `DP1_BURST_CAP_S`; 미설정 = 현재 동작 2.0 s). 단일 이동의 링크 시간이 용량을 넘으면 거부되는 기존 규칙은 유지한다. **기본값은 이번 loop에서 바꾸지 않는다.** 아래 sweep을 보고하고, 기본값 변경은 사용자 결정으로 남긴다(시나리오별 상수 tuning 금지, 정책 상수 최적화로 보이지 않기 위함).
+
+**Sweep**: `BURST_CAP_S` ∈ {2.0(대조군=본 결과와 일치해야 함), 1.0, 0.5, 0.25}, 전체 benchmark(Common+Stress+Dynamic) x SYS-H100/B200 x 5 seed x C1/C2/Baseline.
+
+**가설과 반증 조건**
+- H4.1: cap을 줄이면 C1의 TTFT P99 악화 쌍이 줄고 `cb_kv_8k_b32`의 P99 배율이 x1.3 이하로 내려온다. 반증: cap 0.5 s에서도 x2 이상이면 원인은 burst가 아니라 모델(M) 쪽이다.
+- H4.2: 이득과 맞바꿈이 있다. cap이 작을수록 15 GiB급 이동(링크 0.3 s)이 막혀 QA1 geomean이 내려간다. 0.25 s에서는 대형 이동이 전부 거부되어 C1의 QA1이 Baseline에 가까워진다.
+- H4.3: 대조군(2.0 s)의 수치는 본 결과와 일치한다. 불일치하면 sweep을 쓰지 않는다.
+- **판정 규칙(사전 고정)**: 별점은 정의대로 계산하되, 어떤 cap에서도 "C1 TTFT P99 악화 쌍 0개 **그리고** QA1 별 유지"가 동시에 안 되면 trade-off로 보고하고 기본값은 유지한다.
