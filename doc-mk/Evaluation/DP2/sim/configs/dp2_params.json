@@ -241,10 +241,10 @@
   },
   "cost_definition": {
    "id": "A19",
-   "value": "Cost = E2E_self + interference externality (seconds); constraints: n_d KV capacity, TTFT_est<=SLO, TPOT_est<=SLO; none feasible -> min violation",
+   "value": "Cost (v2, SLO-fractions) = TTFT_est/SLO_TTFT + TPOT_est/SLO_TPOT + handoff stall/(N_out-1)/SLO_TPOT + externality (running decodes at n_p, resident decodes at n_d, later arrivals at n_p) all in SLO-fractions; constraints: n_d KV capacity, TTFT_est<=SLO, TPOT_est<=SLO; none feasible -> min violation",
    "unit": "-",
    "evidence": "ASSUMED",
-   "basis": "m0-spec 6.3",
+   "basis": "m0-spec 6.2 (v2). v1 (E2E seconds + externality seconds) mixed TTFT seconds with decode seconds that have loose SLO; changed before any candidate-vs-baseline evaluation, see results/iterations/loop-log.md iteration 0",
    "sweep": null,
    "owner_confirm": true
   },

@@ -70,3 +70,19 @@ Decision Quality는 **같은 Cost Model로 oracle과 비교**해 결정 시점�
 - QA1: 시나리오별 ratio의 기하평균. QA2: P50/P95/P99 개선 배수의 기하평균(TTFT, TPOT 각각 보고). 집계는 comparison-valid 시나리오 기준이며 제외한 시나리오와 사유를 적는다 (DP1과 동일 규칙).
 - DP2 전용 별점을 공식으로 쓰는 것은 사용자가 결정했을 때만이며, 쓰면 공통 별점을 병기하고 경계 sensitivity를 보고한다 (SKILL H11).
 - 선택 규칙은 `qa_priority.json`(미작성, 소유자 확정 전에는 "proposal")과 `tools/dp_selection.py`를 따른다 (SKILL H13).
+
+# 6. 별점 (사전 등록: DP2 후보 평가 실행 전에 고정)
+
+> DP1 결과 덱(`DP1-appendix-qa-result.pptx`)과 같은 형식으로 보고하기 위해 **DP1의 상대 효과 기준을 값 그대로 가져온다.** 경계 값은 DP2 결과를 보기 전에 정했고 이후 바꾸지 않는다 (SKILL H5). 공통 기준 별점은 **항상 병기**한다 (SKILL H11). DP 전용 별점을 공식으로 쓰는 것은 소유자 결정이다.
+
+| QA | 지표 | ★ | ★★ | ★★★ |
+|---|---|---|---|---|
+| QA1 Throughput | Max SLO Goodput의 Baseline 대비 ratio (comparison_valid 쌍의 geometric mean) | < 0.97 | 0.97 ~ 1.30 | ≥ 1.30 |
+| QA2 Latency | (TTFT, TPOT) × (P50, P95, P99) 6개 개선 배수(Baseline ÷ 후보)의 geometric mean. TTFT와 TPOT 개선 배수를 따로 병기 | < 0.95 | 0.95 ~ 1.25 | ≥ 1.25 |
+| QA3 Resource Utilization | `U_useful`의 Baseline 대비 상대값 `U_cand / U_base` | < 0.95 | 0.95 ~ 1.25 | ≥ 1.25 |
+| QA4 Modifiability | 공통 기준 (변경 module 수) + module·공수·에이전트 비용 | 공통 | 공통 | 공통 |
+| QA5 Scalability | η (§3) | < 0.70 | 0.70 ~ 0.90 | ≥ 0.90 |
+
+- 집계는 **comparison_valid 쌍**(시나리오 × 시스템)이며 `saturated`·`infeasible` 쌍은 별도 표기한다.
+- 공통 기준 병기: QA1 0.90/1.10 × T_ref, QA2 P99 (2 s, 50 ms)/(4 s, 100 ms), QA3 절대 `U_useful` 65/85%.
+- DP1에서는 이 경계들이 결과를 본 뒤 정해져 별 합계가 경계에 민감했다. DP2는 경계를 미리 고정했고, 그래도 별이 경계 근처이면 결과 문서에 근처 값을 표기한다.
