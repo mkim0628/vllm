@@ -273,6 +273,63 @@ def overall_selection():
                 reversed_winner=sel["reversed_winner"], totals=sel["totals"])
 
 
+def valid_pairs(labs):
+    return [(lab, k) for lab in labs for k, l in RM[lab]["scenario_labels"].items() if l["fit"] == "comparison_valid"]
+
+
+def gm_abs(pairs, cand, getter):
+    """Geometric mean of an absolute per-(scenario, system) value; ratio of two such means == geomean of per-pair ratios."""
+    return math.exp(sum(math.log(max(1e-9, getter(RM[lab]["per_scenario"][k][cand]))) for lab, k in pairs) / len(pairs))
+
+
+def system_note():
+    prof = json.load(open(SIM / "configs" / "systems.json"))["profiles"]
+    names = "; ".join(f"**{sid}** ({prof[sid]['name'].split(':')[0]}, {prof[sid]['generation']['gpu_hbm']}, {prof[sid]['generation']['host_link']}, {prof[sid]['generation']['dram']})" for sid in SYSIDS)
+    pairs = valid_pairs([x for x, _ in SETS])
+    per = ", ".join(f"{sid[4:]} {sum(1 for _, k in pairs if k.endswith('@' + sid[4:]))}쌍" for sid in SYSIDS)
+    total = sum(len(RM[lab]["scenario_labels"]) for lab, _ in SETS)
+    return (f"**평가한 시스템:** {names}. 모두 6종 메모리(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD-PIM)를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. "
+            f"집계 단위는 (시나리오, 시스템) 쌍 {total}개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 {len(pairs)}쌍: {per}). "
+            f"값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].")
+
+
+def final_qa_table(key="combined"):
+    """criteria section 10 format: quantitative metric + (x Baseline) per QA; TTFT and TPOT in separate rows."""
+    labs = [x for x, _ in SETS] if key == "combined" else [key]
+    pairs = valid_pairs(labs)
+    G = RTM["sets"][key]
+    st = {c: G[c]["dp1_star"] for c in (C1, C2)}
+    m = QA4["mean_over_scenarios"]
+    def val(c, getter):
+        return gm_abs(pairs, c, getter)
+    def ratio(c, getter):
+        return val(c, getter) / val(B, getter)
+    def cell(c, getter, fmt, star=None):
+        v, r = val(c, getter), ratio(c, getter)
+        return (f"**{star}** " if star else "") + f"{fmt(v)} (x{r:.2f})"
+    def two(c, g99, g50, fmt):
+        return f"P99 {fmt(val(c, g99))} (x{ratio(c, g99):.2f}) · P50 {fmt(val(c, g50))} (x{ratio(c, g50):.2f})"
+    gp = lambda p: p["max_goodput_tps"]
+    t99, t50 = (lambda p: p["ttft_p99_ms"]), (lambda p: p["ttft_p50_ms"])
+    o99, o50 = (lambda p: p["tpot_p99_ms"]), (lambda p: p["tpot_p50_ms"])
+    hb = lambda p: p["tier_occ_gib"]["hbm"]
+    f0, f1 = (lambda v: f"{v:,.0f}"), (lambda v: f"{v:,.1f}")
+    ttft_f = lambda c: two(c, t99, t50, lambda v: f"{v:,.0f} ms")
+    tpot_f = lambda c: two(c, o99, o50, lambda v: f"{v:,.1f} ms")
+    imp = lambda c, mm: math.exp(sum(math.log(G[c]["qa2"]["improvement_vs_baseline"][f"{mm}_{p}_ms"]) for p in ("p50", "p95", "p99")) / 3)
+    rows = ["| QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |", "|---|---|---:|---|---|"]
+    rows.append(f"| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | {f0(val(B, gp))} | {cell(C1, gp, f0, st[C1]['qa1'])} [B+C] | {cell(C2, gp, f0, st[C2]['qa1'])} [B+C] |")
+    rows.append(f"| **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 {f0(val(B, t99))} · P50 {f0(val(B, t50))} | {ttft_f(C1)} | {ttft_f(C2)} |")
+    rows.append(f"| **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 {f1(val(B, o99))} · P50 {f1(val(B, o50))} | {tpot_f(C1)} | {tpot_f(C2)} |")
+    rows.append(f"| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **{st[C1]['qa2']}** x{G[C1]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{imp(C1, 'ttft'):.2f} · TPOT x{imp(C1, 'tpot'):.2f}) [B+C] | **{st[C2]['qa2']}** x{G[C2]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{imp(C2, 'ttft'):.2f} · TPOT x{imp(C2, 'tpot'):.2f}) [B+C] |")
+    rows.append(f"| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | {f1(val(B, hb))} | {cell(C1, hb, f1, st[C1]['qa3'])} [B+C] | {cell(C2, hb, f1, st[C2]['qa3'])} [B+C] |")
+    rows.append(f"| **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **{QA4_STARS[C1]}** {m['C1']['modules']:.2f} · {m['C1']['man_months']:.2f} · ${m['C1']['usd_T1']:.2f} [B+C] | **{QA4_STARS[C2]}** {m['C2']['modules']:.2f} · {m['C2']['man_months']:.2f} · ${m['C2']['usd_T1']:.2f} [B+C] |")
+    tot = {c: sum(st[c][k].count("★") for k in ("qa1", "qa2", "qa3")) + QA4_STARS[c].count("★") for c in (C1, C2)}
+    rows.append(f"| **별 합계** | | — | **{tot[C1]}** | **{tot[C2]}** |")
+    return "\n".join(rows)
+
+
+
 def conclusion_bullets():
     o = overall_selection()
     nm = {C1: "C1", C2: "C2", None: "구분 불가"}
@@ -321,7 +378,7 @@ def summary_section():
     rows.append(f"| **QA3 Resource usage (HBM)** [B] | HBM 사용량 Baseline 대비 비율(낮을수록 좋음, 별점은 절감 배수 = 1/비율) · HBM을 줄인/늘린 시나리오 수 · (보조) 비용 가중 점유 배수 | **{st[C1]['QA3']}** x{E1['hbm']['ratio']:.2f} (절감 {E1['hbm']['saving']:.2f}) ±{E1['hbm']['ci95']:.2f} · {E1['hbm']['n_reduced']}개 줄임 / {E1['hbm']['n_increased']}개 늘림 · 가중 x{E1['cost_ratio']:.2f} | **{st[C2]['QA3']}** x{E2['hbm']['ratio']:.2f} (절감 {E2['hbm']['saving']:.2f}) ±{E2['hbm']['ci95']:.2f} · {E2['hbm']['n_reduced']}개 줄임 / {E2['hbm']['n_increased']}개 늘림 · 가중 x{E2['cost_ratio']:.2f} |")
     rows.append(f"| **QA4 Modifiability** [B+C] | 변경 시나리오 4종 평균: module 수 · 개발 공수(man-month) · 에이전트 비용(frontier tier) | **{st[C1]['QA4']}** {m['C1']['modules']:.2f}개 · {m['C1']['man_months']:.2f} MM · ${m['C1']['usd_T1']:.2f} | **{st[C2]['QA4']}** {m['C2']['modules']:.2f}개 · {m['C2']['man_months']:.2f} MM · ${m['C2']['usd_T1']:.2f} |")
     rows.append(f"| **별 합계** | | **{o['totals'][C1]}** | **{o['totals'][C2]}** |")
-    table = "\n".join(rows)
+    table = final_qa_table('combined') + "\n\n" + system_note()
     pr = " > ".join(PRIO["priority"])
     dyn = RM["dp1_dynamic_benchmark"]["tally"]
     n_dyn_valid = sum(1 for v in RM["dp1_dynamic_benchmark"]["fit"].values() if v == "comparison_valid")
@@ -339,7 +396,7 @@ def summary_section():
 
 {table}
 
-Baseline(현재 방식: 최초 배치를 고정하고 이동하지 않음)을 1.00으로 둔 상대값이다. 별은 DP1 기준이며 공통 기준 별점은 4.1a에 참고로 둔다.
+Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이다. 별은 DP1 기준이며 공통 기준 별점은 4.1a에 참고로 둔다. 표 형식은 `qa-evaluation-criteria.md` §10.
 
 ## 0.2 Trade-off와 그 이유
 
@@ -347,7 +404,7 @@ Baseline(현재 방식: 최초 배치를 고정하고 이동하지 않음)을 1.
 
 - **왜 C2의 처리량(QA1)과 지연(QA2)이 좋은가.** C2는 데이터 하나하나의 접근 빈도, 재사용, 유휴 시간을 보고 "곧 뜨거워질 것/식을 것"을 판단해 이동한다. 같은 종류(예: 모두 KV cache) 안에서도 방금 활발해진 세션과 오래 놀고 있는 세션을 구분할 수 있다. C1은 메모리 자원 상태(용량 압박, 대역폭)에만 반응하고 데이터를 종류로 구분하지 않아 같은 종류 안의 hot/cold를 구분하지 못한다. 그래서 같은 종류의 데이터에서 hot 대상이 시간에 따라 바뀌는 시나리오(hot 대화가 옮겨 감, 사용자 그룹이 번갈아 활성)에서 C2만 이기고 C1은 Baseline과 같다. Dynamic에서 Baseline을 유의하게 이긴 쌍은 C1 {len(dyn[C1]['win'])}개, C2 {len(dyn[C2]['win'])}개(비교 가능 {n_dyn_valid}개 중)이다.
 - **왜 QA2는 별이 같은가.** 두 후보 모두 개선 배수가 ★★★ 경계(1.25)를 넘는다. 값은 C1 x{G[C1]['qa2']['latency_improvement_geomean']:.2f}, C2 x{G[C2]['qa2']['latency_improvement_geomean']:.2f}로 C2가 낫지만 3단계 별에서는 가려진다. 지연 분포의 꼬리(P99)는 간섭 모델 반영 후 차이가 더 벌어졌다(중앙값 TTFT P99 C1 {G[C1]['qa2']['latency']['ttft_p99_ms']['median']:,.0f} ms 대 C2 {G[C2]['qa2']['latency']['ttft_p99_ms']['median']:,.0f} ms).
-- **왜 C1이 HBM을 덜 쓰는가(QA3).** 이동은 데이터 총량을 바꾸지 않고 어느 메모리에 두느냐만 바꾼다. C1은 HBM 사용량을 Baseline 대비 x{E1['hbm']['ratio']:.2f}로 유지·소폭 줄이고(21쌍 중 {E1['hbm']['n_reduced']}개 줄임, {E1['hbm']['n_increased']}개 늘림) DRAM 링크가 포화로 보일 때 DRAM의 데이터를 더 싼 HBF로 옮긴다(DRAM {E1['tier_occ_gib']['dram']:.0f} GiB, Baseline {G[B]['eff']['tier_occ_gib']['dram']:.0f}). C2는 성능을 위해 hot 데이터를 HBM으로 올려 HBM 사용량이 x{E2['hbm']['ratio']:.2f}({E2['hbm']['n_increased']}개 시나리오에서 늘림)이 된다. 즉 **C2는 성능을 얻기 위해 HBM을 더 쓰고, C1은 덜 쓰되 성능 이득이 작다.** 보조 지표인 비용 가중 점유(DRAM 대비 상대 가격, ASSUMED)도 같은 방향이다(C1 x{E1['cost_ratio']:.2f}, C2 x{E2['cost_ratio']:.2f}; HBM 가중 3배/10배에서 C1 x{E1['cost_ratio_by_scheme']['hbm_3x']['ratio']:.2f}/x{E1['cost_ratio_by_scheme']['hbm_10x']['ratio']:.2f}, C2 x{E2['cost_ratio_by_scheme']['hbm_3x']['ratio']:.2f}/x{E2['cost_ratio_by_scheme']['hbm_10x']['ratio']:.2f}).
+- **왜 C1이 HBM을 덜 쓰는가(QA3).** 이동은 데이터 총량을 바꾸지 않고 어느 메모리에 두느냐만 바꾼다. C1은 HBM 사용량을 Baseline 대비 x{E1['hbm']['ratio']:.2f}로 유지·소폭 줄이고(21쌍 중 {E1['hbm']['n_reduced']}개 줄임, {E1['hbm']['n_increased']}개 늘림) DRAM 링크가 포화로 보일 때 DRAM의 데이터를 더 싼 HBF로 옮긴다(DRAM 평균 점유 {E1['tier_occ_gib']['dram']:.0f} GiB, Baseline {G[B]['eff']['tier_occ_gib']['dram']:.0f}; 산술평균). C2는 성능을 위해 hot 데이터를 HBM으로 올려 HBM 사용량이 x{E2['hbm']['ratio']:.2f}({E2['hbm']['n_increased']}개 시나리오에서 늘림)이 된다. 즉 **C2는 성능을 얻기 위해 HBM을 더 쓰고, C1은 덜 쓰되 성능 이득이 작다.** 보조 지표인 비용 가중 점유(DRAM 대비 상대 가격, ASSUMED)도 같은 방향이다(C1 x{E1['cost_ratio']:.2f}, C2 x{E2['cost_ratio']:.2f}; HBM 가중 3배/10배에서 C1 x{E1['cost_ratio_by_scheme']['hbm_3x']['ratio']:.2f}/x{E1['cost_ratio_by_scheme']['hbm_10x']['ratio']:.2f}, C2 x{E2['cost_ratio_by_scheme']['hbm_3x']['ratio']:.2f}/x{E2['cost_ratio_by_scheme']['hbm_10x']['ratio']:.2f}).
 - **이동 비용은 어디에 반영되나.** 이동은 같은 링크의 서빙 대역폭을 나눠 쓰므로(간섭 모델) C2의 migration {Qf[C2]['migration_gib']:,.0f} GiB(C1 {Qf[C1]['migration_gib']:,.0f} GiB), 링크 점유 {Qf[C2]['migration_link_frac']*100:.1f}%(C1 {Qf[C1]['migration_link_frac']*100:.1f}%)는 지연 개선 배수를 낮췄다(C2 x{PRE[C2]['qa2']['latency_improvement_geomean']:.2f}에서 x{G[C2]['qa2']['latency_improvement_geomean']:.2f}, C1 x{PRE[C1]['qa2']['latency_improvement_geomean']:.2f}에서 x{G[C1]['qa2']['latency_improvement_geomean']:.2f}; 비교 가능한 쌍 수가 달라져 단순 비교는 아니다). 결정 연산은 C2 {Qf[C2]['decision_overhead_ms']:.0f} ms/run(C1 {Qf[C1]['decision_overhead_ms']:.0f} ms).
 - **왜 C1의 확장성(QA4)이 높은가.** C1은 데이터 종류를 모르는 구조라 새 종류의 데이터(예: sparse embedding)를 추가해도 고칠 곳이 거의 없다(module 1개). C2는 종류별 선호와 특성을 알고 있어 새 데이터 종류에 module 3개, 새 메모리를 선호 목록에 올려야 쓰이는 문제(module 2개)가 있다. 공수와 에이전트 비용도 C2가 1.3배 안팎이다. 이 값들은 시뮬레이터 복사본에 변경을 구현해 module/LOC를 측정하고 공수·비용은 가정 상수로 계산한 추정이다.
 
@@ -490,6 +547,28 @@ Fit label: **V** = comparison-valid (Baseline이 SLO 만족), **I** = infeasible
 ## 4.1 최종 QA 표 — **DP1 기준 별점** (SYS-B200, Common + DP1 Stress + DP1 Dynamic 통합)
 
 DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) §A, Baseline 대비 효과 크기). 집계는 **comparison-valid 시나리오**(Baseline이 SLO를 만족)만 대상으로 한다. 공통 기준 별점은 4.1a에 참고로 싣는다.
+
+### 최종 QA 표 (criteria §10 형식, 통합)
+
+{final_qa_table('combined')}
+
+{system_note()}
+
+### set별 (통합 시스템)
+
+**Common**
+
+{final_qa_table('common_benchmark')}
+
+**DP1 Stress**
+
+{final_qa_table('dp1_stress_benchmark')}
+
+**DP1 Dynamic**
+
+{final_qa_table('dp1_dynamic_benchmark')}
+
+### 별점 상세 (이전 형식)
 
 {all_star_tables()}
 

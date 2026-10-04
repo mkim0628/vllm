@@ -3,7 +3,7 @@ date: 2026-10-02
 dp: DP1
 candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
 sys_ids: [SYS-H100, SYS-B200]
-git_rev: e6b70bf (dirty)
+git_rev: 26f8e4b (dirty)
 evidence: { QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[B+C]" }
 status: draft
 ---
@@ -21,15 +21,19 @@ status: draft
 
 ## 0.1 QA별 비교
 
-| QA | 평가 지표 (정량) | C1 Resource-driven | C2 Behavior-driven |
-|---|---|---|---|
-| **QA1 Throughput** [B] | Baseline 대비 SLO goodput 배수 (시나리오별 비율의 geomean, 95% CI) · Baseline 대비 승/무/패 | **★★** x1.30 ±0.06 · 6승 25무 0패 | **★★★** x1.42 ±0.05 · 10승 21무 0패 |
-| **QA2 Latency** [B] | TTFT와 TPOT를 따로 보고: P50/P95/P99 개선 배수의 geomean(합친 값이 별점) · 중앙값 TTFT (Baseline: TTFT P50/P95/P99 242/707/793 ms, TPOT 13.0/13.0/13.0 ms) | **★★★** 합 x1.28 (TTFT x1.58 · TPOT x1.04) · TTFT P50/P95/P99 119/446/1,411 ms, TPOT 13.0/13.0/15.3 ms | **★★★** 합 x1.56 (TTFT x2.18 · TPOT x1.12) · TTFT P50/P95/P99 118/335/663 ms, TPOT 13.0/13.0/13.0 ms |
-| **QA3 Resource usage (HBM)** [B] | HBM 사용량 Baseline 대비 비율(낮을수록 좋음, 별점은 절감 배수 = 1/비율) · HBM을 줄인/늘린 시나리오 수 · (보조) 비용 가중 점유 배수 | **★★** x0.97 (절감 1.03) ±0.02 · 9개 줄임 / 3개 늘림 · 가중 x0.94 | **★** x1.21 (절감 0.82) ±0.01 · 1개 줄임 / 18개 늘림 · 가중 x1.04 |
-| **QA4 Modifiability** [B+C] | 변경 시나리오 4종 평균: module 수 · 개발 공수(man-month) · 에이전트 비용(frontier tier) | **★★★** 1.75개 · 0.38 MM · $1.16 | **★★** 2.50개 · 0.51 MM · $1.49 |
-| **별 합계** | | **10** | **9** |
+| QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
+|---|---|---:|---|---|
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 336 | **★★** 436 (x1.30) [B+C] | **★★★** 478 (x1.42) [B+C] |
+| **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 1,084 · P50 407 | P99 1,128 ms (x1.04) · P50 181 ms (x0.44) | P99 785 ms (x0.72) · P50 118 ms (x0.29) |
+| **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 17.1 · P50 14.0 | P99 18.3 ms (x1.07) · P50 12.7 ms (x0.91) | P99 16.0 ms (x0.94) · P50 12.0 ms (x0.86) |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★★** x1.28 (TTFT x1.58 · TPOT x1.04) [B+C] | **★★★** x1.56 (TTFT x2.18 · TPOT x1.12) [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 146.6 | **★★** 142.7 (x0.97) [B+C] | **★** 178.0 (x1.21) [B+C] |
+| **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
+| **별 합계** | | — | **10** | **9** |
 
-Baseline(현재 방식: 최초 배치를 고정하고 이동하지 않음)을 1.00으로 둔 상대값이다. 별은 DP1 기준이며 공통 기준 별점은 4.1a에 참고로 둔다.
+**평가한 시스템:** **SYS-H100** (H100x8 (Hopper-class), HBM3 (H100 SXM5 80GB), PCIe 5.0, DDR5-4800); **SYS-B200** (B200x8 (Blackwell-class), HBM3e (B200), PCIe 5.0, DDR5-6400). 모두 6종 메모리(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD-PIM)를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. 집계 단위는 (시나리오, 시스템) 쌍 64개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 21쌍: H100 9쌍, B200 12쌍). 값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].
+
+Baseline은 현재 방식(최초 배치를 고정하고 이동하지 않음)이다. 별은 DP1 기준이며 공통 기준 별점은 4.1a에 참고로 둔다. 표 형식은 `qa-evaluation-criteria.md` §10.
 
 ## 0.2 Trade-off와 그 이유
 
@@ -37,7 +41,7 @@ Baseline(현재 방식: 최초 배치를 고정하고 이동하지 않음)을 1.
 
 - **왜 C2의 처리량(QA1)과 지연(QA2)이 좋은가.** C2는 데이터 하나하나의 접근 빈도, 재사용, 유휴 시간을 보고 "곧 뜨거워질 것/식을 것"을 판단해 이동한다. 같은 종류(예: 모두 KV cache) 안에서도 방금 활발해진 세션과 오래 놀고 있는 세션을 구분할 수 있다. C1은 메모리 자원 상태(용량 압박, 대역폭)에만 반응하고 데이터를 종류로 구분하지 않아 같은 종류 안의 hot/cold를 구분하지 못한다. 그래서 같은 종류의 데이터에서 hot 대상이 시간에 따라 바뀌는 시나리오(hot 대화가 옮겨 감, 사용자 그룹이 번갈아 활성)에서 C2만 이기고 C1은 Baseline과 같다. Dynamic에서 Baseline을 유의하게 이긴 쌍은 C1 5개, C2 8개(비교 가능 8개 중)이다.
 - **왜 QA2는 별이 같은가.** 두 후보 모두 개선 배수가 ★★★ 경계(1.25)를 넘는다. 값은 C1 x1.28, C2 x1.56로 C2가 낫지만 3단계 별에서는 가려진다. 지연 분포의 꼬리(P99)는 간섭 모델 반영 후 차이가 더 벌어졌다(중앙값 TTFT P99 C1 1,411 ms 대 C2 663 ms).
-- **왜 C1이 HBM을 덜 쓰는가(QA3).** 이동은 데이터 총량을 바꾸지 않고 어느 메모리에 두느냐만 바꾼다. C1은 HBM 사용량을 Baseline 대비 x0.97로 유지·소폭 줄이고(21쌍 중 9개 줄임, 3개 늘림) DRAM 링크가 포화로 보일 때 DRAM의 데이터를 더 싼 HBF로 옮긴다(DRAM 121 GiB, Baseline 213). C2는 성능을 위해 hot 데이터를 HBM으로 올려 HBM 사용량이 x1.21(18개 시나리오에서 늘림)이 된다. 즉 **C2는 성능을 얻기 위해 HBM을 더 쓰고, C1은 덜 쓰되 성능 이득이 작다.** 보조 지표인 비용 가중 점유(DRAM 대비 상대 가격, ASSUMED)도 같은 방향이다(C1 x0.94, C2 x1.04; HBM 가중 3배/10배에서 C1 x0.84/x0.91, C2 x0.93/x1.09).
+- **왜 C1이 HBM을 덜 쓰는가(QA3).** 이동은 데이터 총량을 바꾸지 않고 어느 메모리에 두느냐만 바꾼다. C1은 HBM 사용량을 Baseline 대비 x0.97로 유지·소폭 줄이고(21쌍 중 9개 줄임, 3개 늘림) DRAM 링크가 포화로 보일 때 DRAM의 데이터를 더 싼 HBF로 옮긴다(DRAM 평균 점유 121 GiB, Baseline 213; 산술평균). C2는 성능을 위해 hot 데이터를 HBM으로 올려 HBM 사용량이 x1.21(18개 시나리오에서 늘림)이 된다. 즉 **C2는 성능을 얻기 위해 HBM을 더 쓰고, C1은 덜 쓰되 성능 이득이 작다.** 보조 지표인 비용 가중 점유(DRAM 대비 상대 가격, ASSUMED)도 같은 방향이다(C1 x0.94, C2 x1.04; HBM 가중 3배/10배에서 C1 x0.84/x0.91, C2 x0.93/x1.09).
 - **이동 비용은 어디에 반영되나.** 이동은 같은 링크의 서빙 대역폭을 나눠 쓰므로(간섭 모델) C2의 migration 1,339 GiB(C1 138 GiB), 링크 점유 10.5%(C1 1.6%)는 지연 개선 배수를 낮췄다(C2 x1.66에서 x1.56, C1 x1.40에서 x1.28; 비교 가능한 쌍 수가 달라져 단순 비교는 아니다). 결정 연산은 C2 111 ms/run(C1 3 ms).
 - **왜 C1의 확장성(QA4)이 높은가.** C1은 데이터 종류를 모르는 구조라 새 종류의 데이터(예: sparse embedding)를 추가해도 고칠 곳이 거의 없다(module 1개). C2는 종류별 선호와 특성을 알고 있어 새 데이터 종류에 module 3개, 새 메모리를 선호 목록에 올려야 쓰이는 문제(module 2개)가 있다. 공수와 에이전트 비용도 C2가 1.3배 안팎이다. 이 값들은 시뮬레이터 복사본에 변경을 구현해 module/LOC를 측정하고 공수·비용은 가정 상수로 계산한 추정이다.
 
@@ -79,7 +83,7 @@ Baseline(현재 방식: 최초 배치를 고정하고 이동하지 않음)을 1.
 | SYS id | **메모리 세대별 2개 profile** (모두 6종 메모리 포함): SYS-H100 (HBM3, PCIe 5.0), SYS-B200 (HBM3e, PCIe 5.0). SYS-A100(HBM2e, PCIe 4.0)과 SYS-VR(HBM4, PCIe 6.0)은 profile만 정의하고 이 평가에서는 **제외**했다(소유자 결정, 2026-10-03). 이전 문서의 A100/VR 결과는 `results/data/SYS-A100`, `SYS-VR`에 보존된다. 기존 SYS-1~5는 legacy(메모리 부분집합 ablation)이며 이 문서의 주 결과가 아니다 |
 | 범위 제약 | DP1의 data 이동은 **단일 노드(한 서버) 내부**의 메모리 계층 사이로 한정 (설계 문서 §3.3). 노드 간 이동은 DP0 소관이며 이 평가에 포함되지 않음 |
 | Model / precision | Llama-3.1-70B, BF16 (`models.json`) |
-| Git revision | e6b70bf (dirty) |
+| Git revision | 26f8e4b (dirty) |
 | Seeds / loads | seeds 11, 23, 37, 53, 71 (5회) / load x0.5, x1.0, x1.5, x2.0, 95% CI t=2.776 |
 | Tie 판정 | goodput 상대 차이 < 1% 또는 95% CI 이내이면 tie ("material" 임계 1%는 이 평가의 임시 상수) |
 | 재현 command | `cd doc-mk/Evaluation/DP1/sim && python3 test_sim.py && python3 loop_run.py --final && python3 merge_systems.py SYS-H100 SYS-B200 && python3 dp1_rating.py ../results/data/INT-H100-B200/qa_result.json` (시스템별 단독은 각 SYS의 `dp1_rating.py`), 단일: `python3 qa_eval.py --system SYS-B200` |
@@ -149,6 +153,60 @@ Fit label: **V** = comparison-valid (Baseline이 SLO 만족), **I** = infeasible
 ## 4.1 최종 QA 표 — **DP1 기준 별점** (SYS-B200, Common + DP1 Stress + DP1 Dynamic 통합)
 
 DP1 공식 별점이다 (기준: [`qa-criteria-dp1.md`](../qa-criteria-dp1.md) §A, Baseline 대비 효과 크기). 집계는 **comparison-valid 시나리오**(Baseline이 SLO를 만족)만 대상으로 한다. 공통 기준 별점은 4.1a에 참고로 싣는다.
+
+### 최종 QA 표 (criteria §10 형식, 통합)
+
+| QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
+|---|---|---:|---|---|
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 336 | **★★** 436 (x1.30) [B+C] | **★★★** 478 (x1.42) [B+C] |
+| **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 1,084 · P50 407 | P99 1,128 ms (x1.04) · P50 181 ms (x0.44) | P99 785 ms (x0.72) · P50 118 ms (x0.29) |
+| **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 17.1 · P50 14.0 | P99 18.3 ms (x1.07) · P50 12.7 ms (x0.91) | P99 16.0 ms (x0.94) · P50 12.0 ms (x0.86) |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★★** x1.28 (TTFT x1.58 · TPOT x1.04) [B+C] | **★★★** x1.56 (TTFT x2.18 · TPOT x1.12) [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 146.6 | **★★** 142.7 (x0.97) [B+C] | **★** 178.0 (x1.21) [B+C] |
+| **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
+| **별 합계** | | — | **10** | **9** |
+
+**평가한 시스템:** **SYS-H100** (H100x8 (Hopper-class), HBM3 (H100 SXM5 80GB), PCIe 5.0, DDR5-4800); **SYS-B200** (B200x8 (Blackwell-class), HBM3e (B200), PCIe 5.0, DDR5-6400). 모두 6종 메모리(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD-PIM)를 갖춘 8-GPU 1노드, Llama-3.1-70B BF16이며 두 시스템을 통합했다. 집계 단위는 (시나리오, 시스템) 쌍 64개 중 Baseline도 SLO를 만족하는 비교 가능 쌍(통합 21쌍: H100 9쌍, B200 12쌍). 값은 쌍별 값의 기하평균, 괄호는 **후보 ÷ Baseline 배수**(↑ 높을수록 좋음, ↓ 낮을수록 좋음)이다. Evidence [B+C].
+
+### set별 (통합 시스템)
+
+**Common**
+
+| QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
+|---|---|---:|---|---|
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 3,374 | **★★** 3,360 (x1.00) [B+C] | **★★** 3,373 (x1.00) [B+C] |
+| **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 356 · P50 139 | P99 1,051 ms (x2.95) · P50 74 ms (x0.53) | P99 368 ms (x1.03) · P50 67 ms (x0.49) |
+| **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 7.9 · P50 7.0 | P99 10.8 ms (x1.37) · P50 6.7 ms (x0.96) | P99 7.9 ms (x1.00) · P50 6.7 ms (x0.95) |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★** x0.94 (TTFT x0.95 · TPOT x0.93) [B+C] | **★★** x1.22 (TTFT x1.42 · TPOT x1.04) [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 54.2 | **★★** 50.0 (x0.92) [B+C] | **★** 71.8 (x1.32) [B+C] |
+| **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
+| **별 합계** | | — | **8** | **7** |
+
+**DP1 Stress**
+
+| QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
+|---|---|---:|---|---|
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 287 | **★★** 293 (x1.02) [B+C] | **★★** 303 (x1.06) [B+C] |
+| **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 680 · P50 160 | P99 580 ms (x0.85) · P50 134 ms (x0.84) | P99 499 ms (x0.73) · P50 84 ms (x0.53) |
+| **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 12.2 · P50 10.2 | P99 12.5 ms (x1.02) · P50 9.8 ms (x0.96) | P99 11.0 ms (x0.90) · P50 9.8 ms (x0.96) |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★** x1.16 (TTFT x1.32 · TPOT x1.02) [B+C] | **★★★** x1.44 (TTFT x1.88 · TPOT x1.11) [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 219.1 | **★★** 222.9 (x1.02) [B+C] | **★** 264.0 (x1.21) [B+C] |
+| **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
+| **별 합계** | | — | **9** | **8** |
+
+**DP1 Dynamic**
+
+| QA | 평가 metric | Baseline | C1 Resource-driven | C2 Behavior-driven |
+|---|---|---:|---|---|
+| **QA1 Throughput** | Max SLO goodput (tok/s) ↑ | 93 | **★★★** 182 (x1.95) [B+C] | **★★★** 223 (x2.39) [B+C] |
+| **QA2 Latency — TTFT** | TTFT (ms) ↓ | P99 3,472 · P50 2,035 | P99 2,292 ms (x0.66) · P50 427 ms (x0.21) | P99 1,979 ms (x0.57) · P50 233 ms (x0.11) |
+| **QA2 Latency — TPOT** | TPOT (ms) ↓ | P99 39.1 · P50 29.6 | P99 37.1 ms (x0.95) · P50 24.7 ms (x0.84) | P99 36.3 ms (x0.93) · P50 21.3 ms (x0.72) |
+| QA2 별점 | TTFT·TPOT x P50/P95/P99 6개 지표의 개선 배수(Baseline ÷ 후보)의 geomean | x1.00 | **★★★** x1.72 (TTFT x2.59 · TPOT x1.14) [B+C] | **★★★** x1.99 (TTFT x3.29 · TPOT x1.20) [B+C] |
+| **QA3 Resource usage** | HBM 사용량 (GiB, 시간 평균) ↓ | 182.7 | **★★** 176.1 (x0.96) [B+C] | **★** 211.8 (x1.16) [B+C] |
+| **QA4 Modifiability** | 변경 module 수 · 공수(man-month) · 에이전트 비용($, frontier tier), 시나리오 4종 평균 ↓ | — | **★★★** 1.75 · 0.38 · $1.16 [B+C] | **★★** 2.50 · 0.51 · $1.49 [B+C] |
+| **별 합계** | | — | **11** | **9** |
+
+### 별점 상세 (이전 형식)
 
 ### 통합 (SYS-H100, SYS-B200) — 시나리오 x 시스템 쌍
 

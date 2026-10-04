@@ -70,61 +70,61 @@ def qa_slides():
     st = o["stars"][g.MERGED]
     G = g.RTM["sets"]["combined"]
     Qf = g.RM["combined"]["qa_feasible"]
-    T = g.RM["combined"]["tally"]
     B, C1, C2 = g.B, g.C1, g.C2
     m = g.QA4["mean_over_scenarios"]
     nm = {C1: "C1", C2: "C2", None: "구분 불가"}
-    wl = lambda c: f"{len(T[c]['win'])}승 {len(T[c]['tie'])}무 {len(T[c]['loss'])}패"
-    def lat(c):
-        l = G[c]["qa2"]["latency"]
-        return f"TTFT P50/P95/P99 {l['ttft_p50_ms']['median']:,.0f}/{l['ttft_p95_ms']['median']:,.0f}/{l['ttft_p99_ms']['median']:,.0f} ms"
+    pairs = g.valid_pairs([x for x, _ in g.SETS])
+    gm = lambda c, f: g.gm_abs(pairs, c, f)
+    rt = lambda c, f: gm(c, f) / gm(B, f)
+    gp = lambda p: p["max_goodput_tps"]
+    t99, t50 = (lambda p: p["ttft_p99_ms"]), (lambda p: p["ttft_p50_ms"])
+    o99, o50 = (lambda p: p["tpot_p99_ms"]), (lambda p: p["tpot_p50_ms"])
+    hb = lambda p: p["tier_occ_gib"]["hbm"]
     import math as _m
-    def ttpot(c):
-        imp = G[c]["qa2"]["improvement_vs_baseline"]
-        gm = lambda ks: _m.exp(sum(_m.log(imp[k]) for k in ks) / len(ks))
-        return gm(["ttft_p50_ms", "ttft_p95_ms", "ttft_p99_ms"]), gm(["tpot_p50_ms", "tpot_p95_ms", "tpot_p99_ms"])
-    s = Slide("DP1 평가 결과 - QA별 후보 비교 (H100 + B200 통합)")
-    cols = [("QA / 지표", 0.4, 3.2), ("C1 Resource-driven", 3.6, 4.65), ("C2 Behavior-driven", 8.25, 4.65)]
-    y = 1.2
+    imp = lambda c, mm: _m.exp(sum(_m.log(G[c]["qa2"]["improvement_vs_baseline"][f"{mm}_{p}_ms"]) for p in ("p50", "p95", "p99")) / 3)
+    s = Slide("DP1 평가 결과 - QA별 정량 metric (H100 + B200 통합)")
+    cols = [("QA / 평가 metric", 0.4, 3.0), ("Baseline", 3.4, 1.9), ("C1 Resource-driven", 5.3, 3.8), ("C2 Behavior-driven", 9.1, 3.8)]
+    y = 1.15
     for name, x, w in cols:
-        s.box(x, y, w, 0.34, name, "head", 10, True, "ctr", False)
-    rows = [
-        (["QA1 Throughput [B]", "Baseline 대비 SLO goodput 배수, 승/무/패"],
-         [f"{st[C1]['QA1']}  x{G[C1]['qa1']['ratio']:.2f} (±{G[C1]['qa1']['ci95']:.2f})", wl(C1)], [f"{st[C2]['QA1']}  x{G[C2]['qa1']['ratio']:.2f} (±{G[C2]['qa1']['ci95']:.2f})", wl(C2)]),
-        (["QA2 Latency [B]", "TTFT와 TPOT 개선 배수(따로), 중앙값 TTFT"],
-         [f"{st[C1]['QA2']}  x{G[C1]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{ttpot(C1)[0]:.2f} · TPOT x{ttpot(C1)[1]:.2f})", lat(C1)], [f"{st[C2]['QA2']}  x{G[C2]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{ttpot(C2)[0]:.2f} · TPOT x{ttpot(C2)[1]:.2f})", lat(C2)]),
-        (["QA3 Resource usage [B]", "HBM 사용량 Baseline 대비(낮을수록 좋음), 줄인/늘린 시나리오"],
-         [f"{st[C1]['QA3']}  HBM x{G[C1]['eff']['hbm']['ratio']:.2f} (절감 {G[C1]['eff']['hbm']['saving']:.2f})", f"{G[C1]['eff']['hbm']['n_reduced']}개 줄임 / {G[C1]['eff']['hbm']['n_increased']}개 늘림 · 가중 점유 x{G[C1]['eff']['cost_ratio']:.2f}"],
-         [f"{st[C2]['QA3']}  HBM x{G[C2]['eff']['hbm']['ratio']:.2f} (절감 {G[C2]['eff']['hbm']['saving']:.2f})", f"{G[C2]['eff']['hbm']['n_reduced']}개 줄임 / {G[C2]['eff']['hbm']['n_increased']}개 늘림 · 가중 점유 x{G[C2]['eff']['cost_ratio']:.2f}"]),
-        (["QA4 Modifiability [B+C]", "변경 4종 평균: module, 공수, 에이전트 비용"],
-         [f"{st[C1]['QA4']}  module {m['C1']['modules']:.2f}", f"{m['C1']['man_months']:.2f} man-month · ${m['C1']['usd_T1']:.2f}"], [f"{st[C2]['QA4']}  module {m['C2']['modules']:.2f}", f"{m['C2']['man_months']:.2f} man-month · ${m['C2']['usd_T1']:.2f}"]),
-    ]
-    y = 1.58
-    for lab, a, b in rows:
-        s.box(0.4, y, 3.2, 0.62, lab, "dp", 9.5, True, "l", False)
-        s.box(3.6, y, 4.65, 0.62, a, "cell", 10, False, "ctr", False)
-        s.box(8.25, y, 4.65, 0.62, b, "cell", 10, False, "ctr", False)
-        y += 0.64
-    s.box(0.4, y, 3.2, 0.4, "별 합계", "dp", 10, True, "l", False)
-    s.box(3.6, y, 4.65, 0.4, f"{o['totals'][C1]}", "cell", 11, True, "ctr", False)
-    s.box(8.25, y, 4.65, 0.4, f"{o['totals'][C2]}", "cell", 11, True, "ctr", False)
-    y += 0.52
-    d = g.RM["dp1_dynamic_benchmark"]["tally"]
-    s.box(0.4, y, 6.2, 2.15, [
+        s.box(x, y, w, 0.32, name, "head", 10, True, "ctr", False)
+    def row(label, base, a, b, h=0.5, size=9.5):
+        nonlocal y
+        y += h_prev[0]
+        s.box(0.4, y, 3.0, h, label, "dp", 9, True, "l", False)
+        s.box(3.4, y, 1.9, h, base, "cell", size, False, "ctr", False)
+        s.box(5.3, y, 3.8, h, a, "cell", size, False, "ctr", False)
+        s.box(9.1, y, 3.8, h, b, "cell", size, False, "ctr", False)
+        h_prev[0] = h + 0.02
+    h_prev = [0.34]
+    row(["QA1 Throughput", "Max SLO goodput (tok/s) ↑"], f"{gm(B, gp):,.0f}",
+        f"{st[C1]['QA1']}  {gm(C1, gp):,.0f} (x{rt(C1, gp):.2f})", f"{st[C2]['QA1']}  {gm(C2, gp):,.0f} (x{rt(C2, gp):.2f})")
+    row(["QA2 Latency — TTFT", "P99 · P50 (ms) ↓"], f"P99 {gm(B, t99):,.0f} · P50 {gm(B, t50):,.0f}",
+        f"P99 {gm(C1, t99):,.0f} (x{rt(C1, t99):.2f}) · P50 {gm(C1, t50):,.0f} (x{rt(C1, t50):.2f})", f"P99 {gm(C2, t99):,.0f} (x{rt(C2, t99):.2f}) · P50 {gm(C2, t50):,.0f} (x{rt(C2, t50):.2f})")
+    row(["QA2 Latency — TPOT", "P99 · P50 (ms) ↓"], f"P99 {gm(B, o99):,.1f} · P50 {gm(B, o50):,.1f}",
+        f"P99 {gm(C1, o99):,.1f} (x{rt(C1, o99):.2f}) · P50 {gm(C1, o50):,.1f} (x{rt(C1, o50):.2f})", f"P99 {gm(C2, o99):,.1f} (x{rt(C2, o99):.2f}) · P50 {gm(C2, o50):,.1f} (x{rt(C2, o50):.2f})")
+    row(["QA2 별점", "6개 지표 개선 배수 geomean"], "x1.00",
+        f"{st[C1]['QA2']}  x{G[C1]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{imp(C1, 'ttft'):.2f} · TPOT x{imp(C1, 'tpot'):.2f})", f"{st[C2]['QA2']}  x{G[C2]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{imp(C2, 'ttft'):.2f} · TPOT x{imp(C2, 'tpot'):.2f})")
+    row(["QA3 Resource usage", "HBM 사용량 (GiB) ↓"], f"{gm(B, hb):,.1f}",
+        f"{st[C1]['QA3']}  {gm(C1, hb):,.1f} (x{rt(C1, hb):.2f})", f"{st[C2]['QA3']}  {gm(C2, hb):,.1f} (x{rt(C2, hb):.2f})")
+    row(["QA4 Modifiability", "module · 공수(MM) · 에이전트 비용 ↓"], "—",
+        f"{st[C1]['QA4']}  {m['C1']['modules']:.2f} · {m['C1']['man_months']:.2f} · ${m['C1']['usd_T1']:.2f}", f"{st[C2]['QA4']}  {m['C2']['modules']:.2f} · {m['C2']['man_months']:.2f} · ${m['C2']['usd_T1']:.2f}")
+    row(["별 합계", ""], "—", f"{o['totals'][C1]}", f"{o['totals'][C2]}", h=0.36, size=11)
+    y += h_prev[0] + 0.05
+    s.box(0.4, y, 12.5, 0.72, [g.system_note().replace("**", "")], "note", 8.5)
+    y += 0.8
+    s.box(0.4, y, 6.2, 1.55, [
         "Trade-off와 이유",
-        "- 성능은 C2: 데이터마다 접근 빈도·재사용·유휴를 보고 이동해, 같은 종류(KV) 안의 hot/cold를 구분한다. C1은 자원 압박에만 반응해 구분 못 함.",
-        f"- 자원 사용은 C1: HBM 사용량 C1 x{G[C1]['eff']['hbm']['ratio']:.2f} 대 C2 x{G[C2]['eff']['hbm']['ratio']:.2f}. C2는 성능을 위해 hot 데이터를 HBM에 올려 HBM을 더 쓰고, C1은 덜 쓰되 이득이 작음(성능과 자원은 반대 방향).",
-        f"- 이동 비용은 링크 간섭으로 지연에 반영(C2 migration {Qf[C2]['migration_gib']:,.0f} GiB, 링크 {Qf[C2]['migration_link_frac']*100:.1f}%).",
-        "- 확장성은 C1: 종류를 모르는 구조라 새 데이터 종류 추가 시 module 1개 (C2 3개).",
-        "- 지연(QA2)은 둘 다 ★★★ 경계를 넘어 별이 같지만 값은 C2가 높다. TPOT은 거의 변하지 않고 개선은 TTFT에서 나온다."], "note", 9.5)
-    why = (f"합계 {o['totals'][C1]} 대 {o['totals'][C2]}로 같아 QA 우선순위로 결정: {o['deciding']}에서 앞선 {nm[o['winner']]}" if o["rule"] == "priority"
-           else f"별 합계가 높은 {nm[o['winner']]}")
-    s.box(6.8, y, 6.1, 2.15, [
+        "- 성능은 C2: 데이터마다 접근 빈도·재사용·유휴를 보고 이동해 같은 종류(KV) 안의 hot/cold를 구분. C1은 자원 압박에만 반응.",
+        f"- 자원은 C1: HBM 사용량 C1 x{rt(C1, hb):.2f} 대 C2 x{rt(C2, hb):.2f}. C2는 성능을 위해 hot 데이터를 HBM에 올림(성능과 자원은 반대 방향).",
+        "- 확장성은 C1: 새 데이터 종류 추가 시 module 1개 (C2 3개).",
+        f"- 지연: C1은 TTFT P50은 줄었지만 P99는 x{rt(C1, t99):.2f}로 개선 없음. C2는 P99도 x{rt(C2, t99):.2f}. TPOT은 거의 불변."], "note", 9)
+    why = (f"합계 {o['totals'][C1]} 대 {o['totals'][C2]}로 같아 우선순위로 결정: {o['deciding']}에서 앞선 {nm[o['winner']]}" if o["rule"] == "priority"
+           else f"별 합계가 높은 {nm[o['winner']]} 후보 ({o['totals'][C1]} 대 {o['totals'][C2]})")
+    s.box(6.8, y, 6.1, 1.55, [
         f"선택: {nm[o['winner']]}",
         f"- 규칙: 별 합계가 높은 후보, 같을 때만 QA 우선순위({' > '.join(g.PRIO['priority'])}).",
-        f"- {why}.",
-        f"- 우선순위를 뒤집으면 {nm[o['reversed_winner']]}.",
-        "- 한계: [B] simulation. 별 경계(QA1 1.30), QA3 정의, QA4 평균 집계는 결과를 본 뒤 정함. 메모리 가격 가중치(QA3)와 QA4 공수·비용은 ASSUMED."], "sel", 9.5)
+        f"- {why}. 합계 차이 1점이라 별 경계에 민감.",
+        "- 한계: [B] simulation. QA1 경계(1.30), QA3 정의(선택을 C2에서 C1로 바꿈), QA4 평균 집계는 결과를 본 뒤 정함. QA4 공수·비용은 ASSUMED."], "sel", 9)
 
     # slide 2: scenarios in plain language
     ft = g.fit_counts()

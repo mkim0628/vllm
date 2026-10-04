@@ -55,12 +55,18 @@ status: draft                               # draft | final | superseded
 
 ## 4.1 최종 QA 표 (Common + DP-specific 통합)
 
-| QA | Baseline (T_ref) | Candidate A | Candidate B |
-|---|---|---|---|
-| QA1 Throughput | ★★ xxxx TPS (x1.000) [B+C] | | |
-| QA2 Latency | ★★★ TTFT xxx ms / TPOT xx ms [B+C] | | |
-| QA3 Resource Util. | ★ xx% [B+C] | | |
-| QA4 Modifiability | — | | |
+`qa-evaluation-criteria.md` §10 형식: 정량 metric 값 + (Baseline 대비 배수) + 표 아래 시스템 표기.
+
+| QA | 평가 metric | Baseline (T_ref) | Candidate A | Candidate B |
+|---|---|---:|---|---|
+| QA1 Throughput | Max SLO Goodput (tok/s) ↑ | xxxx | ★★ xxxx (x1.00) [B+C] | |
+| QA2 Latency (TTFT) | TTFT P99 (ms) ↓ | xxxx | xxxx (x1.00) | |
+| QA2 Latency (TPOT) | TPOT P99 (ms) ↓ | xx | xx (x1.00) | |
+| QA2 별점 | TTFT/TPOT 반영 | — | ★★ [B+C] | |
+| QA3 Resource Util. | DP별 metric (예: HBM 사용량 GiB ↓) | xxx | ★★ xxx (x1.00) [B+C] | |
+| QA4 Modifiability | module / 공수 / 에이전트 비용 | — | ★★ x / x / $x [C] | |
+
+**시스템:** SYS id, GPU/HBM 세대, host link, 탑재 메모리, model/precision, 집계 단위(시나리오 수, 비교 가능 쌍 수). 괄호는 후보 ÷ Baseline, 여러 쌍은 기하평균.
 
 ## 4.2 시나리오별 결과 (benchmark set마다 1개 표)
 

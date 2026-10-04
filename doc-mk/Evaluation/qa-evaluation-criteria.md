@@ -191,6 +191,8 @@ Latency는 **TTFT와 TPOT을 분리**해서 평가한다.
 
 두 metric 중 하나만 높은 등급을 만족하면 더 낮은 등급을 적용한다.
 
+결과 표에서는 TTFT와 TPOT를 **별도 행**으로 보고하고 각각 Baseline 대비 배수를 병기한다(§10).
+
 DP별 queue delay, decision latency, migration stall, prefill latency, KV restore latency, tool-resume latency 등은 diagnostic metric으로 추가할 수 있다.
 
 ---
@@ -305,12 +307,25 @@ QA Name
 
 # 10. Final Result Format
 
-| QA | Candidate 1 | Candidate 2 |
-|---|---|---|
-| Throughput | ★★ xxxx TPS [A] | ★★★ xxxx TPS [A+C] |
-| Latency | ★★ TTFT / TPOT [A] | ★★★ TTFT / TPOT [A+C] |
-| Resource Utilization | ★★★ xx% [A+C] | ★★ xx% [A+C] |
-| Modifiability | ★★★ [C] | ★★ [C] |
+최종 결과는 **QA별 정량 metric 값**으로 표현하고, 괄호 안에 **Baseline 대비 배수**를 적는다. 별점은 값 옆에 병기하며 Evidence 등급을 붙인다.
+
+| QA | 평가 metric | Baseline (T_ref) | Candidate 1 | Candidate 2 |
+|---|---|---:|---|---|
+| QA1 Throughput | Max SLO Goodput (tok/s) ↑ | xxxx | ★★ xxxx (x1.30) [B+C] | ★★★ xxxx (x1.42) [B+C] |
+| QA2 Latency (TTFT) | TTFT P99 (ms) ↓ | xxxx | xxxx (x0.80) | xxxx (x0.60) |
+| QA2 Latency (TPOT) | TPOT P99 (ms) ↓ | xx | xx (x1.00) | xx (x0.95) |
+| QA2 별점 | TTFT와 TPOT를 모두 반영한 별점 | — | ★★★ [B+C] | ★★★ [B+C] |
+| QA3 Resource Utilization | DP별 metric (예: DP1 HBM 사용량 GiB ↓) | xxx | ★★ xxx (x0.97) [B+C] | ★ xxx (x1.21) [B+C] |
+| QA4 Modifiability | 변경 module 수 / 공수 / 에이전트 비용 | — | ★★★ x / x / $x [C] | ★★ x / x / $x [C] |
+
+표 아래에 **평가한 시스템**을 반드시 적는다: SYS id, GPU/HBM 세대, host link, 탑재 메모리, model/precision, 집계 단위(시나리오 수, 비교 가능 쌍 수).
+
+규칙:
+1. **괄호 = 후보 값 ÷ Baseline 값**(배수)이다. ↑는 높을수록 좋은 metric, ↓는 낮을수록 좋은 metric이다. 괄호를 "개선 배수"로 바꿔 쓰면 안 되며, 필요하면 별도 행에 "개선 배수(Baseline ÷ 후보)"라고 명시한다.
+2. 여러 시나리오나 시스템을 합칠 때는 **쌍별 값의 기하평균(geometric mean)**을 쓴다. 기하평균은 값의 비가 곱셈으로 보존되므로 표의 절대값과 괄호의 배수가 서로 모순되지 않는다.
+3. **Latency는 TTFT와 TPOT를 별도 행으로 보고**한다(§5). 별점은 별도 행에 둘 수 있다.
+4. QA별 metric이 DP마다 다를 수 있으나(QA3 등) 표 형식(metric 열, Baseline 열, 괄호 배수, 시스템 표기)은 모든 DP에 같다.
+5. Baseline이 정의되지 않는 metric(QA4 등)은 `—`로 표기한다.
 
 ---
 
@@ -326,3 +341,4 @@ QA Name
 8. **Common QA와 DP-specific diagnostic metric을 구분한다.**
 9. **Common Benchmark와 DP-specific experiment methodology를 구분한다.**
 10. **구체적인 simulation/runtime 구조는 각 DP 문서에서 관리한다.**
+11. **결과는 정량 metric 값 + (Baseline 대비 배수) + 평가 시스템 표기로 보고한다(§10).**
