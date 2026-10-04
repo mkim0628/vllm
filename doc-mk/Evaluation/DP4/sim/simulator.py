@@ -18,7 +18,7 @@ from arms import (ARM_CLASSES, BASE, LOCK_KINDS, C1, C2, clip)
 NEVER_MS = 1e9  # latency of a request that never finished (stuck / failed): counts as an SLO violation
 
 (EV_ARRIVE, EV_LOOKUP_DONE, EV_XFER, EV_MOVE_DONE, EV_PUBLISHED, EV_PINNED, EV_ADMIT, EV_DEC, EV_STALL_BEGIN,
- EV_STALL_END, EV_UNPINNED, EV_NODE_CRASH, EV_NODE_RECOVER, EV_EVICTED, EV_LRU_DONE, EV_ALLOCED) = range(16)
+ EV_STALL_END, EV_UNPINNED, EV_NODE_CRASH, EV_NODE_RECOVER, EV_EVICTED, EV_LRU_DONE, EV_ALLOCED, EV_READ_DONE) = range(17)
 
 
 @dataclass(eq=False)
@@ -42,7 +42,8 @@ class Req:
     t_pf_start: float = None
     t_pf_end: float = None
     t_flow_start: float = None
-    t_flow_end: float = None
+    t_flow_end: float = None  # end of the P-side move (Baseline: P->D flow; candidates: write to the pool)
+    t_read_start: float = None  # candidates: start of the pool->D read (after publish and pin)
     t_admit: float = None
     t_first: float = None
     t_done: float = None
@@ -267,12 +268,17 @@ class Sim:
         return bi
 
     def move_items(self, r, q):
-        """bytes crossing each link for one request: q tokens produced by P, L tokens consumed by D."""
+        """links and bytes of the P-side move. Baseline: one P->D flow of q tokens. Candidates (Iteration 2): only the
+        write of the q new tokens to the pool; the D read happens later, after publish and pin (read_items)."""
         k = self.kvb * self.obj_mult
-        nd = self.n_p + r.d
         if self.pool_mode:
-            return [(self.eg[r.p], q * k), (self.pool, (q + r.L) * k), (self.ing[nd], r.L * k)]
-        return [(self.eg[r.p], q * k), (self.ing[nd], q * k)]
+            return [(self.eg[r.p], q * k), (self.pool, q * k)]
+        return [(self.eg[r.p], q * k), (self.ing[self.n_p + r.d], q * k)]
+
+    def read_items(self, r):
+        """pool -> D read of the whole context (candidates only)."""
+        k = self.kvb * self.obj_mult
+        return [(self.pool, r.L * k), (self.ing[self.n_p + r.d], r.L * k)]
 
     # ------------------------------------------------------------------ main loop
     def run(self):
@@ -331,6 +337,11 @@ class Sim:
                 a.reschedule(t)
                 if not b.dead:
                     a.join(b, t)
+            elif k == EV_READ_DONE:
+                if not a.dead:
+                    self.dn[a.d].join(a, t)
+                    if "unpin" in self.sections:  # the D read is complete: release the reader pin (refcount--)
+                        self.arm.submit("unpin", t, a, self.nblk(a.L * self.obj_mult), EV_UNPINNED)
             elif k == EV_UNPINNED:
                 a.t_unpin = t
                 if "lru" in self.sections:
@@ -454,10 +465,10 @@ class Sim:
         if self.cp_only:
             r.t_first = t
             self.finish(r, t)
-        else:
-            self.dn[r.d].join(r, t)
-            if "unpin" in self.sections:  # the D read is complete: release the reader pin (refcount--)
-                self.arm.submit("unpin", t, r, self.nblk(r.L * self.obj_mult), EV_UNPINNED)
+        else:  # blocks are READY and pinned: only now may the reader fetch the payload (sequential after publish)
+            st, fin = self.flow(t, self.read_items(r))
+            r.t_read_start = st
+            self.push(fin, EV_READ_DONE, r)
 
     def on_dec(self, t, dn, ver):
         if ver != dn.ver:
@@ -523,8 +534,11 @@ class Sim:
                 if r.mode == "p" and r.t_pf_start is not None:
                     fe = r.t_flow_end if r.t_flow_end is not None else (r.t_dead if r.dead else INF)
                     comp["p_buffer"] += clip(r.t_pf_start, fe, w0, w1) * r.L * k
-                d0 = r.t_flow_start if r.t_flow_start is not None else (r.t_pf_start if r.mode == "dlocal" else None)
-                if d0 is not None and not (r.t_flow_start is None and r.mode != "dlocal"):
+                if self.pool_mode:
+                    d0 = r.t_read_start
+                else:
+                    d0 = r.t_flow_start if r.t_flow_start is not None else (r.t_pf_start if r.mode == "dlocal" else None)
+                if d0 is not None and not (not self.pool_mode and r.t_flow_start is None and r.mode != "dlocal"):
                     dend = end
                     if sess_mode and not self.pool_mode and nxt is not None:
                         ns = nxt.t_flow_start if nxt.t_flow_start is not None else nxt.t_pf_start
