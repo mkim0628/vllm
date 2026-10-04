@@ -1,0 +1,211 @@
+{
+ "schema_version": 1,
+ "_note": "STARTING values (ASSUMED). May be changed only by a B-class loop iteration with Baseline-only runs, logged in results/iterations/loop-log.md, before candidate runs. 'T' = measurement horizon. 'bg_decode' = background decode sessions (8K ctx, out 2048, resident in HBM) that make the D nodes busy.",
+ "scenarios": [
+  {
+   "name": "cb_kv_8k_b32",
+   "set": "common",
+   "topology": "1P+1D",
+   "load": "closed:C=32 grid{16,32,48,64,96}",
+   "turns": 1,
+   "prompt": 8192,
+   "out": 256,
+   "hbm_mult": 0.12,
+   "note": "DP1 CB-1 pressure on D KV pool"
+  },
+  {
+   "name": "cb_kv_8k_b32_ramp",
+   "set": "common",
+   "topology": "1P+1D",
+   "load": "closed:C=32 grid{16,32,48,64,96}",
+   "turns": 1,
+   "prompt": 8192,
+   "out": 256,
+   "hbm_mult": 0.2,
+   "ramp": "mult x max(0.45, 1-0.55*t/T) (DP1 capacity_ramp)"
+  },
+  {
+   "name": "cb_mixed_8k_b32",
+   "set": "common",
+   "topology": "1P+1D",
+   "load": "closed:C=32 grid{16,32,48,64,96}",
+   "turns": 1,
+   "prompt": 8192,
+   "out": 256,
+   "hbm_mult": 0.12,
+   "non_kv": "LoRA15/MoE15/Agent10/Tool10 (% of objects, DP1 mix) modeled as capacity occupants only"
+  },
+  {
+   "name": "dp2_turn_hbm_small_tool",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "sessions base=24 grid{12,24,36,48}",
+   "hist0": 32768,
+   "tool": 512,
+   "out": 256,
+   "tier_pin": "hbm",
+   "hbm_mult": 1.0,
+   "bg_decode": 0
+  },
+  {
+   "name": "dp2_turn_dram_small_tool",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "sessions base=24 grid{12,24,36,48}",
+   "hist0": 65536,
+   "tool": 512,
+   "out": 256,
+   "tier_pin": "dram",
+   "hbm_mult": 0.35,
+   "bg_decode": 16
+  },
+  {
+   "name": "dp2_turn_hbf_hist",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "sessions base=16 grid{8,16,24,32}",
+   "hist0": 131072,
+   "tool": 2048,
+   "out": 256,
+   "tier_pin": "hbf",
+   "hbm_mult": 0.35,
+   "bg_decode": 16
+  },
+  {
+   "name": "dp2_turn_ssd_hist",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "sessions base=8 grid{4,8,12,16}",
+   "hist0": 65536,
+   "tool": 512,
+   "out": 256,
+   "tier_pin": "ssd_pim",
+   "hbm_mult": 0.35,
+   "bg_decode": 16
+  },
+  {
+   "name": "dp2_tool_large_result",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "sessions base=16 grid{8,16,24,32}",
+   "hist0": 16384,
+   "tool": 16384,
+   "out": 256,
+   "tier_pin": "hbm",
+   "hbm_mult": 1.0,
+   "bg_decode": 16,
+   "_m0_fix": "tool 32768 -> 16384: 32K-token prefill is 1.88 s alone on H100 (m0_reference_values.json), Baseline infeasible by construction"
+  },
+  {
+   "name": "dp2_prefill_burst_p_saturated",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "open: lambda0, MMPP on-phase 3x lambda0 for 10 s every 60 s",
+   "turns": 1,
+   "prompt": "U{8192,12288,16384}",
+   "out": 256,
+   "hbm_mult": 1.0,
+   "_m0_fix": "prompt max 32768 -> 16384: 32K prefill is 1.88 s alone on H100"
+  },
+  {
+   "name": "dp2_decode_heavy_p_idle",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "closed:64 chat sessions",
+   "prompt": 2048,
+   "out": 2048,
+   "turns": 8,
+   "hbm_mult": 1.0
+  },
+  {
+   "name": "dp2_long_ctx_decode_offload",
+   "set": "stress",
+   "topology": "1P+2D",
+   "load": "sessions base=8 grid{4,8,12,16}",
+   "out": 256,
+   "hbm_mult": 0.3,
+   "offload_tiers": "custom_hbm,cxl_pnm,hbf",
+   "hist0": "U[131072,262144]",
+   "tool": 2048,
+   "turns": 4,
+   "tier_pin": "external allocator (A09)",
+   "_m0_fix": "cold 128K-256K prefill is >2 s TTFT by itself; modeled as multi-turn resume of an already-resident long History (same convention as DP1: only the incremental query is prefilled)"
+  },
+  {
+   "name": "dp2_session_size_skew",
+   "set": "stress",
+   "topology": "2P+4D",
+   "load": "open: lambda0",
+   "hist0": "5%:262144 / 95%:8192",
+   "tool": 512,
+   "out": 256,
+   "turns": 8,
+   "hbm_mult": 1.0
+  },
+  {
+   "name": "dp2_internode_link_contention",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "as dp2_turn_dram_small_tool",
+   "base": "dp2_turn_dram_small_tool",
+   "link_scale": 0.25
+  },
+  {
+   "name": "dp2_stale_telemetry",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "as dp2_prefill_burst_p_saturated",
+   "base": "dp2_prefill_burst_p_saturated",
+   "telemetry_refresh_s": "sweep{0.01,0.1,1.0}"
+  },
+  {
+   "name": "dp2_planner_fault_fallback",
+   "set": "stress",
+   "topology": "2P+2D",
+   "load": "as dp2_prefill_burst_p_saturated",
+   "base": "dp2_prefill_burst_p_saturated",
+   "fault": "planner down at T/2 for 60 s, then recovers"
+  },
+  {
+   "name": "dyn_turn_demotion_wave",
+   "set": "dynamic",
+   "topology": "2P+2D",
+   "load": "sessions base=24",
+   "hist0": 32768,
+   "tool": 512,
+   "out": 256,
+   "tier_pin": "hbm",
+   "hbm_mult": 1.0,
+   "external_demotion": "t=T/3: idle(>30 s) sessions' history -> dram; t=2T/3: -> cxl_pnm (same schedule for every candidate)"
+  },
+  {
+   "name": "dyn_load_ramp_burst",
+   "set": "dynamic",
+   "topology": "2P+2D",
+   "load": "open: lambda(t)=lambda0*(0.4+0.7*t/T) + 3x burst 10 s at T/2",
+   "hist0": 32768,
+   "tool": 512,
+   "out": 256,
+   "tier_pin": "hbm",
+   "hbm_mult": 1.0
+  },
+  {
+   "name": "dyn_p_node_degrade",
+   "set": "dynamic",
+   "topology": "2P+2D",
+   "load": "as dp2_turn_dram_small_tool",
+   "base": "dp2_turn_dram_small_tool",
+   "degrade": "P0 throughput x0.5 and NIC x0.5 at T/2"
+  },
+  {
+   "name": "dyn_decode_phase_shift",
+   "set": "dynamic",
+   "topology": "2P+2D",
+   "load": "closed:64 chat sessions",
+   "prompt": 2048,
+   "out": "256 -> 2048 at T/2",
+   "turns": 8,
+   "hbm_mult": 1.0
+  }
+ ]
+}

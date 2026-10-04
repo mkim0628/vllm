@@ -79,15 +79,17 @@ Agent 세션, History 60K 토큰(약 19.7 GB), Tool 결과 0.5K 토큰. History�
 | KV가 놓인 Tier | 읽기 BW | 토큰당 KV 읽기 시간 | TPOT SLO 50 ms |
 |---|---:|---:|---|
 | HBM (GPU 합) | 26,800 GB/s | 약 2.4 ms | 충족 |
-| ScHBM (내부, attention 오프로드) | 6,700 GB/s | 약 9.8 ms | 충족 |
-| HBF (GPU 직접) | 1,000 GB/s | 약 65 ms | 초과 (컨텍스트 약 150K 이하면 충족) |
+| ScHBM (내부, attention 오프로드) | 6,700 GB/s | 약 9.8 ms (모델 기준 step 약 20 ms) | 충족 |
+| HBF (GPU 직접) | 1,000 GB/s | 약 65 ms | 초과 (KV 읽기만 보면 약 150K 이하, **모델 기준 약 120K 이하**면 충족) |
 | CXL-PNM (내부, 오프로드) | 400 GB/s | 약 164 ms | 초과 |
 | DRAM (PCIe로 스트리밍) | 64 GB/s | 약 1.02 s | 초과 |
 | SSD-PIM | 16 GB/s | 약 4.1 s | 초과 |
 
+> 위 표는 KV 읽기만의 이론 하한이다. 시뮬레이터 기준값(weight·연산·오프로드 오버헤드 포함)은 `Evaluation/DP2/sim/m0_reference_values.json`과 `m0-spec.md` §10을 따른다. 모델 기준 TPOT 50 ms 충족 최대 컨텍스트(batch 1, H100)는 ScHBM 약 629K, HBF 약 120K, CXL-PNM 약 38K다.
+
 - 용량 제약도 Tier 의존이다. H100 노드의 HBM은 640 GiB(약 687 GB)에서 weight 약 140 GB를 빼면 KV용 약 547 GB여서 200K 세션이 약 8개 올라가고, ScHBM(160 GiB)에는 2개가 올라간다.
 - 따라서 n_d는 `(노드, Tier)` 선택이고, HBM 용량이 찬 D 노드에서는 "다른 D 노드의 HBM(노드 간 전송 약 1.3 s)" 대 "같은 노드의 ScHBM 오프로드(TPOT 약 10 ms)" 같은 선택이 생긴다. 고정 규칙은 HBM에서 시작하다 용량이 차면 DRAM으로 흘려 TPOT이 1 s대로 악화된다.
-- 앞선 논의에서 CXL-PNM에서의 Decode 시작을 유리한 예로 들었으나 400 GB/s 사양에서는 200K 세션이 SLO를 넘는다. 이 사례는 ScHBM 오프로드와 HBM 중심으로 쓰고, CXL-PNM은 컨텍스트 약 60K 이하(KV 약 20 GB 이하)에서만 유효하다.
+- 앞선 논의에서 CXL-PNM에서의 Decode 시작을 유리한 예로 들었으나 400 GB/s 사양에서는 200K 세션이 SLO를 넘는다. 이 사례는 ScHBM 오프로드와 HBM 중심으로 쓰고, CXL-PNM은 모델 기준 컨텍스트 약 38K 이하에서만 TPOT 50 ms를 충족한다.
 
 ## 2.4 사례로 쓰지 않는 것
 

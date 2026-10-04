@@ -108,8 +108,8 @@ doc-mk/Evaluation/DP2/sim/
 
 | 단계 | 내용 | 종료 기준 |
 |---|---|---|
-| **M0** 사양 고정 | 본 문서, 링크 profile, 파라미터 기본값(κ, batching), `qa-criteria-dp2.md` 사전 등록 | 소유자 확정 (§10), 모든 가정에 ASSUMED 표기 |
-| **M1** 코어 | engine, topology, link, node, kvstore, execmodel, 단일 턴 workload(closed loop), Baseline-PD-fixed, metrics | CB-1~3 실행. 단건 경로가 rationale §2.2·§2.3의 이론값(약 0.39/0.31/1.23 s, 2.4/9.8/65/164 ms)을 허용 오차 내 재현. 결정론 테스트 통과. Baseline의 SLO 충족 여부(fit label)를 SYS별로 확정 |
+| **M0** 사양 고정 | [`m0-spec.md`](m0-spec.md), `sim/configs/*.json`(파라미터 32개, 링크 profile, 시나리오 19개, 결과 스키마), `sim/m0_check.py` 참조값, `qa-criteria-dp2.md` 사전 등록 | 소유자 확정 (`m0-spec.md` §13 O1~O11), 모든 가정에 ASSUMED 표기. 참조값 검증 통과, 초안 완료 |
+| **M1** 코어 | engine, topology, link, node, kvstore, execmodel, 단일 턴 workload(closed loop), Baseline-PD-fixed, metrics | CB-1~3 실행. 단건 경로가 `sim/m0_reference_values.json`(DP1 `model.py` 기준 closed-form 값, `m0-spec.md` §10)을 허용 오차 내 재현. rationale §2의 표는 KV 읽기만의 이론 하한이라 비교 기준이 아니다. 결정론 테스트 통과. Baseline의 SLO 충족 여부(fit label)를 SYS별로 확정 |
 | **M2** 멀티턴과 C1 | 멀티턴 workload, estimator, D-local-always, Oracle, C1 | `turn_*`, `tool_large_result`, `link_contention`, `decode_heavy`, `long_ctx_decode_offload`. **Planner를 Baseline 규칙으로 설정하면 Baseline과 정확히 일치** (동등성 테스트) |
 | **M3** C2와 동적 | Telemetry, decision cost, C2(Plan Cache, validator, re-plan), 장애 주입 | `dyn_*` 4종, `stale_telemetry`, `fault_fallback`, `prefill_burst`, `session_size_skew`. **결정 비용 0과 staleness 0에서 C2 = C1** (분리 테스트) |
 | **M4** 확장성 | 64 노드, planner worker, top-k pruning | QA5(η, 결정 지연), 시뮬레이터 자체 실행 시간 확인 |
