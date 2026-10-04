@@ -57,17 +57,25 @@ def tables(S):
     if "break_even" in S:
         out += ["", "## Break-even over eta_cxl (integrated; where the candidate reaches the Baseline)", "",
                 "| criterion | candidate | bg | status | eta_cxl* | best value in grid (at eta) | provenance of eta_cxl* |", "|---|---|---|---|---|---|---|"]
-        for crit in ("qa1_ratio_ge_1", "qa3_multiplier_ge_1", "qa3_load1_multiplier_ge_1", "ttft_worse_pairs_common_eq_0", "ttft_worse_pairs_own_eq_0"):
+        for crit in ("qa1_ratio_ge_1", "qa1_ratio_parity", "qa3_multiplier_ge_1", "qa3_multiplier_parity", "qa3_load1_multiplier_ge_1", "ttft_worse_pairs_common_eq_0", "ttft_worse_pairs_own_eq_0"):
             for c in (C1, C2):
                 for bg, d in S["break_even"][INT][c].items():
                     r = d[crit]
                     out.append(f"| {crit} | {c.split('-')[0]} | {bg[2:]} | {r['status']} | {f(r['x'])} | {f(r['best'])} ({r['at']}) | {r['eta_cxl_provenance_note']} |")
+    if "break_even_bg" in S:
+        out += ["", "## Break-even over the background level at fixed eta_cxl (integrated; parity = ratio >= 0.99; background is an ASSUMED scenario constant)", "",
+                "| criterion | candidate | eta_cxl | status | largest bg reaching Baseline | best value (at bg) |", "|---|---|---|---|---|---|"]
+        for crit in ("qa1_ratio_parity", "qa3_multiplier_parity", "ttft_worse_pairs_common_eq_0"):
+            for c in (C1, C2):
+                for e, d in S["break_even_bg"][INT][c].items():
+                    r = d[crit]
+                    out.append(f"| {crit} | {c.split('-')[0]} | {e[3:]} | {r['status']} | {f(r['x'])} | {f(r['best'])} ({r['at']}) |")
     out += ["", "## Single-parameter sweeps (integrated; C1 / C2)", "", "| group | value | QA1 ratio | QA3 multiplier | TTFT worse pairs (common) |", "|---|---|---|---|---|"]
     for g, cs in S["one_param_sweeps"].items():
         for lab in cs[C1]:
             a, b = cs[C1][lab], cs[C2][lab]
             out.append(f"| {g} | {lab} | {f(a['qa1_ratio'])} / {f(b['qa1_ratio'])} | {f(a['qa3_multiplier'])} / {f(b['qa3_multiplier'])} | {a['ttft_worse_common']} / {b['ttft_worse_common']} |")
-    out += ["", "## Control-plane sweeps on the DP4-specific rows (C2 / C1 goodput ratio over the 19 rows x 2 systems)", "",
+    out += ["", "## Control-plane sweeps on the DP4-specific rows (non-failure rows x 2 systems; failure rows differ by construction and are listed in summary.json)", "",
             "| group | value | max abs deviation of C2/C1 goodput | DP4 QA1 ratio C1 / C2 | DP4 comparison_valid rows |", "|---|---|---|---|---|"]
     for g, cfgs in S["configs"].items():
         for lab, v in cfgs.items():

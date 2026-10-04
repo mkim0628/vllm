@@ -143,7 +143,9 @@ class ConservationTest(unittest.TestCase):
             self.assertLessEqual(r.t, r.t_pf_start + 1e-12)
             self.assertLessEqual(r.t_pf_start, r.t_pf_end)
             self.assertLessEqual(r.t_pf_end, r.t_flow_end + 1e-12)
-            self.assertLessEqual(r.t_flow_end, r.t_admit + 1e-12)
+            self.assertLessEqual(r.t_flow_end, r.t_cp_done + 1e-12)
+            self.assertLessEqual(r.t_cp_done, r.t_read_start + 1e-12)
+            self.assertLessEqual(r.t_read_start, r.t_admit + 1e-12)
             self.assertLessEqual(r.t_admit, r.t_first + 1e-12)
             self.assertLessEqual(r.t_first, r.t_done + 1e-9)
         # Little: time-average number in system == lambda * mean sojourn over the whole drained run
@@ -446,6 +448,58 @@ class AblationRegistryTest(unittest.TestCase):
         self.assertEqual(run(TWO, C1)["goodput_tps"], run(TWO, C1)["goodput_tps"])
 
 
+class SerialReadTest(unittest.TestCase):
+    """Iteration 2: candidates write (overlapped with prefill) -> publish -> pin -> read (pool -> D), strictly sequential."""
+
+    def lone(self, arm, **ov):
+        p = P.with_overrides(**ov)
+        s = sm.Sim(SYS, p, dict(CB1, bg0=0.0, bg1=0.0), arm, 11, 1.0)
+        r = sm.Req(0, 1.0, 8192, 0, 256, 0, 0, True, False, (0.5,) * 6)
+        s.reqs = [r]
+        s.run()
+        return s, r
+
+    def test_read_starts_after_publish_and_pin(self):
+        s, r = self.lone(C1)
+        self.assertLessEqual(r.t_flow_end, r.t_cp_done)  # write done, then publish + pin
+        self.assertGreaterEqual(r.t_read_start, r.t_cp_done)
+        self.assertGreater(r.t_cp_done, r.t_flow_end)  # publish and pin take time
+        self.assertLessEqual(r.t_read_start, r.t_admit)
+
+    def test_read_duration_is_bytes_over_cxl_rate(self):
+        s, r = self.lone(C2)
+        expect = 8192 * 327680 / (2 * 63e9 * 0.5)
+        self.assertAlmostEqual(r.t_admit - r.t_read_start, expect, delta=1e-9)
+
+    def test_ttft_exposes_the_whole_read(self):
+        _, a = self.lone(C1)
+        read = 8192 * 327680 / 63e9
+        self.assertGreaterEqual(a.t_first - a.t_pf_end, read)  # write hidden by prefill overlap, read fully exposed
+
+    def test_unpin_after_read_and_pool_copy_spans_write_to_unpin(self):
+        s, r = self.lone(C1)
+        self.assertGreaterEqual(r.t_unpin, r.t_admit)
+        self.assertGreater(run(CB1, C1)["resid_gib"]["pool"], 0.0)
+
+    def test_baseline_path_unchanged(self):
+        s, r = self.lone(BASE, overlap_ratio=0.0)
+        self.assertIsNone(r.t_read_start)
+        self.assertAlmostEqual(r.t_flow_end - r.t_pf_end, 8192 * 327680 / (100e9 * 0.85), delta=1e-9)
+        self.assertEqual(r.t_flow_end, r.t_admit)
+
+    def test_write_bytes_not_read_bytes_use_pool_once_each(self):
+        s, r = self.lone(C1)
+        wi = s.move_items(r, r.L - r.H)
+        ri = s.read_items(r)
+        self.assertEqual([b for _, b in wi], [8192 * 327680] * 2)
+        self.assertEqual([b for _, b in ri], [8192 * 327680] * 2)
+
+    def test_candidate_ttft_grows_vs_pipelined_baseline_only_by_read_not_control_plane(self):
+        _, a = self.lone(C1)
+        _, b = self.lone(C2)
+        self.assertAlmostEqual(a.t_first, b.t_first, delta=1e-3)  # same data plane: C1 and C2 differ by microseconds
+
+
 class SensitivityTest(unittest.TestCase):
     def test_split_overrides_and_bg_scale(self):
         d, bg = q.split_overrides((("bg_scale", 0.5), ("eta_cxl", 0.7)))
@@ -494,6 +548,18 @@ class SensitivityTest(unittest.TestCase):
         self.assertEqual(low["status"], "interpolated")
         self.assertAlmostEqual(low["x"], 1.0)
         self.assertEqual(sens.crossing([0.5, 1.0], [5.0, 2.0], 0.0, higher_is_better=False)["status"], "none_in_grid")
+
+    def test_parity_threshold_is_the_material_tie_rule(self):
+        import sensitivity as sens
+        self.assertAlmostEqual(sens.PARITY, 1.0 - q.MATERIAL_REL)
+        self.assertEqual(sens.crossing([0.5, 1.0], [0.9995, 1.0], sens.PARITY)["status"], "met_at_lowest")
+
+    def test_break_even_over_background_scans_from_high_to_low(self):
+        import sensitivity as sens
+        r = sens.crossing([0.85, 0.5, 0.0], [0.73, 0.945, 1.0], sens.PARITY)
+        self.assertEqual(r["status"], "interpolated")
+        self.assertAlmostEqual(r["x"], 0.5 + (0.99 - 0.945) * (0.0 - 0.5) / (1.0 - 0.945))
+        self.assertEqual(r["bracket"], [0.5, 0.0])
 
     def test_eta_classification_uses_registered_range_and_provenance(self):
         import sensitivity as sens

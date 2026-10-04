@@ -27,6 +27,7 @@ HERE = Path(__file__).resolve().parent
 DATA = HERE.parent / "results" / "data"
 ROOT = DATA / "sensitivity"
 SYSTEMS = ("SYS-H100", "SYS-B200")
+PARITY = 1.0 - q.MATERIAL_REL  # a difference below 1 % is a tie everywhere else (MATERIAL_REL), so parity = ratio >= 0.99
 MAIN_BG = 0.85
 ETAS = (0.5, 0.7, 0.85, 1.0)
 BGS = (0.0, 0.5, 0.85)
@@ -149,9 +150,11 @@ def summarize_result(res):
     if "dp4_benchmark" in res:
         dp = res["dp4_benchmark"]
         d["fit_dp4"] = {k: sum(1 for x in dp["fit"].values() if x == k) for k in ("comparison_valid", "saturated", "infeasible")}
-        gr = [v["goodput_ratio_c2_over_c1"] for v in dp["c1_vs_c2"].values() if v["goodput_ratio_c2_over_c1"]]
-        d["c1_vs_c2_dp4_goodput_ratio_range"] = [min(gr), max(gr)]
-        d["c1_vs_c2_dp4_max_abs_dev"] = max(abs(x - 1.0) for x in gr)
+        nf = [v["goodput_ratio_c2_over_c1"] for k, v in dp["c1_vs_c2"].items() if "d4_fail" not in k and v["goodput_ratio_c2_over_c1"]]
+        fl = {k: v["goodput_ratio_c2_over_c1"] for k, v in dp["c1_vs_c2"].items() if "d4_fail" in k}
+        d["c1_vs_c2_dp4_goodput_ratio_range"] = [min(nf), max(nf)]
+        d["c1_vs_c2_dp4_max_abs_dev"] = max(abs(x - 1.0) for x in nf)  # failure rows excluded (they differ by construction)
+        d["c1_vs_c2_dp4_fail_rows_ratio"] = fl
         d["dp4_c1_vs_c2_verdicts"] = {k: v["verdict_c2_vs_c1"] for k, v in dp["c1_vs_c2"].items() if any(x != "tie" for x in v["verdict_c2_vs_c1"].values())}
         d["dp4_qa1_ratio"] = {c: dp["qa_feasible"][c]["qa1_ratio_geomean"] for c in dp["qa_feasible"]}
         d["dp4_tally"] = {c: {k: len(v) for k, v in dp["tally"][c].items()} for c in dp["tally"]}
@@ -213,12 +216,33 @@ def break_even(summary):
                 rows = [grid[f"eta{e}_bg{b}"][sysname]["candidates"][c] for e in xs]
                 out[sysname][c][f"bg{b}"] = dict(
                     qa1_ratio_ge_1=crossing(xs, [r["qa1_ratio"] for r in rows], 1.0, True),
+                    qa1_ratio_parity=crossing(xs, [r["qa1_ratio"] for r in rows], PARITY, True),
                     qa3_multiplier_ge_1=crossing(xs, [r["qa3_multiplier"] for r in rows], 1.0, True),
+                    qa3_multiplier_parity=crossing(xs, [r["qa3_multiplier"] for r in rows], PARITY, True),
                     qa3_load1_multiplier_ge_1=crossing(xs, [r["qa3_load1_multiplier"] for r in rows], 1.0, True),
                     ttft_worse_pairs_common_eq_0=crossing(xs, [float(r["tail_ttft_worse_common"]) for r in rows], 0.0, False),
                     ttft_worse_pairs_own_eq_0=crossing(xs, [float(r["tail_ttft_worse_own"]) for r in rows], 0.0, False))
                 for r in out[sysname][c][f"bg{b}"].values():
                     r["eta_cxl_provenance_note"] = classify_eta(r["x"])
+    return out
+
+
+def break_even_bg(summary):
+    """over the background level at fixed eta_cxl: the largest background at which the candidate still reaches the Baseline
+    (scan from high to low background; value interpolated linearly)."""
+    grid = summary["eta_cxl_bg"]
+    xs = sorted(BGS, reverse=True)
+    out = {}
+    for sysname in (*SYSTEMS, "INT-H100-B200"):
+        out[sysname] = {}
+        for c in (C1, C2):
+            out[sysname][c] = {}
+            for e in ETAS:
+                rows = [grid[f"eta{e}_bg{b}"][sysname]["candidates"][c] for b in xs]
+                out[sysname][c][f"eta{e}"] = dict(
+                    qa1_ratio_parity=crossing(xs, [r["qa1_ratio"] for r in rows], PARITY, True),
+                    qa3_multiplier_parity=crossing(xs, [r["qa3_multiplier"] for r in rows], PARITY, True),
+                    ttft_worse_pairs_common_eq_0=crossing(xs, [float(r["tail_ttft_worse_common"]) for r in rows], 0.0, False))
     return out
 
 
@@ -305,6 +329,7 @@ def write_summary():
         out["control_check"] = control_check(summary)
         be = break_even(summary)
         out["break_even"] = be
+        out["break_even_bg"] = break_even_bg(summary)
     out["one_param_sweeps"] = one_param_break_even(summary)
     out["star_boundary_pm10"] = star_boundary_table(out["main"])
     (ROOT / "summary.json").write_text(json.dumps(out, indent=1, sort_keys=True))

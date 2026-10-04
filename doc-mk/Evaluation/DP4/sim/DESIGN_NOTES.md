@@ -5,12 +5,13 @@ favour a candidate. Nothing below was tuned after seeing results (H16). Simulati
 
 ## A. Plan ambiguities and how they were resolved
 
-1. **Move path is one overlapped flow.** The plan says T_move is write (P to pool) plus read (pool to D) with a layer-pipeline
-   overlap ratio. The simulator reserves one flow on [P egress, pool aggregate, D ingress] that starts at
-   `prefill_start + (1 - overlap) * prefill`, ends no earlier than prefill end. The pool aggregate carries the bytes twice
-   (write + read). Publish and pin are charged after the flow ends; unpin right after pin (the D read is complete).
-   Physically a block can only be read after it is published, so a real pooled path has a non-overlapped read. Not modelled
-   (it would add roughly one extra D-ingress transfer time to candidate TTFT). Direction of bias: favours candidates slightly.
+1. **Move path (Iteration 2, sequential read).** Candidates: write of the new KV (P egress + pool) starts at
+   `prefill_start + (1 - overlap) * prefill`, ends no earlier than prefill end (the layer-pipeline overlap applies to this write only);
+   then publish, then pin; only after pin does the pool-to-D read of the whole context start (pool + D ingress) and decode is admitted when it
+   ends; unpin follows the read. A reader may trust a block only after READY, so the read is not overlapped with prefill. Each direction charges the pool
+   aggregate once (write q bytes, read L bytes); the earlier double crossing on the aggregate is replaced by two separate flows. The Baseline P to D
+   flow keeps the layer-pipeline overlap and is unchanged. The first version of the simulator overlapped write and read in one cut-through flow (biased in
+   favour of the candidates); its results are kept in `results/data/pre_serial_read/` (loop-log Iteration 2, class M).
 2. **Baseline path.** P to D point-to-point over RDMA, `eta_rdma` 0.85, no fragmentation penalty, same overlap rule. One central
    index lookup (100 us) per request at arrival. Index updates are async and cost nothing on the critical path.
 3. **Background load** (CB-1/2/3) multiplies the bandwidth of every node egress/ingress link and of the pool aggregate by
