@@ -495,6 +495,18 @@ class SensitivityTest(unittest.TestCase):
         self.assertAlmostEqual(low["x"], 1.0)
         self.assertEqual(sens.crossing([0.5, 1.0], [5.0, 2.0], 0.0, higher_is_better=False)["status"], "none_in_grid")
 
+    def test_parity_threshold_is_the_material_tie_rule(self):
+        import sensitivity as sens
+        self.assertAlmostEqual(sens.PARITY, 1.0 - q.MATERIAL_REL)
+        self.assertEqual(sens.crossing([0.5, 1.0], [0.9995, 1.0], sens.PARITY)["status"], "met_at_lowest")
+
+    def test_break_even_over_background_scans_from_high_to_low(self):
+        import sensitivity as sens
+        r = sens.crossing([0.85, 0.5, 0.0], [0.73, 0.945, 1.0], sens.PARITY)
+        self.assertEqual(r["status"], "interpolated")
+        self.assertAlmostEqual(r["x"], 0.5 + (0.99 - 0.945) * (0.0 - 0.5) / (1.0 - 0.945))
+        self.assertEqual(r["bracket"], [0.5, 0.0])
+
     def test_eta_classification_uses_registered_range_and_provenance(self):
         import sensitivity as sens
         self.assertIn("inside", sens.classify_eta(0.8))
