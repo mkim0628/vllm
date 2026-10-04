@@ -399,6 +399,25 @@ def ablation_table():
 
 
 
+def star_basis_section():
+    sb = json.load(open(DATA / "star_basis.json"))["summary"]
+    row = lambda name, k, edge: (f"| {name} | {sb[k]['min']:.3f} ~ {sb[k]['max']:.3f} | {sb[k]['sd']:.3f} | {edge} |")
+    return "\n".join([
+        "| 지표 (Baseline vs Baseline, 20개 비교) | 관측 범위 | 표준편차 | 현재 하한 |", "|---|---|---|---|",
+        row("QA1 처리량 비율", "qa1_ratio", "0.97"), row("QA2 개선 배수", "qa2_improvement", "0.95"), row("QA3 HBM 절감 배수", "qa3_saving", "0.95")])
+
+
+def burst_section():
+    bs = json.load(open(DATA / "burst" / "summary.json"))
+    lines = ["| BURST_CAP_S | 후보 | QA1 (x) | QA2 개선 (x) | HBM 절감 (x) | TTFT P99 geomean (x) | P99 악화 쌍 | 최악 쌍 (x) |", "|---|---|---|---|---|---|---|---|"]
+    for cap in ("2.0", "1.0", "0.5", "0.25"):
+        for c, nm in ((C1, "C1"), (C2, "C2")):
+            x = bs[cap][c]
+            lines.append(f"| {cap}{' (대조군)' if cap == '2.0' else ''} | {nm} | {x['qa1']:.3f} | {x['qa2']:.3f} | {x['hbm_saving']:.3f} | {x['ttft99_geo']:.3f} | {x['n_worse']} | {x['worst']:.2f} |")
+    return "\n".join(lines)
+
+
+
 def ablation_note():
     _, d = ablation_table()
     A = d["A"]; bs = A["main"][B]
@@ -702,6 +721,7 @@ Baseline-regression loop가 발동했다 (first-pass에서 두 후보 모두 Bas
 | 1 | P | 공통 access-cost estimator, SLO filter와 do-no-harm(C1 destination 선택), link-time migration budget, cooldown, C2 benefit-vs-cost gating, C2 demotion은 HBM pressure일 때만 | C1 x1.000 / C2 x1.028, **loss 0**, win 0 (Common/Stress는 parity) |
 | 2 | B | `dynamic_benchmark()` 6개 + controls 추가 (policy 불변) | dynamic: C1 x1.106 (win 1), C2 x2.211 (win 6) |
 | 3 | P | C1 promotion path (설계 §17.2): static 추정으로 SLO를 위반하는 object를 HBM으로 승격, HBM 거주 object와 swap, budget 예약 | dynamic: C1 x1.643 (win 3), C2 불변 |
+| 4 | P(sweep, 정책 불변) | 링크 간섭 도입 후 TTFT P99 꼬리 재점검: burst 용량 {2.0, 1.0, 0.5, 0.25} s sweep (4.8절) | 기본값 유지: 꼬리를 줄이면 이득도 사라짐 (C1 P99 악화 쌍 6 -> 0이지만 QA1 x1.30 -> x1.00) |
 
 ## 4.6 모델 오차 e sweep (SYS-B200, Combined, comparison-valid, 보고용)
 
@@ -718,6 +738,22 @@ C1에서 Data-Memory Affinity를 쓰는 곳은 두 군데다. (1) Destination Ti
 {ablation_table()[0]}
 
 {ablation_note()}
+
+## 4.8 TTFT P99 꼬리 악화 (Baseline-regression loop iteration 4, `loop-log.md`)
+
+comparison-valid 21쌍 중 TTFT P99가 Baseline보다 나쁜 쌍은 C1 6개, C2 5개다(>1.02배). C1의 최악은 Common `cb_kv_8k_b32`(H100 x4.15, B200 x3.88)와 `cb_mixed_8k_b32`(H100 x4.32)이며 같은 쌍에서 TTFT P50은 x0.32~0.67로 **개선**된다(중앙값은 좋아지고 꼬리가 나빠진다). 진단: 꼬리는 이동된 object가 아니라 **이동하지 않고 DRAM에 남은 KV**의 첫 응답(2.3~2.8 s, Baseline 0.38 s)이다. C1의 migration 19건(object 15 GiB급)이 초반 20% 구간에 몰려 같은 DRAM 링크의 서빙 대역폭 배율이 0.10까지 떨어지고, 이 구간의 접근 43건(2.5%)이 P99를 정한다. 원인을 token bucket의 burst 용량(2.0 s 링크 시간)으로 분류하고(P), 용량만 바꾼 sweep을 돌렸다(기본값은 유지).
+
+{burst_section()}
+
+용량을 줄이면 꼬리가 줄지만 이득이 같이 사라진다(0.5 s에서 C1 QA1 x1.00, 0.25 s에서는 C1이 Baseline과 동일). 즉 **P50 개선과 P99 악화는 같은 메커니즘의 양면**이고 용량 상수 하나로 둘을 동시에 얻지 못한다. 필요한 것은 이동을 여러 tick에 나누는 staged 이동과 이동 중 접근에 대한 do-no-harm 검사 같은 구조 변경이며, 보완 설계 택틱([C], 미구현)으로 남긴다. 링크 간섭이 평균장 근사(배율)라 꼬리가 과대일 수 있다는 점도 한계다(M-class 후보).
+
+## 4.9 별점 경계의 근거 (`DP1/qa-criteria-dp1.md` §J, `DP1/sim/star_basis.py`)
+
+**하한(★/★★)은 측정으로 정했다.** Baseline끼리(겹치지 않는 seed 묶음) 비교한 순수 잡음 대역이다.
+
+{star_basis_section()}
+
+QA1 하한 0.97은 잡음 대역의 아래쪽 끝과 같다. QA2/QA3의 0.95는 잡음보다 느슨하지만 잡음 기준(0.97/0.98)으로 조여도 현재 별은 바뀌지 않는다. **상한(★★/★★★)은 측정으로 정할 수 없다.** 환산: QA1 x1.30 = 같은 수요를 77% 하드웨어로 처리 = 8-GPU 노드에서 약 1.85 GPU 절감(x1.14가 1 GPU), QA2 x1.25 = latency 20% 감소(TTFT P99 1,084 -> 867 ms), QA3 x1.25 = HBM 20% 감소(146.6 GiB 중 약 29 GiB, 8K KV object 약 1.6개). 이 값들은 "도입 가치가 있는 크기"라는 정책 선택이며 QA1의 1.30은 결과를 본 뒤 정한 값이다. 상한을 QA1/2/3에 똑같이 적용하면 선택은 상한 <= 1.298 또는 > 1.422에서 C1, 1.30~1.40에서 C2(동점, QA1 우선)로 갈린다. 현재 경계는 C1의 QA1(x1.298)과 0.2% 차이이므로 **선택은 경계 선택에 민감**하다.
 
 # 5. 결과 분석
 

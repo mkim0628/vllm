@@ -282,6 +282,57 @@ def qa_slides():
         "- affinity 제거 변형에서도 QA4 별은 C1 ★★★로 같게 두었다(affinity 모듈은 C1 설계에 원래 포함).",
         "- 대조군(affinity 포함 재실행)은 본 결과와 정확히 일치. 5 seed, 동일 시나리오. 4.7절 참고."], "note", 9.5)
 
+    # ---------------- slide: star-edge basis ----------------
+    sbj = g.json.load(open(g.DATA / "star_basis.json"))["summary"]
+    sbs = Slide("별점 경계의 근거 - 하한은 측정, 상한은 환산 + 정책 선택")
+    for name, x, w in (("QA", 0.4, 1.3), ("하한 (★/★★) 근거: Baseline끼리 비교한 잡음 대역", 1.7, 4.6), ("현재 하한", 6.3, 1.1), ("상한 (★★/★★★) 환산", 7.4, 5.5)):
+        sbs.box(x, 1.15, w, 0.32, name, "head", 10, True, "ctr", False)
+    rows_ = [("QA1 처리량", "qa1_ratio", "0.97", "x1.30 = 23% 하드웨어 절감 = 8-GPU 노드에서 약 1.85 GPU (x1.14가 1 GPU)"),
+             ("QA2 latency", "qa2_improvement", "0.95", "x1.25 = latency 20% 감소 (TTFT P99 1,084 -> 867 ms, TPOT P99 17.1 -> 13.7 ms)"),
+             ("QA3 HBM 절감", "qa3_saving", "0.95", "x1.25 = HBM 20% 감소 (146.6 GiB 중 약 29 GiB, 8K KV object 약 1.6개)")]
+    yy = 1.5
+    for lab, k, edge, conv in rows_:
+        v = sbj[k]
+        sbs.box(0.4, yy, 1.3, 0.62, lab, "dp", 9.5, True, "l", False)
+        sbs.box(1.7, yy, 4.6, 0.62, f"잡음 범위 {v['min']:.3f} ~ {v['max']:.3f} (sd {v['sd']:.3f}, 20개 비교)", "cell", 9.5, False, "l", False)
+        sbs.box(6.3, yy, 1.1, 0.62, edge, "cell", 9.5, True, "ctr", False)
+        sbs.box(7.4, yy, 5.5, 0.62, conv, "cell", 9, False, "l", False)
+        yy += 0.66
+    sbs.box(0.4, yy + 0.1, 6.2, 2.7, [
+        "무엇이 근거 있고 무엇이 선택인가",
+        "- 하한: QA1 0.97은 Baseline끼리 비교해도 나오는 잡음의 아래 끝과 같다(측정). QA2/QA3의 0.95는 잡음(0.97/0.98)보다 느슨하지만 조여도 현재 별은 바뀌지 않는다.",
+        "- 상한: 잡음(약 3%)으로는 정해지지 않는다. '도입 가치가 있는 크기'라는 정책 선택이며 위 환산으로 의미만 붙였다.",
+        "- QA1 상한 1.30은 결과를 본 뒤 정한 값(defined_after_first_look)이고 1.25와 환산 차이가 작다(1.6 GPU 대 1.85 GPU)."], "sel", 9.5)
+    sbs.box(6.8, yy + 0.1, 6.1, 2.7, [
+        "선택이 상한에 얼마나 민감한가 (상한을 QA1/2/3에 같게 적용)",
+        "- 상한 1.10~1.25: C1 11점 대 C2 9점 -> C1 선택",
+        "- 상한 1.30~1.40: 둘 다 9점 동점, QA1 우선순위로 C2 선택",
+        "- 상한 1.45 이상: C1 9점 대 C2 8점 이하 -> C1 선택",
+        "- 현재 공식 경계는 C1의 QA1(x1.298)과 0.2% 차이라 선택은 경계에 민감하다. 상한을 하드웨어 환산(예: 1 GPU = x1.14, 2 GPU = x1.33)으로 고정할지는 소유자 결정 사항이다. 근거 문서: qa-criteria-dp1.md §J."], "note", 9.5)
+
+    # ---------------- slide: TTFT P99 tail regression ----------------
+    bsj = g.json.load(open(g.DATA / "burst" / "summary.json"))
+    st_ = Slide("TTFT P99 꼬리 악화 (Baseline-regression loop 4) - 이득과 같은 메커니즘")
+    for name, x, w in (("burst 용량 (s)", 0.4, 1.9), ("C1: QA1 (x) / TTFT P99 악화 쌍 / 최악 쌍", 2.3, 5.0), ("C2: QA1 (x) / TTFT P99 악화 쌍 / 최악 쌍", 7.3, 5.6)):
+        st_.box(x, 1.15, w, 0.32, name, "head", 10, True, "ctr", False)
+    yy = 1.5
+    for cap in ("2.0", "1.0", "0.5", "0.25"):
+        a, b_ = bsj[cap][C1], bsj[cap][C2]
+        st_.box(0.4, yy, 1.9, 0.4, cap + (" (현재)" if cap == "2.0" else ""), "dp", 9.5, True, "ctr", False)
+        st_.box(2.3, yy, 5.0, 0.4, f"x{a['qa1']:.2f} / {a['n_worse']}쌍 / x{a['worst']:.2f}", "cell", 9.5, False, "ctr", False)
+        st_.box(7.3, yy, 5.6, 0.4, f"x{b_['qa1']:.2f} / {b_['n_worse']}쌍 / x{b_['worst']:.2f}", "cell", 9.5, False, "ctr", False)
+        yy += 0.42
+    st_.box(0.4, yy + 0.1, 6.2, 3.0, [
+        "무슨 일이 일어나나 (21쌍, H100+B200)",
+        "- 현재 설정에서 TTFT P99가 Baseline보다 나쁜 쌍: C1 6개, C2 5개. C1 최악은 Common cb_kv_8k_b32(H100 x4.15, B200 x3.88).",
+        "- 같은 쌍에서 TTFT P50은 개선(x0.32~0.67)된다: 중앙값은 좋아지고 꼬리가 나빠진다.",
+        "- 꼬리는 이동된 객체가 아니라 DRAM에 남은 KV의 첫 응답이다. C1이 초반 20% 구간에 15 GiB급 이동 19건을 몰아 보내 DRAM 링크 서빙 대역폭이 0.10배까지 떨어지고, 그 구간 접근 2.5%가 P99를 정한다."], "sel", 9.5)
+    st_.box(6.8, yy + 0.1, 6.1, 3.0, [
+        "결론과 한계",
+        "- burst 용량을 줄이면 꼬리가 줄지만 이득도 같이 사라진다(0.5 s: C1 QA1 x1.00, 0.25 s: C1이 Baseline과 동일). 용량 상수 하나로 둘을 동시에 얻지 못한다.",
+        "- 기본값은 유지했다. 필요한 것은 큰 이동을 여러 tick에 나누는 staged 이동과 이동 중 접근에 대한 do-no-harm 검사이며 보완 설계 택틱([C], 미구현)이다.",
+        "- 한계: 링크 간섭이 평균장 근사(대역폭 배율)라 꼬리가 과대일 수 있다. 사전 판정 규칙이 '이득이 0인 퇴화 해'를 허용하는 결함이 있었음을 loop-log에 기록했다."], "note", 9.5)
+
     # ---------------- slide 4: scenarios ----------------
     s4 = Slide("DP1 평가에서 고려한 시나리오")
     per_set = []
@@ -302,7 +353,7 @@ def qa_slides():
         s4.box(0.4, yy, 2.9, 0.92, t, "dp", 10, True, "l", False)
         s4.box(3.3, yy, 9.6, 0.92, body, "cell", 10.5, False, "l", False)
         yy += 0.97
-    return [s, system_slide(), s2, s3, sa, s4]
+    return [s, system_slide(), s2, s3, sa, st_, sbs, s4]
 
 
 def tactics_slide():
