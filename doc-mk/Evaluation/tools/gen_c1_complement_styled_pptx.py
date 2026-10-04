@@ -31,8 +31,7 @@ from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
 NS = {"a": A, "p": P}
-DEFAULT_REF = ("/tmp/claude-0/-home-user-vllm/906262e6-fac3-516c-ae7d-f65eee8f44dc/"
-               "scratchpad/final.pptx")
+DEFAULT_REF = str(__import__("pathlib").Path(__file__).resolve().parents[2] / "DP1" / "ref" / "DP1-final-style-reference.pptx")
 SLIDE_W, SLIDE_H = 12192000, 6858000
 M = 1_000_000
 
