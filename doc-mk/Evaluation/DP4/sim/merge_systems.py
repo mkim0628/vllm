@@ -24,6 +24,10 @@ SETS = ("common_benchmark", "dp4_benchmark")
 
 def merge(systems, data_dir=DATA, cands=None):
     src = {s: json.loads((data_dir / s / "qa_result.json").read_text()) for s in systems}
+    return merge_src(src, systems, cands)
+
+
+def merge_src(src, systems, cands=None):
     cands = tuple(cands or src[systems[0]]["meta"]["candidates"])
     result, all_ps, all_lab = {}, {}, {}
     for label in SETS:

@@ -101,16 +101,32 @@ def _row_knobs(label, row):
 _PARAMS = {}
 
 
+def split_overrides(overrides):
+    """overrides -> (Params overrides, bg_scale). `bg_scale` is a scenario-level sensitivity knob (not a Params field):
+    every background-load value of the rows is multiplied by it (bg_scale = cap / 0.85 keeps the CB-1/3 level = cap)."""
+    d = dict(overrides) if overrides else {}
+    return d, d.pop("bg_scale", None)
+
+
 def _params(cfg, overrides):
     key = (cfg, overrides)
     if key not in _PARAMS:
-        _PARAMS[key] = params_mod.load_params(cfg, dict(overrides) if overrides else None)
+        d, _ = split_overrides(overrides)
+        _PARAMS[key] = params_mod.load_params(cfg, d or None)
     return _PARAMS[key]
+
+
+def _knobs(label, row, overrides):
+    kn = _row_knobs(label, row)
+    _, bg = split_overrides(overrides)
+    if bg is not None:
+        kn = dict(kn, bg0=kn["bg0"] * bg, bg1=kn["bg1"] * bg)
+    return kn
 
 
 def _run_one(task):
     sys_id, label, row, arm, load, seed, nofail, cfg, overrides = task
-    r = run_sim(dp1_bridge.load_dp1_system(sys_id), _params(cfg, overrides), _row_knobs(label, row), arm, seed, load,
+    r = run_sim(dp1_bridge.load_dp1_system(sys_id), _params(cfg, overrides), _knobs(label, row, overrides), arm, seed, load,
                 with_fail=not nofail)
     r["set"], r["row"], r["nofail"] = label, row, nofail
     return r

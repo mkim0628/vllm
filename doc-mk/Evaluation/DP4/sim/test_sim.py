@@ -446,5 +446,100 @@ class AblationRegistryTest(unittest.TestCase):
         self.assertEqual(run(TWO, C1)["goodput_tps"], run(TWO, C1)["goodput_tps"])
 
 
+class SensitivityTest(unittest.TestCase):
+    def test_split_overrides_and_bg_scale(self):
+        d, bg = q.split_overrides((("bg_scale", 0.5), ("eta_cxl", 0.7)))
+        self.assertEqual((d, bg), ({"eta_cxl": 0.7}, 0.5))
+        kn = q._knobs("common_benchmark", "cb_kv_8k_b32_ramp", (("bg_scale", 0.5),))
+        self.assertAlmostEqual(kn["bg0"], 0.1)
+        self.assertAlmostEqual(kn["bg1"], 0.45)
+        self.assertEqual(q._knobs("common_benchmark", "cb_kv_8k_b32", None)["bg0"], 0.85)
+        self.assertEqual(q._knobs("dp4_benchmark", "d4_block16", (("bg_scale", 0.5),))["bg0"], 0.0)
+        self.assertEqual(q._params(None, (("bg_scale", 0.5), ("eta_cxl", 0.7))).eta_cxl, 0.7)
+
+    def test_grid_has_12_registered_combinations(self):
+        import sensitivity as sens
+        g = sens.configs("grid")
+        self.assertEqual(len(g), 12)
+        self.assertEqual({(c[2]["eta_cxl"], round(c[2]["bg_scale"] * 0.85, 6)) for c in g},
+                         {(e, b) for e in (0.5, 0.7, 0.85, 1.0) for b in (0.0, 0.5, 0.85)})
+        self.assertTrue(all(c[3] == ["common_benchmark", "dp4_benchmark"] for c in g))
+        self.assertIn(("eta_cxl_bg", "eta0.5_bg0.85"), [(c[0], c[1]) for c in g])  # control cell = main configuration
+        labels = [c[1] for c in sens.configs("others")]
+        for want in ("eta_rdma0.6", "overlap0.9", "S512", "probe0.7", "T4", "batch16", "cs5"):
+            self.assertIn(want, labels)
+
+    def test_control_override_reproduces_main_parameters(self):
+        a = run(CB1, C1)
+        b = sm.run_sim(SYS, q._params(None, (("eta_cxl", 0.5), ("bg_scale", 1.0))), q._knobs("common_benchmark", "cb_kv_8k_b32", (("bg_scale", 1.0),)), C1, 11, 1.0)
+        pa = P.with_overrides(n_req_base=2000)
+        ref = sm.run_sim(SYS, pa, CB1, C1, 11, 1.0)
+        self.assertEqual(b["goodput_tps"], ref["goodput_tps"])
+        self.assertEqual(b["ttft_p99_ms"], ref["ttft_p99_ms"])
+
+    def test_higher_eta_cxl_helps_candidates_not_baseline(self):
+        lo = run(CB1, C1)
+        hi = run(CB1, C1, p=P.with_overrides(eta_cxl=1.0))
+        self.assertLess(hi["ttft_p50_ms"], lo["ttft_p50_ms"])
+        self.assertEqual(run(CB1, BASE)["ttft_p50_ms"], run(CB1, BASE, p=P.with_overrides(eta_cxl=1.0))["ttft_p50_ms"])
+
+    def test_crossing_interpolates_and_reports_none(self):
+        import sensitivity as sens
+        r = sens.crossing([0.5, 0.7, 0.85, 1.0], [0.8, 0.9, 1.1, 1.2], 1.0)
+        self.assertEqual(r["status"], "interpolated")
+        self.assertAlmostEqual(r["x"], 0.7 + (0.1 / 0.2) * 0.15)
+        self.assertEqual(sens.crossing([0.5, 1.0], [0.4, 0.8], 1.0)["status"], "none_in_grid")
+        self.assertEqual(sens.crossing([0.5, 1.0], [1.4, 0.8], 1.0)["status"], "met_at_lowest")
+        low = sens.crossing([0.5, 0.7, 1.0], [5.0, 3.0, 0.0], 0.0, higher_is_better=False)  # worse-pair count reaching 0
+        self.assertEqual(low["status"], "interpolated")
+        self.assertAlmostEqual(low["x"], 1.0)
+        self.assertEqual(sens.crossing([0.5, 1.0], [5.0, 2.0], 0.0, higher_is_better=False)["status"], "none_in_grid")
+
+    def test_eta_classification_uses_registered_range_and_provenance(self):
+        import sensitivity as sens
+        self.assertIn("inside", sens.classify_eta(0.8))
+        self.assertIn("outside", sens.classify_eta(0.95))
+        self.assertIn("no break-even", sens.classify_eta(None))
+        self.assertEqual(sens.provenance_of("eta_cxl")["provenance"], "ASSUMED")
+
+    def test_star_rescoring_pm10(self):
+        import sensitivity as sens
+        m = dict(qa1_ratio=0.95, ttft_p99_worst_own=2100.0, tpot_p99_worst_own=40.0, qa3_multiplier=1.0)
+        self.assertEqual(sens.stars_scaled(m, 1.0), dict(qa1=2, qa2=2, qa3=2, total=6))
+        self.assertEqual(sens.stars_scaled(m, 1.1)["qa2"], 3 - 0)  # 2100 <= 2200
+        self.assertEqual(sens.stars_scaled(m, 0.9)["qa1"], 2)
+        self.assertEqual(sens.stars_scaled(dict(m, qa1_ratio=0.85), 0.9)["qa1"], 2)  # 0.85 >= 0.81
+        self.assertEqual(sens.stars_scaled(dict(m, qa1_ratio=0.85), 1.0)["qa1"], 1)
+
+    def test_summary_and_table_generator_from_synthetic_data(self):
+        import sensitivity as sens
+        import sensitivity_table as tab
+
+        def cm(r, m, tw):
+            return dict(qa1_ratio=r, qa1_stars="x", qa1_abs_goodput_tps=1.0, qa1_n_cand_zero=0, ttft_p99_ms_own=1.0, tpot_p99_ms_own=1.0,
+                        ttft_p99_ms_common=1.0, ttft_p99_ms_load1=1.0, qa2_stars_own="x", qa2_stars_load1="x", ttft_p99_worst_own=1.0,
+                        tpot_p99_worst_own=1.0, ttft_p99_worst_load1=1.0, tpot_p99_worst_load1=1.0, qa3_gib=1.0, qa3_multiplier=m,
+                        qa3_stars="x", qa3_load1_multiplier=m, tail_ttft_worse_common=tw, tail_ttft_pairs_common=6,
+                        tail_ttft_worst_ratio_common=1.0 + tw, tail_ttft_worse_own=tw, tail_ttft_pairs_own=6, tail_ttft_worst_ratio_own=1.0)
+        grid = {}
+        for e in sens.ETAS:
+            for b in sens.BGS:
+                r = 0.5 + e * 0.6 - b * 0.1
+                grid[f"eta{e}_bg{b}"] = {s: dict(candidates={"Baseline-RDMA": cm(1.0, 1.0, 0), C1: cm(r, r, int(6 * (1 - e))), C2: cm(r, r, int(6 * (1 - e)))})
+                                         for s in (*sens.SYSTEMS, "INT-H100-B200")}
+        summary = {"eta_cxl_bg": grid}
+        be = sens.break_even(summary)
+        r = be["INT-H100-B200"][C1]["bg0.0"]["qa1_ratio_ge_1"]
+        self.assertEqual(r["status"], "interpolated")
+        self.assertAlmostEqual(r["x"], 0.7 + (1.0 - (0.5 + 0.7 * 0.6)) / ((0.5 + 0.85 * 0.6) - (0.5 + 0.7 * 0.6)) * 0.15)
+        self.assertEqual(be["INT-H100-B200"][C1]["bg0.85"]["ttft_worse_pairs_common_eq_0"]["status"], "interpolated")
+        S = dict(meta=dict(etas=list(sens.ETAS), backgrounds=list(sens.BGS), eta_bw_parity=0.675), main={"INT-H100-B200": dict(candidates={"Baseline-RDMA": cm(1.0, 1.0, 0), C1: cm(0.7, 0.2, 5), C2: cm(0.7, 0.2, 5)})},
+                 configs={"eta_cxl_bg": grid}, break_even=be, one_param_sweeps={}, star_boundary_pm10={})
+        text = tab.tables(S)
+        self.assertIn("| 0.7 |", text)
+        self.assertIn("Break-even over eta_cxl", text)
+        self.assertIn("interpolated", text)
+
+
 if __name__ == "__main__":
     unittest.main()
