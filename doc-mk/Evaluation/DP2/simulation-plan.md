@@ -44,7 +44,7 @@ DP1 simulator(`DP1/sim/`)는 1초 time-step의 데이터 객체 모델이고 요
 |---|---|---|
 | 노드 간 링크 BW | 12.5 / 50 / 200 / 400 GB/s | 결정이 이 값에 민감 (D 로컬 대 P 경로 격차) |
 | Telemetry 갱신 주기 | 10 ms ~ 1 s | stale plan 영향 |
-| 결정 비용 (후보당) | 0.1 / 1 / 10 ms | C1/C2 결론이 이 가정에 의존 |
+| 결정 비용 (결정 1건, 후보 64개 기준, 후보 수에 선형) | 0.1 / 1 / 10 ms | C1/C2 결론이 이 가정에 의존 |
 | Cost Model 오차 ε (lognormal σ) | 0 / 0.2 / 0.4 / 0.6 | Planner가 estimator에 의존 (SKILL H17). 정책 상수는 재조정하지 않는다 |
 | 노드 수, Tier 수, planner worker | `benchmark.md` §6 | QA5 |
 | DP1-C1 on/off | — | DP1 상호작용 |

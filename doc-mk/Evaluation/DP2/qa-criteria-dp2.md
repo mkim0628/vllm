@@ -30,9 +30,8 @@ DP1의 QA3(HBM 사용량)와 달리 DP2는 실행 위치가 바뀌어 P/D 풀 �
 **임시 정의 (SKILL H8, 공통 문서에 없음)**
 
 ```text
-U_useful = Σ_nodes ( SLO를 만족한 요청에 귀속되는 GPU busy time
-                    − 노드 간 전송 대기로 인한 stall 시간 )
-           / ( 노드 수 × 측정 시간 )
+U_useful = Σ_iteration ( iteration 시간 × [SLO 충족 요청 토큰 비중] )
+           / ( 노드 수 × 측정 시간 )          # 노드·풀별로도 계산 (m0-spec §8)
 ```
 
 - SLO 위반 요청이나 과도한 전송으로 얻은 사용률은 useful로 세지 않는다 (공통 §6).

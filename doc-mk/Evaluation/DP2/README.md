@@ -16,6 +16,8 @@ DP2: **Cost-based Prefill/Decode Execution Planning** — Turn 단위로 Prefill
 |---|---|
 | `qa-criteria-dp2.md` | DP2 QA 정의 (QA3 임시 정의, QA5 Scalability 신규, 진단 지표) — proposal |
 | `simulation-plan.md` | 평가 방법, 환경(SYS-H100/B200 + 노드 간 링크 신규 profile), simulator 확장 항목 — draft |
+| `m0-spec.md` | M0 사양 (물리 모델 규칙, Planner·Cost 정의, workload, 메트릭, 평가 규격, 가정 레지스터, 소유자 결정 O1~O11) — draft |
+| `sim/` | M0 산출물: `configs/`(파라미터, 링크 profile, 시나리오, 결과 스키마), `m0_check.py`, `m0_reference_values.json`. simulator 코드(M1~)는 아직 없음 |
 | `sim-extension-scope.md` | DP2 simulator 확장 범위 (접근 대안, 모듈 구성, 모델링 요구사항, 단계 M0~M6, 테스트 계획) — draft |
 | `benchmark.md` | CB-1~3 실현, Baseline-PD-fixed 정의, DP2 Stress 12 / Dynamic 4 / Scalability / QA4 변경 시나리오 — draft |
 | `results/` | 결과 문서 (`YYYY-MM-DD_<topic>.md`, `../result-template.md`) |

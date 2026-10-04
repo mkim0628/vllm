@@ -2,22 +2,26 @@
 """QA4 Modifiability: derive man-month and code-agent token cost from measured counts.
 
 Usage (from repo root):
-    python3 doc-mk/Evaluation/tools/qa4_modifiability.py
+    uv run --no-project python doc-mk/Evaluation/tools/qa4_modifiability.py [--dp DP1|DP4]   (default DP1)
 
-Input : DP1/results/data/qa4_measured_counts.json   (measured modules / LOC per scenario and candidate)
-Output: DP1/results/data/qa4_modifiability.json
-Formulas, constants and star thresholds are pre-registered in DP1/qa4-preregistration.md (sections 4, 5).
+Input : <DP>/results/data/qa4_measured_counts.json   (measured modules / LOC per scenario and candidate)
+Output: <DP>/results/data/qa4_modifiability.json
+Formulas, constants and star thresholds are pre-registered in DP1/qa4-preregistration.md (sections 4, 5);
+DP4/qa4-preregistration.md reuses them unchanged (mean aggregation from the start).
+A scenario/candidate with "major_interface_change": true forces the M1 star to one star (preregistration rule);
+counts files without that key (DP1) are unaffected.
 All constants below are ASSUMED (2026-10-03); prices change, edit PRICES and re-run.
 """
 from __future__ import annotations
 
+import argparse
 import itertools
 import json
 import statistics
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parents[1]
-DATA = EVAL / "DP1" / "results" / "data"
+DATA = EVAL / "DP1" / "results" / "data"   # rebound in main() from --dp
 
 # ---- ASSUMED constants (preregistration section 4) -------------------------------------------------
 MID = dict(c_mod=3.0, k_real=5.0, P=40.0, f_ovh=2.0,           # man-month
@@ -94,6 +98,8 @@ def star_set(per_sc, k, agg="mean"):
         else:
             sub = {"M1": min(stars_le(x, *M1_T) for x in n_l), "M2": min(stars_le(x, *M2_T) for x in mm_l),
                    "M3": min(stars_le(x, *M3_T) for x in usd_l)}
+        if any(d[cand].get("major_interface_change") for d in per_sc.values()):
+            sub["M1"] = 1   # preregistration: a major interface change forces M1 to one star
         res[cand] = {"sub": sub, "qa4": int(statistics.median(sub.values()))}
     return res
 
@@ -105,11 +111,13 @@ def s(n):
 s_ = s
 
 
-def main():
+def main(dp="DP1"):
+    global DATA
+    DATA = EVAL / dp / "results" / "data"
     src = json.loads((DATA / "qa4_measured_counts.json").read_text())
     scs = src["scenarios"]
     out = {"schema": "qa4_modifiability v2", "date": src["date"], "evidence": src["evidence"],
-           "inputs": "DP1/results/data/qa4_measured_counts.json", "constants_mid": MID, "constants_low": LOW,
+           "inputs": f"{dp}/results/data/qa4_measured_counts.json", "constants_mid": MID, "constants_low": LOW,
            "constants_high": HIGH, "prices_assumed_2026-10-03": PRICES, "thresholds": {
                "M1_modules": "<=2 ★★★, 3-5 ★★, >=6 ★", "M2_man_months": "<=0.5 ★★★, <=1.0 ★★, else ★",
                "M3_usd_T1": "<=3 ★★★, <=10 ★★, else ★", "qa4": "median of M1, M2, M3 stars", "aggregation": "mean metric over the 4 scenarios, then star (v2); worst-case v1 kept as *_worst_case"},
@@ -151,17 +159,59 @@ def main():
         r = star_set(scs, k)
         sens[name] = {c: {"sub": {a: s(b) for a, b in r[c]["sub"].items()}, "qa4": s(r[c]["qa4"])} for c in r}
     out["sensitivity_constants"] = sens
+    if dp != "DP1":
+        cross = {}
+        for nm, kk in (("mm_low_tokens_low", {**MID, **LOW, "mult_T1_frontier": MULT_T1_RANGE[0]}),
+                       ("mm_low_tokens_high", {**MID, "c_mod": LOW["c_mod"], "k_real": MID["k_real"], "P": LOW["P"], "f_ovh": LOW["f_ovh"], "tpl": HIGH["tpl"], "mult_T1_frontier": MULT_T1_RANGE[1]}),
+                       ("mm_high_tokens_low", {**MID, "c_mod": HIGH["c_mod"], "P": HIGH["P"], "f_ovh": HIGH["f_ovh"], "tpl": LOW["tpl"], "mult_T1_frontier": MULT_T1_RANGE[0]}),
+                       ("mm_high_tokens_high", {**MID, **HIGH, "mult_T1_frontier": MULT_T1_RANGE[1]})):
+            r = star_set(scs, kk)
+            cross[nm] = {c: {"sub": {a: s(b) for a, b in r[c]["sub"].items()}, "qa4": s(r[c]["qa4"])} for c in r}
+        out["sensitivity_constants_cross"] = cross
+        # one constant at a time (others MID): where does a sub-star first move?
+        one = {}
+        for key in ("c_mod", "k_real", "P", "f_ovh", "tpl"):
+            for nm, grp in (("low", LOW), ("high", HIGH)):
+                r = star_set(scs, {**MID, key: grp[key]})
+                one[f"{key}={grp[key]}"] = {c: {"sub": {a: s(b) for a, b in r[c]["sub"].items()}, "qa4": s(r[c]["qa4"])} for c in r}
+        out["sensitivity_one_at_a_time"] = one
     # sensitivity: module-count alternatives recorded in the counts file (analytic, not measured)
     alt = {}
-    d1 = json.loads(json.dumps(scs))
-    # S1 C2 with capability-class preference: drop the C2-only selector change
-    d1["S1"]["C2"]["changes"] = [c for c in d1["S1"]["C2"]["changes"] if c["shared"]]
-    # S4 with schema merged into Event Source
-    for c in ("C1", "C2"):
-        d1["S4"][c]["changes"] = [x for x in d1["S4"][c]["changes"] if not x["module"].startswith("Event/Migration")]
-    r = star_set(d1, MID)
-    alt["capclass_pref_and_event_schema_merged"] = {c: {"sub": {a: s(b) for a, b in r[c]["sub"].items()},
-                                                          "qa4": s(r[c]["qa4"])} for c in r}
+    if dp == "DP1":
+        d1 = json.loads(json.dumps(scs))
+        # S1 C2 with capability-class preference: drop the C2-only selector change
+        d1["S1"]["C2"]["changes"] = [c for c in d1["S1"]["C2"]["changes"] if c["shared"]]
+        # S4 with schema merged into Event Source
+        for c in ("C1", "C2"):
+            d1["S4"][c]["changes"] = [x for x in d1["S4"][c]["changes"] if not x["module"].startswith("Event/Migration")]
+        r = star_set(d1, MID)
+        alt["capclass_pref_and_event_schema_merged"] = {c: {"sub": {a: s(b) for a, b in r[c]["sub"].items()},
+                                                              "qa4": s(r[c]["qa4"])} for c in r}
+    else:
+        def put(name, dd, note):
+            r = star_set(dd, MID)
+            mm = {c: round(statistics.mean(man_month(len(dd[x][c]["changes"]), sum(y["loc_added"] for y in dd[x][c]["changes"]), MID)[0] for x in dd), 3) for c in r}
+            alt[name] = {"note": note, "mean_man_months": mm,
+                         **{c: {"sub": {a: s(b) for a, b in r[c]["sub"].items()}, "qa4": s(r[c]["qa4"])} for c in r}}
+        # (a) S1: CoherentRegion hardware model counted as a shared change of Publish/Visibility protocol (+1 module, +4 LOC each; analytic)
+        d1 = json.loads(json.dumps(scs))
+        for c in ("C1", "C2"):
+            d1["S1"][c]["changes"].append(dict(module="Publish/Visibility protocol (analytic)", shared=True, files=[], loc_added=4, module_size_loc=36))
+        put("S1_coherent_region_counted_as_shared_module", d1, "analytic: +1 shared module, +4 LOC (config 2 + Params 2) for both candidates; size 36 = Sim.on_xfer+on_move_done+on_pinned")
+        # (b) S3: C2 also needs its cacheline-packed entry layout extended (freq + reconstruction cost fields); analytic
+        d2 = json.loads(json.dumps(scs))
+        d2["S3"]["C2"]["changes"].append(dict(module="Shared metadata layout (analytic)", shared=False, files=[], loc_added=2, module_size_loc=15))
+        put("S3_C2_entry_layout_extended", d2, "analytic: C2 +1 module, +2 LOC (two per-entry fields); C1 unchanged")
+        # (c) S1 C2 grant protocol replacement regarded as a major interface change
+        d3 = json.loads(json.dumps(scs))
+        d3["S1"]["C2"]["major_interface_change"] = True
+        put("S1_C2_flagged_major_interface_change", d3, "preregistration rule: M1 = one star for C2 (module count irrelevant)")
+        # (d) all three analytic assumptions at once, against C1 (pessimistic for C2)
+        d4 = json.loads(json.dumps(d2))
+        for c in ("C1", "C2"):
+            d4["S1"][c]["changes"].append(dict(module="Publish/Visibility protocol (analytic)", shared=True, files=[], loc_added=4, module_size_loc=36))
+        d4["S1"]["C2"]["major_interface_change"] = True
+        put("all_analytic_alternatives_together", d4, "(a)+(b)+(c)")
     out["sensitivity_structure_alternatives"] = alt
     # price/token break-even: T1 is cheaper in USD only if its token multiplier is below this
     be = {}
@@ -171,9 +221,18 @@ def main():
             t1 = m["agent"]["T1_frontier"]["usd"] / PRICES["T1_frontier"]["mult"]   # USD at mult 1
             be[f"{x}_{c}"] = round(m["agent"]["T2_mid"]["usd"] / t1, 3) if t1 else None
     out["T1_break_even_token_multiplier"] = be
+    if dp != "DP1":
+        out["mean_over_scenarios_unrounded"] = {c: {
+            "modules": statistics.mean(out["scenarios"][x][c]["modules"] for x in scs),
+            "man_months": statistics.mean(man_month(out["scenarios"][x][c]["modules"], out["scenarios"][x][c]["loc_added"], MID)[0] for x in scs),
+            "usd_T1": statistics.mean(agent(out["scenarios"][x][c]["modules"], out["scenarios"][x][c]["loc_added"], out["scenarios"][x][c]["module_size_loc"], MID, STAR_TIER)[1] for x in scs)}
+            for c in ("C1", "C2")}
+        out["major_interface_change_flags"] = {x: {c: bool(scs[x][c].get("major_interface_change")) for c in ("C1", "C2")} for x in scs}
     (DATA / "qa4_modifiability.json").write_text(json.dumps(out, ensure_ascii=False, indent=1))
     print(json.dumps({"qa4_stars": out["qa4_stars"], "sub_stars": out["sub_stars"]}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dp", default="DP1", help="design point folder holding results/data/qa4_measured_counts.json (default DP1)")
+    main(ap.parse_args().dp)

@@ -8,7 +8,7 @@
 
 > **범위:** DP2는 **Turn 단위로 Prefill 실행 위치(n_p)와 Decode 시작 위치(n_d)**를 정한다. Decode 실행 중 Tier 간 KV 이동은 DP1 소관이라 이 benchmark에서 평가하지 않는다. 노드 간 KV 전송은 idealized executor와 링크 모델로 반영한다.
 
-시나리오의 단일 소스는 구현 후 `DP2/sim/scenarios.py`로 두고 아래 표는 생성한다(DP1 방식). 그 전까지는 이 표가 원천이다.
+시나리오의 단일 소스는 구현 후 `DP2/sim/scenarios.py`로 두고 아래 표는 생성한다(DP1 방식). 그 전까지는 이 표와 `sim/configs/scenario_params.json`(시작 파라미터, [`m0-spec.md`](m0-spec.md) §5.3)이 원천이며 이름 일치를 `sim/m0_check.py --verify`로 검사한다.
 
 | Set | 수 | 목적 |
 |---|---:|---|
@@ -55,10 +55,10 @@
 | `dp2_turn_dram_small_tool` | History가 D의 DRAM에 내려간 상태에서 재개 | Tier별 승격·전송 비용 차이를 모름 | hist 64K, tool 0.5K, tier DRAM |
 | `dp2_turn_hbf_hist` | History가 HBF(GPU 직접 읽기)에 있는 재개 | 직접 읽을 수 있는 KV도 P로 전송 | hist 128K, tool 2K, tier HBF |
 | `dp2_turn_ssd_hist` | History가 SSD-PIM에 있는 재개 (대조군) | Tier BW가 병목일 때의 전송 낭비 | hist 64K, tool 0.5K, tier SSD-PIM |
-| `dp2_tool_large_result` | Tool 결과가 큰 턴 (대조군, P가 최적 예상) | — (Planner가 Baseline과 같아야 함) | hist 16K HBM, tool 32K |
-| `dp2_prefill_burst_p_saturated` | Prefill burst로 P 포화, D는 여유 | P 큐 대기로 TTFT 악화, D 유휴 | arrival burst, prompt 8~32K, P:D 1:1 |
+| `dp2_tool_large_result` | Tool 결과가 큰 턴 (대조군, P가 최적 예상) | — (Planner가 Baseline과 같아야 함) | hist 16K HBM, tool 16K |
+| `dp2_prefill_burst_p_saturated` | Prefill burst로 P 포화, D는 여유 | P 큐 대기로 TTFT 악화, D 유휴 | arrival burst, prompt 8~16K, P:D 1:1 |
 | `dp2_decode_heavy_p_idle` | 긴 출력 위주로 D 포화, P 유휴 | D 병목, P GPU idle | out 2K, P:D 1:1 |
-| `dp2_long_ctx_decode_offload` | 128K~256K 세션 Decode, D의 HBM 용량 부족 | HBM 초과분을 DRAM 스트리밍하며 TPOT 악화 | ctx 128~256K, D hbm x0.12, ScHBM 오프로드 on |
+| `dp2_long_ctx_decode_offload` | 128K~256K History 세션 재개, D의 HBM 용량 부족 | HBM 초과분을 DRAM에서 swap-in 하며 TTFT/TPOT 악화 | hist 128~256K, tool 2K, D hbm x0.3, ScHBM 오프로드 on |
 | `dp2_session_size_skew` | 소수 256K 대형 세션 + 다수 8K 채팅 | 대형 세션이 한 D 노드에 쏠림 | heavy-tail, N_D=4 |
 | `dp2_internode_link_contention` | P↔D 링크를 다른 트래픽과 공유 (BW 25%) | 왕복 전송 지연이 TTFT에 직접 반영 | link x0.25 (DP1 host-link 경합과 같은 비율) |
 | `dp2_stale_telemetry` | Telemetry 갱신 지연 (10 ms~1 s sweep) | — (후보 견고성: C2 plan age 포함) | interval sweep |
