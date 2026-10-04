@@ -24,7 +24,7 @@ doc-mk/Evaluation/
 │   ├── qa-criteria-dp1.md       # DP1 보조 평가 기준 (세부 tier, 집계, C1 vs C2 직접 비교)
 │   ├── results/                 # 결과 문서 (YYYY-MM-DD_<topic>.md), data/ (qa_result.json), iterations/ (loop-log.md)
 │   └── sim/                     # simulator (scenarios.py, policies.py, simulator.py, qa_eval.py, configs/)
-├── DP2/  README.md, benchmark.md (TBD), results/
+├── DP2/  README.md, qa-criteria-dp2.md, simulation-plan.md, benchmark.md (draft), results/
 ├── DP3/  README.md, benchmark.md (TBD), results/
 └── DP4/  README.md, benchmark.md (TBD), results/
 ~~~
@@ -52,6 +52,6 @@ doc-mk/Evaluation/
 | DP | 범위 | 상태 |
 |---|---|---|
 | DP1 | AI Data Migration (simulator 있음) | 진행 중 |
-| DP2 | TBD | 미착수 |
+| DP2 | Prefill/Decode Execution Planning (Turn 단위 n_p, n_d) | 평가 설계 draft (simulator 미구현) |
 | DP3 | TBD | 미착수 |
 | DP4 | TBD | 미착수 |
