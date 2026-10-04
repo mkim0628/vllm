@@ -1220,6 +1220,8 @@ DataMemoryAffinity
 따라서 같은 KV Cache class 안에서
 B1과 B2의 실제 future reuse 차이까지 C1이 직접 예측하지 않는다.
 
+> 이 component가 **어떤 순서로 누구와 무엇을 주고받는지**, 그리고 simulator를 실제로 호출한 worked example은 **§10A**를 본다.
+
 ## 8.7 Destination Tier Selector
 
 다음 정보를 결합해 target tier를 선택한다. 입력은 출처가 서로 다르다.
@@ -1353,6 +1355,363 @@ sequenceDiagram
 Agent tool-call에 따른 KV lifetime/residency는
 DP1 C1에 동적 behavior predictor를 추가하기보다
 별도의 Agent-aware KV management 구조로 보완한다.
+
+---
+
+# 10A. C1 Data-Memory Affinity Mapper — 동작 순서와 Worked Examples
+
+> **목적:** §6~§10에 나뉘어 있는 Affinity Mapper의 역할을 "**어떤 순서로, 어떤 module과, 무엇을 주고받는가**" 관점으로 한곳에 정리하고,
+> `Evaluation/DP1/sim`을 실제로 호출해서 얻은 수치로 5개 상황을 단계별로 따라간다.
+>
+> - **번호:** §11 이후의 번호와 cross-reference를 유지하기 위해 §10 바로 뒤에 **§10A**로 둔다.
+> - **수치의 출처:** 본 절의 모든 수치는 `doc-mk/Evaluation/DP1/sim`(`policies.py`, `simulator.py`, `model.py`)을 **`SYS-B200` profile**(`model.load_profile(configs, 'SYS-B200')`)로 직접 호출한 결과다. 호출 방법은 §10A.4 서두에 있다. simulation 출력이므로 실측 [A]가 아니라 [B+C]이며, 코드는 working tree의 현재 상태(미커밋 수정 포함)를 기준으로 했다.
+> - **예시의 한계:** 예시 1~5는 policy 객체(`C1ResourceDrivenMigration.on_event`, `DestinationTierSelectorC1.select`)를 직접 호출하는 **작은 harness**다. 전체 시나리오 run(`run_sim`)의 결과가 아니다. 전체 run의 효과는 §10A.5에서 평가 결과 문서의 값을 인용한다.
+
+## 10A.1 역할과 경계
+
+**Affinity Mapper가 하는 일.** object의 *정적* 특성을 memory 선택에 쓸 수 있는 형태로 제공한다.
+
+~~~text
+static hint (object 단위, allocation 시점에 선언)
+ ├─ latency_sensitivity / bandwidth_sensitivity / capacity_sensitivity   # 0~1, class-level 선언값
+ ├─ op                : attention | weight_fetch | context_fetch | index_scan   # operation class
+ └─ shape             : ctx_tokens, concurrency, out_tokens, touch_bytes, vec_dim
+~~~
+
+- hint에는 **data type 이름이 없다.** `KV_CACHE`, `RAG_DATA` 같은 이름 → operation class 변환은 hint를 만드는 쪽(sim에서는 `simulator.OPERATION_CLASS`, 설계상 §26-3의 Affinity Table)에만 있다.
+  C1의 Registry·Eviction·Selector 코드는 `op` 문자열과 숫자만 본다 (§5.3, §8.5, §24).
+- hint는 **object별 runtime behavior가 아니다.** 접근 횟수, 재사용 간격, hotness를 추적하지 않는다. shape 필드(`ctx_tokens`, `concurrency` 등)도 호출자가 allocation 때 **선언한 값**이지 관측값이 아니다. 이것이 C1 정체성의 fence다 (§24, `dp1-c1-qa1-complement-design.md` §6.2).
+- Mapper가 **하지 않는 일:** victim 선택(Eviction Manager), pressure 판단(Resource State Monitor / Trend Analyzer), 서빙 비용 계산(AccessCostEstimator), 예산 관리(MigrationBudget), 실제 이동(Planner/Executor).
+
+**누가 무엇을 소유하는가**
+
+| 역할 | 소유 module | sim 대응 | 생산 / 소비 |
+|---|---|---|---|
+| hint 생산 | data를 만든 runtime 쪽(allocation 호출자) + Affinity Table(configuration) | `simulator.static_hints(objs)`, `OPERATION_CLASS` | 생산: allocation 시점 1회. 소비: DTS, promotion pass |
+| hint 보관 | Affinity Mapper (object_id → hint). **Registry와 분리** | `SimContext.static_affinity_hints` | Registry는 location/size/tier/movable만 가짐 (`registry.C1ObjectRecord`에 type 필드 없음) |
+| affinity 점수 | Affinity Mapper | `DataMemoryAffinityMapper.score(mem, state, hint)` | DTS가 호출 |
+| 서빙 비용 추정 | Resource Manager 쪽 공유 module (Memory Registry descriptor만 입력) | `AccessCostEstimator` (`estimate`, `service_extra_s`, `slo_ok`, `budget_fraction`) | DTS와 promotion pass가 호출. **C2도 같은 module을 공유** |
+| victim 후보 | Data Eviction Manager (+ Registry) | `DataEvictionManager.candidates` | type 무관 |
+| 목적지 결정 | Destination Tier Selector | `DestinationTierSelectorC1.select` | hint + ResourceState + descriptor 결합 |
+| 정적 승격/교환 | C1 policy 내부 pass (설계 §17.2) | `C1ResourceDrivenMigration._promotion_pass` | hint + estimator만 사용 |
+
+**설계 문서와 sim의 차이 (읽을 때 주의):**
+
+1. §8.8은 Affinity Mapper가 Migration Data Selector에 "candidate ranking hint"를 준다고 적었지만, sim의 `MigrationDataSelectorC1.select`는 Eviction Manager가 정렬한 후보의 **앞에서부터 required bytes만큼** 자를 뿐 affinity를 쓰지 않는다. 즉 현재 구현에서 hint의 소비처는 DTS와 promotion pass 두 곳이다.
+2. 설계상 "Mapper"는 hint 보관 + 점수 + (shape 전달) 묶음이지만, sim에서는 `static_hints`(생산), `DataMemoryAffinityMapper.score`(점수), `AccessCostEstimator`(비용)로 나뉘어 있다.
+3. 설계 문서의 ScHBM은 sim config에 별도 항목이 없고 `custom_hbm`이 가장 가까운 대응이다 (§5.8.10). 아래 예시의 `custom_hbm` 값은 "ScHBM 대용" 값이다.
+
+## 10A.2 동작 순서
+
+C1에서 Mapper가 관여하는 시점은 **등록 시점(1회)**, **tick마다의 목적지 결정**, **tick마다의 정적 승격 pass** 세 곳이다. 나머지 단계에서는 hint를 쓰지 않는다.
+
+| # | 시점 / 주기 | actor → receiver | 주고받는 data | Mapper의 기여 | sim 코드 |
+|---|---|---|---|---|---|
+| 0 | object 등록 (`ALLOCATED`, 1회) | Runtime(data 소유자) → Affinity Mapper | `object_id`, `op`, shape, 민감도 3종 | **hint 도출·보관**. object가 생길 때 한 번만 | `static_hints`, `SimContext.static_affinity_hints` |
+| 0' | 같은 event | Migration Scheduler → Data Object Registry | `object_id`, `size`, `tier`, `movable` (type 없음) | 없음 (Registry는 hint를 모름) | `on_event(ALLOCATED)` → `registry.add` |
+| 1 | `ACCESSED` event | Event Source → C1 | `object_id`, count | **없음. C1은 폐기** (`return [], 0.2`) | `on_event` |
+| 2 | telemetry tick (sim 1 s) | Telemetry Collector → Migration Scheduler → Resource State Monitor | tier별 `capacity_util`, `bw_util` (미처리 `TELEMETRY`는 최신 것만 남기고 coalesce) | 없음 | `MigrationScheduler.push`, `ResourceStateMonitor.observe` |
+| 3 | 같은 tick | Resource State Monitor → Trend Analyzer | `ResourceState` (current / predicted = 현재 + 기울기 × horizon 2) → `score = max(current_pressure, current_bw, predicted_pressure, predicted_bw)`, **0.82 이상**이면 pressure source | 없음. 단, 이 `ResourceState`는 4단계 DTS가 **목적지의 여유 용량 항**으로 받는다 | `ResourceStateMonitor.states`, `ResourceBasedTrendAnalyzer.pressure_sources` |
+| 4 | pressure source마다 | Trend Analyzer → Eviction Manager → Registry → Migration Data Selector | `required = occupancy − 0.72 × capacity` (≤ 0이고 score ≥ 0.94면 `0.05 × capacity`), 후보 = Registry의 `objects_in_tier`를 `size × (1 + min(age/60, 1))` 내림차순, cooldown 8 s 통과분. MDS는 앞에서부터 `required`를 채울 때까지 자름 | 없음 (설계 §8.8의 ranking hint는 미구현) | `DataEvictionManager.candidates`, `MigrationDataSelectorC1.select` |
+| 5 | victim마다 | DTS → Affinity Mapper → DTS | `hint(object_id)` 조회, `score(mem, ResourceState, hint)` | **affinity 점수**: `0.35 × (1 − 목적지 predicted_pressure) + 0.25 × bw_sens × bw + 0.20 × lat_sens × latency + 0.20 × cap_sens × capacity` | `DataMemoryAffinityMapper.score` |
+| 5' | 같은 호출 | DTS → AccessCostEstimator (← Memory Registry descriptor) | `estimate(tier, hint, size) → (TTFT, TPOT)`, `service_extra_s`, `budget_fraction` | **hint의 `op`+shape가 입력**. SLO 위반 tier 제거, 후보 비교 penalty | `AccessCostEstimator` |
+| 5'' | 같은 호출 | DTS 내부 | filter: 용량 부족, 목적지 predicted_pressure ≥ source, SLO 위반, (source가 HBM이 아니면) do-no-harm. 결과 `argmax(affinity − budget_fraction)` | 위 두 입력의 결합 | `DestinationTierSelectorC1.select` |
+| 6 | 목적지 확정 직후 | DTS → MigrationBudget | `est_transfer_s = size / min(src.ext_bw, dst.ext_bw, dst.write_bw)` | 없음. 거부되면 object는 그대로 | `MigrationBudget.try_spend` (token bucket: 채움률 0.25 s/s, 용량 0.25 × 8 s = 2.0 s) |
+| 7 | 같은 tick 끝 | C1 → Planner/Executor → Registry | `MigrationDecision(object, src, dst, reason, direction)` → 검증(source tier 일치, 목적지 용량) → 전송 → `on_migration_committed` → `registry.move`, `last_migration` 갱신, 전송 시간의 20%를 다음 접근에 노출 | 없음 | simulator 본 loop, `MIGRATION_EXPOSURE` |
+| 8 | **별도 pass**: 매 tick 4~7 뒤 | C1 → Affinity Mapper(hint) + AccessCostEstimator → Budget | "지금 tier에서는 SLO 위반인데 HBM이면 만족"하는 object를 찾고, HBM이 가득하면 정적 손실이 훨씬 작은 HBM 거주 object와 교환. `gain ≥ AFFINITY_MARGIN(2.0) × loss`일 때만 | **hint + 비용 추정만으로 promotion trigger 생성** (설계 §17.2). resource pressure와 무관 | `_promotion_pass` |
+
+~~~mermaid
+sequenceDiagram
+    participant RT as Runtime (data 소유자)
+    participant MS as Migration Scheduler
+    participant TC as Telemetry Collector
+    participant RSM as Resource State Monitor
+    participant RTA as Trend Analyzer
+    participant DEM as Data Eviction Manager
+    participant DOR as Data Object Registry
+    participant MDS as Migration Data Selector
+    participant AM as Affinity Mapper
+    participant ACE as AccessCostEstimator
+    participant DTS as Destination Tier Selector
+    participant BG as MigrationBudget
+    participant MC as Planner / Executor
+
+    Note over RT,DOR: 단계 0 등록 시점, object당 1회
+    RT->>AM: hint 등록 (object_id, op, shape, 민감도)
+    RT->>MS: ALLOCATED (object_id, size, tier)
+    MS->>DOR: add (object_id, size, tier, movable) 단, type과 hint는 없음
+    Note over RT,MS: 단계 1 ACCESSED event는 C1이 폐기
+
+    loop 매 telemetry tick
+        TC->>MS: TELEMETRY (tier별 capacity_util, bw_util)
+        MS-->>RSM: 비동기 evaluate
+        RSM->>RTA: ResourceState (current, predicted)
+        RTA->>RTA: pressure source 판정 (0.82 이상)
+        RTA->>DEM: source tier, required_free_bytes
+        DEM->>DOR: objects_in_tier (source)
+        DOR-->>DEM: object_id, size, tier, movable
+        DEM->>MDS: 후보 (size x age 순, cooldown 통과)
+        MDS-->>DTS: victim 목록 (required를 채울 때까지)
+
+        loop 각 victim
+            DTS->>AM: hint 조회 (object_id)
+            AM-->>DTS: op, shape, 민감도
+            DTS->>ACE: estimate / service_extra_s / budget_fraction (tier별)
+            ACE-->>DTS: TTFT, TPOT, SLO 여부, penalty
+            DTS->>AM: score (descriptor, ResourceState, hint)
+            AM-->>DTS: affinity 점수
+            DTS->>DTS: SLO filter, do-no-harm, argmax (affinity - budget_fraction)
+            DTS->>BG: try_spend (est_transfer_s)
+            alt 예산 통과
+                BG-->>MC: MigrationDecision (object, src, dst, reason)
+            else 예산 부족
+                BG-->>DTS: 이번 tick은 이동 안 함
+            end
+        end
+
+        Note over AM,BG: 단계 8 정적 승격 pass, pressure와 무관
+        AM-->>MC: hint + ACE로 SLO 위반 object 탐지, swap 계획 (gain 대 loss, margin 2.0)
+        MC->>MC: 검증 (source tier, 목적지 용량), 전송, commit
+        MC->>DOR: move (object_id, target tier)
+    end
+~~~
+
+**시간 규약 요약**
+
+- Mapper의 hint는 **등록 시 1회** 만들어지고 이후 바뀌지 않는다. tick마다 달라지는 것은 `ResourceState`(목적지 여유 용량)뿐이다.
+- 한 tick의 처리 비용은 policy가 `decision_cost_us = 14 µs × max(1, decision 수)`로 보고한다 (예: 7개 이동이면 98 µs).
+- per-object cooldown 8 s와 budget window 8 s는 같은 상수(`COOLDOWN_S`)다. 방금 옮긴 object는 8 s 동안 4단계 후보와 8단계 후보에서 모두 빠진다.
+- 8단계 swap은 **한 번에 하나만** 진행한다. victim 강등이 끝나면 승격에 필요한 전송 시간을 budget에서 `reserved`로 잡아, 다른 이동이 승격을 굶기지 못하게 한다.
+
+## 10A.3 평가 harness와 공통 전제
+
+**시스템:** `SYS-B200` (B200 x8, 6개 memory). 아래 값은 `model.load_profile`이 올린 `MemorySpec`이다.
+
+| tier | 용량 | ext BW | int BW | latency | attention 오프로드 | 비고 |
+|---|---:|---:|---:|---:|:---:|---|
+| `hbm` | 1536 GiB | 64,000 GB/s | 64,000 GB/s | 300 ns | - | GPU 8장 합산 |
+| `custom_hbm` (ScHBM 대용) | 384 GiB | 63 GB/s | 16,000 GB/s | 2 µs | 가능 | GPU가 직접 못 읽음 |
+| `cxl_pnm` | 512 GiB | 63 GB/s | 400 GB/s | 300 ns | 가능 | |
+| `dram` | 1024 GiB | 64 GB/s | 400 GB/s | 200 ns | 불가 | |
+| `hbf` | 2048 GiB | 1,000 GB/s | 1,000 GB/s | 5 µs | 불가 | write 50 GB/s |
+| `ssd_pim` | 16384 GiB | 16 GB/s | 200 GB/s | 60 µs | 불가 | GEMV(similarity)만 |
+
+SLO는 `FIRST_RESPONSE_SLO_S = 2.0 s`, `TPOT_SLO_S = 0.050 s`다 (`simulator.py`).
+
+**호출 방법 (모든 예시 공통)**
+
+~~~python
+import sys; sys.path.insert(0, "doc-mk/Evaluation/DP1/sim")
+from pathlib import Path
+import model, policies as P
+from simulator import static_hints
+sysm, pid, prof = model.load_profile(Path("doc-mk/Evaluation/DP1/sim/configs"), "SYS-B200")
+est = P.AccessCostEstimator(sysm)          # Memory Registry descriptor 기반
+am  = P.DataMemoryAffinityMapper()
+sel = P.DestinationTierSelectorC1(sysm, am, est)
+slo = (2.0, 0.050)
+
+# object: model.DataObject(oid, class, size, base_rate, access_bytes, ctx, out_tokens, lifetime, batch_size=..., latency_sensitivity=DATA_PRIORS[class]["latency"])
+#   KV 크기 = 327680 B/token x ctx (scenarios.py의 KV 크기식, Llama-3.1-70B GQA), access_bytes = size x ACCESS_FRAC[class]
+hint = static_hints([o])[o.oid]            # 등록 시점의 hint (단계 0)
+est.estimate(tier, hint, size)             # -> (TTFT s, TPOT s)
+est.service_extra_s(tier, hint, size)      # HBM 대비 접근 1회의 추가 서빙 시간 s
+est.slo_ok(tier, hint, size, *slo); est.budget_fraction(tier, hint, size, *slo)
+am.score(sysm.memories[tier], state, hint) # affinity 점수
+sel.select(rec, "hbm", states, occupancy, capacity_by_tier, hint, slo)   # 목적지, 없으면 None
+~~~
+
+- `state`는 `P.ResourceState`. 아래 예시 1의 표는 source `hbm`의 predicted_pressure 0.88, 나머지 tier는 0.2로 둔 상태다.
+- `policy.on_event(MigrationEvent(TELEMETRY, t, metadata={"telemetry": ...}), ctx)`로 policy를 직접 구동한 경우(예시 1, 4, 5)는 `ctx`를 `SimContext`와 같은 필드(`occupancy`, `effective_capacity`, `static_affinity_hints`, `slo_*`)를 가진 stub으로 만들고, 반환된 decision을 `on_migration_committed`로 commit했다. 예시 4, 5의 HBM 용량 400 GiB는 시나리오의 `hbm_capacity_mult`(HBM이 빠듯한 상황)를 흉내 낸 값이다.
+
+## 10A.4 Worked Examples
+
+### 예시 1. HBM 압박 중인 KV block은 어디로 가는가
+
+**초기 상태.** HBM effective capacity 330 GiB, KV 30개(각 10 GiB = 327680 B × 32768 ctx, batch 16, out 64)가 모두 HBM에 있다 (occupancy 300 GiB). 다른 tier는 비어 있고 telemetry `capacity_util`은 0.2다. HBM `capacity_util`은 1 s tick마다 0.70, 0.76, 0.82, 0.88, 0.91로 증가한다 (harness가 주입한 값).
+
+**hint (등록 시점, 단계 0).**
+`{op: attention, ctx_tokens: 32768, concurrency: 16, out_tokens: 64, touch_bytes: 10 GiB, latency_sensitivity 0.98, bandwidth_sensitivity 0.85, capacity_sensitivity 0.8}`
+
+**단계별 진행 (실제 `on_event` 호출 결과).**
+
+| 단계 | actor | 입력 → 결과 |
+|---|---|---|
+| tick t=1 (3) | Resource State Monitor / Trend Analyzer | util 0.70, 기울기 없음 → predicted 0.700 < 0.82. **pressure source 없음**, decision 0건. budget 토큰 2.000 s |
+| tick t=2 (2~3) | Resource State Monitor | util 0.76. 기울기 (0.76 − 0.70)/1 = 0.06/tick → **predicted = 0.76 + 0.06 × 2 = 0.880**. 현재값은 0.82 미만인데도 projected 값으로 pressure source가 된다 (선제 대응, §8.2) |
+| (4) | Eviction Manager → MDS | `required = 300 − 0.72 × 330 = 62.4 GiB`. 후보는 크기·age가 같아 object_id 내림차순(30, 29, …). MDS는 **7개(70 GiB)** 를 자른다 |
+| (5) | DTS (+ Affinity Mapper, AccessCostEstimator) | victim 30에 대해 아래 표를 계산 → **dram** |
+| (6) | MigrationBudget | `est_transfer_s = 10 GiB / 64 GB/s = 0.168 s` × 7 = 1.176 s. 토큰 2.000 → 0.826 s. 전부 통과 |
+| (7) | Planner/Executor → Registry | 7개 모두 `hbm → dram`, reason `resource_pressure`, direction `demotion`, score 0.880. commit 후 `registry.move`, cooldown 시작. policy 비용 98 µs |
+| tick t=3 | Trend Analyzer | util 0.82, predicted 0.940 (emergency 0.94 이상). 남은 occupancy 230 GiB < 0.72 × 330라 `required ≤ 0` → `0.05 × 330 = 16.5 GiB` → 2개 추가 이동 |
+
+(t=3 이후 telemetry는 occupancy와 연동되지 않는 주입값이므로 emergency 경로의 동작만 보인 것이다.)
+
+**victim 30의 목적지 평가 (`states`: source hbm 0.88, 나머지 0.2).**
+
+| 후보 tier | 용량 | TTFT / TPOT | SLO(2 s / 50 ms) | affinity | budget_fraction | score = affinity − budget_fraction |
+|---|:---:|---|:---:|---:|---:|---:|
+| `dram` | O | 0.219 s / 8.06 ms | O | 0.7365 | 0.0839 | **0.6526 (선택)** |
+| `hbf` | O | 0.062 s / 5.60 ms | O | 0.6439 | 0.0054 | 0.6385 |
+| `custom_hbm` | O | 0.052 s / 18.62 ms | O | 0.6400 | 0.2636 | 0.3764 |
+| `ssd_pim` | O | 0.723 s / 15.92 ms | O | 0.6012 | 0.3355 | 0.2657 |
+| `cxl_pnm` | O | 0.052 s / **616.71 ms** | **X** | 0.7172 | 12.2255 | −11.5083 (후보 제외) |
+
+호출: `est.estimate(t, hint, 10*GiB)`, `am.score(sysm.memories[t], state[t], hint)`, `est.budget_fraction(t, hint, 10*GiB, *slo)`, `sel.select(rec, "hbm", states, {}, {}, hint, slo)` → `"dram"`.
+
+**왜 이렇게 되는가.**
+
+- **attention 오프로드가 가능한 tier(`custom_hbm`=ScHBM 대용, `cxl_pnm`)도 후보다.** 이 hint의 `op`가 `attention`이므로 estimator는 `offloaded_attention_s`로 TPOT을 계산한다. `custom_hbm`은 내부 BW 16 TB/s라 TPOT 18.62 ms로 SLO를 만족하지만 HBM 대비 접근당 0.844 s의 penalty가 있어 점수가 0.3764로 낮다. `cxl_pnm`은 batch 16 × 32K KV(160 GiB)를 내부 BW 400 GB/s로 읽어야 해 TPOT가 616.71 ms다.
+- **오프로드 불가 tier(`dram`, `hbf`, `ssd_pim`)는 "복원 후 HBM attention" 경로다.** TTFT에 `10 GiB / ext_bw`가 더해지고 TPOT는 그 복원 시간을 out_tokens로 나눈 만큼 늘어난다. `dram`은 TTFT +0.168 s, `hbf`는 +0.011 s(ext BW 1 TB/s)이다.
+- **dram과 hbf의 차이는 0.014로 작다.** 서빙 penalty만 보면 `hbf`(0.021 s)가 `dram`(0.336 s)보다 0.315 s 유리하지만, penalty는 SLO budget으로 정규화되어(`TTFT 차 / 2.0 s`) 0.0839 대 0.0054로만 반영되고, affinity 점수는 `dram`의 낮은 latency(200 ns)와 용량 항이 앞선다. 또한 `hbf`로의 전송은 write BW 50 GB/s 때문에 0.215 s(`dram` 0.168 s)이고, `hbf`의 write endurance(`write_amp` 3.0)는 `select()`가 참조하지 않는다 (§5.9.5의 write-limited 보호는 별도 계층의 몫이다).
+
+**takeaway.** 같은 pressure 상황에서 "어디로"는 affinity 점수 단독이 아니라 **(hint의 op+shape → 서빙 비용 추정) 로 후보를 거르고, 남은 후보를 affinity − penalty로 정렬**해서 정해진다. "언제/몇 개"는 hint와 무관한 Trend Analyzer, Eviction Manager가 정한다.
+
+### 예시 2. 같은 hint 메커니즘이 RAG shard와 Agent memory를 다른 곳으로 보낸다
+
+**초기 상태.** 예시 1과 같은 pressure(hbm 0.88, 나머지 0.2)에서 HBM에 있는 두 object를 각각 내려야 한다. 두 object 모두 `static_hints()`로 만든 hint를 갖고, Registry에는 `(object_id, size, tier=hbm)`만 있다.
+
+| object | 등록 시 hint (요약) |
+|---|---|
+| RAG shard 40 GiB, batch 16 | `op=index_scan`, `touch_bytes`=40 GiB(전체), `vec_dim` 1024, latency 0.78, **bandwidth 0.45**, capacity 0.8 |
+| Agent memory 16 GiB, batch 16 | `op=context_fetch`, `touch_bytes`=3.30 GB(= min(size, access_bytes × batch)), latency 0.55, bandwidth 0.45, capacity 0.8 |
+
+**단계 (5)~(5'') DTS의 평가.**
+
+| tier | RAG: TTFT | RAG: SLO | RAG: score | Agent: TTFT | Agent: SLO | Agent: score |
+|---|---:|:---:|---:|---:|:---:|---:|
+| `dram` | 10.775 s | X | −4.7404 | 0.089 s | O | **0.5554 (선택)** |
+| `hbf` | **0.724 s** | **O** | **0.2085 (선택)** | 0.040 s | O | 0.5319 |
+| `cxl_pnm` | 10.945 s | X | −4.8433 | 0.089 s | O | 0.5391 |
+| `custom_hbm` | 10.945 s | X | −4.9057 | 0.089 s | O | 0.4937 |
+| `ssd_pim` | 3.557 s | X | −1.2275 | 0.243 s | O | 0.4225 |
+
+호출: `sel.select(rec_rag, "hbm", states, {}, {}, hint_rag, slo)` → `"hbf"`, `sel.select(rec_agent, "hbm", ...)` → `"dram"`.
+
+**왜 갈리는가.**
+
+- RAG는 `index_scan`이라 `rag_retrieval_s`가 쓰인다. 어느 tier에도 GEMV 능력이 없는 경우(`dram`, `hbf`, `custom_hbm`, `cxl_pnm`)에는 `index_bytes × batch / ext_bw`만큼 vector가 링크를 건너야 한다. `dram`은 40 GiB × 16 / 64 GB/s ≈ 10.7 s라 SLO를 넘고, ext BW 1 TB/s인 `hbf`만 0.724 s로 통과한다. `ssd_pim`은 GEMV로 scan은 내부에서 끝나지만 batch 16에서 TTFT 3.557 s로 SLO(2 s)를 넘는다.
+- Agent memory는 `touch_bytes`가 3.3 GB뿐이라 모든 tier의 penalty가 0.052 s 이하이고 전부 SLO를 통과한다. 그러면 affinity 점수가 결정하고, `dram`(낮은 latency + 큰 용량)이 `hbf`보다 높다 (0.5554 대 0.5319).
+- **정직하게 읽어야 할 점:** 두 object의 민감도 값은 거의 같다 (0.45/0.8 동일, latency만 0.78 대 0.55). RAG를 `hbf`로 보낸 것은 "bandwidth_sensitivity가 높아서"가 아니라 **hint의 op class와 touch_bytes가 estimator를 통해 만든 SLO 필터**다. RAG의 `bandwidth_sensitivity`는 0.45다 (`access_bytes/size`가 0.025로 0.1 미만이라 `static_hints`가 낮은 쪽을 부여).
+- 같은 RAG라도 96 GiB shard, batch 64로 키우면 모든 tier가 SLO를 넘고(`hbf`도 TTFT 6.635 s) `select`는 `None`을 돌려준다. **목적지가 없으면 이동하지 않는다.** object는 HBM에 남고 pressure 해소는 다른 victim에 맡겨진다.
+
+**takeaway.** "RAG는 bandwidth, Agent memory는 latency/capacity"라는 설계 서술(§8.6 표)이 sim에서는 **민감도 숫자가 아니라 operation class + shape**로 구현되어 있다. 같은 hint 채널, 같은 `select`가 object마다 다른 destination을 만든다.
+
+### 예시 3. 가장 끌리는 목적지를 서빙 비용 모델이 거부한다
+
+**초기 상태.** 예시 1과 같은 KV(10 GiB, ctx 32768, batch 16, out 64)를 HBM에서 내려야 하는데 **DRAM이 가득 찬 상태**(occupancy = capacity)다. DRAM이 빠지면 affinity가 가장 높은 tier는 `cxl_pnm`이다.
+
+**단계.**
+
+| 단계 | actor | 결과 |
+|---|---|---|
+| (5) | Affinity Mapper | 용량이 되는 tier 중 affinity 최고 = **`cxl_pnm` 0.7172** (`hbf` 0.6439, `custom_hbm` 0.6400, `ssd_pim` 0.6012). affinity만 쓰면 `cxl_pnm`을 고른다 (`max(rows, key=affinity)`) |
+| (5') | AccessCostEstimator | `cxl_pnm`: TTFT 0.052 s, TPOT **616.71 ms** (SLO 50 ms의 12.3배), `service_extra_s` 39.122 s, `budget_fraction` 12.2255 |
+| (5'') | DTS | `slo_ok == False` (source `hbm`은 SLO를 만족하므로 "source도 위반이면 더 나은 쪽 허용" 예외에도 해당 없음) → **후보에서 제거**. 남은 후보 중 `argmax(affinity − budget_fraction)` = **`hbf` 0.6385** |
+| (6)~(7) | Budget, Executor | `hbf` 전송 `10 GiB / min(64 GB/s, 1 TB/s, write 50 GB/s)` = 0.215 s. 통과 후 commit |
+
+호출: `sel.select(rec, "hbm", states, {"dram": cap_dram}, {}, hint, slo)` → `"hbf"`.
+
+**정확히 무엇이 거부했는가.** SLO 필터를 끄고 `affinity − budget_fraction`만 비교해도 `hbf`가 1위다 (`cxl_pnm`은 −11.5083). 즉 거부의 주체는 affinity 점수가 아니라 **estimator의 penalty 항과 SLO 필터**다 (§8.7의 serving cost 항, 평가 loop iteration 1이 추가). affinity는 오히려 CXL-PNM을 선호했다.
+
+**같은 mechanism, 다른 shape (batch 1).** `concurrency = 1`로 바꾸면 `cxl_pnm`의 TPOT가 40.86 ms로 줄어 SLO를 **통과**한다 (`service_extra_s` 2.447 s). 그래도 score는 −0.0473이라 `hbf`(0.6385)에 진다. 정적 hint의 shape가 바뀌면 같은 tier에 대한 판정이 SLO 위반에서 "허용되지만 불리"로 바뀐다 (시나리오 `kv_b1_c32k_cold_cxl`이 이 경로를 검증하려는 것과 같은 방향).
+
+**takeaway.** affinity는 "선호"를, estimator는 "가능성과 비용"을 말한다. C1이 type-agnostic이어도 CXL-PNM attention 경로 같은 함정을 피할 수 있는 이유는 data type을 아는 게 아니라 **hint의 op+shape + descriptor** 때문이다.
+
+### 예시 4. 정적 affinity 승격 + swap (SLO 위반 object를 HBM으로)
+
+**초기 상태.** HBM effective capacity 400 GiB, 거주 object 27개 합계 322 GiB (util 0.805 < 0.82라 **resource pressure 경로는 동작하지 않는다**).
+
+| HBM 거주 object | 개수 | 크기 | hint의 op |
+|---|---:|---:|---|
+| KV (ctx 32768, batch 32) | 6 | 10 GiB | attention |
+| Agent memory | 8 | 20 GiB | context_fetch |
+| MoE expert | 6 | 4 GiB | weight_fetch |
+| LoRA adapter | 4 | 1.5 GiB | weight_fetch |
+| RAG | 3 | 24 GiB | index_scan |
+
+**promotion 후보 P:** DRAM에 있는 KV 60 GiB (ctx 196608, batch 32, out 64). 상태 판정은 `est.estimate`로 얻는다.
+
+| P의 위치 | TTFT / TPOT | SLO |
+|---|---|:---:|
+| `dram` | 1.156 s / **53.97 ms** | **X** (TPOT 50 ms 초과) |
+| `hbm` | 0.149 s / 38.24 ms | O |
+
+**단계 (8, `_promotion_pass`).**
+
+1. **후보 판정.** `service_extra_s("dram")` = **gain 2.0133 s**. DRAM에서는 SLO 위반, HBM에서는 만족 → 승격 후보. 접근 rate나 type은 보지 않는다.
+2. **필요 공간.** `need = max(60 − (400 − 322), 322 + 60 − 0.82 × 400) = 54 GiB`.
+3. **victim 평가.** 각 HBM 거주 object에 `select(strict_pressure=False)`로 강등 목적지를 정하고 `loss = service_extra_s(dst)`, 정렬 키 = `loss / size`.
+
+| 거주 object | 강등 목적지 | loss | loss / GiB |
+|---|---|---:|---:|
+| Agent 20 GiB | `dram` | 0.0644 s | **0.0032** |
+| RAG 24 GiB | `hbf` | 0.4059 s | 0.0169 |
+| KV 10 GiB | `dram` | 0.3355 s | 0.0336 |
+| MoE 4 GiB | `dram` | 0.1342 s | 0.0336 |
+| LoRA 1.5 GiB | `dram` | 0.0503 s | 0.0336 |
+
+4. **victim 선택.** loss/GiB가 가장 작은 Agent 20 GiB 3개(id 106, 107, 108) → 60 GiB ≥ 54 GiB. `loss` 합 = 0.1931 s.
+5. **margin 검사.** `gain / loss = 2.0133 / 0.1931 = 10.43` ≥ `AFFINITY_MARGIN` 2.0 → **swap 진행**.
+6. **budget과 실행 (실제 `on_event` 결과).**
+   - t=1: victim 3개 `hbm → dram`, reason `static_affinity_swap`. 각 전송 20 GiB / 64 GB/s = 0.336 s, 합 1.007 s. 토큰 2.000 → 0.993 s. 승격(P: 60 GiB, 1.007 s)은 0.993 s로는 부족해 `budget.reserved = 1.007 s`로 잡고 `pending_promotion`에 계획(deadline = now + 4 × 8 s = 33 s)을 남긴다.
+   - t=2: 토큰 +0.25 s → 승격 `dram → hbm`, reason `static_affinity_promotion`, 토큰 0.237 s. reserved 해제.
+
+**takeaway.** promotion trigger는 resource pressure가 아니라 **hint와 descriptor만으로 "이 object는 HBM에서만 SLO를 만족한다"는 정적 판정**에서 나온다 (설계 §17.2). swap의 자리는 "정적 손실이 가장 작은" HBM 거주 object(여기서는 touch_bytes가 작은 Agent memory)가 내준다. gain이 loss의 10.43배라 margin 2.0을 쉽게 넘는다.
+
+### 예시 5. affinity가 구분하지 못하는 경우 (C1의 알려진 한계)
+
+**5a. 같은 hint는 같은 결정이다.** KV 두 개 `a`, `b`(10 GiB, ctx 32768, batch 16)가 있고 실제 접근률은 `a` 3.0/s, `b` 0.15/s(20배 차이, `DataObject.rate_at`)다.
+
+| 확인 항목 | 결과 |
+|---|---|
+| `static_hints([a])[a] == static_hints([b])[b]` (id 제외) | True |
+| `sel.select(rec_a, "hbm", ...)`, `sel.select(rec_b, "hbm", ...)` | 둘 다 `dram` |
+| 후보 tier별 (SLO, affinity, penalty) 표 | 완전히 동일 |
+| `DataEvictionManager.candidates("hbm", 100.0)` 순서 | `[202, 201]` (크기·age 동률 → object_id 내림차순. 접근률과 무관) |
+
+C1이 가진 입력(hint, size, tier, 마지막 *이동* 후 경과 시간)에는 hot과 cold 차이가 들어 있지 않다. 이것이 §10 한계와 §24의 경계가 말하는 "같은 class 안 object 구분 불가"다.
+
+**5b. 정적 신호가 비슷하면 swap은 margin에 막히거나, 막히지 않아도 엉뚱한 object가 선택된다.** 예시 4의 승격 후보 P(gain 2.0133 s)를 두고, HBM 거주 object를 **모두 같은 class**로 바꾼다: KV 8개(ctx 131072, batch 32, 각 40 GiB, 합 320 GiB, util 0.8). 이 중 4개(id 300~303)는 접근률 0.3/s, 4개(304~307)는 사실상 idle(0.015/s)이다. `need = 52 GiB` → victim 2개 필요.
+
+| 조건 | victim 강등 목적지 | loss(개당) | 2개 합 | gain / loss | margin 2.0 | 결과 |
+|---|---|---:|---:|---:|:---:|---|
+| **HBF가 가득 참** | `dram` | 1.3422 s | 2.6844 s | **0.75** | 미달 | **swap 안 함** (3 tick 동안 decision 0건. 토큰 2.000 s 유지) |
+| HBF에 여유 있음 | `hbf` | 0.0859 s | 0.1718 s | 11.72 | 통과 | swap 진행: t=1에 victim **300, 301**을 `hbm → hbf`, 토큰 0.282 s로 모자라 승격은 reserved 대기, t=4에 승격(토큰 0.025 s) |
+
+- 첫 행: SLO를 어기고 있는 P는 그대로 남는다. 어느 victim이 cold인지 모르는 C1은 "40 GiB KV를 DRAM으로 내렸을 때의 정적 손실"만 볼 수 있고, 그 손실(1.3422 s)이 gain(2.0133 s)과 같은 자릿수라 margin을 넘지 못한다. 같은 class끼리는 gain과 loss가 크기 비례 정도로만 다르다 (`dp1-c1-qa1-complement-design.md` §1.2).
+- 둘째 행: swap은 일어나지만 **내려간 victim은 hot한 300, 301**이다. 정렬 키(`loss / size`)가 모두 같으면 object_id 오름차순이 tie-break이기 때문이다. idle인 304~307이 아니다. C2의 `DataBehaviorMonitor`는 이 둘을 구분한다.
+
+**takeaway.** C1의 승격/swap 결과는 **object의 실제 hotness가 아니라 정적 손실과 tie-break에 의해** 정해진다. 이 한계를 줄이려면 관측 신호가 필요하고, 그만큼 C2 쪽으로 이동한다 (§17.2 마지막 문장, complement design §6.2 fence).
+
+## 10A.5 Mapper가 할 수 있는 것 / 없는 것 (측정 결과와 함께)
+
+| 구분 | 내용 | 근거 |
+|---|---|---|
+| **할 수 있다** | operation class + shape로 "이 tier에서는 SLO를 못 맞춘다"를 type 이름 없이 판정해 목적지를 거르고 (예시 3), shape에 따라 destination을 달리 정한다 (예시 2). | 본 절의 호출 결과 |
+| **할 수 있다** | resource pressure가 없어도, SLO를 어기는 낮은 tier object를 HBM으로 올리는 promotion trigger를 만든다 (예시 4). C1의 처리량 이득 대부분이 여기서 나온다. | 아래 ablation |
+| **할 수 없다** | 같은 class, 같은 shape인 object 사이의 hot/cold 구분 (예시 5a), 이에 따른 victim 선택과 swap 대상 선택 (예시 5b). | 본 절, complement design §1.2 |
+| **할 수 없다** | workload phase 변화나 request-specific reuse 변화의 반영 (hint는 등록 시 고정). | §10 한계 |
+| **약하다** | affinity **점수** 자체. SLO-feasible 후보 사이를 가르는 tie-breaker 수준이고 (예시 1의 0.014 차이), 평가에서는 측정 가능한 기여가 없었다. | 아래 ablation |
+
+**평가 결과 인용 (출처: `Evaluation/DP1/results/2026-10-02_dp1-qa-evaluation.md` §4.7, 5 seed, 동일 시나리오, simulation [B+C]).**
+
+| 지표 | Baseline | C1 affinity 제거 | C1 (affinity 포함) | C2 |
+|---|---:|---:|---:|---:|
+| QA1 goodput (tok/s) | 336 | 354 (x1.05) | 436 (x1.30) | 478 (x1.42) |
+| QA2 TTFT P99 (ms) | 1,084 | 1,372 (x1.27) | 1,128 (x1.04) | 785 (x0.72) |
+| Baseline 대비 승/무/패 | - | 2/29/0 | 6/25/0 | 10/21/0 |
+
+| C1 변형 | QA1 배수 | TTFT P99 배수 | 승/무/패 |
+|---|---:|---:|---|
+| affinity 포함 | x1.298 | x1.04 | 6/25/0 |
+| affinity **점수**만 제거 (DTS) | x1.299 | x1.04 | 6/25/0 |
+| 정적 affinity **승격**만 제거 | x1.053 | x1.27 | 2/29/0 |
+
+- 같은 문서의 결론: "효과의 출처는 정적 affinity 승격 pass다. affinity 점수만 빼면 x1.299로 거의 변화가 없고, 승격 pass를 빼면 x1.053로 떨어진다." 즉 §10A.2의 **단계 8이 성능을 만들고, 단계 5의 점수는 현재 평가에서 측정 가능한 기여가 없다** (예시 4와 예시 1의 차이와 일치한다). 단, 서빙 비용 estimator(단계 5')는 모든 변형에 남겨 둔 공유 module이라 이 ablation으로 그 기여는 분리되지 않았다.
+- 같은 문서의 한계 서술: "affinity를 포함해도 C1의 처리량(x1.30)은 C2(x1.42)보다 낮다. affinity는 격차를 대부분 줄이지만 C2를 이기게 하지는 않는다."
+- `dp1-c1-qa1-complement-design.md` §1.2의 동적 시나리오(`recency_shift`, `idle_kv`, `rotating`) 진단: C1의 migration은 run당 0.8~1.6회(C2 20.6~30.4회)이고, C1의 `seeds_goodput`이 같은 seed의 Baseline과 **완전히 같은** 경우가 15개 중 10개다. 예시 5가 보이는 "정적 신호로는 움직일 근거가 없다"의 실측 쪽 증거다.
+- **caveat:** 위 수치는 simulation [B+C]이며 cost 추정 오차 0 조건이다 (평가 문서 §4.6의 오차 sweep 참고). 별 합계 선택(C1 10 대 C2 9)은 QA2 별 경계(x1.28 대 1.25)에 민감하다고 해당 문서가 적었다.
 
 ---
 
