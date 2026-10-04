@@ -71,7 +71,18 @@ def eff_group(res, scen, c):
     bs = [res[l]["per_scenario"][s][BASE] for l, s in scen]
     cost, base_cost = statistics.mean(p["cost_occ"] for p in ps), statistics.mean(p["cost_occ"] for p in bs)
     tiers = sorted(ps[0]["tier_occ_gib"])
-    return dict(rel=by["registered"]["rel"], ci95=by["registered"]["ci95"], by_scheme=by, cost_occ=cost, base_cost_occ=base_cost,
+    # QA3 v6 (official): HBM usage relative to Baseline (lower is better); saving factor = 1 / ratio. Cost-weighted occupancy = auxiliary.
+    hbm_r, hbm_ci = agg_ratio(res, scen, c, BASE, "seeds_hbm_occ") if scen else (1.0, 0.0)
+    cost_by = {}
+    for sch in schemes:
+        cr, cci = agg_ratio(res, scen, c, BASE, "seeds_cost_" + sch) if scen else (1.0, 0.0)
+        cost_by[sch] = dict(ratio=cr, ci95=cci)
+    hbm = dict(ratio=hbm_r, ci95=hbm_ci, saving=1.0 / max(1e-12, hbm_r), saving_ci95=hbm_ci / max(1e-12, hbm_r) ** 2,
+               gib=statistics.mean(p["tier_occ_gib"]["hbm"] for p in ps), base_gib=statistics.mean(p["tier_occ_gib"]["hbm"] for p in bs),
+               n_reduced=sum(1 for p, b in zip(ps, bs) if p["tier_occ_gib"]["hbm"] < 0.99 * b["tier_occ_gib"]["hbm"]),
+               n_increased=sum(1 for p, b in zip(ps, bs) if p["tier_occ_gib"]["hbm"] > 1.01 * b["tier_occ_gib"]["hbm"]))
+    return dict(rel=by["registered"]["rel"], ci95=by["registered"]["ci95"], by_scheme=by, hbm=hbm, cost_ratio_by_scheme=cost_by,
+                cost_occ=cost, base_cost_occ=base_cost,
                 cost_ratio=cost / max(1e-12, base_cost),
                 tier_occ_gib={m: statistics.mean(p["tier_occ_gib"][m] for p in ps) for m in tiers})
 
@@ -184,7 +195,9 @@ def add_dp1_stars(group):
         x["dp1_star"] = dict(
             qa1=dp1_star(x["qa1"]["ratio"], cfg["qa1_ratio_edges"]),
             qa2=dp1_star(l_all, cfg["qa2_latency_improvement_edges"]),
-            qa3=dp1_star(x["eff"]["rel"], cfg["qa3_eff_relative_edges"]),   # v5: resource efficiency (official)
+            qa3=dp1_star(x["eff"]["hbm"]["saving"], cfg["qa3_hbm_saving_edges"]),   # v6: HBM usage saving factor (official, higher is better)
+            qa3_eff_ref=dp1_star(x["eff"]["rel"], cfg["qa3_eff_relative_edges"]),   # v5 performance-per-cost star, diagnostic only
+            qa3_cost_saving_ref=dp1_star(1.0 / max(1e-12, x["eff"]["cost_ratio_by_scheme"]["registered"]["ratio"]), cfg["qa3_hbm_saving_edges"]),   # cost-weighted occupancy saving, auxiliary
             qa3_util_diag=dp1_star(x["qa3"]["rel_vs_baseline"], cfg["qa3_relative_edges"]),   # v4 pooled-utilization star, diagnostic only
             qa3_common_ref=x["qa3"]["common_star"],  # common 65%/85% absolute star, reference only
             qa1_ci_straddles_edge=any(abs(x["qa1"]["ratio"] - e) <= x["qa1"]["ci95"] for e in cfg["qa1_ratio_edges"]),
@@ -202,10 +215,11 @@ def star_sensitivity(group):
 
 
 def star_sensitivity_qa3(group):
-    """QA3 (resource efficiency) stars of C1/C2 under each cost-weight scheme (cost_model.py)."""
+    """Auxiliary: cost-weighted occupancy saving (1/ratio) and its star under each price scheme (cost_model.py)."""
     cfg = CFG["dp1_star"]
-    schemes = group[C1]["eff"]["by_scheme"]
-    return {sch: {c: dict(rel=group[c]["eff"]["by_scheme"][sch]["rel"], star=dp1_star(group[c]["eff"]["by_scheme"][sch]["rel"], cfg["qa3_eff_relative_edges"])) for c in (C1, C2)} for sch in schemes}
+    schemes = group[C1]["eff"]["cost_ratio_by_scheme"]
+    return {sch: {c: dict(saving=1.0 / max(1e-12, group[c]["eff"]["cost_ratio_by_scheme"][sch]["ratio"]),
+                          star=dp1_star(1.0 / max(1e-12, group[c]["eff"]["cost_ratio_by_scheme"][sch]["ratio"]), cfg["qa3_hbm_saving_edges"])) for c in (C1, C2)} for sch in schemes}
 
 
 def rate(res):

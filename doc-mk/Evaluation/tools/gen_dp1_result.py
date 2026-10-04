@@ -85,11 +85,11 @@ def dp1_star_table(sysid=PRIMARY):
             x = g[c]; l = x["qa2"]["latency"]
             return f"**{x['dp1_star']['qa2']}** x{x['qa2']['latency_improvement_geomean']:.2f} (TTFT P50/P95/P99 {l['ttft_p50_ms']['median']:,.0f}/{l['ttft_p95_ms']['median']:,.0f}/{l['ttft_p99_ms']['median']:,.0f} ms, TPOT {l['tpot_p50_ms']['median']:.1f}/{l['tpot_p95_ms']['median']:.1f}/{l['tpot_p99_ms']['median']:.1f} ms)"
         def c3(c):
-            x = g[c]; e = x['eff']
-            return f"**{x['dp1_star']['qa3']}** x{e['rel']:.2f}±{e['ci95']:.2f} (비용 가중 점유 x{e['cost_ratio']:.2f})"
+            x = g[c]; h = x['eff']['hbm']
+            return f"**{x['dp1_star']['qa3']}** HBM x{h['ratio']:.2f} (절감 배수 {h['saving']:.2f}) · 보조: 비용 가중 점유 x{x['eff']['cost_ratio']:.2f}"
         rows.append(f"| {name} ({n}) | QA1 Throughput | {c1(B)} [B+C] | {c1(C1)} [B+C] | {c1(C2)} [B+C] |")
         rows.append(f"| | QA2 Latency | {c2(B)} [B+C] | {c2(C1)} [B+C] | {c2(C2)} [B+C] |")
-        rows.append(f"| | QA3 Resource efficiency | {c3(B)} [B+C] | {c3(C1)} [B+C] | {c3(C2)} [B+C] |")
+        rows.append(f"| | QA3 Resource usage (HBM) | {c3(B)} [B+C] | {c3(C1)} [B+C] | {c3(C2)} [B+C] |")
     rows.append("| **QA4 Modifiability** | | — | ★★★ [C] | ★★ [C] |")
     return "\n".join(rows)
 
@@ -318,7 +318,7 @@ def summary_section():
         return gm(["ttft_p50_ms", "ttft_p95_ms", "ttft_p99_ms"]), gm(["tpot_p50_ms", "tpot_p95_ms", "tpot_p99_ms"])
     rows.append(f"| **QA2 Latency** [B] | TTFT와 TPOT를 따로 보고: P50/P95/P99 개선 배수의 geomean(합친 값이 별점) · 중앙값 TTFT (Baseline: {lat(B)}) | **{st[C1]['QA2']}** 합 x{G[C1]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{split(C1)[0]:.2f} · TPOT x{split(C1)[1]:.2f}) · {lat(C1)} | **{st[C2]['QA2']}** 합 x{G[C2]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{split(C2)[0]:.2f} · TPOT x{split(C2)[1]:.2f}) · {lat(C2)} |")
     E1, E2 = G[C1]["eff"], G[C2]["eff"]
-    rows.append(f"| **QA3 Resource efficiency** [B] | 비용 가중 메모리 점유 대비 SLO goodput (Baseline 대비 상대, 95% CI) · 비용 가중 점유 배수 · HBM 점유 GiB | **{st[C1]['QA3']}** x{E1['rel']:.2f} ±{E1['ci95']:.2f} · 점유 x{E1['cost_ratio']:.2f} · HBM {E1['tier_occ_gib']['hbm']:.0f} GiB | **{st[C2]['QA3']}** x{E2['rel']:.2f} ±{E2['ci95']:.2f} · 점유 x{E2['cost_ratio']:.2f} · HBM {E2['tier_occ_gib']['hbm']:.0f} GiB |")
+    rows.append(f"| **QA3 Resource usage (HBM)** [B] | HBM 사용량 Baseline 대비 비율(낮을수록 좋음, 별점은 절감 배수 = 1/비율) · HBM을 줄인/늘린 시나리오 수 · (보조) 비용 가중 점유 배수 | **{st[C1]['QA3']}** x{E1['hbm']['ratio']:.2f} (절감 {E1['hbm']['saving']:.2f}) ±{E1['hbm']['ci95']:.2f} · {E1['hbm']['n_reduced']}개 줄임 / {E1['hbm']['n_increased']}개 늘림 · 가중 x{E1['cost_ratio']:.2f} | **{st[C2]['QA3']}** x{E2['hbm']['ratio']:.2f} (절감 {E2['hbm']['saving']:.2f}) ±{E2['hbm']['ci95']:.2f} · {E2['hbm']['n_reduced']}개 줄임 / {E2['hbm']['n_increased']}개 늘림 · 가중 x{E2['cost_ratio']:.2f} |")
     rows.append(f"| **QA4 Modifiability** [B+C] | 변경 시나리오 4종 평균: module 수 · 개발 공수(man-month) · 에이전트 비용(frontier tier) | **{st[C1]['QA4']}** {m['C1']['modules']:.2f}개 · {m['C1']['man_months']:.2f} MM · ${m['C1']['usd_T1']:.2f} | **{st[C2]['QA4']}** {m['C2']['modules']:.2f}개 · {m['C2']['man_months']:.2f} MM · ${m['C2']['usd_T1']:.2f} |")
     rows.append(f"| **별 합계** | | **{o['totals'][C1]}** | **{o['totals'][C2]}** |")
     table = "\n".join(rows)
@@ -328,7 +328,7 @@ def summary_section():
     rev = nm[o["reversed_winner"]]
     win_c = nm[o["winner"]]
     if o["rule"] == "total":
-        why = f"별 합계가 높은 {win_c}를 선택한다."
+        why = f"별 합계가 높은 {win_c} 후보를 선택한다."
     else:
         why = f"별 합계가 {o['totals'][C1]} 대 {o['totals'][C2]}로 같아 QA 우선순위({pr})를 적용한다. 별이 처음 갈리는 {o['deciding']}에서 앞선 {win_c}를 선택한다."
     text = f"""# 0. 최종 요약
@@ -343,11 +343,11 @@ Baseline(현재 방식: 최초 배치를 고정하고 이동하지 않음)을 1.
 
 ## 0.2 Trade-off와 그 이유
 
-**성능(QA1)은 C2가, 리소스 효율(QA3 값)과 확장성(QA4)은 C1이 앞선다. 지연(QA2)은 별이 같지만 값은 C2가 높다.** 이동의 링크 비용은 지연·처리량에 반영되어 있고(링크 간섭 모델), 쓰는 메모리 비용은 QA3가 잰다.
+**성능(QA1)은 C2가, 자원 사용(QA3: HBM을 덜 씀)과 확장성(QA4)은 C1이 앞선다. 지연(QA2)은 별이 같지만 값은 C2가 높다.** 이동의 링크 비용은 지연·처리량에 반영되어 있고(링크 간섭 모델), 비싼 메모리(HBM)를 얼마나 쓰는지는 QA3가 잰다. 성능과 자원은 반대 방향으로 움직이는 것이 이 trade-off의 핵심이다.
 
 - **왜 C2의 처리량(QA1)과 지연(QA2)이 좋은가.** C2는 데이터 하나하나의 접근 빈도, 재사용, 유휴 시간을 보고 "곧 뜨거워질 것/식을 것"을 판단해 이동한다. 같은 종류(예: 모두 KV cache) 안에서도 방금 활발해진 세션과 오래 놀고 있는 세션을 구분할 수 있다. C1은 메모리 자원 상태(용량 압박, 대역폭)에만 반응하고 데이터를 종류로 구분하지 않아 같은 종류 안의 hot/cold를 구분하지 못한다. 그래서 같은 종류의 데이터에서 hot 대상이 시간에 따라 바뀌는 시나리오(hot 대화가 옮겨 감, 사용자 그룹이 번갈아 활성)에서 C2만 이기고 C1은 Baseline과 같다. Dynamic에서 Baseline을 유의하게 이긴 쌍은 C1 {len(dyn[C1]['win'])}개, C2 {len(dyn[C2]['win'])}개(비교 가능 {n_dyn_valid}개 중)이다.
 - **왜 QA2는 별이 같은가.** 두 후보 모두 개선 배수가 ★★★ 경계(1.25)를 넘는다. 값은 C1 x{G[C1]['qa2']['latency_improvement_geomean']:.2f}, C2 x{G[C2]['qa2']['latency_improvement_geomean']:.2f}로 C2가 낫지만 3단계 별에서는 가려진다. 지연 분포의 꼬리(P99)는 간섭 모델 반영 후 차이가 더 벌어졌다(중앙값 TTFT P99 C1 {G[C1]['qa2']['latency']['ttft_p99_ms']['median']:,.0f} ms 대 C2 {G[C2]['qa2']['latency']['ttft_p99_ms']['median']:,.0f} ms).
-- **왜 리소스 효율(QA3)은 C1이 높은가.** 효율은 비용 가중 메모리 점유 대비 성능이다. 이동은 데이터 총량을 바꾸지 않고 어느 메모리에 두느냐만 바꾼다. C1은 DRAM 링크가 포화로 보일 때 DRAM의 데이터를 더 싼 HBF로 옮겨(DRAM {E1['tier_occ_gib']['dram']:.0f} GiB, Baseline {G[B]['eff']['tier_occ_gib']['dram']:.0f}) 비용 가중 점유가 x{E1['cost_ratio']:.2f}로 줄면서 처리량이 x{G[C1]['qa1']['ratio']:.2f} 올랐다. C2는 처리량이 x{G[C2]['qa1']['ratio']:.2f}로 더 오르지만 hot 데이터를 HBM으로 올려 HBM 점유가 {E2['tier_occ_gib']['hbm']:.0f} GiB(Baseline {G[B]['eff']['tier_occ_gib']['hbm']:.0f})로 늘어 비용 가중 점유가 x{E2['cost_ratio']:.2f}가 된다. 그래서 효율은 C1 x{E1['rel']:.2f}, C2 x{E2['rel']:.2f}로 둘 다 ★★★ 경계(1.25) 위지만 C1이 높다. 메모리 가격 가중치가 ASSUMED라 HBM 가중을 3배/10배로 바꾸면 C1 x{E1['by_scheme']['hbm_3x']['rel']:.2f}/x{E1['by_scheme']['hbm_10x']['rel']:.2f}, C2 x{E2['by_scheme']['hbm_3x']['rel']:.2f}/x{E2['by_scheme']['hbm_10x']['rel']:.2f}이고 순서는 같다.
+- **왜 C1이 HBM을 덜 쓰는가(QA3).** 이동은 데이터 총량을 바꾸지 않고 어느 메모리에 두느냐만 바꾼다. C1은 HBM 사용량을 Baseline 대비 x{E1['hbm']['ratio']:.2f}로 유지·소폭 줄이고(21쌍 중 {E1['hbm']['n_reduced']}개 줄임, {E1['hbm']['n_increased']}개 늘림) DRAM 링크가 포화로 보일 때 DRAM의 데이터를 더 싼 HBF로 옮긴다(DRAM {E1['tier_occ_gib']['dram']:.0f} GiB, Baseline {G[B]['eff']['tier_occ_gib']['dram']:.0f}). C2는 성능을 위해 hot 데이터를 HBM으로 올려 HBM 사용량이 x{E2['hbm']['ratio']:.2f}({E2['hbm']['n_increased']}개 시나리오에서 늘림)이 된다. 즉 **C2는 성능을 얻기 위해 HBM을 더 쓰고, C1은 덜 쓰되 성능 이득이 작다.** 보조 지표인 비용 가중 점유(DRAM 대비 상대 가격, ASSUMED)도 같은 방향이다(C1 x{E1['cost_ratio']:.2f}, C2 x{E2['cost_ratio']:.2f}; HBM 가중 3배/10배에서 C1 x{E1['cost_ratio_by_scheme']['hbm_3x']['ratio']:.2f}/x{E1['cost_ratio_by_scheme']['hbm_10x']['ratio']:.2f}, C2 x{E2['cost_ratio_by_scheme']['hbm_3x']['ratio']:.2f}/x{E2['cost_ratio_by_scheme']['hbm_10x']['ratio']:.2f}).
 - **이동 비용은 어디에 반영되나.** 이동은 같은 링크의 서빙 대역폭을 나눠 쓰므로(간섭 모델) C2의 migration {Qf[C2]['migration_gib']:,.0f} GiB(C1 {Qf[C1]['migration_gib']:,.0f} GiB), 링크 점유 {Qf[C2]['migration_link_frac']*100:.1f}%(C1 {Qf[C1]['migration_link_frac']*100:.1f}%)는 지연 개선 배수를 낮췄다(C2 x{PRE[C2]['qa2']['latency_improvement_geomean']:.2f}에서 x{G[C2]['qa2']['latency_improvement_geomean']:.2f}, C1 x{PRE[C1]['qa2']['latency_improvement_geomean']:.2f}에서 x{G[C1]['qa2']['latency_improvement_geomean']:.2f}; 비교 가능한 쌍 수가 달라져 단순 비교는 아니다). 결정 연산은 C2 {Qf[C2]['decision_overhead_ms']:.0f} ms/run(C1 {Qf[C1]['decision_overhead_ms']:.0f} ms).
 - **왜 C1의 확장성(QA4)이 높은가.** C1은 데이터 종류를 모르는 구조라 새 종류의 데이터(예: sparse embedding)를 추가해도 고칠 곳이 거의 없다(module 1개). C2는 종류별 선호와 특성을 알고 있어 새 데이터 종류에 module 3개, 새 메모리를 선호 목록에 올려야 쓰이는 문제(module 2개)가 있다. 공수와 에이전트 비용도 C2가 1.3배 안팎이다. 이 값들은 시뮬레이터 복사본에 변경을 구현해 module/LOC를 측정하고 공수·비용은 가정 상수로 계산한 추정이다.
 
@@ -356,8 +356,8 @@ Baseline(현재 방식: 최초 배치를 고정하고 이동하지 않음)을 1.
 1. QA 우선순위는 {pr}이다 ({PRIO['status']}). 근거: {PRIO['rationale']}
 2. 규칙: 별 합계가 높은 후보를 선택하고, **합계가 같을 때만** 우선순위로 가른다 (`tools/dp_selection.py`).
 3. 결과: C1 {o['totals'][C1]}, C2 {o['totals'][C2]}. {why} **선택: {win_c}.**
-4. 결정 민감도: 우선순위를 뒤집으면({' > '.join(reversed(PRIO['priority']))}) 같은 규칙에서 {rev}가 선택된다. 이 선택은 "성능을 확장성보다 우선한다"는 판단에 의존한다.
-5. 경계 취약성: QA1 ★★★ 경계(1.30)는 결과를 본 뒤 정했고 C1(x{G[C1]['qa1']['ratio']:.3f})은 그 바로 아래(95% CI가 경계에 걸침), C2(x{G[C2]['qa1']['ratio']:.3f})는 위에 있다. C1의 QA2(x{G[C1]['qa2']['latency_improvement_geomean']:.2f})도 ★★★ 경계(1.25) 바로 위다. QA4 평균 집계도 결과를 본 뒤 바꿨고 C2의 공수 평균이 경계(0.5 MM)를 0.006 넘은 수준이라 상수에 민감하다. 값 자체의 차이(C2/C1 goodput x{G[C2]['qa1']['ratio']/G[C1]['qa1']['ratio']:.2f})는 경계와 무관하다.
+4. 결정 민감도: {('선택은 별 합계로 정해져 QA 우선순위와 무관하다. 다만 합계 차이는 ' + str(abs(o['totals'][C1] - o['totals'][C2])) + '점으로 근소해 별 경계와 QA 정의에 민감하다(5번).') if o['rule'] == 'total' else ('우선순위를 뒤집으면(' + ' > '.join(reversed(PRIO['priority'])) + ') 같은 규칙에서 ' + str(rev) + ' 후보가 선택된다. 이 선택은 우선순위 판단에 의존한다.')}
+5. 경계 취약성: QA1 ★★★ 경계(1.30)는 결과를 본 뒤 정했고 C1(x{G[C1]['qa1']['ratio']:.3f})은 그 바로 아래(95% CI가 경계에 걸침), C2(x{G[C2]['qa1']['ratio']:.3f})는 위에 있다. C1의 QA2(x{G[C1]['qa2']['latency_improvement_geomean']:.2f})도 ★★★ 경계(1.25) 바로 위다. QA4 평균 집계도 결과를 본 뒤 바꿨고 C2의 공수 평균이 경계(0.5 MM)를 0.006 넘은 수준이라 상수에 민감하다. 값 자체의 차이(C2/C1 goodput x{G[C2]['qa1']['ratio']/G[C1]['qa1']['ratio']:.2f})는 경계와 무관하다. **QA3 정의 이력에 따라 선택이 달라진다:** 성능÷비용 형태(v5 초안)로는 C1 11, C2 11 동점이라 우선순위로 C2였으나, 성능이 섞인 지표라 QA1/QA2와 겹쳐 소유자가 HBM 사용량으로 바꿨고 그 결과 합계로 C1이 선택된다. 정의는 지표의 타당성(성능과 자원을 분리)을 근거로 정했고 결과가 아니다. 그럼에도 결과를 본 뒤의 변경이므로 `defined_after_first_look`이다.
 
 ## 0.4 선택한 구조의 부족한 부분과 보완 설계
 
@@ -468,7 +468,7 @@ status: draft
 |---|---|---|
 | QA1 Max SLO Goodput | load sweep(x0.5~2.0) 중 SLO를 만족한 output token/s의 최대값. 시나리오별 Baseline 대비 비율의 **geometric mean**. **DP1 별점:** < 0.97 ★ / 0.97~1.30 ★★ / >= 1.30 ★★★. 공통 별점(참고): criteria §4.3 (0.90 / 1.10) | criteria §4 + `DP1/qa-criteria-dp1.md` |
 | QA2 Latency | Max goodput load point의 TTFT/TPOT P50/P95/P99. **DP1 별점:** 6개 improvement factor(Baseline / 후보)의 geometric mean, < 0.95 ★ / 0.95~1.25 ★★ / >= 1.25 ★★★. 공통 별점(참고): P99 worst-case, criteria §5 (≤2 s & ≤50 ms ★★★ / ≤4 s & ≤100 ms ★★) | criteria §5 + DP1 criteria |
-| QA3 Resource efficiency (v5) | `효율 = SLO goodput(tok/s) / 비용 가중 메모리 점유`, 비용 가중 점유 = sum_m w_m x (tier m의 평균 점유 GiB), w_m = DRAM 대비 상대 $/GiB (`sim/cost_model.py`, **ASSUMED**: HBM 5, Custom HBM 5, CXL-PNM 1.2, DRAM 1, HBF 0.3, SSD-PIM 0.05). Baseline 대비 상대값(시나리오별 비율의 geomean). **DP1 별점:** < 0.95 ★ / 0.95~1.25 ★★ / >= 1.25 ★★★ (QA2 개선 배수와 같은 경계, 값을 보기 전에 유추로 정함). 풀 활용률 U(v4)는 처리량과 상관 0.99라 진단으로 내림 (소유자 결정 2026-10-03). 공통 QA3 문서(65%/85%)는 바꾸지 않음 | **임시 정의** + `DP1/qa-criteria-dp1.md` §H |
+| QA3 Resource usage (v6, HBM 사용량) | HBM 사용량 = tier `hbm`의 시간 평균 점유 GiB(시나리오별), Baseline 대비 비율(시나리오별 비율의 geomean, 낮을수록 좋음). **DP1 별점:** 절감 배수 = 1/비율, < 0.95 ★ / 0.95~1.25 ★★ / >= 1.25 ★★★ (QA2와 같은 숫자 경계). 성능은 섞지 않는다(성능은 QA1/QA2). 보조: 비용 가중 점유(`sim/cost_model.py`, DRAM 대비 상대 $/GiB, ASSUMED). 진단: 풀 활용률 U(v4), 성능÷비용(v5 초안) | **임시 정의** + `DP1/qa-criteria-dp1.md` §I |
 | QA4 Modifiability | 변경 시나리오 4개(신규 memory / data type / policy / event)에 대해 (M1) 변경 module 수, (M2) 개발 공수(man-month), (M3) 코드 에이전트 토큰 비용(USD, 모델 tier 2종). 시나리오별 최악값으로 sub-star를 정하고 QA4 = 세 sub-star의 중앙값 | `DP1/qa4-modifiability.md` (사전 등록: `qa4-preregistration.md`) |
 | 집계 범위 | **DP1 별점은 comparison-valid만** 집계. 공통 별점(참고)은 "feasible" = Baseline goodput > 0 (comparison-valid + saturated). Combined는 3개 set 합산 | 본 평가 정의 |
 | Diagnostic | migration 횟수/bytes/time, decision overhead, tier별 access, SLO 만족률 | DP1 전용 |
@@ -594,7 +594,7 @@ e를 올려도 C2의 이득이 사라지는 지점(break-even)은 이 오차 모
 8. **세대별 profile의 규격은 일부 ASSUMED**: H100 HBM·연산 값은 PUBLIC(확인 필요), PCIe 세대별 link 스케일은 가정이다(제외된 SYS-A100의 CXL-PNM은 가상 구성). 신규 memory(CXL-PNM, HBF, SSD-PIM, Custom HBM)는 과거 세대가 없어 link 대역으로만 세대를 표현했다.
 9. **DP1 별점 기준(4.1)은 공통 룰(criteria rule 2: 같은 QA는 DP 간 같은 룰)과 의도적으로 다르며, 첫 결과를 본 뒤 정의했다** (`defined_after_first_look`). 공통 별점은 4.1a에 병기한다. 후보 간 ★ 차이는 QA1 ★★★ 경계(1.30)에 의존한다. 4.1b의 sensitivity에서 경계가 약 1.26~1.44일 때만 C1/C2가 갈리고 1.25 이하에서는 같으며 1.50이면 둘 다 ★★이다. 새 benchmark로 같은 경계를 재확인해야 한다. 집계는 comparison-valid 시나리오만 대상으로 하므로 feasible 전체 기준 값과 n이 다르다.
 
-10. **QA3는 리소스 효율(v5)로 재정의했다**(소유자 결정). v3(HBM만) -> v4(전 메모리 풀 U) -> v5(비용 가중 점유 대비 성능)로 두 번 바뀌었고 모두 결과를 본 뒤의 변경이다(`defined_after_first_look`). 이유: 풀 U는 처리량과 상관 0.99이고 풀 점유 총량은 후보와 무관해 이동의 효과를 못 본다. **메모리 가격 가중치(HBM 5배 등)는 ASSUMED**이며 HBM 3배/10배로 바꿔도 C1과 C2의 순서와 ★★★ 판정은 같지만 값의 격차는 달라진다(0.2). 이동으로 늘어나는 HBM 점유가 비용으로 잡히는 반면, hot 데이터를 HBM에 두는 것 자체가 목적인 정책에는 불리하게 작용할 수 있다.
+10. **QA3는 HBM 사용량(v6)으로 재정의했다**(소유자 결정). 이력: v3(HBM 활용률) -> v4(전 메모리 풀 U) -> v5 초안(성능÷비용 가중 점유) -> v6(HBM 사용량). 모두 결과를 본 뒤의 변경이다(`defined_after_first_look`). 이유: 활용률 U는 처리량과 상관 0.99이고, 성능÷비용은 성능이 섞여 QA1/QA2와 겹치며, 풀 점유 총량은 이동과 무관하다. **한계:** HBM을 비우되 성능이 나빠지는 정책이 이 QA에서 유리하므로 QA1/QA2와 함께 읽어야 한다. HBM 사용량은 어느 메모리로 보냈는지(DRAM/HBF의 가격 차)를 구분하지 못한다(보조 지표로 비용 가중 점유를 병기하며 가격은 ASSUMED). 이 정의 변경으로 선택이 C2에서 C1로 바뀌었다(0.3).
 11. **링크 간섭 모델(2026-10-03)은 모델 결함 수정이다.** 이전에는 이동이 지연에 첫 접근 한 번의 0.20 x 전송시간으로만 반영되어 C2의 10배 이동이 지연에 거의 안 나타났다. 수정: 이동이 쓰는 링크 시간만큼 해당 tier의 서빙 대역폭을 줄인다(HBM 제외, 상한 90%). 수정 전 결과는 `results/data/pre_interference/`에 보존했고 수치 변화는 0.2에 있다. 남은 한계: 다른 workload와의 링크 경합, HBF endurance, 전력은 모델링하지 않았다.
 12. **QA4는 추정이다.** 시뮬레이터 복사본에 변경 4종을 구현해 module/LOC를 측정했으나, 공수(man-month)와 에이전트 비용은 가정 상수(LOC 배율, 생산성, 토큰/LOC, 가격)로 계산한 값이며 실제 에이전트 세션 측정이 아니다. 상수를 낙관/비관으로 바꾸면 QA4는 두 후보 모두 같이 움직이고(★★★ 또는 ★★) 후보 차이는 별로 드러나지 않는다. 실제 vLLM 통합 비용과는 다르다. 오차 sweep(4.6)에서도 C2 우위는 역전되지 않았다. 이를 '예측 오차가 없어서'로 단정할 수는 없다(C2 predictor는 EWMA 추정기이지 oracle이 아니다). 단 access-cost 추정이 simulator와 같은 식을 쓴다는 한계(2번)는 그대로다.
 

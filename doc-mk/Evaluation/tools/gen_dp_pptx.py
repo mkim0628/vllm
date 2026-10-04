@@ -93,9 +93,9 @@ def qa_slides():
          [f"{st[C1]['QA1']}  x{G[C1]['qa1']['ratio']:.2f} (±{G[C1]['qa1']['ci95']:.2f})", wl(C1)], [f"{st[C2]['QA1']}  x{G[C2]['qa1']['ratio']:.2f} (±{G[C2]['qa1']['ci95']:.2f})", wl(C2)]),
         (["QA2 Latency [B]", "TTFT와 TPOT 개선 배수(따로), 중앙값 TTFT"],
          [f"{st[C1]['QA2']}  x{G[C1]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{ttpot(C1)[0]:.2f} · TPOT x{ttpot(C1)[1]:.2f})", lat(C1)], [f"{st[C2]['QA2']}  x{G[C2]['qa2']['latency_improvement_geomean']:.2f} (TTFT x{ttpot(C2)[0]:.2f} · TPOT x{ttpot(C2)[1]:.2f})", lat(C2)]),
-        (["QA3 Resource efficiency [B]", "비용 가중 점유 대비 goodput(상대), 점유 배수, HBM GiB"],
-         [f"{st[C1]['QA3']}  x{G[C1]['eff']['rel']:.2f} (±{G[C1]['eff']['ci95']:.2f})", f"점유 x{G[C1]['eff']['cost_ratio']:.2f} · HBM {G[C1]['eff']['tier_occ_gib']['hbm']:.0f} GiB"],
-         [f"{st[C2]['QA3']}  x{G[C2]['eff']['rel']:.2f} (±{G[C2]['eff']['ci95']:.2f})", f"점유 x{G[C2]['eff']['cost_ratio']:.2f} · HBM {G[C2]['eff']['tier_occ_gib']['hbm']:.0f} GiB"]),
+        (["QA3 Resource usage [B]", "HBM 사용량 Baseline 대비(낮을수록 좋음), 줄인/늘린 시나리오"],
+         [f"{st[C1]['QA3']}  HBM x{G[C1]['eff']['hbm']['ratio']:.2f} (절감 {G[C1]['eff']['hbm']['saving']:.2f})", f"{G[C1]['eff']['hbm']['n_reduced']}개 줄임 / {G[C1]['eff']['hbm']['n_increased']}개 늘림 · 가중 점유 x{G[C1]['eff']['cost_ratio']:.2f}"],
+         [f"{st[C2]['QA3']}  HBM x{G[C2]['eff']['hbm']['ratio']:.2f} (절감 {G[C2]['eff']['hbm']['saving']:.2f})", f"{G[C2]['eff']['hbm']['n_reduced']}개 줄임 / {G[C2]['eff']['hbm']['n_increased']}개 늘림 · 가중 점유 x{G[C2]['eff']['cost_ratio']:.2f}"]),
         (["QA4 Modifiability [B+C]", "변경 4종 평균: module, 공수, 에이전트 비용"],
          [f"{st[C1]['QA4']}  module {m['C1']['modules']:.2f}", f"{m['C1']['man_months']:.2f} man-month · ${m['C1']['usd_T1']:.2f}"], [f"{st[C2]['QA4']}  module {m['C2']['modules']:.2f}", f"{m['C2']['man_months']:.2f} man-month · ${m['C2']['usd_T1']:.2f}"]),
     ]
@@ -113,7 +113,7 @@ def qa_slides():
     s.box(0.4, y, 6.2, 2.15, [
         "Trade-off와 이유",
         "- 성능은 C2: 데이터마다 접근 빈도·재사용·유휴를 보고 이동해, 같은 종류(KV) 안의 hot/cold를 구분한다. C1은 자원 압박에만 반응해 구분 못 함.",
-        f"- 효율은 C1: 비용 가중 점유 대비 성능 C1 x{G[C1]['eff']['rel']:.2f} 대 C2 x{G[C2]['eff']['rel']:.2f}. C2는 hot 데이터를 HBM에 올려 비싼 메모리를 더 쓰고(HBM {G[C2]['eff']['tier_occ_gib']['hbm']:.0f} GiB), C1은 싼 tier로 옮겨 비용이 줄어듦.",
+        f"- 자원 사용은 C1: HBM 사용량 C1 x{G[C1]['eff']['hbm']['ratio']:.2f} 대 C2 x{G[C2]['eff']['hbm']['ratio']:.2f}. C2는 성능을 위해 hot 데이터를 HBM에 올려 HBM을 더 쓰고, C1은 덜 쓰되 이득이 작음(성능과 자원은 반대 방향).",
         f"- 이동 비용은 링크 간섭으로 지연에 반영(C2 migration {Qf[C2]['migration_gib']:,.0f} GiB, 링크 {Qf[C2]['migration_link_frac']*100:.1f}%).",
         "- 확장성은 C1: 종류를 모르는 구조라 새 데이터 종류 추가 시 module 1개 (C2 3개).",
         "- 지연(QA2)은 둘 다 ★★★ 경계를 넘어 별이 같지만 값은 C2가 높다. TPOT은 거의 변하지 않고 개선은 TTFT에서 나온다."], "note", 9.5)

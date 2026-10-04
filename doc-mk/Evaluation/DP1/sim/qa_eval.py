@@ -181,6 +181,8 @@ def per_scenario(rows):
                         cost_occ=statistics.mean(r["cost_occ"]["registered"] for r in rs),
                         tier_occ_gib={m: statistics.mean(r["tier_occ_gib"].get(m, 0.0) for r in rs) for m in rs[0]["tier_occ_gib"]},
                         **{"seeds_eff_" + k: [r["eff_" + k] for r in rs] for k in rs[0]["cost_occ"]},
+                        seeds_hbm_occ=[r["tier_occ_gib"]["hbm"] for r in rs],
+                        **{"seeds_cost_" + k: [r["cost_occ"][k] for r in rs] for k in rs[0]["cost_occ"]},
                     )
             out[sn][cand] = best
     return out
