@@ -10,14 +10,15 @@
 
 # 1. Evaluation Principle
 
-현재 공통 QA는 다음 네 가지다.
+현재 공통 QA는 다음 다섯 가지다.
 
 1. **QA1 — Performance / Throughput**
 2. **QA2 — Performance / Latency**
 3. **QA3 — Resource Utilization**
 4. **QA4 — Modifiability**
+5. **QA5 — Reliability** (§12, 2026-10-06 추가. 정의 위치가 §12인 것은 기존 §번호 참조를 유지하기 위해서다)
 
-향후 필요하면 Scalability, Decision Latency, Robustness/Stability, Availability, Implementation Complexity 등의 QA를 추가할 수 있다.
+향후 필요하면 Scalability, Functional Correctness, Decision Latency, Implementation Complexity 등의 QA를 추가할 수 있다. Availability·Robustness 성격의 평가는 QA5의 sub-characteristic으로 다룬다.
 
 각 QA 결과는 QA Score와 Evidence Level을 분리한다.
 
@@ -342,3 +343,99 @@ QA Name
 9. **Common Benchmark와 DP-specific experiment methodology를 구분한다.**
 10. **구체적인 simulation/runtime 구조는 각 DP 문서에서 관리한다.**
 11. **결과는 정량 metric 값 + (Baseline 대비 배수) + 평가 시스템 표기로 보고한다(§10).**
+
+---
+
+# 12. QA5 — Reliability
+
+> 상태: **추가(결과 확인 전 사전 정의, 2026-10-06)**. §9 형식을 따른다. 별점 경계는 **임시 정의**(H8)이며 사용자 확정 전까지 proposal이다. 결과를 본 뒤 바꾸지 않는다(§11-1).
+> 기준: ISO/IEC 25010:2023의 Reliability. Functional Correctness(AI 모델 정확도, 예: KV 압축의 F1)와는 **별개의 QA**이며 섞어 쓰지 않는다.
+
+## 12.1 QA Name
+
+**Reliability** — 결함·장애·동시성 경쟁이 있어도 시스템이 상태를 올바르게 유지하고, 장애 후 정상 상태로 돌아오는 정도.
+
+## 12.2 Motivation
+
+일부 DP는 성능이 아니라 **상태 일관성과 장애 처리**가 구조 선택의 핵심이다. 대표적으로 이기종 메모리 간 data migration 실행은 이동 중 접근, 복사 실패, 부분 commit이 있어도 stale read·use-after-free·이중 소유가 없어야 한다. 이 속성은 QA1~QA4로 표현되지 않으며, 위반은 "낮은 점수"가 아니라 **선택 불가**에 해당한다.
+
+## 12.3 Sub-characteristic 선택
+
+QA5는 ISO의 네 sub-characteristic을 공통 어휘로 쓰고, **DP마다 해당하는 것만 선택**해 결과 전에 `DPn/qa-criteria-dpn.md`에 등록한다.
+
+| Sub-characteristic | 이 QA에서의 의미 | 측정 (진단) | 선택 가능한 DP |
+|---|---|---|---|
+| **Faultlessness** | 정상 동작과 동시성 경쟁 하에서 선언한 불변식 위반이 없다 | 불변식 위반 건수(유형별) | 일관성 상태를 가지는 DP |
+| **Fault tolerance** | 복사·할당·전송 실패나 구성요소 장애가 있어도 의도한 대로 계속 동작하고 영향이 선언한 범위에 머문다 | 장애 영향 범위(영향 받은 request 수), 오답 응답 수 | 장애 경로를 설계한 DP |
+| **Recoverability** | 중단·실패 후 일관된 상태로 복귀하고 직접 영향받은 data를 복구한다 | 복구 시간 P50/P99, 복구 불가능한 손실(recomputable 여부 구분) | rollback/재계획 경로가 있는 DP |
+| **Availability** | 필요할 때 서비스가 사용 가능하다 | 장애 구간에서 SLO를 만족한 request 비율(%) | 단일 장애점이 후보 차이를 만드는 DP |
+
+Availability는 다른 sub와 겹치기 쉽다. 장애 중 서비스 지속은 Fault tolerance가, 이동·대기로 인한 지연은 QA2가 다루므로, **구성요소 중단이 서비스 중단으로 이어지는 구조(예: 단일 장애점, HA 유무)가 후보를 가르는 DP에서만** 선택한다.
+
+## 12.4 Metric: Fault-injection Pass Rate (FPR)
+
+DP별 **장애·경쟁 시나리오 집합 FS**를 결과 전에 사전 등록한다. 각 시나리오 s는 아래를 **모두** 만족하면 통과(pass)다. 선택하지 않은 sub-characteristic의 조건은 적용하지 않는다.
+
+~~~text
+P1 (Faultlessness)   선언한 불변식 위반 0건
+P2 (Fault tolerance) 장애 영향이 사전 선언한 범위 안이고, 범위 밖 request는 정상 처리되며 오답 응답이 없다
+P3 (Recoverability)  사전 선언한 복구 bound 이내에 일관된 정상 상태로 복귀하고, 복구 불가능한 손실이 0이다
+P4 (Availability)    장애 구간의 SLO 만족 request 비율 >= 사전 선언한 하한
+~~~
+
+~~~text
+FPR = 통과한 시나리오 수 / FS의 전체 시나리오 수
+~~~
+
+- 불변식 목록, 영향 범위, 복구 bound, 가용성 하한은 DP별 문서가 결과 전에 정한다. 결과를 본 뒤 바꾸지 않는다.
+- 실패한 시나리오를 삭제하거나 숨기지 않는다(H4와 같은 원칙).
+- 같은 시나리오 안에서 장애 주입 시점을 바꿔 여러 번 실행한다(예: migration이라면 복사 전, 복사 중, commit 직전, commit 직후 source 해제 전).
+
+## 12.5 Unit
+
+% (통과 시나리오 / 전체 시나리오). 진단 단위는 건수, ms(복구 시간), bytes(손실), request 수(영향 범위), %(가용성).
+
+## 12.6 ★ / ★★ / ★★★ Threshold (임시 정의)
+
+불변식 위반은 정의상 허용 불가이므로 위반 여부를 먼저 가르고, 그 다음에 통과율을 본다.
+
+| Score | Criterion |
+|---|---|
+| ★ | 불변식 위반 1건 이상 (**gate 탈락**, 결과 문서에 "선택 불가"로 명시) |
+| ★★ | 위반 0건, FPR < 100% |
+| ★★★ | 위반 0건, FPR = 100% |
+
+경계가 이산적(위반 여부, 전수 통과 여부)이라 Baseline 잡음 기반 하한(evaluation skill §10)을 적용하지 않는다. 대신 FS가 충분한지(주입 시점, 장애 종류의 커버리지)를 결과 문서 한계에 적는다. FS가 좁으면 ★★★은 약한 주장이다.
+
+## 12.7 Measurement Methodology
+
+1. **protocol model check**: 추상 모델에서 가능한 interleaving을 탐색해 불변식을 검증한다. 결함 변종을 심어 검출되는지 확인한다.
+2. **fault-injected 시뮬레이션/stress**: 장애 종류와 주입 시점을 바꿔 seed >= 5로 실행한다.
+3. **실제 runtime 장애 주입**: 가능한 경로(예: HBM↔host 복사 실패, Worker 중단)는 실제 vLLM에서 주입한다.
+4. 성능 영향은 QA1·QA2에서 따로 보고한다. 일관성 보장 비용을 QA5 값에 섞지 않는다(H20과 같은 원칙).
+
+## 12.8 Applicable DP
+
+| DP | 적용 | 선택 sub (제안) | 비고 |
+|---|---|---|---|
+| Migration 실행 DP (번호 개편 후 DP2) | **적용** | Faultlessness, Fault tolerance, Recoverability | 이동 중 접근 일관성, 복사 실패, rollback. Availability는 제외 |
+| DP0 (서버 간 요청 조율) | 검토 대상 | Fault tolerance, Availability | 조율 계층 단일 장애점과 HA 유무가 후보(OSS 확장 vs 자체 구현)를 가를 수 있음. DP0는 현재 장애 규약을 QA 목록 밖으로 두었음 |
+| Prefill/Decode 실행 계획 DP (번호 개편 후 DP3) | 검토 대상 | Fault tolerance | stale plan·실패 시 기본 실행으로 fallback하는 경로가 있고 C2에서만 필요한 invalidation/re-plan이 있음 |
+| Data migration 결정 DP (DP1) | 비적용 | — | 결정 품질이 대상. 실행 중 일관성은 Migration 실행 DP의 책임 |
+| KV 압축·재사용 DP | 비적용 | — | 품질 손실은 Functional Correctness(정확도)로 다룸 |
+
+적용 여부는 각 DP의 `qa-criteria-dpn.md`에서 사용자 결정으로 확정한다.
+
+## 12.9 Evidence type
+
+- model check, fault-injected 시뮬레이션: **[C]** (시뮬레이터 입력이 config parameter이면 [B+C])
+- 실제 runtime 장애 주입: **[A]**
+- 모델의 한계(추상화 수준, 주입한 장애 종류)는 결과 문서 한계에 명시한다.
+
+## 12.10 Diagnostic metrics
+
+- 불변식 위반 건수(stale read, use-after-free, lost update, 이중 소유, orphan 등 유형별)
+- 장애 영향 범위(영향 받은 request 수, 오답 응답 수)
+- 복구 시간 P50/P99, 복구 불가능한 손실량(recomputable 여부 구분)
+- 장애 구간 가용성(%)
+- 시나리오별 통과/실패 목록
