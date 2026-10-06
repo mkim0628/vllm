@@ -154,6 +154,57 @@ F5의 결과로 접근 hazard의 중심은 "임의 tier 주소를 커널이 읽�
 
 두 후보는 D1~D3을 **일관된 묶음**으로 선택한 것이다. 예를 들어 "중앙 권한 + lease" 같은 혼합안은 후속으로 둔다(§8).
 
+## 3.3 두 후보의 차이를 쉽게 보기
+
+**한 문장.** 후보 1은 **EngineCore(Scheduler)가 데이터 위치를 정하고 기록하는 유일한 곳**이고 위치 변경은 step 사이에서만 일어난다. 후보 2는 **데이터를 실제로 가진 Worker가 위치를 기록하고 복사가 끝나는 즉시 바꾸며**, EngineCore에는 그 뒤에 알려 준다.
+
+**먼저 용어.**
+
+| 용어 | 쉬운 뜻 |
+|---|---|
+| 논리 블록 | 엔진이 보는 "KV 조각 B1"이라는 이름. 어디에 있든 이름은 그대로다 |
+| 물리 슬롯 | 그 조각이 실제로 놓인 자리(예: HBM의 120번 칸, CXL의 어느 주소) |
+| 위치 권한(authority) | "B1이 지금 어느 자리에 있다"를 공식으로 기록하는 곳. 이 기록이 틀리면 안 된다 |
+| commit | 복사가 끝난 뒤 공식 기록을 새 자리로 바꾸는 순간. 이 순간부터 새 자리가 진짜다 |
+| epoch | scheduler가 실행하는 step의 번호. "몇 번째 step까지 끝났나"를 셀 때 쓴다 |
+| lease | "이번 step이 이 슬롯을 쓰는 중"이라는 임시 표시. 표시가 남아 있으면 그 슬롯을 비우지 않는다 |
+| flip | 후보 2에서 Worker가 자기 위치 기록을 새 자리로 바꾸는 동작(후보 1의 commit에 해당) |
+| mirror | 후보 2에서 EngineCore가 갖는 위치 사본. 원본보다 조금 늦을 수 있다 |
+
+**비유 (짧게).** 창고에서 물건 B1을 옆 선반으로 옮긴다고 하자. 후보 1은 **본사 장부 담당자 한 명**이 "옮겼다"를 선언하고, 선언은 정해진 점검 시간(step 경계)에만 한다. 후보 2는 **창고 담당자**가 옮기자마자 자기 장부를 고치고 본사에는 나중에 알리며, 본사는 사본 장부를 본다. *비유는 여기까지다.* 실제로는 GPU 커널이 옮기는 도중에도 다른 슬롯을 읽고 있고, 해제를 늦추는 lease와 epoch 같은 안전장치가 따로 있어서 비유로는 설명되지 않는다.
+
+**차이 한눈에 (같은 시나리오 §4.1.3 / §4.2.3).**
+
+| 질문 | 후보 1 | 후보 2 |
+|---|---|---|
+| 누가 "이동 끝"을 선언하나 | EngineCore가 다음 step을 시작할 때 | Worker가 복사 직후 다음 Worker step 시작 때 |
+| 엔진은 언제 알게 되나 | 선언과 동시에 안다(같은 곳) | 조금 뒤에 이벤트로 안다. 그동안은 사본이 낡았을 수 있다 |
+| 반쯤 복사된 블록을 읽지 않게 하는 법 | 복사가 끝날 때까지 forward를 막는 barrier | 복사가 끝나기 전에는 위치 기록을 바꾸지 않는다. 일찍 스케줄된 요청은 Worker가 걸러 낸다 |
+| 쓰는 중인 옛 슬롯을 비우지 않는 법 | 슬롯을 쓴 마지막 step이 끝난 뒤에만 비운다(`EpochTracker`) | step마다 lease를 걸고 lease가 남은 슬롯은 비우지 않는다 |
+| 복사가 실패하거나 멈추면 | commit 전이면 취소하고 원래 위치를 유지한다. barrier가 배치를 묶을 수 있어 timeout이 필요하다 | 그 Worker의 그 블록에서 끝난다. 배치 전체는 묶이지 않는다 |
+| 치르는 대가 | 모든 commit이 EngineCore를 지나 직렬화되고 반영이 한두 step 늦다 | 사본 불일치(late validation 낭비), 평상시 매핑·lease 비용, TP에서 rank 간 합의 |
+
+**그림: 위치 기록이 어디에 있고 알림이 어느 쪽으로 가는가.**
+
+```mermaid
+flowchart LR
+    subgraph C1["후보 1"]
+        E1["EngineCore<br/>위치 기록 원본"]
+        W1["Worker<br/>복사만 한다"]
+        W1 -- "복사 완료 보고" --> E1
+        E1 -- "새 위치를 SchedulerOutput으로" --> W1
+    end
+    subgraph C2["후보 2"]
+        W2["Worker<br/>위치 기록 원본"]
+        E2["EngineCore<br/>위치 사본"]
+        W2 -- "복사 직후 스스로 flip, 이후 이벤트" --> E2
+    end
+```
+
+**언제 어느 쪽이 유리한가.** §6의 구조 논증(가설)에 따르면, 이동이 드물고 안전성을 증명하기 쉬워야 하며 변경이 한곳에 모이길 원하면 후보 1이 유리하다. 이동이 잦고 Worker가 많으며(예: 8 GPU TP) 느린 복사 하나가 배치 전체를 묶는 것을 피해야 하면 후보 2가 유리할 수 있다. 다만 후보 2는 rank 간 flip 합의의 정확성(I6)을 증명하지 못하면 선택할 수 없고, 이동 1회 시간에 비해 step 양자화가 작으면 지연 차이가 사라질 수 있다.
+
+**더 자세히.** 후보 1 §4.1, 후보 2 §4.2, 접근 hazard §4.4, QA trade-off §6.
+
 ---
 
 # 4. 후보 구조
@@ -207,13 +258,19 @@ graph TD
 
 ### 4.1.2 접근 측 계약
 
-| 항목 | 내용 |
-|---|---|
-| resolve | Scheduler가 `schedule()`에서 KVDataAdapter로 위치를 조회하고 **HBM에 준비된 블록의 슬롯만** `block_ids`에 실어 보낸다. 커널 경로는 변하지 않는다 |
-| readiness | Scheduler가 같은 프로세스에서 `READY`, `INFLIGHT`, `ABSENT`를 동기로 읽는다 |
-| pin / lease | 이동 대상은 source pin(복사 중 해제 금지). 접근 측은 `EpochTracker`가 step별 참조 슬롯을 기록하고, 그 step 완료 보고 전에는 슬롯을 해제하지 않는다 |
-| completion | Worker가 완료 job id를 보고하면 `CompletionReconciler`가 **다음 `schedule()` 시작 시** version을 검증하고 commit한다 |
-| 확장 필요 | `BlockTable`은 append 방식이라(§1.1 ②③) **기존 블록의 슬롯 교체**를 지원하도록 확장해야 한다 (두 후보 공통) |
+**접근 측 계약**은 이동이 진행되는 동안 서빙 엔진(Scheduler, Worker, 커널)과 migration 하위 시스템이 "어느 블록 사본을 누가 언제 읽어도 되고, 누가 언제 교체하거나 반납해도 되는가"를 정해 둔 규칙이다. 이동 중에는 같은 논리 블록의 사본이 두 곳에 있어서, 잘못된 쪽을 읽거나 아직 쓰는 슬롯을 반납하면 오류 없이 답이 틀리기 때문에 필요하다(§4.4).
+
+아래 항목은 §4.1.3 시나리오(요청 R, 블록 B1)에서 일어나는 순서(forward 전 → 중 → 후)로 나열했다. 항목 이름과 번호(A1~A7)는 §4.2.2와 같다. S1~S8은 §4.2.3 뒤의 단계별 비교표의 단계 번호다.
+
+| # | 항목 | 무엇 | 누가·언제 | 왜 필요한가 | B1 예시 |
+|---|---|---|---|---|---|
+| A1 | resolve (forward 전) | 논리 블록이 지금 어느 물리 슬롯에 있는지 찾아, block table에 넣을 슬롯 번호를 정한다 | Scheduler가 `schedule()` 안에서 KVDataAdapter로 조회한다. **HBM에 준비된 블록의 슬롯만** `block_ids`에 싣는다 (S1) | 커널은 HBM 슬롯만 읽는다(F5). 준비 안 된 블록의 슬롯이 실리면 H1 | B1은 CXL에 있어 HBM 슬롯이 없다고 확인하고 promotion이 필요하다고 판단한다. 커널 경로는 변하지 않는다 |
+| A2 | readiness (forward 전) | 블록이 읽을 준비가 되었는지(`READY`, `INFLIGHT`, `ABSENT`) 확인한다 | Scheduler가 같은 프로세스의 `DataLocationStore`를 **동기로** 읽는다 (S1) | 이동 중인 블록을 모르고 스케줄하면 H1, H4 | CXL, `READY`, version 7. 그래서 BLOCKING `MigrationIntent`를 낸다 |
+| A3 | pin / lease (복사 중, forward 중) | 쓰는 중인 사본이 반납·재사용되지 않게 붙들어 두는 표시 | 복사 중 source는 pin. forward가 읽는 슬롯은 `EpochTracker`가 step별로 기록하고, 그 step 완료 보고 전에는 해제하지 않는다 (S2, S7) | 해제된 슬롯을 읽는 H2(async scheduling 중첩) | job 42 동안 CXL의 B1 source를 pin한다. step이 slot 120을 참조했다는 기록을 남긴다 |
+| A4 | 읽기 허용 시점 (forward 중) | 복사가 끝나기 전에는 R이 B1을 읽지 못하게 하는 장치 | blocking dependency barrier. Worker가 job 42 완료를 기다린 뒤에 `execute_model`로 들어간다 (S4) | 부분 복사된 슬롯을 읽는 H1 | R은 "copy done" 뒤에만 slot 120을 읽는다 |
+| A5 | completion (forward 후) | 복사가 끝났음을 확정하고 새 위치를 공식 기록으로 바꾸는 절차 (commit) | Worker가 완료 job id를 보고하면 `CompletionReconciler`가 **다음 `schedule()` 시작 시** version을 검증하고 commit한다 (S5, S6) | 이동 중 쓰기·version 불일치 H3. commit 전에는 위치가 바뀌지 않아야 한다(I3) | version 7이 맞으면 B1을 HBM slot 120, version 8로 기록한다. 이 시점부터 Scheduler도 새 위치를 안다 |
+| A6 | 확장 필요 (두 후보 공통) | `BlockTable`이 기존 블록의 슬롯 값을 **교체**할 수 있게 하는 코드 변경 | 구현 시 변경. 현재는 append만 가능하다(§1.1 ②③) | 위치가 바뀐 블록의 슬롯을 Worker에 반영할 경로가 없다(P2) | R의 block table에서 B1 자리를 slot 120으로 바꿀 수 있어야 한다 |
+| A7 | late validation (**후보 2에만 있음**) | Worker가 step 시작에 "이 요청이 읽을 블록이 정말 준비됐나"를 다시 확인하는 절차 | 후보 1에는 없다. Scheduler의 view가 authority라 낙관적으로 스케줄할 일이 없다 (H5가 구조적으로 없음) | — | 해당 없음 |
 
 ### 4.1.3 Runtime View — 전경(foreground) promotion
 
@@ -227,23 +284,29 @@ sequenceDiagram
     participant EX as MigrationExecutor
     participant MR as GPUModelRunner
 
+    Note over S,KV: S1 트리거 - R이 B1을 필요로 한다
     S->>KV: locate B1 for request R
     KV->>LS: get location
     LS-->>KV: CXL, READY, version 7
     KV-->>S: B1 not in HBM
     S->>MC: submit MigrationIntent promotion B1 to HBM, BLOCKING
+    Note over MC,LS: S2 목적지 확보 - 위치 기록이 한 곳이라<br/>Coordinator가 그 기록에 직접 INFLIGHT를 적는다
     MC->>LS: reserve HBM slot 120, pin source, mark INFLIGHT
     MC-->>S: job 42
     S->>W: SchedulerOutput with job 42, dependency for R, block_ids including slot 120
+    Note over W,EX: S3 복사 - Worker가 실행만 한다
     W->>EX: start copy job 42
+    Note over W,MR: S4 R이 B1을 읽는 시점 - dependency barrier가<br/>복사 완료 전 forward 진입을 막는다
     W->>W: wait for dependency job 42
     EX-->>W: copy done
     W->>MR: execute_model reads slot 120
     MR-->>W: model output
     W-->>S: ModelRunnerOutput with completed job 42
+    Note over S,LS: S5 commit - 다음 schedule 시작 시 EngineCore가 한다<br/>S6 Scheduler는 같은 프로세스라 commit 즉시 새 위치를 안다
     S->>MC: next schedule, reconcile job 42
     MC->>LS: version check then commit B1 at HBM slot 120, version 8
-    Note over S,LS: demotion의 슬롯 해제는 EpochTracker가<br/>그 슬롯을 참조한 마지막 step 완료를 확인한 뒤에만 한다
+    Note over S,LS: S7 옛 자원 해제 - demotion의 슬롯 해제는 EpochTracker가<br/>그 슬롯을 참조한 마지막 step 완료를 확인한 뒤에만 한다
+    Note over MC,LS: S8 복사 실패 - commit 전이므로 abort, 기존 위치와 version 7 유지<br/>slot 120과 pin 반납, barrier 대기는 timeout 후 recompute fallback
 ```
 
 ### 4.1.4 장단점 (가설 [C])
@@ -303,41 +366,82 @@ graph TD
 
 ### 4.2.2 접근 측 계약
 
-| 항목 | 내용 |
-|---|---|
-| resolve | Scheduler는 논리 슬롯만 보낸다. Worker가 **step 시작 시** 매핑 표로 물리 슬롯을 풀고 보류 중인 flip을 적용한다. 커널은 풀린 block table을 쓴다 |
-| readiness | Scheduler는 `LocationMirror`(마지막으로 알려진 위치와 version)를 읽고, 필요하면 `MigrationIntent`(BLOCKING)를 Coordinator에 제출해 `ensure_ready(data_ref, deadline)`를 비동기로 요청한다. **낙관적으로 스케줄하되 Worker가 step 시작 시 검증**하고, 준비 안 된 요청은 그 step에서 제외해 보고한다(late validation) |
-| pin / lease | Worker가 step마다 epoch 카운터를 올리고, 그 step이 쓴 슬롯은 카운터가 내려가기 전에는 해제하지 않는다(블록별 refcount가 아니라 step 단위 epoch) |
-| flip | 모든 TP rank의 복사 완료를 `RankSync`가 확인한 뒤 **합의한 step 번호의 시작 시점**에 모든 rank가 같은 version으로 flip한다 |
-| completion | flip 후 `placement event`가 EngineCore로 비동기 전달되어 사본과 DP1 Registry를 갱신한다 |
+**접근 측 계약**은 이동이 진행되는 동안 서빙 엔진(Scheduler, Worker, 커널)과 migration 하위 시스템이 "어느 블록 사본을 누가 언제 읽어도 되고, 누가 언제 교체하거나 반납해도 되는가"를 정해 둔 규칙이다. 후보 2에서는 위치 권한이 Worker에 있어서, 같은 규칙을 EngineCore가 아니라 **Worker가 step 시작 시점에** 집행하는 것이 다르다.
+
+항목 이름과 번호(A1~A7)는 §4.1.2와 같고 순서도 §4.2.3 시나리오(요청 R, 블록 B1)의 forward 전 → 중 → 후를 따른다. S1~S8은 §4.2.3 뒤의 단계별 비교표의 단계 번호다.
+
+| # | 항목 | 무엇 | 누가·언제 | 왜 필요한가 | B1 예시 |
+|---|---|---|---|---|---|
+| A1 | resolve (forward 전) | 논리 블록이 지금 어느 물리 슬롯에 있는지 찾아 block table을 만든다 | Scheduler는 논리 슬롯만 보낸다. **Worker가 step 시작 시** `LocalMappingTable`로 물리 슬롯을 풀고, 보류 중인 flip을 먼저 적용한다. 커널은 풀린 block table을 쓴다 (S4) | 커널이 HBM 슬롯만 읽게 한다(F5). flip 적용 전 슬롯을 읽으면 H1 | step n 시작에 B1이 slot 120으로 풀린다 |
+| A2 | readiness (forward 전) | 블록이 읽을 준비가 되었는지 확인한다 | Scheduler가 `LocationMirror`(마지막으로 알려진 위치와 version)를 읽는다. 필요하면 BLOCKING `MigrationIntent`를 Coordinator에 내어 `ensure_ready(data_ref, deadline)`를 **비동기로** 요청한다 (S1) | 이동 중인 블록을 모르고 스케줄하면 H1, H4. 사본이라 stale일 수 있어 H5가 생긴다 | 사본에는 CXL, version 7이 보인다. 그래서 BLOCKING intent를 낸다 |
+| A3 | pin / lease (복사 중, forward 중) | 쓰는 중인 사본이 반납·재사용되지 않게 붙들어 두는 표시 | 복사 중 source는 pin(I4의 pin). forward가 읽는 슬롯은 Worker가 step마다 epoch 카운터를 올려 lease로 잡고, 카운터가 내려가기 전에는 해제하지 않는다. 블록별 refcount가 아니라 step 단위 epoch다 (S2, S7) | 해제된 슬롯을 읽는 H2(async scheduling 중첩) | job 42 동안 CXL의 B1 source를 pin한다. step n의 lease가 slot 120을 보호한다 |
+| A4 | 읽기 허용 시점 (forward 중) | 복사가 끝나기 전에는 R이 B1을 읽지 못하게 하는 장치. 후보 2에서는 **flip** | 복사가 끝나면 `CommitAgent`가 flip(version CAS)을 보류해 두고, Worker가 **다음 step 시작 시** 적용한다. 복사 전이면 flip이 없어 매핑은 CXL 그대로다 (S4). TP>1이면 모든 rank가 같은 step에서 flip한다(`RankSync`, §4.2.3 보충) | 부분 복사된 슬롯을 읽는 H1, rank 간 version 불일치 H6 | 복사 완료 후 step n 시작에 B1을 slot 120, version 8로 flip한다 |
+| A5 | completion (forward 후) | 새 위치를 EngineCore 쪽 기록에도 알리는 절차 | flip 후 `placement event`가 EngineCore로 **비동기** 전달되어 `LocationMirror`와 DP1 Registry를 갱신한다 (S5, S6). commit(flip) 자체는 A4에서 이미 끝났다 | 이동 중 쓰기·version 불일치 H3(flip이 version CAS라 불일치면 abort하고 재복사) | event가 오면 사본이 HBM, version 8로 바뀌고 Scheduler는 그제야 B1을 ready로 본다 |
+| A6 | 확장 필요 (두 후보 공통) | `BlockTable`이 기존 블록의 슬롯 값을 **교체**할 수 있게 하는 코드 변경 | 구현 시 변경. 현재는 append만 가능하다(§1.1 ②③). 후보 2에서는 Worker가 풀어낸 block table에 flip 결과를 반영하는 형태다 | 위치가 바뀐 블록의 슬롯을 Worker에 반영할 경로가 없다(P2) | R의 block table에서 B1 자리를 slot 120으로 바꿀 수 있어야 한다 |
+| A7 | late validation (**후보 2에만 있음**) | Scheduler가 stale 사본으로 스케줄했을 때 Worker가 step 시작에 바로잡는 절차 | **낙관적으로 스케줄**한 요청을 Worker가 step 시작 시 검증하고, 준비 안 된 요청은 그 step에서 제외해 보고한다 (S4) | 사본 지연에서 오는 H5. 안전은 지키되 낭비로 흡수한다 | flip 전에 R이 스케줄됐다면 R은 step n에서 제외되고 보고된다 |
 
 ### 4.2.3 Runtime View — 전경(foreground) promotion
 
 ```mermaid
 sequenceDiagram
     participant S as Scheduler
+    participant KV as KVDataAdapter
     participant LM as LocationMirror
     participant MC as MigrationCoordinator
-    participant EX as MigrationExecutor on all ranks
-    participant RS as RankSync
+    participant W as Worker
+    participant EX as MigrationExecutor
+    participant CA as CommitAgent
     participant MT as LocalMappingTable
+    participant LZ as LeaseManager
     participant MR as GPUModelRunner
 
-    S->>LM: where is B1 for request R
-    LM-->>S: CXL, last known version 7
-    S->>MC: submit MigrationIntent promotion B1 to HBM, BLOCKING, deadline
-    MC->>EX: start copy job 42 on all ranks
-    EX->>EX: copy into reserved HBM slot 120, mapping unchanged
-    EX->>RS: copy done on this rank
-    RS->>RS: all ranks done, agree flip at step n
-    Note over MR,MT: step n 시작
-    MR->>MT: apply pending flip, B1 to slot 120, version 8
-    MR->>MT: resolve logical ids, take lease for step n
+    Note over S,KV: S1 트리거 - R이 B1을 필요로 한다 - 후보 1과 같다<br/>다른 점은 조회처가 권한이 아니라 사본이라는 것이다
+    S->>KV: locate B1 for request R
+    KV->>LM: get location
+    LM-->>KV: CXL, last known version 7
+    KV-->>S: B1 not in HBM
+    S->>MC: submit MigrationIntent promotion B1 to HBM, BLOCKING
+    Note over MC,W: S2 목적지 확보 - Coordinator는 job 하나 중재만 한다<br/>위치 기록에 INFLIGHT를 적지 않는다. 매핑 표는 Worker가 갖고 있다
+    MC-->>S: job 42
+    MC->>W: migration command job 42, target HBM slot 120
+    Note over W,EX: S3 복사 - 후보 1과 같다. 단 매핑은 CXL, version 7 그대로다
+    W->>EX: start copy job 42
+    S->>W: SchedulerOutput with R, logical ids only, no dependency
+    Note over S,W: S4 R이 B1을 읽는 시점 - blocking barrier가 없다<br/>Scheduler는 R을 낙관적으로 스케줄했고 Worker가 step 시작 시 검증한다
+    EX-->>CA: copy done
+    Note over CA,MT: S5 commit - Worker가 한다. 복사가 끝나자마자 flip을 보류 등록하고<br/>다음 step 시작 시 적용한다. Scheduler 루프를 거치지 않는다
+    CA->>MT: stage flip B1 to slot 120, version CAS 7 to 8
+    W->>MR: execute_model for step n
+    MR->>MT: apply pending flip
+    MR->>MT: resolve logical ids to slot 120
+    MR->>LZ: take lease for step n
     MR->>MR: forward uses slot 120
-    EX-->>MC: placement event, B1 in HBM, version 8
+    MR-->>W: model output
+    W-->>S: ModelRunnerOutput
+    Note over W,MC: S6 Scheduler가 새 위치를 아는 시점 - flip보다 늦다<br/>placement event를 비동기로 받아 사본이 갱신된 뒤에야 안다
+    CA-->>MC: placement event, B1 in HBM, version 8
     MC->>LM: update mirror
-    Note over S,LM: step n 이후 Scheduler는 B1을 ready로 본다<br/>ready 보기 전에 스케줄했다면 Worker가 step n에서 제외하고 보고한다
+    Note over MC,LZ: S7 옛 자원 해제 - CXL source pin은 flip 후 해제<br/>demotion의 슬롯은 LeaseManager가 lease 소진 후에만 해제한다
+    Note over S,W: 늦은 검증 - flip 전에 R이 step n에 들어왔다면<br/>Worker가 R을 step n에서 제외하고 보고한다. Scheduler는 다음 step에 다시 시도한다
+    Note over CA,MT: S8 복사 실패 - flip을 하지 않으므로 매핑은 CXL, version 7 그대로<br/>실패 사유는 event로 올라가고 영향은 그 Worker의 B1에 머문다
 ```
+
+**TP>1일 때 추가되는 것.** 위 시나리오는 rank가 하나인 경우의 흐름이다. Worker가 여러 개(tensor parallel)이면 같은 논리 블록 B1을 모든 rank가 각자 복사하므로, flip은 **모든 rank가 같은 step 번호에서 같은 version으로** 일어나야 한다. 한 rank만 먼저 flip하면 rank마다 B1의 version이 달라져 H6가 생긴다. 이를 막기 위해 `RankSync`가 모든 rank의 복사 완료를 확인하고 flip할 step을 합의한다. 이 합의가 후보 2의 추가 비용이자 위험이고(I6, §8 #1), 합의 도중 일부 rank만 flip한 부분 장애 상태가 불변식 증명의 부담을 키운다. 후보 1에서는 한 번의 commit 결정이 같은 `SchedulerOutput`으로 전 rank에 전달되어 이 문제가 구조적으로 없다.
+
+#### 같은 시나리오, 단계별 비교 (§4.1.3 vs §4.2.3)
+
+R이 CXL의 B1을 필요로 하고, Scheduler가 BLOCKING promotion을 내며, B1이 CXL(version 7)에서 HBM slot 120(version 8)으로 옮겨 가는 같은 시나리오다. 단계 번호는 두 시퀀스 다이어그램의 Note와 같다.
+
+| 단계 | 후보 1 (중앙 권한, step 경계) | 후보 2 (Worker 로컬, lease) |
+|---|---|---|
+| S1 트리거 | Scheduler가 `DataLocationStore`(권한)를 조회해 B1이 HBM에 없음을 알고 BLOCKING intent를 낸다 | 같은 흐름이지만 조회처가 `LocationMirror`(사본)다. 사본이 stale일 수 있다 |
+| S2 목적지·슬롯 확보 | Coordinator가 위치 기록에 slot 120 예약, source pin, `INFLIGHT`를 직접 적는다 | Coordinator는 job 42와 target slot 120만 정해 Worker에 명령한다. 위치 기록은 Worker의 매핑 표에 있다 |
+| S3 복사 | Worker의 `MigrationExecutor`가 복사한다. command는 `SchedulerOutput`에 실려 온다 | Worker의 `MigrationExecutor`가 복사한다. command는 Coordinator가 Worker로 직접 보낸다. 매핑은 version 7 그대로다 |
+| S4 R이 B1을 읽을 수 있는 때 | dependency barrier가 job 42 완료까지 forward 진입을 막는다. 복사가 느리면 배치 전체가 기다린다 | barrier 없음. 복사가 끝나 flip이 적용된 step부터 읽는다. 그 전에 R이 스케줄됐다면 Worker가 step 시작 시 R을 제외한다(late validation) |
+| S5 commit 주체와 시점 | EngineCore(`CompletionReconciler`)가 **다음 `schedule()` 시작 시** version을 검증하고 commit한다 | Worker(`CommitAgent`)가 복사 완료 직후 flip을 등록하고 **다음 Worker step 시작 시** version CAS로 적용한다 |
+| S6 Scheduler가 새 위치를 아는 때 | commit과 동시에 안다. 같은 프로세스라 view가 곧 authority다 | flip보다 늦다. placement event가 와서 `LocationMirror`가 갱신된 뒤에 안다 |
+| S7 옛 자원 해제 | commit 후 source pin을 풀고, demotion 슬롯은 `EpochTracker`가 그 슬롯을 참조한 마지막 step 완료를 본 뒤 해제한다 | flip 후 source pin을 풀고, demotion 슬롯은 `LeaseManager`가 lease 소진을 본 뒤 해제한다 |
+| S8 복사 실패 | commit 전이라 abort하고 기존 위치와 version 7을 유지한다. slot 120과 pin을 반납한다. barrier에서 기다리던 배치는 timeout과 recompute fallback이 필요하다 | flip을 하지 않아 매핑이 그대로이고 영향이 그 Worker의 B1에 머문다. 실패 event로 Coordinator가 재시도나 recompute를 정한다. 배치 전체는 묶이지 않는다 |
 
 ### 4.2.4 장단점 (가설 [C])
 
@@ -458,6 +562,8 @@ sequenceDiagram
 | 6 | 후보 간 우열은 전부 가설이다. 특히 QA4는 M1(module 수)과 upstream 충돌 위험이 반대 방향이라 정의에 따라 순위가 바뀐다 | 해석 |
 | 7 | 번호 개편(DP2로 이동) 반영이 필요하다: DP0 DP 표, 평가 skill의 "DP1~DP4" 문구, DP1 문서의 out of scope 문구, 슬라이드 참조 | 문서 정합성 |
 | 8 | DP1 시뮬레이터의 낙관적 가정(이상적 이동)이 이 DP의 결과로 얼마나 바뀌는지는 평가 후에 알 수 있다 | DP1 결과 해석 |
+| 9 | 후보 2에서 migration command를 Coordinator가 Worker로 **직접** 보내는지, 기존 `SchedulerOutput`에 실어 보내는지가 정해지지 않았다(§4.2.1 모듈 뷰는 직접 전달로 그렸다). 직접 전달이면 EngineCore↔Worker에 새 채널이 필요하고, vLLM의 기존 step 동기화와의 관계를 따져야 한다 | QA4, QA2 |
+| 10 | 후보 2에서 target HBM 슬롯(예: slot 120)을 누가 확보하는지 명시되지 않았다. §4.2.3은 Coordinator가 BlockPool에서 슬롯을 받아 command에 실어 보내는 것으로 가정했다 | 후보 2 정의 |
 
 ---
 
