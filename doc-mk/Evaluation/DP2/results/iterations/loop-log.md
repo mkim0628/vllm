@@ -46,3 +46,13 @@ SKILL §5: 모든 comparison_valid 쌍·집계 QA에서 후보 ≥ Baseline(CI �
 | A | **QA2/QA3 집계를 iso-load로 정의**: Baseline의 최대 SLO goodput 부하점에서 후보와 비교. 각자의 최적 부하는 민감도로 병기 | CB 2쌍을 본 뒤 정의했다. **`defined_after_first_look`로 공개** (SKILL H16). QA1은 원래 정의(각자 최적 부하의 Max SLO Goodput) 유지 |
 
 개발 점검 공개: 위 변경을 찾는 과정에서 `cb_kv_8k_b32`(load 24), `link_contention`, `long_ctx`, `turn_hbf_hist` 등을 seed 11로 1회씩 돌려 보았다. 평가 데이터(5 seed 전체 grid)는 이 변경들 이후에 새로 생성한다. 정책 상수·시나리오별 조정은 하지 않았다.
+
+## 1. 최종 실행 (2026-10-04~06)
+
+- Main: 2 SYS × 19 시나리오 × 후보 6(Baseline, C1, C2, D-local, Oracle, P-retain) × grid × seed 5 = 6,660 job. 위 0.4 변경 이후 코드로 처음부터 실행. 중간에 `git stash -u`가 데이터 파일을 잠시 치워 일부 행이 유실되어 resume으로 보충했다(중복 11행, 집계에 영향 없음).
+- 집계 결과: 38쌍 전부 comparison_valid. Baseline-regression 항목: Common TTFT/TPOT P99, TPOT P99 전반(문서 5.2). 정책 상수·시나리오는 바꾸지 않고 진단만 했다. 변경 후 재실행(iteration 2)은 하지 않았다(새 사전 등록이 필요한 Selector 교체는 다음 단계로 남김).
+- QA5(`qa5_scale.py`): 노드당 부하 grid를 처음 (4,8,12,16) → (2..6) → (2..12, 16/20/24)로 두 번 넓혔다(peak가 grid 끝). 처음 두 grid의 결과는 폐기했고 마지막 grid만 쓴다. seed 2개(확장 부하는 1개), H100 단일.
+- 민감도(`sens.py`): 6시나리오, seed 3개, Baseline 최적 부하 고정. 처음 실행은 open-loop lam0 누락으로 중단해 수정 후 재실행했다.
+- QA4: 사전 등록 후 측정(`qa4_count.py`). S1 fixture 편차와 S4 최소 변경 기록은 `qa4-preregistration.md` 변경 이력.
+- 가설 판정: H1(CB 후보≈Baseline) 기각(x1.3~2.1), H2 부분 지지(HBM/HBF), H3·H4: 후보 ≥ Baseline은 지지, 단 DRAM·SSD·tool_large에서 P-retain이 후보와 같거나 높아 Tier 인지의 추가 이득은 확인 안 됨, H5 지지(burst TTFT), H8(C1이 QA3·TPOT 우위, C2가 확장성 우위) QA1~QA4에서 확인 안 됨, H9 일부(D-local-always는 Dynamic에서 Planner와 비슷하거나 앞섬).
+

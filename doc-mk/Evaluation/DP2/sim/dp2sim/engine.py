@@ -305,8 +305,8 @@ class Sim:
         n = self.N
         tk = self.o["topk"]
         if tk:
-            return (min(tk, n) + 1) * (min(tk, n) + 1) * len(DECODE_TIERS)
-        return len(cand_nodes) * n * len(DECODE_TIERS)
+            return (min(tk, n) + 1) * (min(tk, n) + 1) * self.o.get("ntiers", len(DECODE_TIERS))
+        return len(cand_nodes) * n * self.o.get("ntiers", len(DECODE_TIERS))
 
     def t_dec_for(self, k):
         return self.o["t_ref"] * k / 64.0
