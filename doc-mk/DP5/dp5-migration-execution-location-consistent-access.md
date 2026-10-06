@@ -100,7 +100,8 @@ flowchart TB
 
 | 방향 | 내용 | 근거 |
 |---|---|---|
-| DP1 → DP5 | `MigrationIntent`: action(MOVE, REPLICATE, DROP, REMAP, RECLASSIFY), data_refs, source, target, reason, priority, dependency_type | DP1 §2 |
+| DP1 → DP5 | `MigrationIntent`: action(MOVE, REPLICATE, DROP, REMAP, RECLASSIFY), data_refs, source, target, reason, priority, dependency_type. **Migration Data Selector가 Destination Tier Selector의 target을 받아 조립**하고 **Migration Coordinator**로 보낸다 | DP1 §2, §5.6, §5.7 |
+| Scheduler → DP5 | 요청 실행에 필수인 **접근 promotion**을 같은 `MigrationIntent` 형식(목적지 HBM 고정, `dependency_type = BLOCKING`)으로 Migration Coordinator에 직접 제출한다. DP1의 selector를 거치지 않는다 | DP1 §2.2 |
 | DP5 → DP1 | 완료·실패 이벤트(실패 사유 포함). DP1은 이를 재시도·억제 판단에 쓴다 | DP1 §5.9.7 |
 | DP5 → DP1 | commit 결과로 DP1의 Registry를 동기화. commit 전에는 위치가 바뀌지 않는다 | DP1 §5.9.7, §22.3 |
 | DP5 → DP1 | 실측 전송 BW·latency를 Telemetry로 보고해 binding의 estimate를 보정(측정–추정 closed loop) | DP1 §5.9.6 |
@@ -139,6 +140,7 @@ flowchart TB
 | F3 | sealed block 우선. active tail block은 Phase 1에서 이동을 defer한다 | 공통 migration 문서 §14.1~14.2 |
 | F4 | 전송은 Backend I/F의 staging primitive와 TransferHandler(직접 경로는 fast-path override)로 한다 | DP1 §5.8.11, §5.9.2 |
 | F5 | **GPU 커널은 HBM(과 HBF 직접 접근) 주소만 읽는다.** 나머지 tier는 접근 전에 HBM으로 materialize해야 한다. 6종 memory 중 4종이 `gpu_reachable=false`다 | DP1 §5.8.10 |
+| F6 | **MigrationIntent의 입구는 Migration Coordinator 하나이고 생산자는 둘이다.** (a) DP1(Migration Data Selector가 조립), (b) Scheduler(필수 접근 promotion, `BLOCKING`). Coordinator가 object당 in-flight job 하나 규칙으로 중재한다 | DP1 §2.2, §5.7 |
 
 F5의 결과로 접근 hazard의 중심은 "임의 tier 주소를 커널이 읽는 문제"가 아니라 **HBM 슬롯의 가시성(promotion 완료 후에만)과 재사용·해제 시점(demotion 후)** 이다.
 
@@ -229,7 +231,7 @@ sequenceDiagram
     KV->>LS: get location
     LS-->>KV: CXL, READY, version 7
     KV-->>S: B1 not in HBM
-    S->>MC: submit promotion B1 to HBM, blocking
+    S->>MC: submit MigrationIntent promotion B1 to HBM, BLOCKING
     MC->>LS: reserve HBM slot 120, pin source, mark INFLIGHT
     MC-->>S: job 42
     S->>W: SchedulerOutput with job 42, dependency for R, block_ids including slot 120
@@ -304,7 +306,7 @@ graph TD
 | 항목 | 내용 |
 |---|---|
 | resolve | Scheduler는 논리 슬롯만 보낸다. Worker가 **step 시작 시** 매핑 표로 물리 슬롯을 풀고 보류 중인 flip을 적용한다. 커널은 풀린 block table을 쓴다 |
-| readiness | Scheduler는 `LocationMirror`(마지막으로 알려진 위치와 version)를 읽고, 필요하면 `ensure_ready(data_ref, deadline)`를 비동기로 요청한다. **낙관적으로 스케줄하되 Worker가 step 시작 시 검증**하고, 준비 안 된 요청은 그 step에서 제외해 보고한다(late validation) |
+| readiness | Scheduler는 `LocationMirror`(마지막으로 알려진 위치와 version)를 읽고, 필요하면 `MigrationIntent`(BLOCKING)를 Coordinator에 제출해 `ensure_ready(data_ref, deadline)`를 비동기로 요청한다. **낙관적으로 스케줄하되 Worker가 step 시작 시 검증**하고, 준비 안 된 요청은 그 step에서 제외해 보고한다(late validation) |
 | pin / lease | Worker가 step마다 epoch 카운터를 올리고, 그 step이 쓴 슬롯은 카운터가 내려가기 전에는 해제하지 않는다(블록별 refcount가 아니라 step 단위 epoch) |
 | flip | 모든 TP rank의 복사 완료를 `RankSync`가 확인한 뒤 **합의한 step 번호의 시작 시점**에 모든 rank가 같은 version으로 flip한다 |
 | completion | flip 후 `placement event`가 EngineCore로 비동기 전달되어 사본과 DP1 Registry를 갱신한다 |
@@ -323,7 +325,7 @@ sequenceDiagram
 
     S->>LM: where is B1 for request R
     LM-->>S: CXL, last known version 7
-    S->>MC: ensure_ready B1 in HBM, deadline
+    S->>MC: submit MigrationIntent promotion B1 to HBM, BLOCKING, deadline
     MC->>EX: start copy job 42 on all ranks
     EX->>EX: copy into reserved HBM slot 120, mapping unchanged
     EX->>RS: copy done on this rank

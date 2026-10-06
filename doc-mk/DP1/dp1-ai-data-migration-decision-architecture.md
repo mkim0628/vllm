@@ -180,7 +180,16 @@ DP1 decision이 byte copy를 동반하지 않는 선택지도 표현할 수 있�
 - 공통 migration architecture의 `MigrationIntent`에도 동일한 `action` field가 반영되어 있으며(§1.1, state machine 경로는 §7.1), 생략 시 `MOVE`로 해석된다.
 
 DP1은 실제 DMA / P2P / CXL / NVMe transfer를 수행하지 않는다.
-그 부분은 공통 **MigrationCoordinator → MigrationPlanner → execution-side scheduler/queue → MigrationExecutor → TransferHandler** 구조가 담당한다.
+그 부분은 **DP5**(공통 migration 구조)의 **MigrationCoordinator → MigrationPlanner → execution-side scheduler/queue → MigrationExecutor → TransferHandler**가 담당한다.
+
+### 2.2 MigrationIntent의 입구와 생산자
+
+- **입구:** 모든 `MigrationIntent`는 DP5의 **Migration Coordinator**로 들어간다 (§5.7).
+- **DP1 경로의 조립:** Migration Data Selector가 Destination Tier Selector의 target resource를 받아 intent를 만든다 (§5.6).
+- **생산자는 둘이다 (결정, 2026-10-06).**
+  - (a) **DP1**: event와 pressure·behavior에 따른 정책 기반 intent.
+  - (b) **Scheduler**: 요청 실행에 반드시 필요한 접근 promotion. 목적지는 HBM으로 고정되고 `dependency_type = BLOCKING`이다. DP1의 selector를 거치지 않고 같은 형식으로 Coordinator에 직접 제출되므로, DP1의 결정 지연이 접근 임계 경로에 들어가지 않는다.
+  - 두 경로 모두 Coordinator가 object당 in-flight job 하나 규칙으로 중재한다. DP1은 (b)의 결과를 commit 이벤트와 Registry 동기화로 받는다 (§5.9.7).
 
 > **주의:** 본 문서의 **DP1 Migration Scheduler**는 Event를 받아 migration decision cycle을 시작하는 orchestration component다.  
 > 배경 architecture의 execution-side scheduler/queue와 역할이 다르다.
@@ -441,34 +450,39 @@ Memory Registry는 이를 등록·조회하는 **MemoryBackendRegistry** 역할�
 
 ## 5.5 Destination Tier Selector
 
-주어진 migration candidate에 대해 destination memory resource/tier를 결정한다.
+주어진 migration candidate에 대해 destination memory resource/tier를 결정하고,
+결정한 **target resource를 Migration Data Selector에 전달**한다.
 memory 후보는 **Memory Backend I/F의 capability_flags / telemetry / transfer binding**으로만 조회·필터링한다 (§5.8).
 
 ## 5.6 Migration Data Selector
 
-실제로 이동할 data object를 선택한다.
+Destination Tier Selector로부터 **target resource를 받아**, 그 target의 feasibility를 반영해 실제로 이동할 data object를 선택한다.
+선택한 object에 source / target / action / priority / dependency_type을 결합해 **`MigrationIntent`를 생성**한다 (§2).
+즉 intent 조립의 책임은 Migration Data Selector에 있다.
 
-## 5.7 Migration Executor Boundary
+## 5.7 DP1의 출구: Migration Coordinator (DP5 진입점)
 
-슬라이드의 Migration Executor는 DP1 decision plane의 **출구**다.
-Destination Tier Selector와 Migration Data Selector가 결정한 source / target / data object를
-공통 migration architecture로 넘기는 execution boundary로 본다.
-
-~~~text
-Destination Tier Selector  ┐
-                           ├─► Migration Executor (boundary) ─► 공통 Migration subsystem
-Migration Data Selector    ┘
-~~~
-
-상세 구현에서는 boundary 뒤에서 다음 순서로 처리된다.
+DP1 decision plane의 마지막 단계는 Migration Data Selector가 `MigrationIntent`를 생성해 **Migration Coordinator**로 넘기는 것이다.
+Migration Coordinator는 **DP5(Migration 실행)의 모듈**이며 DP1의 소유가 아니다.
 
 ~~~text
-MigrationDecision → MigrationIntent → MigrationCoordinator → MigrationExecutor → TransferHandler
+Destination Tier Selector ─(target resource)─► Migration Data Selector ─(MigrationIntent)─► Migration Coordinator [DP5]
 ~~~
 
-- 슬라이드의 단순 구조에서는 Selector 다음에 Migration Executor를 직접 그리지만, 실제 transfer는 공통 Migration Control Plane을 거쳐 수행된다.
-- **Migration Executor는 Memory Backend I/F와 직접 연결하지 않는다.** Memory Backend I/F는 Resource Manager 아래에 붙는다 (§5.8.2).
-  실제 전송 시 binding(③)과 staging primitive를 쓰는 것은 공통 subsystem의 TransferHandler이며 DP1 범위 밖이다 (§5.9).
+> **이름 변경 (2026-10-06):** 이전 판의 "Migration Executor (boundary)"는 DP1과 공통 migration subsystem의 접점을 가리키던 이름이었다.
+> 이 판에서 그 접점을 **Migration Coordinator**로 바꿨다. "Migration Executor"는 이제 DP5의 Worker 쪽 copy 실행기만 뜻한다.
+> (`Evaluation/DP1/qa4-preregistration.md`의 "공통: Migration Executor"는 사전 등록 당시의 이름이므로 고치지 않으며, 지금의 Migration Coordinator 진입점에 해당한다.)
+
+DP5 안에서의 처리 순서는 다음과 같다.
+
+~~~text
+MigrationIntent → MigrationCoordinator → MigrationPlanner → execution-side queue → MigrationExecutor (Worker) → TransferHandler
+~~~
+
+- 실제 transfer는 DP5의 Control Plane을 거쳐 수행된다 (`doc-mk/DP5/dp5-migration-execution-location-consistent-access.md`).
+- **Migration Coordinator는 Memory Backend I/F와 직접 연결하지 않는다.** Memory Backend I/F는 Resource Manager 아래에 붙는다 (§5.8.2).
+  실제 전송 시 binding(③)과 staging primitive를 쓰는 것은 DP5의 TransferHandler이며 DP1 범위 밖이다 (§5.9).
+- MigrationIntent의 생산자는 DP1만이 아니다. §2.2를 본다.
 
 ---
 
@@ -576,8 +590,10 @@ I/F의 면(②, ①③)과 연결 관계는 동일하며 그림에서만 분리�
   Destination Tier Selector
     ← Memory Registry     : ①③ capability · transfer cost
     ⇒ feasible memory ∩ affinity ∩ 여유 용량(upstream ResourceState) → target tier
-  Migration Data Selector → MigrationDecision → MigrationIntent
-    → 공통 Migration subsystem (reserve · transfer · commit)
+  Migration Data Selector
+    ← target tier         : Destination Tier Selector
+    ⇒ data object 선택 + MigrationIntent 조립
+    → Migration Coordinator [DP5] (reserve · transfer · commit)
 ~~~
 
 C2는 Resource State Monitor → Trend Analyzer 구간을 `Behavior Monitor → Behavior Trend → Future Predictor`로 대체하고,
@@ -985,7 +1001,7 @@ flowchart TD
     DMA["Data-Memory<br/>Affinity Mapper"]
     DTS["Destination Tier<br/>Selector"]
     MDS["Migration Data<br/>Selector"]
-    ME["Migration Executor<br/>(common migration boundary)"]
+    MC["Migration Coordinator<br/>(DP5 진입점)"]
 
     DOR["Data Object Registry<br/>location / size / tier"]
 
@@ -1019,8 +1035,8 @@ flowchart TD
 
     MR -->|"①③ capability ·<br/>transfer cost"| DTS
 
-    DTS --> ME
-    MDS --> ME
+    DTS -->|"target resource"| MDS
+    MDS -->|"MigrationIntent"| MC
 ~~~
 
 구조의 핵심 path는 다음과 같다.
@@ -1031,8 +1047,9 @@ Event
   → Resource State Monitor
   → Resource-based Trend Analyzer / Data Eviction Manager
   → Data-Memory Affinity Mapper
-  → Destination Tier Selector / Migration Data Selector
-  → Migration Executor boundary
+  → Destination Tier Selector (target resource)
+  → Migration Data Selector (MigrationIntent 조립)
+  → Migration Coordinator (DP5)
 ~~~
 
 Data Eviction Manager는 별도로 **type-agnostic Data Object Registry**를 조회하여
@@ -1271,8 +1288,9 @@ Eviction candidate 중 실제 migration object를 결정한다.
 - target feasibility
 
 Migration Data Selector도 Resource Manager와 직접 연결되지 않는다 (슬라이드: Resource Manager ↔ Destination Tier Selector만).
-(source object, target tier)는 Executor boundary에서 `MigrationDecision`으로 결합되고,
-target 용량 부족이나 전송 제약 위반은 공통 Planner가 reject / replan한다 (§19).
+Destination Tier Selector가 정한 target resource는 Migration Data Selector로 전달되고,
+(source object, target tier)는 Migration Data Selector가 `MigrationIntent`로 결합해 Migration Coordinator(DP5)로 넘긴다.
+target 용량 부족이나 전송 제약 위반은 DP5 Planner가 reject / replan한다 (§19).
 
 C1에서는 runtime per-object future behavior prediction을 하지 않으므로
 selection logic은 상대적으로 단순하게 유지한다.
@@ -1319,9 +1337,9 @@ sequenceDiagram
     DTS->>MR: query capability / transfer cost (①③)
     MR-->>DTS: feasible memories + est. transfer cost
 
-    DTS-->>MC: target resource
-    MDS-->>MC: selected data objects
-    MC->>MC: build MigrationIntent
+    DTS-->>MDS: target resource
+    MDS->>MDS: select data objects for target, build MigrationIntent
+    MDS-->>MC: MigrationIntent
 ~~~
 
 ---
@@ -1400,6 +1418,7 @@ static hint (object 단위, allocation 시점에 선언)
 1. §8.8은 Affinity Mapper가 Migration Data Selector에 "candidate ranking hint"를 준다고 적었지만, sim의 `MigrationDataSelectorC1.select`는 Eviction Manager가 정렬한 후보의 **앞에서부터 required bytes만큼** 자를 뿐 affinity를 쓰지 않는다. 즉 현재 구현에서 hint의 소비처는 DTS와 promotion pass 두 곳이다.
 2. 설계상 "Mapper"는 hint 보관 + 점수 + (shape 전달) 묶음이지만, sim에서는 `static_hints`(생산), `DataMemoryAffinityMapper.score`(점수), `AccessCostEstimator`(비용)로 나뉘어 있다.
 3. 설계 문서의 ScHBM은 sim config에 별도 항목이 없고 `custom_hbm`이 가장 가까운 대응이다 (§5.8.10). 아래 예시의 `custom_hbm` 값은 "ScHBM 대용" 값이다.
+4. §5.6, §8.8(2026-10-06 개정)은 Migration Data Selector가 Destination Tier Selector의 target을 받아 intent를 조립한다고 정했다. sim은 `MigrationDataSelectorC1.select`로 victim을 먼저 정하고 DTS가 victim별 목적지를 정한 뒤 `MigrationDecision`으로 결합한다(§10A.2 단계 4~6). 만들어지는 (object, target) 쌍의 형식은 같지만 호출 순서가 반대다. DP1 평가 결과는 sim의 현행 순서 기준이며, 설계 개정을 sim에 반영하는 것은 별도 변경으로 다루고 결과 문서의 한계에 적는다.
 
 ## 10A.2 동작 순서
 
@@ -1761,7 +1780,7 @@ flowchart TD
 
     DTS["Destination Tier<br/>Selector"]
     MDS["Migration Data<br/>Selector"]
-    ME["Migration Executor<br/>(common migration boundary)"]
+    MC["Migration Coordinator<br/>(DP5 진입점)"]
 
     RM["Resource Manager"]
     TC["Telemetry Collector"]
@@ -1795,8 +1814,8 @@ flowchart TD
     TC -->|"② capacity / BW / load"| DTS
     MR -->|"①③ capability ·<br/>transfer cost"| DTS
 
-    DTS --> ME
-    MDS --> ME
+    DTS -->|"target resource"| MDS
+    MDS -->|"MigrationIntent"| MC
 ~~~
 
 구조의 핵심 path는 다음과 같다.
@@ -1807,8 +1826,9 @@ Event
   → Data Behavior Monitor
   → Behavior-based Trend Analyzer
   → Future Behavior Predictor
-  → Destination Tier Selector / Migration Data Selector
-  → Migration Executor boundary
+  → Destination Tier Selector (target resource)
+  → Migration Data Selector (MigrationIntent 조립)
+  → Migration Coordinator (DP5)
 ~~~
 
 Data Object Registry는 Data Behavior Monitor가 관찰한 behavior를
@@ -1968,7 +1988,7 @@ C2도 §8.7과 같은 **serving cost 항**과 **link-time migration budget**을 
 
 C2에서 Resource Manager와 직접 연결되는 모듈은 **Destination Tier Selector**이며,
 Telemetry Collector(② capacity·BW·load)와 Memory Registry(①③ capability·transfer cost)를 모두 읽는다.
-Migration Data Selector는 Resource Manager를 직접 조회하지 않고 Future Behavior Predictor의 결과를 사용한다.
+Migration Data Selector는 Resource Manager를 직접 조회하지 않고 Future Behavior Predictor의 결과와 Destination Tier Selector가 정한 target resource를 사용해 `MigrationIntent`를 조립한다.
 
 C2는 같은 data class 내부 object들도 서로 다른 tier로 migration할 수 있다.
 
@@ -2004,9 +2024,9 @@ sequenceDiagram
     FBP->>DTS: predicted behavior
     FBP->>MDS: predicted behavior
 
-    DTS-->>MC: target resource
-    MDS-->>MC: selected data objects
-    MC->>MC: build MigrationIntent
+    DTS-->>MDS: target resource
+    MDS->>MDS: select data objects for target, build MigrationIntent
+    MDS-->>MC: MigrationIntent
 ~~~
 
 ---

@@ -151,7 +151,7 @@ code_read: doc-mk/Evaluation/DP1/sim/policies.py (working tree, HEAD fc1d221 위
  [~Migration Budget~] ──> [*B1 Staged Migration Pacer*]  chunk/tick, serving-aware throttle
                                   │ (copy-then-switch, 1 in-flight per link)
                                   v
-                          [Migration Executor boundary (common)]
+                          [Migration Coordinator (DP5 진입점)]
 ```
 
 ```mermaid
@@ -169,7 +169,7 @@ flowchart TD
     DOR["Data Object Registry<br/>(type-agnostic, unchanged)"]
     MB["Migration Budget (CHG)"]
     B1["B1 Staged Migration Pacer (NEW)"]
-    ME["Migration Executor boundary (common)"]
+    ME["Migration Coordinator (DP5 진입점)"]
 
     EV --> RSM --> RTA --> B2
     EV -- "ACCESSED (already delivered)" --> A1
