@@ -174,7 +174,7 @@ def qa_slides():
            else f"별 합계가 높은 {nm[o['winner']]} 후보 ({o['totals'][C1]} 대 {o['totals'][C2]})")
     s.box(0.4, y, 12.5, 0.8, [
         f"선택: {nm[o['winner']]}  —  {why}. 합계 차이 1점이라 별 경계에 민감하다.",
-        "한계: [B] simulation. 별 기준(Oracle 달성률 80%, 집계 방식, QA2·QA3 Oracle)과 QA3 정의(선택을 C2에서 C1로 바꿈), QA4 평균 집계는 결과를 본 뒤 정함. QA4 공수·비용은 ASSUMED."], "sel", 9)
+        "한계: [B] simulation, 별 경계(QA1 1.30)와 QA3 정의(선택을 C2에서 C1로 바꿈), QA4 평균 집계는 결과를 본 뒤 정함. QA4 공수·비용은 ASSUMED."], "sel", 9)
 
     # ---------------- slide 2: why QA1, TTFT, TPOT ----------------
     def why_slide(title, items):
@@ -270,15 +270,15 @@ def qa_slides():
     n, mm_, c2_ = A["none"][C1], A["main"][C1], A["main"][C2]
     ns, np_ = A["no_score"][C1], A["no_promo"][C1]
     sa.box(0.4, yy, 6.2, 2.45, [
-        "보완 설계: affinity 추가의 효과",
-        f"- affinity가 없는 C1은 자원 압박에만 반응한다. 처리량 x{n['gp'] / bs['gp']:.2f}(Oracle 달성률 {n['cap1'] * 100:.0f}%), TTFT P99 x{n['t99'] / bs['t99']:.2f}(악화), 승/무/패 {n['wtl'][0]}/{n['wtl'][1]}/{n['wtl'][2]}로 C2(x{c2_['gp'] / bs['gp']:.2f}, 달성률 {c2_['cap1'] * 100:.0f}%)에 크게 못 미친다.",
-        f"- 정적 Data-Memory Affinity를 추가하면(힌트와 접근 비용 추정으로 'HBM에 있어야 SLO를 만족하는' 객체를 승격, 필요하면 교환) 처리량 x{mm_['gp'] / bs['gp']:.2f}(달성률 {mm_['cap1'] * 100:.0f}%), 승/무/패 {mm_['wtl'][0]}/{mm_['wtl'][1]}/{mm_['wtl'][2]}가 된다.",
+        "보완 설계 스토리: affinity 추가",
+        f"- affinity가 없는 C1은 자원 압박에만 반응한다. 처리량 x{n['gp'] / bs['gp']:.2f}, TTFT P99 x{n['t99'] / bs['t99']:.2f}(악화)로 C2(x{c2_['gp'] / bs['gp']:.2f})에 크게 못 미치고, 별 합계가 동점이라 우선순위로 C2가 선택된다.",
+        f"- 정적 Data-Memory Affinity를 추가하면(힌트와 접근 비용 추정으로 'HBM에 있어야 SLO를 만족하는' 객체를 승격, 필요하면 교환) 처리량 x{mm_['gp'] / bs['gp']:.2f}, QA2 ★★★이 되어 합계 {ad['t_main']} 대 {ad['t_c2']}로 C1이 선택된다.",
         f"- 효과의 출처는 정적 승격 pass다: 점수만 제거 x{ns['gp'] / bs['gp']:.3f}(변화 없음), 승격 제거 x{np_['gp'] / bs['gp']:.3f}.",
         "- 승격은 두 후보가 공유하는 접근 비용 추정기(operation class·shape 힌트)에 의존한다."], "sel", 9.5)
     sa.box(6.8, yy, 6.1, 2.45, [
         "한계 (솔직하게)",
         f"- affinity를 넣어도 C1 처리량(x{mm_['gp'] / bs['gp']:.2f})은 C2(x{c2_['gp'] / bs['gp']:.2f})보다 낮다. 격차를 약 {(mm_['gp'] - n['gp']) / (c2_['gp'] - n['gp']) * 100:.0f}% 줄였지만 C2를 이기지는 못한다.",
-        f"- **별(v6)로는 affinity 제거가 선택을 바꾸지 못한다**: 두 변형 모두 QA1~3이 ★★로 같고 합계 C1 {ad['t_none']}(제거)/{ad['t_main']}(포함) 대 C2 {ad['t_c2']}라 둘 다 C1 선택. 3단계 별이 값의 차이를 가린다. 이전 기준(v5)에서는 QA2 ★★★ 경계 때문에 제거 시 동점(C2 선택)이었으나 경계 선택의 효과였다.",
+        f"- 선택이 C1로 바뀐 것은 QA3(HBM x{mm_['hbm'] / bs['hbm']:.2f} 대 C2 x{c2_['hbm'] / bs['hbm']:.2f})·QA4 우위와 QA2 별 경계(x{mm_['imp']:.2f} vs 1.25)에서 온다. 합계 차이 1점이라 경계에 민감하다.",
         "- affinity 제거 변형에서도 QA4 별은 C1 ★★★로 같게 두었다(affinity 모듈은 C1 설계에 원래 포함).",
         "- 대조군(affinity 포함 재실행)은 본 결과와 정확히 일치. 5 seed, 동일 시나리오. 4.7절 참고."], "note", 9.5)
 
@@ -305,42 +305,46 @@ def qa_slides():
         "- 기본값은 유지했다. 필요한 것은 큰 이동을 여러 tick에 나누는 staged 이동과 이동 중 접근에 대한 do-no-harm 검사이며 보완 설계 택틱([C], 미구현)이다.",
         "- 한계: 링크 간섭이 평균장 근사(대역폭 배율)라 꼬리가 과대일 수 있다. 사전 판정 규칙이 '이득이 0인 퇴화 해'를 허용하는 결함이 있었음을 loop-log에 기록했다."], "note", 9.5)
 
-    # ---------------- slide: star criteria (v6, Oracle capture) + basis ----------------
-    CP = g.CAP[g.MERGED]
-    _N = lambda n: "★" * n
-    pc = lambda q, k: f"{CP[q][k]['capture'] * 100:.0f}%"
-    sm = Slide("별점 기준과 근거 (v6: Oracle 이득 달성률)")
-    cols_ = (("QA", 0.35, 0.85), ("평가 지표 / Oracle(이론적 상한)", 1.2, 2.75), ("★ (1개)", 3.95, 1.85), ("★★ (2개)", 5.8, 2.1), ("★★★ (3개)", 7.9, 1.75), ("왜 이 기준인가", 9.65, 2.15), ("C1 / C2 결과", 11.8, 1.2))
+    # ---------------- slide: star criteria (v5, official) + basis; Oracle capture as reference ----------------
+    CPJ = g.json.load(open(g.DATA / "oracle" / "capture_stars.json"))
+    pc = lambda q, k: f"{CPJ[q][k]['capture'] * 100:.0f}%"
+    SB = g.json.load(open(g.DATA / "star_basis.json"))["summary"]
+    rng = lambda k: f"{SB[k]['min']:.3f}~{SB[k]['max']:.3f}"
+    st5 = g.stars_combined()
+    sm = Slide("별점 기준과 근거 (QA별 ★ 1·2·3개)")
+    cols_ = (("QA", 0.35, 0.85), ("평가 지표", 1.2, 2.45), ("★ (1개)", 3.65, 1.55), ("★★ (2개)", 5.2, 1.7), ("★★★ (3개)", 6.9, 1.7), ("왜 이 기준인가", 8.6, 3.2), ("C1 / C2 결과", 11.8, 1.2))
     for name, x, w in cols_:
         sm.box(x, 1.12, w, 0.3, name, "head", 9.5, True, "ctr", False)
     ROWS = (
-        ("QA1\n처리량", "Max SLO goodput의 Baseline 대비 배수\nOracle-ideal: 미래 접근률을 알고 이동 비용이 0인 정책", "Baseline의 0.97배 미만 (Baseline보다 느림)", "0.97배 이상이고 Oracle 이득의 80% 미만", "Oracle 이득의 80% 이상",
-         "★/★★: Baseline끼리 비교해도 0.968~1.033배 흔들림(측정). ★★★: 문헌 달성률 중앙값 81%", f"C1 {_N(CP['qa1']['c1']['star'])} {pc('qa1','c1')}\nC2 {_N(CP['qa1']['c2']['star'])} {pc('qa1','c2')}"),
-        ("QA2\n지연", "TTFT·TPOT x P50/95/99 6개 지표 개선 배수(Baseline÷후보) 평균\nOracle-lean: 접근된 객체를 이동 비용 없이 HBM에 두는 정책", "0.95배 미만 (지연이 5%+ 나빠짐)", "0.95배 이상이고 Oracle 이득의 80% 미만", "Oracle 이득의 80% 이상",
-         "Baseline끼리 0.973~1.028배(측정), 약간 느슨하게 0.95. ★★★은 QA1과 같은 80%", f"C1 {_N(CP['qa2']['c1']['star'])} {pc('qa2','c1')}\nC2 {_N(CP['qa2']['c2']['star'])} {pc('qa2','c2')}"),
-        ("QA3\nHBM 사용", "HBM 절감 배수(Baseline GiB÷후보 GiB)\nOracle-lean: 틱마다 접근된 객체만 HBM에 두는 정책", "0.95배 미만 (HBM을 5%+ 더 씀)", "0.95배 이상이고 Oracle 절감의 80% 미만", "Oracle 절감의 80% 이상",
-         "Baseline끼리 0.984~1.016배(측정), 느슨하게 0.95. ★★★은 QA1과 같은 80%", f"C1 {_N(CP['qa3']['c1']['star'])} {pc('qa3','c1')}\nC2 {_N(CP['qa3']['c2']['star'])} {pc('qa3','c2')}"),
-        ("QA4\n변경 비용 (달성률 아님)", "변경 module 수 · 개발 공수(man-month) · 에이전트 비용($) 3개의 중앙값 별", "module 6개 이상, 공수 1.0 초과, $10 초과", "module 3~5개, 공수 1.0 이하, $10 이하", "module 2개 이하, 공수 0.5 이하, $3 이하",
-         "module 수 경계는 공통 룰, 공수·$는 사전 등록한 가정값(ASSUMED)", f"C1 {g.QA4_STARS[C1]}\nC2 {g.QA4_STARS[C2]}"),
+        ("QA1\n처리량", "Max SLO goodput의 Baseline 대비 배수 (시나리오 쌍별 비율의 geomean)", "0.97배 미만 (Baseline보다 느림)", "0.97 이상 1.30 미만", "1.30배 이상",
+         f"★/★★ 경계: Baseline끼리 비교해도 {rng('qa1_ratio')}배 흔들려 0.97은 그 하한(측정). ★★★ 경계: 1.30배 = 같은 수요를 하드웨어 77%로 처리 = 8-GPU 노드에서 약 1.85 GPU 절감(환산, 정책 선택)",
+         f"C1 {st5[C1]['QA1']} x1.30\nC2 {st5[C2]['QA1']} x1.42"),
+        ("QA2\n지연", "TTFT·TPOT x P50/P95/P99 6개 지표 개선 배수(Baseline÷후보)의 geomean", "0.95배 미만 (지연이 5%+ 나빠짐)", "0.95 이상 1.25 미만", "1.25배 이상",
+         f"★/★★ 경계: Baseline끼리 {rng('qa2_improvement')}배(측정), 약간 느슨하게 0.95. ★★★ 경계: 1.25배 = 지연 20% 감소(TTFT P99 1,084 ms가 867 ms로, 환산)",
+         f"C1 {st5[C1]['QA2']} x1.28\nC2 {st5[C2]['QA2']} x1.56"),
+        ("QA3\nHBM 사용", "HBM 절감 배수 (Baseline GiB ÷ 후보 GiB, 시간 평균 점유)", "0.95배 미만 (HBM을 5%+ 더 씀)", "0.95 이상 1.25 미만", "1.25배 이상",
+         f"★/★★ 경계: Baseline끼리 {rng('qa3_saving')}배(측정), 느슨하게 0.95. ★★★ 경계: 1.25배 = HBM 20% 감소(평균 146.6 GiB 중 약 29 GiB, 8K KV object 약 1.6개분, 환산)",
+         f"C1 {st5[C1]['QA3']} x1.03\nC2 {st5[C2]['QA3']} x0.82"),
+        ("QA4\n변경 비용", "변경 module 수 · 개발 공수(man-month) · 에이전트 비용($) 3개 sub-star의 중앙값", "module 6개 이상 · 공수 1.0 초과 · $10 초과", "module 3~5개 · 공수 1.0 이하 · $10 이하", "module 2개 이하 · 공수 0.5 이하 · $3 이하",
+         "module 수 경계는 공통 룰 문서. 공수와 $ 경계는 사전 등록한 가정값(ASSUMED)", f"C1 {g.QA4_STARS[C1]}\nC2 {g.QA4_STARS[C2]}"),
     )
     yy = 1.45
     for r_ in ROWS:
         for (name, x, w), v in zip(cols_, r_):
-            sm.box(x, yy, w, 0.86, v.split("\n"), "dp" if name == "QA" else "cell", 8, name == "QA", "ctr" if name in ("QA", "C1 / C2 결과") else "l", False)
-        yy += 0.89
-    sm.box(0.35, yy + 0.05, 6.2, 2.05, [
-        "정의와 근거",
-        "- Oracle 달성률 = 후보가 낸 이득 / Oracle이 낼 수 있는 이득 (로그 비율의 합으로 집계, 개선 여지가 잡음 이하인 쌍 제외). Oracle은 모두 증명된 최적이 아닌 근사 상한.",
-        "- ★/★★ 하한(측정): Baseline을 seed 묶음 5개로 돌려 서로 비교한 20회의 집계 범위.",
-        "- ★★★ 기준 80%(문헌): 이득 달성률 57, 75, 87, 95%의 중앙값 81%를 반올림. 문헌 점수가 4개뿐이고 CPU 캐시/tiered memory 연구다.",
-        "- 이 기준은 결과를 본 뒤 정했고(집계 방식, QA2·QA3 Oracle 포함) 선택(C1 9점 대 C2 8점)은 이전 기준과 같다."], "sel", 8.5)
-    sm.box(6.75, yy + 0.05, 6.25, 2.05, [
-        "문헌 자료 (원문에서 확인한 수치; 출처: qa-capture-literature.md)",
-        "- Mockingjay, HPCA'22, Table I (IPC 개선 vs LRU, Belady MIN 6.0%): SHiP 3.4%=57%, Hawkeye 4.5%=75%, Mockingjay 5.7%=95%.",
-        "- ARMS, arXiv 2508.04417: 기본 HeMem 대비 1.26배, 튜닝 최적의 97% 이상이므로 달성률 87% 이상(환산).",
-        "- 참고(지표가 달라 80% 계산에서 제외): Colloid, SOSP'24: HeMem/TPP/MEMTIS가 best-case 처리량의 98.5/95.4/89.9%. LRB, NSDI'20: 기존 최고와 Belady 격차의 약 1/4 해소.",
-        "- 반증: arXiv 2609.16215: 대역폭이 경합하면 oracle prefetch도 이득이 없었음(우리 링크 간섭 결과와 같은 방향).",
-        "- 한계: LLM 서빙 직접 문헌 없음, QA2/QA3의 Oracle이 더 이상적이라 80%가 더 엄격, 개선 여지 쌍이 QA1 10개뿐."], "note", 8.5)
+            sm.box(x, yy, w, 0.9, v.split("\n"), "dp" if name == "QA" else "cell", 8, name == "QA", "ctr" if name in ("QA", "C1 / C2 결과") else "l", False)
+        yy += 0.93
+    sm.box(0.35, yy + 0.05, 6.2, 2.0, [
+        "부가 설명: 근거의 강도",
+        "- ★/★★ 하한은 측정: Baseline을 seed 묶음 5개로 돌려 서로 비교한 20회의 집계 범위(효과가 없을 때의 잡음).",
+        "- ★★★ 상한은 측정할 수 없다. 환산(GPU 수, ms, GiB)으로 의미만 붙인 정책 선택이고, 특히 QA1의 1.30은 결과를 본 뒤 정했다.",
+        "- 상한을 QA1/2/3에 같게 적용하면 선택이 바뀐다: 상한 1.25 이하 또는 1.45 이상이면 C1, 1.30~1.40이면 동점이라 QA1 우선순위로 C2. 현재 경계는 C1의 QA1(x1.298)과 0.2% 차이다.",
+        "- 위 기준은 5개 시스템 구성이 아닌 H100+B200 통합 21쌍 기준이며 Evidence는 [B+C]."], "sel", 8.5)
+    sm.box(6.75, yy + 0.05, 6.25, 2.0, [
+        "부가 설명: 문헌 자료와 Oracle 달성률 (참고, 공식 별 아님)",
+        f"- Oracle(미래 접근률을 알고 이동 비용이 0인 상한) 이득 중 얻은 비율: QA1 C1 {pc('qa1','c1')} / C2 {pc('qa1','c2')}, QA2 C1 {pc('qa2','c1')} / C2 {pc('qa2','c2')}, QA3 C1 {pc('qa3','c1')} / C2 {pc('qa3','c2')}.",
+        "- 문헌 달성률(원문 확인): Mockingjay HPCA'22 Table I (Belady MIN 대비 IPC 개선) SHiP 57%, Hawkeye 75%, Mockingjay 95%; ARMS arXiv 2508.04417 튜닝 최적의 97% 이상 = 87% 이상(환산). 중앙값 81%.",
+        "- 참고: Colloid SOSP'24는 HeMem/TPP/MEMTIS가 best-case 처리량의 98.5/95.4/89.9%, LRB NSDI'20은 기존 최고와 Belady 격차의 약 1/4 해소. 반증: arXiv 2609.16215는 대역폭 경합 시 oracle prefetch도 이득이 없었다고 보고.",
+        "- 한계: LLM 서빙 직접 문헌 없음(CPU 캐시/tiered memory), Oracle은 근사 상한. 출처 5개와 제외 사유: qa-capture-literature.md."], "note", 8.5)
 
     # ---------------- slide 4: scenarios ----------------
     s4 = Slide("DP1 평가에서 고려한 시나리오")
@@ -383,10 +387,10 @@ def tactics_slide():
     rows = [
         ("T1", f"자원 압박에만 반응하는 C1은 처리량 x{r(n):.2f}, TTFT P99 x{n['t99'] / bs['t99']:.2f}(악화)로 C2(x{r(c2):.2f})에 크게 못 미침",
          "정적 Data-Memory Affinity 승격 추가: operation class·shape 힌트와 접근 비용 추정으로 'HBM에 있어야 SLO를 만족하는' 객체를 승격, 자리가 없으면 정적 페널티가 작은 HBM 거주 객체와 교환",
-         "QA1 QA2", f"[B] 구현·측정됨: 처리량 x{r(n):.2f} -> x{r(m):.2f}(Oracle 달성률 {n['cap1'] * 100:.0f}% -> {m['cap1'] * 100:.0f}%), TTFT P99 x{n['t99'] / bs['t99']:.2f} -> x{m['t99'] / bs['t99']:.2f} (제거 변형 비교, 결과 4.7). 별(v6)은 같아 선택은 불변"),
+         "QA1 QA2", f"[B] 구현·측정됨: 처리량 x{r(n):.2f} -> x{r(m):.2f}, QA2 ★★ -> ★★★ (제거 변형 비교, 결과 4.7). 선택이 C2에서 C1로 바뀜"),
         ("T2", f"TTFT P99 꼬리 개선 없음(x{m['t99'] / bs['t99']:.2f}). 진단한 시나리오에서 이득 없는 재배치(DRAM 링크 포화 신호에 반응)가 링크를 나눠 씀",
          "재배치에도 이득/비용 gating 적용(C2에 있는 것과 같은 방식): 예상 서빙 이득이 이동 비용보다 작으면 이동하지 않음", "QA2", "[C] 미구현. 원인은 `cb_kv_8k_b32` 한 시나리오에서만 진단"),
-        ("T3", f"같은 종류(KV) 안의 hot/cold를 구분하지 못해 C2보다 처리량이 낮음(x{r(m):.2f} 대 x{r(c2):.2f}), Oracle 달성률 80% 기준 아래(C1 {m['cap1'] * 100:.0f}% 대 C2 {c2['cap1'] * 100:.0f}%)",
+        ("T3", f"같은 종류(KV) 안의 hot/cold를 구분하지 못해 C2보다 처리량이 낮음(x{r(m):.2f} 대 x{r(c2):.2f}), QA1 별 경계(1.30) 바로 아래",
          "affinity 힌트에 경량 접근 신호(최근 접근 시각, 접근 횟수)를 추가해 구조를 type-agnostic으로 유지하면서 hot/cold 승격 반영", "QA1", "[C] 미구현. C2의 behavior 모듈 전체를 들이지 않는 대안"),
         ("T4", "정적 힌트(operation class·shape)가 틀리거나 신규 메모리에 없으면 승격이 오작동. 승격이 공유 접근 비용 추정기에 의존",
          "힌트를 Memory Backend I/F의 descriptor에서 자동 도출하고, 힌트가 없으면 승격을 끄는 안전 장치(do-no-harm)", "QA4 안정성", "[C] 미구현"),
