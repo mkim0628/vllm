@@ -19,7 +19,7 @@
 2. **왜 중요한가**: 서버 안에서 얻은 성능 이득(예: 이전 대화의 중간 결과인 KV 캐시를 빠른 메모리에서 재사용)이 서버 간 요청 배분 단계에서 사라지면 의미가 없다. 조율 계층이 "어느 서버의 어느 메모리에 캐시가 있는지"를 알고 지시도 내릴 수 있어야 한다.
 3. **선택지 2개 (make vs buy 비유)**: **1안 = 기성 오픈소스(llm-d)를 가져다 확장(buy & customize)**, **2안 = 우리가 직접 만든 자체 라우터(Own Router, make)**.
 4. **현재 근거**: 우리에게 필요한 판단 로직 5개(정책 P1~P5) 중 llm-d는 설정 2개, 확장 모듈(plugin) 2개로 실제 실행까지 확인했다 [A]. 나머지 1개(P5)는 일반 경로는 확장 모듈로 되지만, Prefill/Decode 분리 경로는 기존 보조 모듈(sidecar) 수정이 필요하다 [C].
-5. **결론(잠정, 모두 가설)**: 처리량은 두 안이 동등하다. 2안은 응답 지연(추가 네트워크 호출 1회 감소)에서 유리하다는 가설이 있으나 아직 측정하지 않았다. 서버를 늘릴 때의 확장성·기능 확보는 1안이 유리하다. 그래서 **1안(llm-d 확장)을 기본으로 하고 2안은 전환 조건(§9.1)을 두는 헤지(보험)** 로 둔다.
+5. **결론(잠정, 모두 가설)**: 두 안은 **tradeoff 관계**다(§6.6, §7.4). 설계 결정 3개가 QA를 맞바꾼다 — 결정을 프로세스 안에서 하면(2안) 지연이 유리하고 결정기를 분리하면(1안) 확장성이 유리하며, P/D 조율을 중앙에 두면(2안) 노드 지시·전역 시야가 유리하고 분산하면(1안) 병목이 없으며, 기능을 재사용하면(1안) 신기능·업스트림 흡수가, 직접 소유하면(2안) 우리 로직 통제가 유리하다. QA 별 합계는 9 대 9 동점이고 QA 밖 비용도 반대 방향(구현 부담은 1안, 운영 환경 부담은 2안 유리)이다. 그래서 **현재 기본 경로는 실제 실행으로 확인한 1안(llm-d 확장)이고, 2안은 E1 측정과 QA 우선순위 확정에 따라 전환하는 헤지**다(§9.1). 이전 판(1안 10 대 2안 8)은 2안을 최소 구성으로 그린 데서 나온 것이어서 정정했다(§7.4.1).
 6. **남은 불확실성**: 실제 vLLM·Envoy를 붙인 end-to-end 실행, 지연 측정(E1), 서버 간 RDMA 유무, 서버를 늘릴 때의 확장성(2대로는 실측 불가), 우리 vLLM fork가 upstream보다 뒤처진 점(§10.2).
 7. **오픈소스 의존 리스크**: 확장 모듈이 오픈소스 내부 동작에 기대고 있어 업스트림이 바뀌면 깨질 수 있다. 자체 실행 이미지의 빌드·배포·추종도 우리 몫이다.
 8. **다음 단계(결정 요청)**: (a) 1안(llm-d)을 기본 경로로 확정하고 E1·E3·E4 실험 진행 여부, (b) vLLM fork 동기화 시점, (c) RDMA 유무 확인, (d) Kubernetes(KIND 포함) 환경 준비 범위 (§10.4).
@@ -237,7 +237,7 @@ flowchart LR
 
 # 5. 성능 연결 모델
 
-> 요약: orchestrator가 성능에 닿는 경로는 6개다. 두 후보의 *표현력 천장*은 정책 집합 P1~P5 기준으로 같으므로 Throughput은 동등하고, DP0의 성능 연결은 "후보를 가르는 것"이 아니라 "필요한 정책에 도달 가능한가(enabler)"이다.
+> 요약: orchestrator가 성능에 닿는 경로는 6개다. 두 후보의 *표현력 천장*은 정책 집합 P1~P5 기준으로 같고, DP0의 성능 연결은 일차적으로 "필요한 정책에 도달 가능한가(enabler)"이다. 실현 Throughput은 경로별(P/D 경로 P5, 과부하 Flow Control)로 갈린다(§7.4).
 
 ## 5.1 경로 ①~⑥
 
@@ -259,13 +259,14 @@ flowchart LR
 - **천장**: 후보가 *원리적으로* 표현할 수 있는 정책 집합. 자체 구현은 무엇이든 쓸 수 있으므로 천장이 무한이다. 이 비교는 의미가 없다.
 - **실현**: 같은 정책 집합 P1~P5를 *실제로 구현한 결과값*. OSS는 외부 plugin이나 patch를 거쳐 P1~P5를 모두 표현할 수 있다(§7.5).
 
-따라서 **우리 정책 집합 P1~P5 기준으로 두 후보의 표현력 천장은 같고, Throughput은 동등하다**(근거 [A+C]: llm-d P1~P4는 합성 백엔드로 EPP를 끝단까지 실행해 확인 [A], P5의 P/D 경로와 Dynamo 쪽은 코드 분석 [C]). DP0의 성능 연결은 후보를 가르는 요인이 아니라 **필요한 정책에 도달 가능한가**, 즉 enabler다. 후보를 가르는 것은 Latency(hop 구조), Modifiability, Scalability다(§7).
+따라서 **우리 정책 집합 P1~P5 기준으로 두 후보의 표현력 천장은 같다**(근거 [A+C]: llm-d P1~P4는 합성 백엔드로 EPP를 끝단까지 실행해 확인 [A], P5의 P/D 경로와 Dynamo 쪽은 코드 분석 [C]). 천장이 같다는 것이 실현 Throughput이 같다는 뜻은 아니다 — 실현값은 경로별로 갈린다(P/D 경로 P5 도달성은 후보 2, 과부하 Flow Control은 후보 1; §7.4). DP0의 성능 연결은 일차적으로 **필요한 정책에 도달 가능한가**, 즉 enabler이고, 후보를 가르는 것은 Latency(hop 구조), Modifiability, Scalability와 Throughput의 경로별 교차다(§6.6, §7).
 
 > **평가 방법론 주의 (두 차례의 수정 기록).**
 >
 > 1. 초기 평가는 후보 2를 *이론적 천장*으로, 후보 1을 *현재 제약이 있는 상태*로 놓고 비교해 후보 2가 압승으로 나왔으나 이는 부정확했다. 같은 정책 집합·실현값 기준으로 다시 평가하면 trade-off가 성립했다.
 > 2. 그 뒤 llm-d 분석([llm-d 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/llm-d/llm-d-architecture-analysis.md) §8)의 코드 실험으로 근거 수준이 [C]에서 [A]로 올라가면서 평가가 **다시 바뀌었다**. P4는 core patch(F)가 아니라 `disagg.Handler`를 embed한 ProfileHandler wrapper(외부 plugin, P)로 구현·실행되었고 [A], P5도 aggregated 경로는 plugin(P)으로 가능했다 [A]. 그 결과 후보 1의 Modifiability 약점(로직 변경 시 patch 필요)이 크게 줄었다.
 > 3. 결과: **후보 2의 우위는 Latency 가설(hop 1개, 미측정)과 K8s 비의존(QA가 아닌 프로젝트 제약)으로 좁아졌다. 따라서 후보 2는 현 시점에서 헤지(전환 조건 충족 시 선택)의 성격이 강하고, trade-off 균형은 처음 가정보다 후보 1 쪽으로 기울었다.** 이 변화는 근거가 더 강해진 쪽으로 평가가 이동한 것이며 숨기지 않고 기록한다. 전부 가설이라는 단서는 유지한다.
+> 4. **세 번째 수정(본 판)**: 위 결과 후보 1이 4개 QA 중 3개에서 앞서 사실상 지배하는 구조가 되었다(별 합계 10 대 8). 원인을 점검하니 **평가 수치가 아니라 후보 2의 정의**가 문제였다. 후보 2를 "단일 프로세스·정적 registry·최소 admission"의 최소 구성으로 그려서, 후보 1은 완성형·후보 2는 미완성형을 비교한 셈이었다. 이는 §5.2의 "천장 vs 실현" 오류와 같은 종류(비교 수준 불일치)다. 그래서 (i) 후보 2를 **같은 노력 수준의 계층형 설계**(레플리카·etcd registry·SPI 포함)로 다시 정의하고(§6.3), (ii) 변경 용이성을 시나리오 S1~S6 단위로 다시 센 뒤(§7.3), (iii) 후보 2가 늘어난 구현 부담은 QA 밖 비용으로 명시했다(§7.4). 별점 경계와 지표는 바꾸지 않았고, 이전 값·바뀐 값·사유는 §7.4.1에 모두 남겼다. 이 변경은 특정 결론을 만들려는 조정이 아니며, 2안이 불리해지는 항목(확장성, 구현 부담)은 그대로 유지했다.
 
 ---
 
@@ -276,7 +277,7 @@ flowchart LR
 | 후보 | 이름 | 소유 범위 |
 |---|---|---|
 | **후보 1** (1안) | OSS 확장 (Adopt & Extend; 기성품을 가져다 확장) | OSS가 substrate/state/decision 파이프라인을 소유. 1a llm-d(대표), 1b Dynamo(민감도 확인용) |
-| **후보 2** (2안) | 자체 구현 (Build; 직접 개발) | 우리가 decision plane + state plane 소유. **설계안이며 구현되지 않았다. 구현량은 추정.** |
+| **후보 2** (2안) | 자체 구현 (Build; 직접 개발) | 우리가 decision plane + state plane 소유. 계층형 Router 레플리카 ×R + etcd(§6.3). **설계안이며 구현되지 않았다. 구현량은 추정.** |
 
 색 규칙(아래 다이어그램 공통): 후보 1 = 청록, 후보 2 = 주황, 외부 고정 vLLM = 회색, 우리가 바꾸는 지점(★) = 굵은 테두리.
 
@@ -395,46 +396,100 @@ flowchart LR
 
 근거: 요청 흐름과 PrefillRouter 위치는 `ai-dynamo/dynamo@938d89b:docs/fern/pages/developer-guide/knowledge-base/concepts/system-architecture/architecture.md` "Request Flow"와 `lib/llm/src/kv_router/prefill_router/mod.rs#L215` [B/C]. GAIE 모드에서는 별도 EPP(ext_proc)가 추가되고 이 경우 ③의 hop 이점이 사라진다 [B]. Dynamo가 vLLM을 호출하는 경계의 구체 형태(Python wrapper 구조)는 [Dynamo 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/dynamo/dynamo-architecture-analysis.md) 참조, 본 문서에서는 미확인.
 
-## 6.3 후보 2 — 자체 구현
+## 6.3 후보 2 — 자체 구현 (계층형 컴포넌트 뷰)
 
-> 요약: 단일 프로세스 Router가 A~F를 모두 갖는다. K8s/Envoy 불필요. vLLM 계약(KV events, `/metrics`, `kv_transfer_params`, NIXL)은 후보 1과 동일하다. **설계안이며 구현되지 않았고, 구현량은 추정이다.**
+> 요약: 후보 2는 **우리가 decision plane과 state plane을 모두 소유**하는 계층형 Router다. 3개 계층(Ingress / Request Pipeline / State Plane)과 인터페이스 2개(Policy SPI, StateView)로 나누고, 상태를 공유하지 않는 **레플리카 ×R**을 L4 LB 뒤에 두어 늘린다. K8s/Envoy는 불필요하다. vLLM 계약(KV events, `/metrics`, `kv_transfer_params`, NIXL)은 후보 1과 동일하다. **설계안이며 구현되지 않았고, 구현량은 추정이다.**
+>
+> 이전 판은 이 후보를 "단일 프로세스·정적 설정·최소 admission"으로만 그렸다. 그러면 후보 1(완성형)과 후보 2(미완성형)를 비교하게 되어 tradeoff가 성립하지 않으므로, 같은 노력 수준으로 재정의했다(§5.2 박스 4번). 대신 늘어난 구현 부담은 QA 밖 비용으로 §7.4에 명시한다.
+
+### 6.3.1 컴포넌트 뷰
 
 ```mermaid
 flowchart LR
     CL["Client"]
+    LB["L4 LB<br/>(상태 비의존)"]
+    ETCD[("etcd<br/>Registry 저장소")]
 
-    subgraph OWN["Own Router (단일 프로세스, 우리 소유)"]
+    subgraph RT["Own Router 레플리카 ×R  (우리 소유, 레플리카 간 상태 비공유)"]
         direction TB
-        A3["A: Ingress / Proxy"]
-        D3["D: Admission / Queue<br/>(최소 admission)"]
-        B3["B: PolicyEngine<br/>P1-P4 직접 코드"]
-        E3["E: PD Orchestrator<br/>P5 지시 포함"]
-        subgraph STB["State Store"]
-            C3["C: KV events 구독<br/>+ metrics poller<br/>+ KV index"]
-            F3["F: Worker Registry<br/>(정적 설정 / etcd)"]
+
+        subgraph ING["계층 1. Ingress"]
+            A3["A Ingress / API<br/>OpenAI API 파서 · 스트리밍 프록시"]
         end
-        A3 --> D3 --> B3 --> E3
-        C3 --> B3
-        F3 --> C3
+
+        subgraph PIPE["계층 2. Request Pipeline"]
+            direction LR
+            D3["D Admission<br/>Queue 정책(최소: 임계값 + FCFS)"]
+            B3["B PolicyEngine<br/>Selector: Filter → Score → Pick<br/>Policy SPI: P1~P3 Scorer · P4 PD-Planner"]
+            E3["E P/D 조율<br/>PD Orchestrator · P5 Directive Builder<br/>커넥터: aggregated / P/D / P2P"]
+            D3 --> B3 --> E3
+        end
+
+        subgraph STP["계층 3. State Plane"]
+            direction LR
+            F3["F Registry<br/>etcd watch / 정적 설정"]
+            C3["C State Store<br/>KV Index(tier 인지) · Metrics Snapshot · Cost Model"]
+            SUB["Event Subscriber (ZMQ)"]
+            POL["Metrics Poller"]
+            F3 -.->|"⑦ 대상 목록"| C3
+            SUB --> C3
+            POL --> C3
+        end
+
+        A3 -->|"② 프로세스 내부 호출"| D3
+        C3 ==>|"⑥ StateView (읽기 전용)"| B3
     end
 
-    subgraph INST["vLLM 인스턴스들"]
+    subgraph INST["vLLM 인스턴스들 (외부 고정)"]
         VP2["vLLM (prefill)"]
         VD2["vLLM (decode)"]
     end
 
-    CL -->|"HTTP"| A3
-    E3 -->|"HTTP (prefill)"| VP2
-    E3 -->|"HTTP (decode, kv_transfer_params)"| VD2
-    VP2 <-->|"NIXL"| VD2
-    VP2 -->|"KV events (ZMQ), /metrics"| C3
-    VD2 -->|"KV events (ZMQ), /metrics"| C3
+    CL -->|"① HTTP"| LB --> A3
+    ETCD -.-> F3
+    E3 -->|"③ HTTP + kv_transfer_params"| VP2
+    E3 -->|"③ HTTP + kv_transfer_params"| VD2
+    VP2 <-->|"④ NIXL"| VD2
+    VP2 -->|"⑤ KV events (ZMQ), /metrics"| SUB
+    VD2 -->|"⑤ KV events (ZMQ), /metrics"| POL
 
-    classDef own fill:#fed7aa,stroke:#c2410c,stroke-width:3px,color:#111;
+    classDef own fill:#fed7aa,stroke:#c2410c,stroke-width:2px,color:#111;
     classDef fixed fill:#e5e7eb,stroke:#6b7280,color:#111;
-    class A3,D3,B3,E3,C3,F3 own;
+    class A3,D3,B3,E3,C3,F3,SUB,POL,LB,ETCD own;
     class VP2,VD2 fixed;
 ```
+
+**의존 방향(규칙).** (1) 계층은 위에서 아래로만 호출한다: Ingress → Pipeline. (2) State Plane은 Pipeline에서 **StateView 인터페이스(읽기 전용)** 로만 읽는다. Pipeline은 State Plane에 쓰지 않는다. (3) 정책(P1~P5)은 **Policy SPI**로 PolicyEngine과 P/D 조율에 꽂는다. 정책을 바꿔도 Ingress·State Plane은 건드리지 않는다(Modifiability S1~S4).
+
+### 6.3.2 컴포넌트 카탈로그
+
+| 컴포넌트 | 블록 | 계층(plane) | 책임 | 제공 인터페이스 | 필요 인터페이스 | 담당 정책 |
+|---|---|---|---|---|---|---|
+| Ingress / API | A | Ingress (Substrate) | OpenAI API 파싱, 스트리밍 응답 중계 | OpenAI API | Admission 호출 | — |
+| Admission | D | Pipeline (Decision) | 과부하 시 대기·우선순위·거절. **최소 구현**(임계값 + FCFS), Flow Control 수준의 정책은 직접 추가해야 함 | `admit(req)` | StateView(부하) | — |
+| PolicyEngine | B | Pipeline (Decision) | 후보 서버 선택(Filter → Score → Pick). Scorer/Planner를 SPI로 로드 | **Policy SPI**(`Score`, `PlanPD`) | StateView | P1, P2, P3, P4 |
+| P/D 조율 (PD Orchestrator) | E | Pipeline (Decision/Substrate) | prefill→decode 연결, `kv_transfer_params` 조립, 요청별 노드 지시(P5) 첨부, 실패 시 재시도 | **Dispatch port**(vLLM HTTP) | PolicyEngine 결과, StateView | P5 |
+| State Store | C | State Plane | tier 인지 KV index, 메트릭 스냅샷, 비용 모델(tier 대역폭·점유) 보관 | **StateView**(읽기 전용) | Event Subscriber, Metrics Poller | P1, P2 입력 |
+| Event Subscriber | C | State Plane | vLLM KV 이벤트(ZMQ) 구독 → index 갱신. **레플리카마다 독립 구독** | — | KV events 계약 | — |
+| Metrics Poller | C | State Plane | `/metrics` 주기 수집 → 스냅샷 갱신 | — | `/metrics` 계약 | P2 입력 |
+| Registry | F | State Plane (Substrate) | 서버(인스턴스) 목록 관리(etcd watch 또는 정적 설정), Subscriber/Poller의 대상 제공 | `endpoints()` | etcd | — |
+
+### 6.3.3 배치·확장 (스케일아웃 뷰)
+
+- **레플리카 모델**: Router 레플리카는 요청 경로 상태를 갖지 않는다. 각 레플리카가 vLLM의 KV 이벤트를 **독립적으로 구독**해 자기 index를 만든다(ZMQ PUB는 다수 구독자를 허용하는 것으로 가정, **미검증**). 그래서 L4 LB가 상태 없이 분배해도 동작한다.
+- **옵션**: 레플리카 간 index 동기화(Dynamo의 replica sync와 같은 종류, best-effort). 필요성은 E3(상태 신선도)로 판단한다.
+- **직접 구축해야 하는 것(후보 1은 OSS가 제공)**: L4 LB 구성, 레플리카 장애 감지·교체, etcd 운영, 레플리카 수 조절. 이것이 Scalability가 후보 1보다 낮은 이유이자 구현 부담이다.
+- **병목 위치**: P/D 조율(E)이 Router 안에 있으므로, prefill 응답을 기다렸다가 decode를 호출하는 흐름이 **Router를 데이터 경로 안에 둔다**. 후보 1은 이 흐름이 decode pod의 sidecar에 분산되어 Router가 경로 밖이다. 이 차이가 D2(§6.6)다.
+
+### 6.3.4 후보 2에서 정책 P1~P5의 구현 위치
+
+| 정책 | 구현 위치 | 비고 |
+|---|---|---|
+| P1 새 매체 hit credit | State Store의 tier 가중치 테이블 + PolicyEngine Scorer | 코드(작음). 후보 1의 "설정만"보다 변경 단위가 크다 |
+| P2 동적 상태 보정 | Metrics Poller → Metrics Snapshot → Scorer | 신호 자유 추가(후보 1은 `customMetrics`가 prefix scorer와 별도 가산이라 근사) |
+| P3 비용 기반 hit 가치 | Policy SPI `Score` 구현체 | 후보 1은 별도 바이너리의 외부 plugin |
+| P4 비용 기반 P/D 결정 | Policy SPI `PlanPD` 구현체 | 후보 1은 `disagg.Handler` wrapper(OSS 동작 의존) |
+| P5 요청별 노드 지시 | PD Orchestrator의 Directive Builder | **P/D 경로에서도 patch 없이 전달**(후보 1은 sidecar 수정) |
 
 PD Orchestrator는 llm-d pd-sidecar의 로직(`pkg/sidecar/proxy/`)을 참고한다. 재사용 가능성은 **미검증**이다.
 
@@ -456,12 +511,12 @@ flowchart LR
 
     subgraph R["후보 2 (자체 구현)"]
         direction TB
-        R_A["A: 단일 router 프로세스"]
-        R_D["D: 최소 admission 직접 구현"]
-        R_B["B: PolicyEngine 직접 코드"]
-        R_C["C: 자체 State Store"]
-        R_E["E: router 내부 PD Orchestrator<br/>(중앙)"]
-        R_F["F: 정적 설정 / etcd"]
+        R_A["A: Router 레플리카의 Ingress<br/>(프로세스 내부 호출)"]
+        R_D["D: Admission (최소, 직접 구현)"]
+        R_B["B: PolicyEngine + Policy SPI"]
+        R_C["C: State Plane (Store·Subscriber·Poller)"]
+        R_E["E: Router 내부 PD Orchestrator<br/>(중앙, 경로 안)"]
+        R_F["F: Registry (etcd watch / 정적)"]
     end
 
     L_A -.->|"hop 제거"| R_A
@@ -469,7 +524,7 @@ flowchart LR
     L_B -.->|"제약 제거"| R_B
     L_C -.->|"OSS → 자체"| R_C
     L_E -.->|"분산 → 중앙 이동"| R_E
-    L_F -.->|"자동 확장 상실"| R_F
+    L_F -.->|"자동 확장 → 직접 구성"| R_F
 
     classDef c1 fill:#ccfbf1,stroke:#0f766e,color:#111;
     classDef c2 fill:#fed7aa,stroke:#c2410c,color:#111;
@@ -483,20 +538,34 @@ flowchart LR
 
 | 블록 | 후보 1 | 후보 2 | QA 이유 (가설 [C]) |
 |---|---|---|---|
-| A 요청 경로 | Envoy + ext-proc(gRPC hop) | 단일 router 프로세스 | Latency ▲ (hop 감소, 크기 미측정 → E1 필요) / Scalability ▼ (LB·HA 직접 구현) |
-| D 흐름 제어 | OSS Flow Control | 최소 admission 직접 구현 | Scalability ▼ (과부하 시 Goodput) |
-| B 결정 로직 | 플러그인 파이프라인(P3 Scorer, P4 wrapper를 외부 plugin으로) | 직접 코드(제약 없음) | Modifiability ▲ (wrapper의 `Handler` 동작 의존 회피, **이점은 크게 줄었다**) / Modifiability ▼ (OSS 개선 흡수 상실) |
-| C 상태 수집 | OSS KV indexer·data layer | 자체 State Store | Modifiability ▲ (신호 자유 추가) / Scalability ▼ (index 규모·복제, 신선도 위험) |
-| E P/D 조율 | pd-sidecar(decode pod에 분산) | router 내부로 이동(중앙) | Modifiability ▲ (P/D 경로의 node 지시 추가 = P5. aggregated 경로는 후보 1도 plugin으로 가능) / Scalability ▼ (중앙 집중) |
-| F 발견·확장 | K8s InferencePool | 정적 설정/etcd | Scalability ▼ (자동 확장 상실) |
+| A 요청 경로 | Envoy + ext-proc(gRPC hop) | Router 레플리카의 Ingress + L4 LB | Latency ▲ (hop 감소, 크기 미측정 → E1 필요) / Scalability ▼ (LB·레플리카 장애 처리 직접 구축) |
+| D 흐름 제어 | OSS Flow Control | 최소 admission 직접 구현 | Throughput ▼ (과부하 시 Goodput) / Scalability ▼ |
+| B 결정 로직 | 플러그인 파이프라인(P3 Scorer, P4 wrapper를 외부 plugin으로) | PolicyEngine + Policy SPI(우리 코드) | Modifiability ▲ (S2·S3: `Handler` 동작 의존·별도 바이너리 회피) / Modifiability ▼ (OSS 개선 흡수 상실) |
+| C 상태 수집 | OSS KV indexer·data layer | 자체 State Plane(Store·Subscriber·Poller) | Modifiability ▲ (신호 자유 추가, S2) / Modifiability ▼ (S1·S5: 설정만으로 불가, 계약 변경 직접 추종) / Scalability ▼ (index 규모·복제, 신선도 위험) |
+| E P/D 조율 | pd-sidecar(decode pod에 분산) | Router 내부 PD Orchestrator(중앙) | Throughput ▲·Modifiability ▲ (P/D 경로 P5를 patch 없이 전달, S4) / Scalability ▼ (Router가 데이터 경로 안: 병목·SPOF 가능) |
+| F 발견·확장 | K8s InferencePool | etcd watch / 정적 설정 | Scalability ▼ (자동 확장 → 직접 구성) |
 
-> **K8s 불필요**는 QA 이유가 아니라 **프로젝트 제약**이다(사용자는 K8s에 익숙하지 않음). 따라서 QA 표에 넣지 않고 §8에서 따로 다룬다.
+> **K8s 불필요**는 QA 이유가 아니라 **프로젝트 제약**이다(사용자는 K8s에 익숙하지 않음). 따라서 QA 표에 넣지 않고 §7.4의 QA 밖 비용과 §8에서 따로 다룬다.
+
+## 6.6 설계 결정과 QA의 충돌 (Tradeoff 구조)
+
+> 요약: 두 후보는 **세 개의 설계 결정(D1~D3)** 에서 갈리고, 각 결정은 한 QA를 얻는 대신 다른 QA를 잃는다. 이 대응 때문에 어느 후보도 모든 QA에서 앞서지 못한다. 표의 QA 영향은 모두 가설 [C]이다.
+
+| 결정 | 후보 1 선택 | 후보 2 선택 | 후보 1 → 얻는 것 / 잃는 것 | 후보 2 → 얻는 것 / 잃는 것 |
+|---|---|---|---|---|
+| **D1 결정 위치** | 별도 프로세스(Envoy ext-proc) | Router 프로세스 내부 | 얻음 Q4: 결정기를 요청 경로에서 분리해 독립 복제·격리 / 잃음 Q2: 원격 호출 1회 + sidecar 경유 | 얻음 Q2: hop 제거(E1 측정 전 가설) / 잃음 Q4: 결정 부하가 Router 확장에 묶임 |
+| **D2 P/D 조율 위치** | 분산(decode pod의 pd-sidecar) | 중앙(Router 내부 PD Orchestrator) | 얻음 Q4: Router가 P/D 데이터 경로 밖이라 병목·SPOF 회피 / 잃음 Q1·Q3: P/D 경로 노드 지시(P5)가 sidecar 수정 | 얻음 Q1·Q3: 전역 시야, P5를 patch 없이 전달, prefill 결과를 보고 decode 서버를 정하는 설계 가능 / 잃음 Q4: Router가 경로 안이라 레플리카·상태 동기화를 직접 구축 |
+| **D3 기능 소유** | OSS 재사용 + 확장(우리 소유 블록 3/6) | 전부 직접 소유(6/6) | 얻음 Q3(S1·S5·S6), Q1 과부하(Flow Control 기본 제공) / 잃음 Q3(S3·S4): wrapper의 OSS 동작 의존, 자체 EPP 이미지 | 얻음 Q3(S2~S4): 한 코드베이스에서 통제 / 잃음 Q3(S5·S6), Q1 과부하: 직접 추적·구현 |
+
+"우리 소유 블록 3/6"은 §6.1의 ★가 걸린 블록(B, C, E)을 센 것이고, 후보 2는 A~F 전부다.
+
+**왜 이것이 tradeoff인가.** 같은 QA를 두 후보가 서로 다른 결정으로 얻는다. Q2는 D1으로 후보 2가, Q4는 D1·D2로 후보 1이, Q3는 D3 안에서 시나리오별로 갈린다. 따라서 한 후보가 지배하려면 이 결정 중 하나가 무의미해야 하는데(예: E1에서 hop 증분이 0에 가까움) 그 경우를 §7.4.2에 붕괴 조건으로 적었다.
 
 ---
 
 # 7. 평가
 
-> 요약: QA 4개(Throughput, Latency, Modifiability, Scalability)로 비교한다. 결과는 Throughput 동등, Latency 후보 2(가설), Modifiability 대체로 동등(S4의 P/D 경로만 후보 2, S5·S6은 후보 1), Scalability 후보 1이며 **전부 가설이다.**
+> 요약: QA 4개(Throughput, Latency, Modifiability, Scalability)로 비교한다. 결과는 Throughput 교차(정상 부하·P/D 경로 후보 2, 과부하 후보 1), Latency 후보 2(가설), Modifiability 3:3(S1·S5·S6 후보 1, S2·S3·S4 후보 2), Scalability 후보 1이다. **별 합계는 9 대 9 동점이고 QA 밖 비용은 반대 방향이어서 tradeoff 관계**이며 **전부 가설이다.**
 
 ## 7.1 QA 정의
 
@@ -518,27 +587,64 @@ flowchart LR
 
 ## 7.3 Modifiability 변경 시나리오
 
-| # | 시나리오 | 후보 1 | 후보 2 |
-|---|---|---|---|
-| S1 | 새 tier 매체 추가 | 설정 (llm-d P1, C. 단 `storage` 등 기본 목록에 없는 이름은 가중치를 설정해야 점수가 0이 아님) | 코드 소 |
-| S2 | cost 함수 교체 | 외부 plugin (별도 바이너리 필요) | 코드 |
-| S3 | P/D 결정 정책 교체 | **wrapper plugin** (`disagg.Handler` embed, patch 아님. 업스트림 동작 의존 취약점) | 코드 |
-| S4 | node 지시 추가 | aggregated 경로: plugin / **P/D 경로: sidecar patch** | 코드 |
-| S5 | vLLM·NIXL 계약 변경 대응 | OSS가 추적하나 patch 재적용 | 전부 우리 |
-| S6 | 신규 기능(flow control, multi-cluster 등) | OSS 제공 | 구현 필요 |
+> 시나리오 정의는 이전 판과 같다. 이번 개정에서 바뀐 것은 후보 2 열을 §6.3의 계층형 설계 기준으로 다시 적은 것과, **시나리오별 우위를 명시해 3:3으로 센 것**이다(이전 판은 후보 2 열이 "코드" 한 단어였다).
+
+| # | 시나리오 | 후보 1 | 후보 2 (SPI/StateView 기준) | 변경 비용 우위 |
+|---|---|---|---|---|
+| S1 | 새 tier 매체 추가 | **설정** (llm-d P1, C. 단 `storage` 등 기본 목록에 없는 이름은 가중치를 설정해야 점수가 0이 아님) | State Store 가중치 테이블 + 코드 수정, 재배포 (소규모) | **후보 1** |
+| S2 | cost 함수 교체 | 외부 plugin (별도 바이너리·이미지 빌드, Go 1.26.6) | Policy SPI `Score` 구현체 교체, 한 저장소 | **후보 2** (소폭) |
+| S3 | P/D 결정 정책 교체 | **wrapper plugin** (`disagg.Handler` embed, patch 아님. 업스트림 동작 의존 취약점) | Policy SPI `PlanPD` 구현체 교체 | **후보 2** |
+| S4 | node 지시 추가 | aggregated 경로: plugin / **P/D 경로: sidecar patch** | PD Orchestrator의 Directive Builder에 추가 (경로 구분 없음) | **후보 2** |
+| S5 | vLLM·NIXL 계약 변경 대응 | OSS가 추적하나 우리 plugin·patch는 재적용·재검증 | State Plane·Dispatcher를 우리가 직접 추종 | **후보 1** (부분 흡수) |
+| S6 | 신규 기능(flow control 고도화, multi-cluster 등) | OSS 제공 | 직접 구현 | **후보 1** |
+
+변경의 **성격**이 다르다: 후보 1은 환경 변화·신기능을 *흡수*하는 데 강하고(S1, S5, S6), 후보 2는 우리 로직을 *통제*하는 데 강하다(S2, S3, S4). 시나리오 가중치는 정하지 않았다(미정).
 
 ## 7.4 잠정 평가 (전부 가설)
 
-> 아래 모든 우열은 **가설**이며 구조 논증 [C]에 기반한다. Scalability는 2노드로 실측이 불가능하다.
+> 아래 모든 우열은 **가설**이며 구조 논증 [C]에 기반한다. 별 ●●●=우수 ●○○=취약, 경계·지표는 §7.1과 같고 바꾸지 않았다. Scalability는 2노드로 실측이 불가능하다.
 
-| QA | 잠정 평가 | 근거 수준 | 이유 |
+| QA | 후보 1 | 후보 2 | 판정 | 근거 수준 | 이유 (§6.6 결정과 연결) |
+|---|---|---|---|---|---|
+| Throughput | ●●○ | ●●○ | **교차** | [A+C] | 같은 정책 P1~P5를 두 후보 모두 표현 가능(§5.2, §7.5)해 천장은 같다. 실현값에서 갈린다 — 정상 부하·P/D 경로: 후보 2가 P5를 patch 없이 전달하고 전역 시야로 decode 서버를 늦게 정할 수 있음(D2, 효과 미검증, `max_*` 자체가 experimental). 과부하: 후보 1은 OSS Flow Control 제공, 후보 2는 최소 admission(D3). 순효과는 E4 전에는 알 수 없다 |
+| Latency | ●●○ | ●●● | **후보 2** | [C] | D1: 원격 호출 1회(ext-proc)와 P/D 경로의 Envoy→sidecar 경유가 후보 2에는 없다. **크기 미측정이라 가장 약한 근거**(E1) |
+| Modifiability | ●●○ | ●●○ | **3:3, 성격 차이** | [A+C] | §7.3: S1·S5·S6 후보 1, S2·S3·S4 후보 2. 후보 1이 3점이 아닌 이유는 S3·S4가 OSS 동작 의존·sidecar patch·자체 이미지라는 약점이기 때문 |
+| Scalability | ●●● | ●●○ | **후보 1** | [C] | D1·D2: 후보 1은 K8s 복제·InferencePool·Flow Control이 검증되어 있고 Router가 P/D 경로 밖이다. 후보 2는 레플리카·LB·HA·sync를 직접 구축하고 Router가 경로 안이다. 설계는 가능하지만 미검증. 2노드로 실측 불가 |
+| **별 합계** | **9 / 12** | **9 / 12** | **동점** | | QA 우선순위가 정해지지 않아 동점 해소 불가(§10.4) |
+
+**QA 밖 비용 (프로젝트 제약, 별점에 넣지 않음)**
+
+| 항목 | 후보 1 | 후보 2 | 유리 |
 |---|---|---|---|
-| Throughput | **동등** | [A+C] | 같은 정책 P1~P5를 두 후보 모두 표현 가능(§5.2, §7.5). 천장이 아니라 실현값 기준 |
-| Latency | **후보 2 유리** | [C] | hop 1개 차이가 가설. 크기 미측정 → E1 |
-| Modifiability | **대체로 동등. S4(P/D 경로)만 후보 2, S5·S6은 후보 1 → 종합 후보 1 우세 또는 동등** | [A+C] | S1~S3는 후보 1도 설정/외부 plugin으로 처리(S3는 wrapper). 후보 2가 앞서는 곳은 S4의 P/D 경로(sidecar patch)와 wrapper 취약성 회피 정도. 환경 변화 흡수·기능 확보(S5·S6)는 후보 1 |
-| Scalability | **후보 1 유리** | [C] | 자동 확장·HA·Flow Control 상실. 2노드로 실측 불가 |
+| 구현·개발 부담 | 우리 소유 블록 3/6(B·C 확장, E patch) + 자체 EPP 이미지 | 6/6 + 레플리카·LB·HA·etcd (구현량은 추정) | 후보 1 |
+| 운영 환경 부담 | K8s·Envoy·자체 EPP 이미지(C2, K8s 숙련도 낮음) | K8s·Envoy 불필요 | 후보 2 |
+| 증거 수준 | P1~P4 합성 백엔드로 끝단 실행 [A] | 설계안, 미구현 [C] | 후보 1 |
 
-구현 비용은 QA 밖 프로젝트 제약이며 후보 1 쪽을 민다. 종합하면 후보 2의 우위는 **Latency 가설과 K8s 비의존(프로젝트 제약)**으로 좁아졌고, 후보 2는 전환 조건(§9.1) 충족 시 선택하는 헤지의 성격이 강하다(§5.2 박스).
+종합하면 **QA는 동점, 비용은 서로 반대, 증거는 후보 1이 앞선다.** 그래서 현 시점 기본 경로는 후보 1이고, 후보 2는 E1·QA 우선순위에 따라 전환하는 헤지다(§9.1). 이것은 후보 1이 지배해서가 아니라 **증거 비대칭 때문에** 먼저 가는 것이다.
+
+### 7.4.1 개정 기록 (이전 판 → 본 판)
+
+| QA | 이전 판 (1안 / 2안) | 본 판 (1안 / 2안) | 바뀐 이유 |
+|---|---|---|---|
+| Throughput | ●●○ / ●●○ (동등) | ●●○ / ●●○ (교차) | 값은 같으나 근거를 "동등"에서 "조건별 교차"로 정정. P/D 경로 P5 도달성(후보 2 ▲)과 과부하 Flow Control(후보 1 ▲)을 분리해 적음 |
+| Latency | ●●○ / ●●● | ●●○ / ●●● | 변경 없음 |
+| Modifiability | ●●● / ●●○ | ●●○ / ●●○ | 이전 판 슬라이드는 후보 1을 ●●●로 표시했으나 같은 판 §7.4 본문은 "대체로 동등, S4만 후보 2"였다 — **본문과 별점이 불일치**. S1~S6을 시나리오별로 다시 세어 3:3으로 정정. 후보 1의 S3(wrapper 의존)·S4(sidecar patch)·자체 이미지가 약점이라 ●●●는 부적절 |
+| Scalability | ●●● / ●○○ | ●●● / ●●○ | 이전 후보 2는 단일 프로세스·정적 설정이라 ●○○였다. 후보 2를 레플리카·etcd를 포함한 같은 노력 수준으로 재정의(§6.3)하면서 ●●○로 조정. 대신 레플리카·HA 직접 구축을 **구현 부담**에 반영하고 미검증임을 명시 |
+| 별 합계 | 10 / 8 | 9 / 9 | 위 변경의 합 |
+
+**이 개정이 결론에 맞춘 조정이 아닌 이유**: (1) 별 경계·QA 지표·시나리오 목록은 바꾸지 않았다. (2) 후보 2에 불리한 항목(확장성 ●●○, 구현 부담 6/6)은 유지했고, 후보 1의 Modifiability는 낮췄다 — 이는 후보 2를 올리는 방향만이 아니다. (3) 바뀐 근거는 "후보 2를 최소 구성으로 그린 정의 오류"와 "별점-본문 불일치"이고, 둘 다 위 표에 이전 값과 함께 남겼다. (4) 그래도 **남는 위험**: Scalability ●●○와 Latency ●●●는 둘 다 측정이 없고 평가자의 구조 판단에 의존한다. E1·E3으로 반증 가능하다.
+
+### 7.4.2 Tradeoff가 성립하는 조건과 붕괴 조건
+
+| 가정 | 깨질 때 | 결과 |
+|---|---|---|
+| E1에서 hop 증분이 TTFT 목표 대비 유의하다 | hop 증분이 측정 잡음 수준 | Latency가 동률(●●○ / ●●○) → 합계 9 대 8, **후보 1이 다시 지배** |
+| 레플리카 독립 구독만으로 상태 신선도가 충분하다 | E3에서 stale-hit가 커서 index sync·일관성 구현이 필요 | Scalability ●○○로 하락 → 후보 1이 다시 지배 |
+| P/D 경로 P5가 실제 성능에 기여한다 | `kv_load_tiers`/`max_load_tokens`가 tier 선택을 바꾸지 않음(미확인) | 후보 2의 Throughput ▲ 소멸, Modifiability S4 이점도 약화 → 후보 1 지배 |
+| 후보 2 구현량 추정이 맞다 | 실제 구현이 크게 더 큼 | 구현 부담 격차 확대 → 후보 1 유리 |
+| 과부하 시 OSS Flow Control이 실제로 Goodput을 지킨다 | 기본 off, 효과 미측정(E4) | 후보 1의 Throughput 이점 약화 → 후보 2 유리 |
+
+붕괴 조건의 앞 세 개가 후보 2 쪽의 가설이다. 즉 **후보 2의 장점은 아직 증명되지 않은 가설에 더 많이 의존한다.** 이 비대칭은 숨기지 않는다.
 
 ## 7.5 E2 표현력 프로브 매트릭스
 
@@ -592,9 +698,15 @@ K8s 숙련도가 낮은 점은 llm-d 선택의 실질적 비용이다(file-disco
 
 ## 9.1 후보 2 전환 조건 (사전 정의)
 
-1. **P/D 경로 sidecar patch와 `Handler` wrapper의 업스트림 의존이 관리 불가능**해질 때(예: `disagg.Handler` 동작 변경으로 wrapper가 반복적으로 깨짐).
-2. E1 측정에서 **ext-proc hop이 TTFT 경로의 허용 불가 지연**으로 확인될 때.
-3. 연구 기여가 **cluster-level orchestration 자체로 확장**될 때.
+> 후보 1은 증거가 앞서고(§7.4) 후보 2는 설계안이므로 기본 경로는 후보 1이다. 아래는 후보 2로 **전환하는** 조건이며, 측정 가능한 술어로 적는다. 임계값은 baseline 측정 후 확정한다(지금 만들지 않는다).
+
+1. **P/D 경로 sidecar patch와 `Handler` wrapper의 업스트림 의존이 관리 불가능**해질 때(예: `disagg.Handler` 동작 변경으로 wrapper가 반복적으로 깨짐). 관측: 업스트림 변경마다 재적용·재검증이 필요한 횟수.
+2. E1 측정에서 **ext-proc hop 증분이 TTFT 목표 대비 허용 불가**로 확인될 때. 관측: null 결정 대비 TTFT p50/p99 증분. 잡음 수준이면 이 조건은 성립하지 않는다(§7.4.2).
+3. **P/D 경로 노드 지시(P5)가 성능에 필수**임이 E4로 확인되었는데 sidecar patch를 유지할 수 없을 때.
+4. **QA 우선순위를 Latency 우선으로 확정**할 때(별 합계가 동점이라 우선순위가 선택을 정한다; §10.4).
+5. 연구 기여가 **cluster-level orchestration 자체로 확장**될 때.
+
+반대로 **후보 1을 확정하는** 조건: E1에서 hop 증분이 허용 한도 이내이고, E3에서 레플리카 독립 구독만으로 신선도가 충분하지 않아 후보 2에 index sync가 필요해질 때.
 
 ## 9.2 Evidence 계획
 
@@ -643,10 +755,11 @@ RDMA 근거: `mkim0628/llm-d@4cd4ed4:docs/architecture/advanced/disaggregation/R
 | `Medium` enum | 새 매체(CXL/HBF)를 KV event에 싣기 위해 vLLM 변경이 필요하다. P1의 라우터 측 "C"만으로는 완결되지 않는다 |
 | 후보 1 외부 plugin 유지비 | P/D 경로 sidecar patch와, `disagg.Handler`의 관찰된 동작에 의존하는 P4 wrapper가 upstream 변경에 깨질 수 있다(전환 조건 1). `Plugin` 인터페이스·exported 타입의 호환성 약속은 문서에서 찾지 못했다(미확인). 자체 EPP 바이너리/이미지 운영 부담 |
 | llm-d 분석의 미확인 | 실제 Envoy+EPP+vLLM end-to-end, vLLM 실제 KV event 바이트와 어댑터 호환(버전 skew), `self_describing_kv_events` 기본 False일 때 오프로딩 tier 이벤트 해석, vLLM tiering 게이지 노출 이름, `kv_load_tiers`/`max_load_tokens`의 실제 효과, NIXL P/D·P2P 전송 성능, EPP 성능. 상세는 [llm-d 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/llm-d/llm-d-architecture-analysis.md) §10.1 |
-| 후보 2 구현량 | 설계안이며 구현량은 추정이다 |
+| 후보 2 구현량·평가 | 설계안이며 구현량은 추정이다. 후보 2의 Latency ●●●·Scalability ●●○는 측정이 없고, 장점이 증명되지 않은 가설에 더 많이 의존한다(§7.4.2) |
 
 ## 10.4 결정 요청 / 미결 사항
 
+0. **DP0 QA 우선순위(Throughput / Latency / Modifiability / Scalability)를 정할 것.** 별 합계가 9 대 9 동점이라 선택이 이 우선순위에 달려 있다. 다른 DP의 `qa_priority.json`처럼 소유자가 정해야 하며, 정해지기 전에는 "기본 경로 = 후보 1(증거 우위), 후보 2 = 헤지"로 둔다.
 1. 후보 1a(llm-d)를 기본 경로로 확정하고 E1·E3·E4를 진행할지 여부.
 2. 사용자 vLLM fork를 upstream에 동기화할 시점(P5 및 tiering 확보).
 3. 환경의 RDMA 유무 확인(E4 설계 변수).

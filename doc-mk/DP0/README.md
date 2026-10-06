@@ -27,7 +27,7 @@ DP0은 기존 DP1~DP4 **앞에 오는 최상위 Design Point**다. 기존 DP 번
 |---|---|---|
 | 1 | [`dp0-requirements.md`](dp0-requirements.md) | 기능 요구사항 F1~F6, 품질 속성 Q1~Q4(QA 시나리오 표), 제약 C1~C6, 정책 P1~P5, 추적성 매트릭스. 맨 위 "한눈에 보기"부터 읽는다 |
 | 2 | [`dp0-request-orchestration-framework.md`](dp0-request-orchestration-framework.md) | 설계 문서. 맨 위 "임원용 요약" → 후보 구조(컴포넌트 뷰) → 평가 → 전환 조건·Evidence 계획 → 리스크 |
-| 3 | `DP0-slides.pptx` | 발표자료. 위 두 문서와 같은 ID(F/Q/C/P)와 용어를 쓴다 (발표자료는 이 폴더에 별도로 복사해 둔다) |
+| 3 | `DP0-slides-v2.pptx` (최신, 설계 구조·Tradeoff 개정판) / `DP0-slides.pptx` (이전 판) | 발표자료. 위 두 문서와 같은 ID(F/Q/C/P)와 용어를 쓴다 (발표자료는 이 폴더에 별도로 복사해 둔다) |
 
 ## 발표자료와의 관계
 
