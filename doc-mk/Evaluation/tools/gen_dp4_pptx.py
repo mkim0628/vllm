@@ -272,6 +272,19 @@ def tactics_slide():
     return s
 
 
+def _normalize_zip(path):
+    """python-pptx stamps zip entries with the current time; rewrite them with a fixed timestamp so two runs are byte-identical."""
+    import zipfile
+    with zipfile.ZipFile(path) as zin:
+        items = [(zi.filename, zin.read(zi.filename)) for zi in zin.infolist()]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for name, data in items:
+            zi = zipfile.ZipInfo(name, date_time=(2026, 10, 4, 0, 0, 0))
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            zi.external_attr = 0o644 << 16
+            zout.writestr(zi, data)
+
+
 def build(slides, out, base_pptx):
     """Same construction as gen_dp_pptx.build, with the DP4 frame (slide 2 of DP4-slides-draft.pptx) and DP4 title."""
     from lxml import etree
@@ -340,6 +353,7 @@ def build(slides, out, base_pptx):
         prs.part.drop_rel(el.rId)
         lst.remove(el)
     prs.save(str(out))
+    _normalize_zip(out)
 
 
 def render(pptx_paths, out_dir):
