@@ -530,8 +530,8 @@ PD Orchestrator는 llm-d pd-sidecar의 로직(`pkg/sidecar/proxy/`)을 참고한
 
 | 항목 | 내용 |
 |---|---|
-| 패턴 | **Strategy**: 같은 인터페이스(정책 인터페이스)의 구현체를 설정으로 선택 |
-| 구현체 | P1 메모리 종류 가중치, P2 실시간 상태, P3 비용 기반 점수, P4 비용 기반 P/D 판단 |
+| 패턴 | **Strategy**. 도식은 UML 관계로 읽는다: Context(**Selector**)가 인터페이스(`ScoreStrategy.score(요청, 상태)`)를 **참조(uses)** 하고, 구현체가 인터페이스를 **구현(implements, 속이 빈 삼각형 △, 점선)** 한다 |
+| 구현체 | P1 TierWeight(메모리 종류 가중치), P2 LiveState(실시간 상태), P3 CostBased(비용 기반 점수). P4(P/D 판단)도 같은 방식의 별도 Strategy |
 | 교체 방법 | 구현체를 바꾸거나 추가하고 설정에서 이름만 지정. Selector와 파이프라인(A→D→B→E)은 불변 |
 | 효과 (변경 시나리오) | S1 새 tier는 가중치 구현체 수정, S2 비용 함수는 구현체 교체, S3 P/D 정책은 P/D 구현체 교체 |
 | 한계 | S4(노드 지시)·S5(계약 변경)·S6(신기능)은 이 패턴이 대신해 주지 않는다. 해당 모듈을 직접 고친다 |
