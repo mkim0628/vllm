@@ -160,7 +160,7 @@ Dynamo 기준 구현 방식은 P1, P2, P4가 core 수정, P3는 제한적 plugin
 | **F6** 서버 발견·확장 | F | — | ● Kubernetes 서버 풀 | ◐ etcd watch/정적 설정, 자동 확장은 직접 구성 | C2 (Kubernetes 숙련도) |
 | **Q1** Throughput | B, C, D, E | P1~P5 | ● 동등 (가설, E4 미수행) | ● 동등 (가설). P/D 경로 P5를 수정 없이 전달하나 효과 미확인 | 표현력 천장 동일 [A+C] |
 | **Q2** Latency | A, B | — | ◐ 추가 호출 1회(원격 결정 호출) 존재, 크기 미측정 | ● 단일 프로세스(가설) | E1 필요 [C] |
-| **Q3** Modifiability | B, C, E | P1~P5 | ◐ S1·S5·S6 유리(설정만, OSS가 계약·신기능 흡수), S3(wrapper 의존)·S4(P/D 보조 프로세스 수정)는 OSS 제약 | ◐ S2·S3·S4 유리(한 코드베이스, SPI), S1·S5·S6은 직접 부담 | 3 대 3, 흡수 vs 통제 [A+C] |
+| **Q3** Modifiability | B, C, E | P1~P5 | ◐ S1·S5·S6 유리(설정만, OSS가 계약·신기능 흡수), S3(wrapper 의존)·S4(P/D 보조 프로세스 수정)는 OSS 제약 | ◐ S2·S3·S4 유리(한 코드베이스, Strategy 패턴), S1·S5·S6은 직접 부담 | 3 대 3, 흡수 vs 통제 [A+C] |
 | **Q4** Scalability | A, D, F | — | ● 자동 확장·HA·흐름 제어 제공 | ◐ 레플리카·LB·HA·etcd 직접 구축(설계 가능, 미검증) | 2노드 실측 불가 [C] |
 | **C1** vLLM 고정 | 전체 | — | ● | ● | 전제 조건 |
 | **C2** 실험 환경 | F, 전체 | — | ◐ Kubernetes 숙련도 낮음, 자체 Router 이미지 | ● Kubernetes 불필요 | 프로젝트 제약이지 QA 아님 |
