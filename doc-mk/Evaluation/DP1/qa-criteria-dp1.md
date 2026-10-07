@@ -257,5 +257,28 @@ python3 ../../tools/gen_dp1_result.py                         # 결과 문서 �
 
 소유자 제안: 별 경계를 시나리오별 이론적 상한(Oracle) 대비 이득 달성률로 정의하고(★★★ = 달성률 >= x), x는 문헌의 이득 달성률에서 정한다. 구현과 근거는 [`qa-capture-literature.md`](qa-capture-literature.md)(사전 등록 기준, 출처 5개와 검증한 수치, 제외 사유, x = 80%의 결정)에 있다. Oracle-ideal(`sim/policies.py` `OracleIdealMigration`)은 C2 파이프라인에 완전한 미래 접근률과 무비용 즉시 이동을 준 근사 상한이다.
 
-- 현재 결과: C1 pooled 달성률 0.62(★★), C2 0.83(★★★). **공식 QA1 별(Baseline 대비 x1.30 경계)과 같은 별**이며 선택도 같다. 이 기준을 공식 별로 바꿀지는 소유자 결정이다(바꾸면 새 rating 버전으로 기록). 그때까지는 결과 문서 4.10절과 PPT에 병기만 한다.
-- QA2와 QA3에는 적용하지 않았다(Oracle이 지연 꼬리를 최적화하지 않아 후보가 Oracle을 넘는 쌍이 많음 / HBM 절감 Oracle 미정의).
+- QA1 결과: C1 pooled 달성률 0.62(★★), C2 0.83(★★★). (2026-10-04에 §L에서 공식 별로 전환했으나 2026-10-06 소유자 결정으로 v5로 되돌렸다. 달성률은 참고 지표로만 병기한다.)
+
+---
+
+# L. 별 기준 v6 제안: QA1·QA2·QA3 모두 Oracle 이득 달성률 (2026-10-04 시도, **미채택**: 2026-10-06 소유자 결정으로 공식 별은 v5(Baseline 대비 경계 0.97/1.30, 0.95/1.25, 절감 0.95/1.25) 유지)
+
+**정의.** 시나리오 쌍마다 달성률 = ln(후보 이득) / ln(Oracle 이득), 집계 = 개선 여지(Oracle 이득 > 잡음 대역) 있는 쌍의 로그 이득 합의 비율(pooled; 문헌 점수와 같은 "평균 이득의 비율"). 별: **★** = 집계 값이 Baseline보다 나쁨(QA1 < 0.97, QA2 < 0.95, QA3 절감 < 0.95; Baseline끼리 비교한 잡음 대역에서 정한 기존 하한, §J.1), **★★★** = 달성률 >= 80%(문헌, `qa-capture-literature.md`), 그 사이 **★★**. QA4는 변경 없음.
+
+| QA | 이득 | Oracle (근사 상한, 증명된 최적 아님) | 구현 |
+|---|---|---|---|
+| QA1 | Baseline 대비 Max SLO goodput 배수 | `Oracle-ideal`: C2 파이프라인 + 미래 접근률 완전 정보 + 무비용 즉시 이동 | `sim/policies.py` `OracleIdealMigration` |
+| QA2 | 6개 지연 지표(TTFT·TPOT x P50/P95/P99) 개선 배수 geomean | `Oracle-lean`: 무비용 즉시 이동, 틱마다 접근된 객체를 가장 서빙 비용이 낮은 tier(HBM 우선)에 둠 | `OracleLeanMigration` |
+| QA3 | HBM 절감 배수 (Baseline GiB / 후보 GiB) | `Oracle-lean`: 접근되지 않은 객체는 SLO를 만족하는 더 싼 tier로 내림 -> HBM = 틱별 활성 집합 | `OracleLeanMigration` |
+
+**재현:** `sim/oracle_run.py --ideal`, `sim/oracle_run.py --lean`, `sim/capture_stars.py` (-> `results/data/oracle/capture_stars*.json`). 결과 문서 4.10절.
+
+**결과 (H100+B200 통합).** QA1 C1 62% ★★ / C2 83% ★★★, QA2 C1 23% ★★ / C2 42% ★★, QA3 C1 3% ★★ / C2 -15% ★(HBM을 더 씀). 별 합계 C1 9, C2 8 -> C1 선택(v5: 10 대 9, 같은 선택). v5 별은 `dp1_star_legacy`로 보존. 변경된 별은 QA2(두 후보 ★★★ -> ★★)뿐이다.
+
+**정직하게 적어야 하는 것 (`defined_after_first_look`).**
+1. 집계 방식(pooled)은 pooled와 쌍별 평균 두 값을 본 뒤 문헌의 관례에 맞춰 골랐다. 쌍별 평균이면 QA1 C2는 0.75로 ★★(선택은 같음).
+2. QA2·QA3의 Oracle은 QA1의 것보다 훨씬 이상적이다("접근된 객체를 이동 비용 없이 HBM에 둔다"). 문헌의 80%는 CPU 캐시 교체와 tiered memory 연구에서 나온 값이라 같은 80%가 QA2/QA3에서 더 엄격하다. 그 결과 QA2/QA3에서 ★★★은 사실상 도달하기 어렵고 후보를 가르는 것은 QA3 C2의 ★뿐이다. QA2·QA3의 `Oracle-lean`은 첫 시도(QA2에 `Oracle-ideal`)가 후보에 의해 6개 쌍에서 초과되어(상한이 아님) 바꾼 것이다.
+3. LLM 서빙에 직접 해당하는 달성률 문헌을 찾지 못했다. 개선 여지 있는 쌍은 QA1 10개, QA2 19개, QA3 14개이고 부트스트랩 구간이 넓다.
+4. **affinity 제거 ablation(결과 4.7)의 서사가 바뀐다.** v5에서는 제거 시 합계 동점(C2 선택), 포함 시 C1 선택이었으나 v6에서는 별이 같아 둘 다 C1이 선택된다. affinity의 효과는 값(처리량 x1.05 -> x1.30, 달성률 13% -> 62%, TTFT P99 x1.27 -> x1.04)에서만 보인다.
+
+**상태 (2026-10-06).** 소유자가 소유자 자신의 발표 자료(DP_v0.3, 18쪽)의 수치와 그 수치가 나왔을 때의 별 기준(v5)을 쓰기로 했다. 이에 따라 공식 별은 v5이고 v6(Oracle 달성률)은 **참고 지표**다. 코드(`OracleIdealMigration`, `OracleLeanMigration`, `sim/capture_stars.py`)와 데이터(`results/data/oracle/`)는 재현을 위해 남긴다. 위 결과 표의 v6 별은 공식이 아니다.

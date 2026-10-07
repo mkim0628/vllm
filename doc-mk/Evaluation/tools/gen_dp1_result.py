@@ -603,6 +603,7 @@ candidates: [C1-resource-driven, C2-behavior-driven]   # Baseline-static 포함
 sys_ids: [SYS-H100, SYS-B200]
 git_rev: {rev()}
 evidence: {{ QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA4: "[B+C]" }}
+rating_version: "dp1-rating-v5 (Baseline-ratio edges; Oracle capture v6 not adopted, reference only)"
 status: draft
 ---
 
