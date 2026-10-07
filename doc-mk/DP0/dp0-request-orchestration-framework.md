@@ -297,7 +297,7 @@ flowchart LR
 > 1. 초기 평가는 후보 2를 *이론적 천장*으로, 후보 1을 *현재 제약이 있는 상태*로 놓고 비교해 후보 2가 압승으로 나왔으나 이는 부정확했다. 같은 정책 집합·실현값 기준으로 다시 평가하면 trade-off가 성립했다.
 > 2. 그 뒤 llm-d 분석([llm-d 분석 문서](https://github.com/mkim0628/llm-d/blob/claude/doc-mk-orchestration-analysis/doc-mk/llm-d/llm-d-architecture-analysis.md) §8)의 코드 실험으로 근거 수준이 [C]에서 [A]로 올라가면서 평가가 **다시 바뀌었다**. P4는 core patch(F)가 아니라 `disagg.Handler`를 embed한 ProfileHandler wrapper(외부 plugin, P)로 구현·실행되었고 [A], P5도 aggregated 경로는 plugin(P)으로 가능했다 [A]. 그 결과 후보 1의 Modifiability 약점(로직 변경 시 patch 필요)이 크게 줄었다.
 > 3. 결과: **후보 2의 우위는 Latency 가설(hop 1개, 미측정)과 K8s 비의존(QA가 아닌 프로젝트 제약)으로 좁아졌다. 따라서 후보 2는 현 시점에서 헤지(전환 조건 충족 시 선택)의 성격이 강하고, trade-off 균형은 처음 가정보다 후보 1 쪽으로 기울었다.** 이 변화는 근거가 더 강해진 쪽으로 평가가 이동한 것이며 숨기지 않고 기록한다. 전부 가설이라는 단서는 유지한다.
-> 4. **세 번째 수정(본 판)**: 위 결과 후보 1이 4개 QA 중 3개에서 앞서 사실상 지배하는 구조가 되었다(별 합계 10 대 8). 원인을 점검하니 **평가 수치가 아니라 후보 2의 정의**가 문제였다. 후보 2를 "단일 프로세스·정적 registry·최소 admission"의 최소 구성으로 그려서, 후보 1은 완성형·후보 2는 미완성형을 비교한 셈이었다. 이는 §5.2의 "천장 vs 실현" 오류와 같은 종류(비교 수준 불일치)다. 그래서 (i) 후보 2를 **같은 노력 수준의 계층형 설계**(레플리카·etcd registry·디자인 패턴(Strategy 등)·흐름 제어 포함)로 다시 정의하고(§6.3), (ii) 늘어난 구현 부담은 별점이 아니라 **QA 밖 제약·리스크**로 표기했으며(§7.4.1), (iii) 변경 용이성은 원래 정의(S1~S6)를 유지했다(§7.3). 별 경계·QA 지표·공통 QA 문서는 바꾸지 않았고 중간에 정의가 오간 이력과 사유는 §7.4.2에 모두 남겼다.
+> 4. **세 번째 수정(본 판)**: 위 결과 후보 1이 4개 QA 중 3개에서 앞서 사실상 지배하는 구조가 되었다(별 합계 10 대 8). 원인을 점검하니 **평가 수치가 아니라 후보 2의 정의**가 문제였다. 후보 2를 "단일 프로세스·정적 registry·최소 admission"의 최소 구성으로 그려서, 후보 1은 완성형·후보 2는 미완성형을 비교한 셈이었다. 이는 §5.2의 "천장 vs 실현" 오류와 같은 종류(비교 수준 불일치)다. 그래서 (i) 후보 2를 **같은 노력 수준의 계층형 설계**(레플리카·etcd registry·Strategy 패턴·흐름 제어 포함)로 다시 정의하고(§6.3), (ii) 늘어난 구현 부담은 별점이 아니라 **QA 밖 제약·리스크**로 표기했으며(§7.4.1), (iii) 변경 용이성은 원래 정의(S1~S6)를 유지했다(§7.3). 별 경계·QA 지표·공통 QA 문서는 바꾸지 않았고 중간에 정의가 오간 이력과 사유는 §7.4.2에 모두 남겼다.
 
 ---
 
@@ -429,7 +429,7 @@ flowchart LR
 
 ## 6.3 후보 2 — 자체 구현 (계층형 컴포넌트 뷰)
 
-> 요약: 후보 2는 **우리가 decision plane과 state plane을 모두 소유**하는 계층형 Router다. 3개 계층(Ingress / Request Pipeline / State Plane)과 읽기 전용 StateView(Facade)로 나누고, 정책 교체·지시 조립·상태 갱신·엔진 계약 격리는 **디자인 패턴**(Chain of Responsibility, Strategy, Decorator, Observer, Adapter; §6.3.5)으로 구성하고, 상태를 공유하지 않는 **레플리카 ×R**을 L4 LB 뒤에 두어 늘린다. K8s/Envoy는 불필요하다. vLLM 계약(KV events, `/metrics`, `kv_transfer_params`, NIXL)은 후보 1과 동일하다. **설계안이며 구현되지 않았고, 구현량은 추정이다.**
+> 요약: 후보 2는 **우리가 decision plane과 state plane을 모두 소유**하는 계층형 Router다. 3개 계층(Ingress / Request Pipeline / State Plane)과 읽기 전용 StateView로 나누고, 정책 교체는 **Strategy 패턴**(§6.3.5) 하나로 구성하고, 상태를 공유하지 않는 **레플리카 ×R**을 L4 LB 뒤에 두어 늘린다. K8s/Envoy는 불필요하다. vLLM 계약(KV events, `/metrics`, `kv_transfer_params`, NIXL)은 후보 1과 동일하다. **설계안이며 구현되지 않았고, 구현량은 추정이다.**
 >
 > 이전 판은 이 후보를 "단일 프로세스·정적 설정·최소 admission"으로만 그렸다. 그러면 후보 1(완성형)과 후보 2(미완성형)를 비교하게 되어 tradeoff가 성립하지 않으므로, 같은 노력 수준으로 재정의했다(§5.2 박스 4번). 대신 늘어난 구현 부담은 QA가 아니라 제약·리스크로 §7.4.1에 명시한다.
 
@@ -490,7 +490,7 @@ flowchart LR
     class VP2,VD2 fixed;
 ```
 
-**의존 방향(규칙).** (1) 계층은 위에서 아래로만 호출한다: Ingress → Pipeline. (2) State Plane은 Pipeline에서 **StateView 인터페이스(읽기 전용)** 로만 읽는다. Pipeline은 State Plane에 쓰지 않는다. (3) 정책(P1~P5)은 **Strategy 패턴**(점수 정책·P/D 정책)과 **Decorator**(P5 지시 조립)로 PolicyEngine과 P/D 조율에 꽂는다. 정책을 바꿔도 Ingress·State Plane은 건드리지 않는다(Modifiability S1~S4).
+**의존 방향(규칙).** (1) 계층은 위에서 아래로만 호출한다: Ingress → Pipeline. (2) State Plane은 Pipeline에서 **StateView 인터페이스(읽기 전용)** 로만 읽는다. Pipeline은 State Plane에 쓰지 않는다. (3) 정책(P1~P4)은 **Strategy 패턴**(같은 인터페이스의 구현체를 설정으로 교체)으로 PolicyEngine에 꽂는다. 정책을 바꿔도 Ingress·State Plane은 건드리지 않는다(Modifiability S1~S4).
 
 ### 6.3.2 컴포넌트 카탈로그
 
@@ -524,17 +524,17 @@ flowchart LR
 
 PD Orchestrator는 llm-d pd-sidecar의 로직(`pkg/sidecar/proxy/`)을 참고한다. 재사용 가능성은 **미검증**이다.
 
-### 6.3.5 적용 디자인 패턴 (정책을 갈아 끼우기 쉬운 구조)
+### 6.3.5 적용 디자인 패턴: Strategy 하나 (정책을 갈아 끼우기 쉬운 구조)
 
-> "자체 구현인데 왜 확장 지점이 필요한가"에 대한 답이다. 정책(P1~P5)은 새 메모리·새 비용 모델마다 바뀌므로, 본체를 안 건드리고 교체되도록 아래 패턴으로 구성한다. 이는 1안의 plugin이 하는 역할을 우리가 직접 설계하는 것이다. 설계안이며 유지 가능성은 미검증이다.
+> "자체 구현인데 왜 확장 지점이 필요한가"에 대한 답이다. 정책(P1~P4)은 새 메모리·새 비용 모델마다 바뀌므로, Router 본체와 파이프라인을 안 건드리고 교체되도록 **Strategy 패턴 하나**만 적용한다(구조를 단순하게 유지하려고 다른 패턴은 넣지 않았다). 1안의 plugin이 하는 역할을 우리가 직접 설계하는 것이다. 설계안이며 유지 가능성은 미검증이다.
 
-| 패턴 | 적용 위치 | 하는 일 | 바뀔 때 고치는 곳 (변경 시나리오) |
-|---|---|---|---|
-| **Chain of Responsibility** (Pipes & Filters) | Request Pipeline: Admission → Selector → Dispatcher | 요청이 단계(핸들러)를 차례로 통과. 단계를 추가·교체해도 다른 단계는 불변 | 흐름 제어 고도화(S6)는 핸들러 추가 |
-| **Strategy** (+ Registry) | `ScoreStrategy`(P1 TierWeight, P2 LiveState, P3 CostBased), `PDPlanStrategy`(P4 CostPD) | 점수·P/D 판단 알고리즘을 같은 인터페이스의 구현체로 두고 설정으로 선택 | 비용 함수(S2)·P/D 정책(S3)은 구현체 교체, 새 tier(S1)는 가중치 구현체 수정 |
-| **Decorator** | Directive Builder(P5) | 기본 `kv_transfer_params`에 계층 지시, 토큰 한도 등을 한 겹씩 덧붙임. 경로(aggregated, P/D) 구분 없음 | 노드 지시 항목 추가(S4)는 데코레이터 하나 추가 |
-| **Observer** | State Plane: Event Subscriber(Subject) → KV Index 갱신·Metrics 스냅샷(Observer) | 이벤트 하나를 여러 상태 갱신자가 구독. 새 상태가 필요하면 Observer 추가 | 신호 추가(S2) |
-| **Adapter** (+ Facade) | vLLM 계약 어댑터(KV 이벤트·`/metrics`·`kv_transfer_params`), StateView(읽기 전용 Facade) | vLLM·NIXL 계약 변경을 어댑터 안에 가두고, 정책은 StateView로만 상태를 읽음 | 계약 변경 대응(S5)은 어댑터만 수정 |
+| 항목 | 내용 |
+|---|---|
+| 패턴 | **Strategy**: 같은 인터페이스(정책 인터페이스)의 구현체를 설정으로 선택 |
+| 구현체 | P1 메모리 종류 가중치, P2 실시간 상태, P3 비용 기반 점수, P4 비용 기반 P/D 판단 |
+| 교체 방법 | 구현체를 바꾸거나 추가하고 설정에서 이름만 지정. Selector와 파이프라인(A→D→B→E)은 불변 |
+| 효과 (변경 시나리오) | S1 새 tier는 가중치 구현체 수정, S2 비용 함수는 구현체 교체, S3 P/D 정책은 P/D 구현체 교체 |
+| 한계 | S4(노드 지시)·S5(계약 변경)·S6(신기능)은 이 패턴이 대신해 주지 않는다. 해당 모듈을 직접 고친다 |
 
 ## 6.4 후보 1 ↔ 후보 2 대치 도식
 
