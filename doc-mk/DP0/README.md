@@ -7,8 +7,6 @@
 | 분석 대상 버전 | llm-d Router `llm-d/llm-d-router@af01da5` / NVIDIA Dynamo `ai-dynamo/dynamo@938d89b` / vLLM upstream `vllm-project/vllm@9e6550b` |
 | 근거 수준 범례 | **[A]** 실제 실행/빌드로 검증 · **[B]** 공식 문서·문헌 · **[C]** 코드 읽기·분석·논증 |
 
-> **갱신(2026-10-06)**: 이 폴더의 "OSS 확장 대 직접 개발" 비교는 구조 설계가 아니라 구현 방식 비교여서, 구조 결정은 [`../DP0-1/`](../DP0-1/README.md)(중앙 결정형 S1 대 2단계 위임형 S2)로 분리했다. 이 폴더의 평가는 구현 방식 결정(DP0-2)에 승계한다.
-
 이 폴더는 **DP0**의 문서를 모은다. DP0은 여러 추론 서버(vLLM 인스턴스)를 묶어 요청을 조율하는 계층(Orchestration)을 **OSS(llm-d, NVIDIA Dynamo)를 확장해서 만들지(1안), 자체 구현할지(2안)** 를 정한다.
 
 ## DP0의 위치
