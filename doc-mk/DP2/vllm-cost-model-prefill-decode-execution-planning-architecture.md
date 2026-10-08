@@ -1070,6 +1070,30 @@ flowchart TD
 따라서 C2는 `ranked candidate`, `plan_age`, `snapshot_version`,
 `validation_result`, `replan_count`를 관리하는 것이 좋다.
 
+### C2 Late Validation — 상태 유사도 검증 (설계 결정, 2026-10-08)
+
+plan을 저장할 때 plan이 의존한 **핵심 상태값**을 함께 저장하고, dispatch 직전에 현재 상태와 비교한다. plan age 같은 시간 기준 대신 "상태가 얼마나 달라졌는가"를 본다.
+
+**저장하는 상태값 (후보별: 선택 plan + 백업 후보)**
+
+| 구분 | 값 | 관련 Cost 항 |
+|---|---|---|
+| n_p 노드 | `pf_tokens`(대기 Prefill 토큰), `njobs`, `ndec`(실행 중 Decode 수) | 대기 시간, 기존 Decode 간섭 |
+| n_d (노드, Tier) | `free`(Tier 여유 용량), `ndec`(resident Decode 수) | 용량 제약, TPOT, resident 간섭 |
+| 전송 경로 | 경로 자원의 동시 흐름 수 `flows` | 전송 시간 |
+| 후보별 Cost | 저장 시점의 `Cost`(선택 plan과 백업 각각) | 비교 기준 |
+| 요청·세션 | History KV 위치 (node, tier) | 정확히 일치해야 함 |
+
+추정치인 도착률 EWMA(`lam`)는 노이즈가 커서 비교에 넣지 않는다.
+
+**판정**
+
+1. **Hard**: 노드 health, n_d 용량(이 요청 KV가 아직 들어가는가), History 위치, 노드 큐 한도. 하나라도 어긋나면 그 후보는 무효.
+2. **Soft**: 현재 상태에서 같은 plan의 Cost를 다시 계산해 저장 Cost와 비교한다. `Cost_now ≤ Cost_stored × (1 + tol)`이면 유효이고 기본 `tol = 10%`(5/10/20% 민감도). Cost가 줄어든 변화는 허용한다.
+3. 선택 plan이 무효이면 백업 후보를 같은 방식으로 검사하고, 모두 무효이면 Re-planner가 최신 상태로 재계획한다.
+
+한계: 저장한 상태에 포함되지 않은 노드가 더 좋아진 경우는 잡지 못한다. 그 판단은 plan의 선택 후보와 백업 후보 범위 안에서만 한다.
+
 Fallback은 별도 heuristic policy를 의미하지 않는다.
 최종 실패 시 **기존 vLLM GPU execution path를 안전 경로로 보존**한다.
 

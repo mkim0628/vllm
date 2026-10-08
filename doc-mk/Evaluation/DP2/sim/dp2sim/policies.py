@@ -30,11 +30,12 @@ class View:
 
 
 class Plan:
-    __slots__ = ("n_p", "n_d", "cost", "backups", "t_plan", "k", "ttft_est", "tpot_est", "feasible")
+    __slots__ = ("n_p", "n_d", "cost", "backups", "t_plan", "k", "ttft_est", "tpot_est", "feasible", "bcost", "state")
 
     def __init__(self, n_p, n_d, cost, backups, t_plan, k, ttft_est, tpot_est, feasible=True):
         self.n_p, self.n_d, self.cost, self.backups, self.t_plan, self.k = n_p, n_d, cost, backups, t_plan, k
         self.ttft_est, self.tpot_est, self.feasible = ttft_est, tpot_est, feasible
+        self.bcost, self.state = [], None
 
 
 class Estimator:
@@ -186,6 +187,7 @@ class Estimator:
                 break
         b = ranked[0]
         plan = Plan(b[1], b[2], b[0], [(r[1], r[2]) for r in ranked[1:]], now, 0, b[3], b[4], feasible)
+        plan.bcost = [r[0] for r in ranked[1:]]
         return plan, ranked
 
     def cost_of(self, view, req, sess, n_p, n_d):

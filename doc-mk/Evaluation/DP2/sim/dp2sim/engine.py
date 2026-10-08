@@ -367,7 +367,17 @@ class Sim:
         plan, ranked = self.est.evaluate(v, req, sess, cn, rng or random.Random(self.seed * 31 + req.rid), now)
         if plan is not None:
             plan.k = self.kcount(cn)
+            plan.state = self.state_summary(v, plan)
         return plan
+
+    @staticmethod
+    def state_summary(view, plan):
+        """State values stored with a plan (design: pf_tokens, njobs, ndec of n_p; free/ndec of n_d; flow counts on the transfer path)."""
+        out = {}
+        for (i, (d, t)) in [(plan.n_p, plan.n_d)] + list(plan.backups):
+            a, b = view.nodes[i], view.nodes[d]
+            out[(i, (d, t))] = dict(pf_tokens=a.pf_tokens, njobs=a.njobs, ndec_p=a.ndec, free_d=b.free.get(t, 0.0), ndec_d=b.ndec)
+        return out
 
     def decide_instant(self, req):
         """Rule / Oracle policies: decision at dispatch time, zero cost."""
@@ -789,8 +799,24 @@ class Sim:
             cands = [(plan.n_p, plan.n_d)] + list(plan.backups)
         sess = r.sess
         okplan = None
-        for (i, (d, t)) in cands:
+        tol = self.o.get("val_tol")
+        if tol is not None and plan is not None:
+            self.ledger_release(r)
+            pv = self.plan_view()
+            costs = [plan.cost] + list(plan.bcost)
+        for ci, (i, (d, t)) in enumerate(cands):
             nv = view.nodes[i]
+            if tol is not None and plan is not None:
+                # state-similarity validation: hard checks + Cost drift of the stored plan under the current state <= tol
+                if nv.pf_tokens >= self.o["qcap"]:
+                    continue
+                now_c = self.est.cost_of(pv, r, sess, i, (d, t))
+                if now_c is None:
+                    continue
+                if now_c > costs[ci] * (1.0 + tol):
+                    continue
+                okplan = Plan(i, (d, t), plan.cost, [], plan.t_plan, plan.k, 0, 0)
+                break
             if age > self.o["plan_age_max"]:
                 break
             if nv.pf_tokens >= self.o["qcap"]:

@@ -56,3 +56,26 @@ SKILL §5: 모든 comparison_valid 쌍·집계 QA에서 후보 ≥ Baseline(CI �
 - QA4: 사전 등록 후 측정(`qa4_count.py`). S1 fixture 편차와 S4 최소 변경 기록은 `qa4-preregistration.md` 변경 이력.
 - 가설 판정: H1(CB 후보≈Baseline) 기각(x1.3~2.1), H2 부분 지지(HBM/HBF), H3·H4: 후보 ≥ Baseline은 지지, 단 DRAM·SSD·tool_large에서 P-retain이 후보와 같거나 높아 Tier 인지의 추가 이득은 확인 안 됨, H5 지지(burst TTFT), H8(C1이 QA3·TPOT 우위, C2가 확장성 우위) QA1~QA4에서 확인 안 됨, H9 일부(D-local-always는 Dynamic에서 Planner와 비슷하거나 앞섬).
 
+
+## 2. 상태 유사도 기반 Late Validation (설계 변경, 2026-10-08 사전 등록)
+
+소유자 결정: plan 저장 시 의존 상태(핵심값 위주)를 함께 저장하고, dispatch 직전 현재 상태와 비교한다. soft 임계값은 Cost 변화율 10%를 기본으로 5/10/20%를 본다.
+
+- 구현(`val_tol` 옵션, 기본 None = 기존 검증 유지): plan에 상태 요약(n_p의 pf_tokens·njobs·ndec, n_d의 free·ndec)과 백업 후보별 저장 Cost를 함께 저장한다. 검증은 (hard) 큐 한도, History 위치/용량이 현재 상태에서 plan이 feasible한지(`cost_of`가 None이 아님), (soft) 현재 상태에서 다시 계산한 Cost가 저장 Cost의 (1+tol) 이내인지. Cost가 줄어든 변화는 허용한다. plan age 한도(2 s)는 이 모드에서 쓰지 않는다. 현재 상태 = telemetry snapshot(갱신 주기 그대로).
+- 검증 비용 c_val = 20 µs는 그대로(ASSUMED, 비용 재계산 포함이라 과소일 수 있음).
+- 가설(실행 전): H-V1 기본 조건(plan age ≈ 4 ms)에서는 기존 검증과 goodput 차이가 CI 안이다. H-V2 telemetry 1 s 또는 결정이 느린 조건(N≥16, worker 4)에서 state 검증이 기존보다 재계획은 늘고 TTFT P99는 같거나 낫다. tol이 작을수록 재계획이 늘어 결정 비용이 커진다.
+- 실행: (E1) 6 시나리오 × telemetry {0.05, 1.0 s} × {기존, 5%, 10%, 20%} × C2, SYS-H100, Baseline 최적 부하, seed 3개. (E2) QA5 workload N=16/32, C2 worker 4·16, 노드당 부하 5·8, seed 11/23, 같은 4조건. 평가 데이터(qa_result.json)는 바꾸지 않는다(기본 None).
+
+### 2.1 결과 (`results/data/SYS-H100/val_sweep_result.json`, 기본 평가 데이터는 변경 없음)
+
+| 조건 | 기존(age·큐·용량) | 5% | 10% | 20% |
+|---|---|---|---|---|
+| E1 telemetry 0.05 s, goodput 비(x Baseline, 6시나리오) | x1.425 | x1.419 | x1.410 | x1.427 |
+| E1 telemetry 1.0 s | x1.349 | x1.346 | x1.345 | x1.348 |
+| E2 N=16/32, worker 4 | x1.418 | x0.788 | x1.434 | x1.340 |
+| E2 N=16/32, worker 16 | x1.494 | x0.748 | x0.826 | x0.843 |
+
+- H-V1 지지: 기본 조건에서 차이가 없다(±1%).
+- **H-V2 기각**: 결정이 느린 조건(N≥16)에서 상태 유사도 검증이 기존보다 낫지 않고, 임계가 엄격할수록(worker 16 전 구간, worker 4 5%) goodput이 x0.75~0.84로 떨어진다. 무효 판정이 늘면 동기 재계획 경로로 들어가고(재계획 비율 0.01 → 0.27~0.37), 이 경로는 C1과 같은 직렬 결정 비용(N=32에서 건당 수십 ms)을 내므로 C2의 이점(결정 지연 숨김)이 사라진다.
+- 해석 한계: 현재 상태 = telemetry snapshot이라 telemetry 1 s에서는 상태 변화를 못 본다(E1 1.0 s에서 차이 없음). Cost 재계산 비용을 c_val = 20 µs로 가정(과소일 수 있음). E2는 seed 2개, 노드당 부하 2점이라 잡음이 있다. `val_tol` 기본값은 None이라 본 평가는 기존 검증을 쓴 결과다.
+- 시사점: 상태 유사도 검증은 정확도를 올리지만 재계획 비용이 비싼 환경에서는 오히려 해롭다. 재계획을 C1식 직렬 결정이 아니라 backup 후보 확대나 top-k 재평가 같은 싼 경로로 두거나 임계(20% 이상)를 넓혀야 한다. 이 변형은 평가하지 않았다.
