@@ -429,7 +429,7 @@ flowchart LR
 
 ## 6.3 후보 2 — 자체 구현 (계층형 컴포넌트 뷰)
 
-> 요약: 후보 2는 **우리가 decision plane과 state plane을 모두 소유**하는 계층형 Router다. 3개 계층(Ingress / Request Pipeline / State Plane)과 읽기 전용 StateView(Facade)로 나누고, 정책 교체·지시 조립·상태 갱신·엔진 계약 격리는 **디자인 패턴**(Chain of Responsibility, Strategy, Decorator, Observer, Adapter; §6.3.5)으로 구성하고, 상태를 공유하지 않는 **레플리카 ×R**을 L4 LB 뒤에 두어 늘린다. K8s/Envoy는 불필요하다. vLLM 계약(KV events, `/metrics`, `kv_transfer_params`, NIXL)은 후보 1과 동일하다. **설계안이며 구현되지 않았고, 구현량은 추정이다.**
+> 요약: 후보 2는 **우리가 decision plane과 state plane을 모두 소유**하는 계층형 Router다. 3개 계층(Ingress / Request Pipeline / State Plane)과 읽기 전용 StateView(Facade)로 나누고, 정책 교체·지시 조립·상태 갱신·엔진 계약 격리는 **디자인 패턴**(1안 문제에 대응하는 Strategy, Decorator, Adapter 3개; §6.3.5)으로 구성하고, 상태를 공유하지 않는 **레플리카 ×R**을 L4 LB 뒤에 두어 늘린다. K8s/Envoy는 불필요하다. vLLM 계약(KV events, `/metrics`, `kv_transfer_params`, NIXL)은 후보 1과 동일하다. **설계안이며 구현되지 않았고, 구현량은 추정이다.**
 >
 > 이전 판은 이 후보를 "단일 프로세스·정적 설정·최소 admission"으로만 그렸다. 그러면 후보 1(완성형)과 후보 2(미완성형)를 비교하게 되어 tradeoff가 성립하지 않으므로, 같은 노력 수준으로 재정의했다(§5.2 박스 4번). 대신 늘어난 구현 부담은 QA가 아니라 제약·리스크로 §7.4.1에 명시한다.
 
@@ -524,17 +524,15 @@ flowchart LR
 
 PD Orchestrator는 llm-d pd-sidecar의 로직(`pkg/sidecar/proxy/`)을 참고한다. 재사용 가능성은 **미검증**이다.
 
-### 6.3.5 적용 디자인 패턴 (정책을 갈아 끼우기 쉬운 구조)
+### 6.3.5 적용 디자인 패턴 (1안 문제에 대응하는 3개만)
 
-> "자체 구현인데 왜 확장 지점이 필요한가"에 대한 답이다. 정책(P1~P5)은 새 메모리·새 비용 모델마다 바뀌므로, 본체를 안 건드리고 교체되도록 아래 패턴으로 구성한다. 이는 1안의 plugin이 하는 역할을 우리가 직접 설계하는 것이다. 설계안이며 유지 가능성은 미검증이다.
+> 패턴을 많이 쓰는 것이 목적이 아니다. **1안에서 실제로 문제가 되는 지점과 연결되는 3개만** 적용한다(Chain of Responsibility·Observer는 연결되는 1안 문제가 없어 제외). 설계안이며 유지 가능성은 미검증이다.
 
-| 패턴 | 적용 위치 | 하는 일 | 바뀔 때 고치는 곳 (변경 시나리오) |
+| 패턴 | 적용 위치 | 대응하는 1안 문제 | 2안에서의 해결 |
 |---|---|---|---|
-| **Chain of Responsibility** (Pipes & Filters) | Request Pipeline: Admission → Selector → Dispatcher | 요청이 단계(핸들러)를 차례로 통과. 단계를 추가·교체해도 다른 단계는 불변 | 흐름 제어 고도화(S6)는 핸들러 추가 |
-| **Strategy** (+ Registry) | `ScoreStrategy`(P1 TierWeight, P2 LiveState, P3 CostBased), `PDPlanStrategy`(P4 CostPD) | 점수·P/D 판단 알고리즘을 같은 인터페이스의 구현체로 두고 설정으로 선택 | 비용 함수(S2)·P/D 정책(S3)은 구현체 교체, 새 tier(S1)는 가중치 구현체 수정 |
-| **Decorator** | Directive Builder(P5) | 기본 `kv_transfer_params`에 계층 지시, 토큰 한도 등을 한 겹씩 덧붙임. 경로(aggregated, P/D) 구분 없음 | 노드 지시 항목 추가(S4)는 데코레이터 하나 추가 |
-| **Observer** | State Plane: Event Subscriber(Subject) → KV Index 갱신·Metrics 스냅샷(Observer) | 이벤트 하나를 여러 상태 갱신자가 구독. 새 상태가 필요하면 Observer 추가 | 신호 추가(S2) |
-| **Adapter** (+ Facade) | vLLM 계약 어댑터(KV 이벤트·`/metrics`·`kv_transfer_params`), StateView(읽기 전용 Facade) | vLLM·NIXL 계약 변경을 어댑터 안에 가두고, 정책은 StateView로만 상태를 읽음 | 계약 변경 대응(S5)은 어댑터만 수정 |
+| **Strategy** | `ScoreStrategy`(P1~P3), `PDPlanStrategy`(P4) | 1안의 plugin이 하는 "정책 교체" 역할을 직접 설계해야 함 | 점수·P/D 판단을 같은 인터페이스의 구현체로 두고 설정으로 선택. 비용 함수(S2)·P/D 정책(S3)은 구현체 교체 |
+| **Decorator** | Directive Builder(P5) | 1안은 P/D 경로에서 보조 프로세스가 `kv_transfer_params`를 덮어써 router가 넣은 지시가 사라짐 | 기본 `kv_transfer_params`에 계층 지시·토큰 한도를 한 겹씩 덧붙임. 경로 구분 없음. 항목 추가(S4)는 데코레이터 추가 |
+| **Adapter** (+ StateView) | vLLM 계약 어댑터(KV 이벤트·`/metrics`·`kv_transfer_params`) | 1안은 OSS 내부 동작(필드 처리, 이벤트 형식)에 의존해 OSS 변경에 취약 | vLLM·NIXL 계약 변경을 어댑터 안에 격리. 계약 변경 대응(S5)은 어댑터만 수정 |
 
 ## 6.4 후보 1 ↔ 후보 2 대치 도식
 
