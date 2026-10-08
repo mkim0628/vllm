@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """DP1 책임 경계 한 장: DP1(결정) / 공통 Migration subsystem(mapping·commit) / Device driver(전송·HW 주소 변환).
 
-DP1이 의존하는 보장(G1~G3)과 범위 밖 overhead(O1~O2)를 명시한다. 근거: doc-mk/DP1/dp1-constraints-and-invariants.md §D2, C-X6, C-X7.
+DP1이 의존하는 보장(G1~G3)과 범위 밖 overhead(O1~O2)를 명시한다. 근거: doc-mk/DP1/dp1-constraints.md 6절(G, O), C-X6, C-X7.
 스타일: DP1-final-style-reference.pptx (gen_dp1_arch_views_pptx.py 의 begin/bx/takeaway 재사용).
 
 사용: /usr/local/bin/python3 doc-mk/Evaluation/tools/gen_dp1_responsibility_pptx.py [--ref ...] [--out ...]

@@ -1,20 +1,94 @@
 ---
-title: DP1 제약사항·불변식·접근 hazard 목록
+title: DP1 Constraints (제약사항·불변식·가정 목록)
+doc_type: constraints
+dp: DP1
+version: v0.2
 status: draft (설계 단계, 구현·측정 없음)
-date: 2026-10-06
+date: 2026-10-08
+owner: DP1 설계
 basis: doc-mk/DP1/dp1-ai-data-migration-decision-architecture.md §3.3, doc-mk/vllm-ai-data-migration-architecture.md §7·14·19, vLLM 코드(`vllm/v1/core/block_pool.py`, `vllm/v1/core/sched/*`)
 ---
 
-# DP1 제약사항·불변식·접근 hazard 목록
+# DP1 Constraints — 제약사항 문서
 
-DP1(이기종 메모리 AI data migration)을 vLLM에 구현할 때 **지켜야 하는 것**을 한곳에 모은다. 설계 문서에는 범위 제약(C-S1~S3)과 일관성 불변식(I1~I4, R1~R4)이 흩어져 있고, 이동 중 접근 hazard는 명시되어 있지 않아 새로 정리했다.
+이 문서는 **DP1(이기종 메모리 AI data migration)을 vLLM에 구현·운영할 때 지켜야 하는 제약**과, DP1이 **다른 계층에 의존하는 가정**, **범위 밖으로 두는 것**을 한곳에 모은 것이다. 과제 단위의 제약사항을 수집할 때 이 문서를 입력으로 쓴다.
 
-각 항목의 **근거 태그**: `[문서]` = 기존 설계 문서에 있음, `[vLLM]` = vLLM 코드에서 확인한 사실, `[제안]` = 이 문서가 새로 제안하는 제약(검토 필요), `[가정]` = 확인하지 못한 가정.
-**열 설명**: 제약(보장 내용) / 어기면 생기는 hazard / 강제 수단(누가 어떻게) / 검증 방법.
+## 0. 이 문서를 읽는 법
+
+**항목 종류**
+
+| 종류 | 뜻 | ID |
+|---|---|---|
+| 제약 (Constraint) | 설계와 구현이 **지켜야 하는** 조건 | `C-S`(범위) `C-I`(불변식) `C-H`(이동 중 접근 hazard) `C-X`(다중 주체/플랫폼) `C-R`(자원) `C-P`(성능) `C-D`(데이터/내구성) |
+| 의존 보장 (Dependency) | DP1이 **다른 계층이 제공한다고 두는** 조건 | `G1`~`G3` (6절) |
+| 범위 밖 (Out of scope) | DP1이 **책임지지 않는** 것 | `O1`~`O2` (6절) |
+| 평가 전제 | 설계 제약이 아니라 **평가(시뮬레이터)의 한계** | `C-E1`~`C-E4` (10절) |
+
+**DP1 관점** (누가 지키는가)
+- **준수:** DP1(결정 계층)이 정책에서 직접 지킨다.
+- **의존:** 공통 Migration subsystem 또는 device driver가 지키고, DP1은 그 보장(G)에 의존한다.
+- **공동:** DP1과 하위 계층이 함께 지킨다.
+
+**근거 태그**: `[문서]` 기존 설계 문서에 있음 / `[vLLM]` vLLM 코드에서 확인한 사실 / `[제안]` 이 문서가 새로 제안(검토 필요) / `[가정]` 확인하지 못한 가정.
+**상태**: 설계 반영(`[문서]`) / 확인(`[vLLM]`) / 제안(`[제안]`) / 미확인(`[가정]`).
+
+## 1. 한눈에 보는 목록
+
+| ID | 제약 (한 문장) | 분류 | DP1 관점 | 상태 |
+|---|---|---|---|---|
+| C-S1 | 이동 범위는 단일 노드 내부로 한정한다 | 범위 | 준수 | 설계 반영 |
+| C-S2 | 노드 간 연결은 DP0 접점 계약으로만 한다 | 범위 | 준수 | 설계 반영 |
+| C-S3 | 평가도 단일 노드 8-GPU 서버만 모델링한다 | 범위 | 준수 | 설계 반영 |
+| C-S4 | 초기 배치(initial placement)는 DP1 범위 밖이다 | 범위 | 준수 | 설계 반영 |
+| C-S5 | data 내용을 바꾸는 변환(압축·양자화 등)은 migration이 아니다 | 범위 | 준수 | 설계 반영 |
+| C-S6 | DP1은 location을 직접 변경하지 않는다(결정만 한다) | 범위 | 준수 | 설계 반영 |
+| C-I1 | object는 항상 정확히 하나의 authoritative location을 가진다 | 불변식 | 의존 | 설계 반영 |
+| C-I2 | authoritative location은 copy 성공·검증 전에는 바뀌지 않는다 | 불변식 | 의존 | 설계 반영 |
+| C-I3 | object당 동시에 in-flight job은 하나다 | 불변식 | 의존 | 설계 반영 |
+| C-I4 | commit은 LocationRecord 단위로 atomic하다 | 불변식 | 의존 | 설계 반영 |
+| C-I5 | logical identity는 이동 전후 불변이고 물리 주소만 교체된다 | 불변식 | 의존 | 설계 반영 |
+| C-I6 | 복사는 bit-exact이며 모델 출력은 placement와 무관하다 | 불변식 | 의존 | 제안 |
+| C-I7 | 완료 통지가 유실돼도 idempotent reconciliation으로 수렴한다 | 불변식 | 의존 | 설계 반영 |
+| C-H1 | commit 전에는 target이 어떤 reader에게도 보이지 않는다(부분 복사 읽기 금지) | hazard | 의존 | 설계 반영+제안 |
+| C-H2 | source 슬롯은 옛 위치를 받은 모든 step이 끝나기 전에 해제하지 않는다(async scheduling) | hazard | 의존 | 제안 |
+| C-H3 | 이동 대상은 불변(sealed) data로 한정한다(이동 중 쓰기 금지) | hazard | 공동 | 설계 반영 |
+| C-H4 | 이동 중 prefix hit은 source를 가리키고 commit 후 hash가 한 번에 새 위치로 바뀐다 | hazard | 의존 | 확인+제안 |
+| C-H5 | 실행 중 요청이 참조하는 block(ref_cnt>0)의 물리 위치는 그 step 중 바꾸지 않는다 | hazard | 공동 | 확인+제안 |
+| C-H6 | 이동 중인 source는 block pool eviction/재할당을 당하지 않는다 | hazard | 의존 | 확인 |
+| C-H7 | replica는 version을 기록하고 source가 바뀌면 invalid로 표시한다 | hazard | 의존 | 설계 반영 |
+| C-H8 | 이동 중 abort/preemption에도 source/target을 정확히 한 번씩 해제한다 | hazard | 의존 | 제안 |
+| C-H9 | 이동 중 reset/무효화 시 job을 취소하고 무효 hash를 새 위치에 심지 않는다 | hazard | 의존 | 확인+제안 |
+| C-H10 | 이동·해제된 슬롯의 내용이 다른 tenant에 노출되지 않는다 | hazard | 의존 | 미확인 |
+| C-X1 | 모든 TP/PP/DP rank가 같은 step 경계에서 같은 commit을 적용한다 | 플랫폼 | 의존 | 미확인 |
+| C-X2 | CUDA graph replay 중에는 block table 주소를 바꾸지 않는다 | 플랫폼 | 의존 | 미확인 |
+| C-X3 | compute는 copy 완료 event 이후에만 target을 읽고 전송은 별도 stream이다 | 플랫폼 | 의존 | 설계 반영 |
+| C-X4 | copy 완료는 CPU 캐시/DMA 순서를 고려한 fence로 보장한다 | 플랫폼 | 의존 | 미확인 |
+| C-X5 | Worker는 copy executor이고 위치 결정·commit은 EngineCore만 한다 | 플랫폼 | 의존 | 설계 반영 |
+| C-X6 | mapping 갱신은 Migration subsystem, HW 주소 변환·TLB 무효화는 driver가 소유한다 | 플랫폼 | 공동 | 설계 반영+제안 |
+| C-X7 | 가상 주소 유지 방식의 이동(remap)은 기본 경로가 아니며 descriptor가 선언한 장치에서만 쓴다 | 플랫폼 | 준수 | 설계 반영+제안 |
+| C-R1 | target을 먼저 예약한 뒤에만 copy를 시작한다 | 자원 | 의존 | 설계 반영 |
+| C-R2 | replica도 recompute 경로도 없는 authoritative copy는 DROP하지 않는다 | 자원 | 공동 | 설계 반영 |
+| C-R3 | swap/교환은 deadlock이 없도록 demotion 먼저, budget 예약으로 단계화한다 | 자원 | 준수 | 설계 반영 |
+| C-R4 | 이동 단위·정렬(SSD page, HBF erase block)을 따른다 | 자원 | 공동 | 설계 반영 |
+| C-R5 | HBF/SSD-PIM의 endurance 예산을 넘지 않는다 | 자원 | 준수 | 설계 반영 |
+| C-P1 | migration은 serving 링크 시간의 제한된 몫만 쓰고 한 번에 쏟아붓지 않는다 | 성능 | 공동 | 설계 반영+제안 |
+| C-P2 | foreground(blocking)를 background보다 우선한다 | 성능 | 의존 | 설계 반영 |
+| C-P3 | do-no-harm: 서빙 penalty를 키우거나 SLO를 위반하는 tier로 보내지 않는다 | 성능 | 준수 | 설계 반영 |
+| C-P4 | decision overhead는 서빙 경로(forward)에 있지 않다 | 성능 | 준수 | 설계 반영 |
+| C-D1 | Phase 1은 sealed KV만 이동 대상으로 한다 | 데이터 | 준수 | 설계 반영 |
+| C-D2 | 휘발 tier에는 recomputable이거나 replica가 있는 data만 유일 사본으로 둔다 | 데이터 | 준수 | 제안 |
+| C-D3 | Worker/EngineCore 크래시 후 in-flight job은 폐기되고 source로 복구한다 | 데이터 | 의존 | 설계 반영 |
+
+**의존 보장·범위 밖** (6절): G1(mapping·commit 신뢰성), G2(전송 완료 의미), G3(HW 주소 변환 일관성) / O1(mapping·commit·driver overhead), O2(HW 구현).
+**평가 전제** (10절): 시뮬레이터는 위 hazard가 없고 mapping·commit overhead가 0이라고 가정한다. 따라서 평가 수치는 그 조건부 값이다.
 
 ---
 
-## A. 범위 제약 (Scope)
+## 상세
+
+각 표의 열: 제약(보장 내용) / 어기면 생기는 hazard / 강제 수단(누가 어떻게) / 검증 방법 / 근거.
+
+## 2. 범위 제약 (Scope) — C-S
 
 | ID | 제약 | 위반 시 / 이유 | 강제 수단 | 검증 | 근거 |
 |---|---|---|---|---|---|
@@ -25,7 +99,7 @@ DP1(이기종 메모리 AI data migration)을 vLLM에 구현할 때 **지켜야 
 | C-S5 | **data 내용을 바꾸는 변환은 migration이 아니다** (quantization/압축/in-place transform, near-data compute). DP1 action은 MOVE/REPLICATE/DROP/REMAP/RECLASSIFY뿐 | 내용이 바뀌면 version/identity/출력 동일성이 깨짐 | action enum 제한 | 단위 테스트 | [문서] §3.2 |
 | C-S6 | DP1은 location을 **직접 변경하지 않는다.** 결정(Intent)만 내고 location commit은 공통 Migration subsystem | 결정 주체와 commit 주체가 섞이면 일관성 보장 불가 | Registry는 commit 결과로만 갱신 | 코드 리뷰 | [문서] §22.3, 아키텍처 §14 |
 
-## B. Location / Identity 불변식
+## 3. Location / Identity 불변식 — C-I
 
 | ID | 제약 | 위반 시 | 강제 수단 | 검증 | 근거 |
 |---|---|---|---|---|---|
@@ -37,9 +111,9 @@ DP1(이기종 메모리 AI data migration)을 vLLM에 구현할 때 **지켜야 
 | C-I6 | **bit-exact 복사.** 이동 후 내용 동일, 모델 출력이 placement와 무관 | silent corruption으로 출력이 달라짐 | 전송 handler의 길이/정렬 검증, 선택적 checksum | 이동 전후 hash 비교 테스트 | [제안] |
 | C-I7 | DP1 Registry는 commit 결과로만 갱신, 완료 통지가 유실돼도 **idempotent reconciliation**으로 수렴 | completion 유실 시 location이 영원히 in-flight로 남음 | 상태 질의 + timeout | 장애 주입 테스트 | [문서] §19 |
 
-## C. 이동 중 접근 Hazard (핵심)
+## 4. 이동 중 접근 hazard — C-H
 
-사용자가 지적한 4가지(부분 복사 읽기, 해제된 슬롯 읽기, 이동 중 쓰기, 이동 중 prefix hit)와 추가 검토 항목이다.
+이동(copy ~ commit) 구간에서 reader/writer가 잘못된 데이터를 보지 않도록 하는 제약이다. 핵심 4가지(부분 복사 읽기 C-H1, 해제된 슬롯 읽기 C-H2, 이동 중 쓰기 C-H3, 이동 중 prefix hit C-H4)와 추가 항목(C-H5~H10)이다.
 
 | ID | Hazard | 제약 (이렇게 되어야 한다) | 강제 수단 | 검증 | 근거 |
 |---|---|---|---|---|---|
@@ -54,7 +128,7 @@ DP1(이기종 메모리 AI data migration)을 vLLM에 구현할 때 **지켜야 
 | C-H9 | **이동 중 reset/무효화** (prefix cache reset, 모델 weight 갱신 등) | 무효화 시 in-flight job을 취소하고 target을 폐기한다. 무효화된 hash를 새 위치에 심지 않는다 | reset 이벤트 → 모든 job CANCEL | RLHF류 reset 테스트 | [vLLM] `BlockPool.reset_prefix_cache`, `evict_blocks` 존재. 연동은 [제안] |
 | C-H10 | **tenant 격리** | 이동·해제된 슬롯의 내용이 **다른 tenant에게 노출되지 않는다.** 재할당 전 내용이 덮어써지거나 접근 권한이 분리된다 | cache salt를 hash에 포함(기존), 공유 pool(CXL)이면 해제 시 sanitize | 격리 테스트 | [가정] 기존 salt 정책과의 상호작용 미확인 |
 
-## D. 다중 주체 / 플랫폼 제약
+## 5. 다중 주체 / 플랫폼 제약 — C-X
 
 | ID | 제약 | 위반 시 | 강제 수단 | 검증 | 근거 |
 |---|---|---|---|---|---|
@@ -66,9 +140,9 @@ DP1(이기종 메모리 AI data migration)을 vLLM에 구현할 때 **지켜야 
 | C-X6 | **주소 변환·mapping 갱신의 소유.** logical id → 물리 위치 mapping의 관리와 commit은 **공통 Migration subsystem**(EngineCore)이 소유한다. DP1은 위치를 읽기만 하고 변경하지 않는다. 하드웨어 수준 주소 변환(page table, IOMMU, CXL HDM decoder)과 remap 시 TLB/ATC 무효화는 **device driver / runtime**이 소유한다 | 소유가 겹치면 위치가 두 곳에서 갱신되어 I1~I4가 깨짐 | Registry는 commit 결과로만 갱신(C-S6), driver 접근은 Memory Backend I/F와 TransferHandler 뒤 | 구조 리뷰 | [문서] 아키텍처 §2·10, 설계 §22.3 |
 | C-X7 | **가상 주소를 유지한 채 backing만 바꾸는 이동(page migration, 직접 접근 tier의 remap)은 기본 경로가 아니다.** 기본은 copy-then-commit + logical id 교체이며, REMAP은 `MemoryDescriptor`가 지원 여부와 invalidate 방식을 선언한 장치에서만 쓴다. 미지원이면 `FAILED(unsupported)` 후 MOVE로 재계획 | TLB shootdown/GPU TLB invalidate가 서빙을 stall시킬 수 있고 DP1이 통제할 수 없음 | action 선택 시 capability 확인 | descriptor 테스트 | [문서] 아키텍처 §7.1(REMAP) + [제안] |
 
-## D2. 책임 경계와 DP1이 의존하는 보장 (범위 선언)
+## 6. 책임 경계: DP1이 의존하는 보장(G)과 범위 밖(O)
 
-DP1의 설계 범위는 **무엇을 어느 tier로 옮길지의 결정**(WHAT/WHERE)이다. 아래는 DP1이 **주어진 것으로 두는 보장**과 **범위 밖으로 두는 것**이다. 이 절은 보장을 DP1이 증명한다는 뜻이 아니라, **다른 계층이 제공해야 하는 계약**을 명시하는 것이다.
+DP1의 설계 범위는 **무엇을 어느 tier로 옮길지의 결정**(WHAT/WHERE)이다. 아래는 DP1이 **주어진 것으로 두는 보장(G)**과 **범위 밖으로 두는 것(O)**이다. 이 절은 보장을 DP1이 증명한다는 뜻이 아니라, **다른 계층이 제공해야 하는 계약**을 명시하는 것이다. 과제 제약 수집 시 G는 "외부 의존/가정", O는 "범위 제외"로 분류한다.
 
 | 구분 | 내용 | 소유 | 근거 |
 |---|---|---|---|
@@ -84,7 +158,7 @@ DP1의 설계 범위는 **무엇을 어느 tier로 옮길지의 결정**(WHAT/WH
 2. DP1이 O1을 통제할 수는 없지만 **관측은 할 수 있어야 한다.** Memory Backend I/F와 Migration subsystem이 이동당 전송 시간 추정과 완료 지연을 노출하면 DP1의 benefit-vs-cost gating이 그 값을 쓸 수 있다(시뮬레이터의 `est_transfer_s`와 같은 위치). 노출 계약은 [제안]이다.
 3. G1이 "보장된다"고 말하려면 그 보장을 **Migration subsystem이 시험으로 확인**해야 한다(property/장애 주입 테스트, C-I1~I4와 C-H 항목). 이 확인은 DP1의 산출물이 아니라 Migration subsystem의 산출물이다.
 
-## E. 자원 / 용량 제약
+## 7. 자원 / 용량 제약 — C-R
 
 | ID | 제약 | 위반 시 | 강제 수단 | 검증 | 근거 |
 |---|---|---|---|---|---|
@@ -94,7 +168,7 @@ DP1의 설계 범위는 **무엇을 어느 tier로 옮길지의 결정**(WHAT/WH
 | C-R4 | **이동 단위/정렬 제약 준수.** SSD page, HBF erase block 등 `MemoryDescriptor.granularity/alignment`를 따른다 | 정렬 위반 전송이 실패하거나 write amplification | Planner가 단위에 맞춰 분할 | handler 테스트 | [문서] 설계 §5.8 |
 | C-R5 | **endurance 예산.** HBF/SSD-PIM의 write 횟수/대역폭 예산을 넘지 않는다 (write_limited tier로의 demotion은 예산 내에서만) | 소자 수명 소진 | `endurance_budget` 관리 | 장기 시나리오 | [문서] 설계 §5.8 flag. **시뮬레이터는 미모델링** |
 
-## F. 성능 / 간섭 제약
+## 8. 성능 / 간섭 제약 — C-P
 
 | ID | 제약 | 위반 시 | 강제 수단 | 검증 | 근거 |
 |---|---|---|---|---|---|
@@ -103,7 +177,7 @@ DP1의 설계 범위는 **무엇을 어느 tier로 옮길지의 결정**(WHAT/WH
 | C-P3 | **do-no-harm.** rebalance/이동이 해당 object의 서빙 penalty를 키우지 않으며, SLO를 위반하는 tier로 보내지 않는다 | CXL-PNM attention 경로 TPOT 300~600 ms 같은 SLO 위반 | Destination Tier Selector의 SLO 필터 | 평가 시나리오 | [문서] 설계, 시뮬레이터에서 확인 |
 | C-P4 | **decision overhead는 서빙 경로에 있지 않다.** Selector/Executor는 비동기 이벤트로 동작하고 forward를 막지 않는다 | 결정 지연이 TTFT에 합산 | 이벤트 push 비동기 | 오버헤드 측정 | [문서] §5.1~5.2 |
 
-## G. 데이터 종류 / 내구성 제약
+## 9. 데이터 종류 / 내구성 제약 — C-D
 
 | ID | 제약 | 위반 시 | 강제 수단 | 검증 | 근거 |
 |---|---|---|---|---|---|
@@ -111,7 +185,7 @@ DP1의 설계 범위는 **무엇을 어느 tier로 옮길지의 결정**(WHAT/WH
 | C-D2 | **휘발 tier에 유일한 사본으로 둘 수 있는 data는 recomputable이거나 replica가 있는 것뿐.** Agent memory/Tool result처럼 재계산 불가능한 mutable data는 내구성 있는 tier(또는 replica)에만 둔다 | 장치/프로세스 장애 시 소실 | data class별 durability 속성, Selector의 필터 | 장애 주입 | [제안] (C1이 type-agnostic이면 hint에 durability를 실어야 함) |
 | C-D3 | **Worker/EngineCore 크래시 후 안전한 재시작.** in-flight job은 폐기되고 source가 authoritative이므로 KV는 recompute로 복구한다 | 반쯤 쓴 target을 정상으로 오인 | commit 전 target은 metadata에 없음 | 재시작 테스트 | [문서] 아키텍처 §19 |
 
-## H. 평가(시뮬레이터) 제약 — 위 제약을 시뮬레이터가 어떻게 가정하는가
+## 10. 평가 전제 (설계 제약이 아니라 평가의 한계) — C-E
 
 | ID | 사실 | 영향 |
 |---|---|---|
@@ -122,7 +196,7 @@ DP1의 설계 범위는 **무엇을 어느 tier로 옮길지의 결정**(WHAT/WH
 
 ---
 
-## I. 우선순위가 높은 열린 질문 (검토 요청)
+## 11. 미결 사항 (검토 요청)
 
 1. **C-H5(실행 중 요청의 block은 이동 금지)가 DP1의 효과를 얼마나 제한하는가.** 평가의 hot/cold 시나리오는 "참조 중인 object도 이동"을 가정한다. vLLM에서는 ref_cnt > 0인 block은 step 경계 REMAP 없이는 못 움직이므로, 실제로 이동 가능한 object 집합이 평가보다 좁을 수 있다.
 2. **C-H2(해제 grace)의 비용.** async scheduling에서 source 슬롯 점유가 몇 step 연장되는지에 따라 HBM 절감(QA3) 이득이 줄 수 있다.
