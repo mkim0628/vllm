@@ -241,6 +241,7 @@ tool-call 시점의 세밀한 KV lifecycle 제어는 별도 구조에서 보완�
 - **C-S1. 이동 범위는 단일 노드(한 서버) 내부로 한정한다.** DP1의 migration은 한 서버 안의 메모리 계층(HBM, Custom HBM, DRAM, CXL-PNM, HBF, SSD/SSD-PIM) 사이의 data 이동만 결정한다. 다른 노드나 원격 메모리를 tier로 보는 이동은 DP1이 결정하지 않는다.
 - **C-S2. 노드 간 이동은 DP0의 결정이며, DP1과는 접점 계약(DP0 C5: vLLM KV 이벤트의 `medium` 필드, 메트릭, `kv_transfer_params`, NIXL 전송)으로만 연결한다.** DP1은 노드 간 전송 결과로 들어온 data를 노드 안 tier에 배치·재배치할 뿐, 노드 간 전송 여부를 정하지 않는다.
 - **C-S3. 평가(Evaluation/DP1)도 단일 노드 시스템(GPU 8장 서버 1대, SYS profile)만 모델링한다.** 노드 간 전송 비용과 원격 tier는 시뮬레이터에 없다.
+- **C-M. 실행·일관성·이동 중 접근 hazard 제약**(copy-then-commit, 부분 복사/해제 슬롯/이동 중 쓰기/이동 중 prefix hit 금지, 다중 rank, endurance 등)은 [`dp1-constraints.md`](dp1-constraints.md)에 목록으로 정리했다 (근거 태그: 문서/vLLM 코드/제안/가정).
 
 ---
 

@@ -1,6 +1,6 @@
 # DP2 Evaluation
 
-> 상태: **draft** (평가 설계 초안: 범위·QA·시나리오 정의, simulator 구현 전)
+> 상태: **draft** (simulator 구현·첫 평가 완료, 결과: [`results/2026-10-06_dp2-qa-evaluation.md`](results/2026-10-06_dp2-qa-evaluation.md), 덱: `doc-mk/DP2/DP2-appendix-qa-result.pptx`). 소유자 결정 O1~O11 미확정, 별 경계·선택 규칙은 제안 상태)
 
 ## 범위
 
