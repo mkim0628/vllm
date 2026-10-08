@@ -63,6 +63,26 @@ DP1(이기종 메모리 AI data migration)을 vLLM에 구현할 때 **지켜야 
 | C-X3 | **전송 stream과 compute stream의 순서.** compute가 target을 읽기 전에 copy 완료 event를 기다린다. 전송이 compute를 막지 않도록 별도 stream | copy가 끝나기 전 읽거나, 전송이 forward를 지연 | event 기반 의존성 (`migration_dependencies`) | 타이밍 테스트 | [문서] 아키텍처 §11 |
 | C-X4 | **coherency 도메인.** host DRAM/CXL/HBF/SSD 경로는 **CPU 캐시/DMA 순서**를 고려해 copy 완료를 fence로 보장한다. 하드웨어 coherent 영역(CXL.mem)과 비coherent 영역을 구분해 flush/invalidate 규칙을 둔다 | DMA 완료와 가시성이 어긋나 오래된 값을 읽음 | handler별 fence 의무, `MemoryDescriptor`에 coherency 속성 | handler 단위 테스트 | [가정] 장치별 coherency 모델은 확인하지 못함 |
 | C-X5 | **Worker는 copy executor.** 위치 결정/commit 권한은 EngineCore만 가진다. Worker가 독립적으로 location을 바꾸지 않는다 | 여러 Worker가 같은 object를 충돌하게 이동 | 단일 authority | 구조 리뷰 | [문서] 아키텍처 §10 |
+| C-X6 | **주소 변환·mapping 갱신의 소유.** logical id → 물리 위치 mapping의 관리와 commit은 **공통 Migration subsystem**(EngineCore)이 소유한다. DP1은 위치를 읽기만 하고 변경하지 않는다. 하드웨어 수준 주소 변환(page table, IOMMU, CXL HDM decoder)과 remap 시 TLB/ATC 무효화는 **device driver / runtime**이 소유한다 | 소유가 겹치면 위치가 두 곳에서 갱신되어 I1~I4가 깨짐 | Registry는 commit 결과로만 갱신(C-S6), driver 접근은 Memory Backend I/F와 TransferHandler 뒤 | 구조 리뷰 | [문서] 아키텍처 §2·10, 설계 §22.3 |
+| C-X7 | **가상 주소를 유지한 채 backing만 바꾸는 이동(page migration, 직접 접근 tier의 remap)은 기본 경로가 아니다.** 기본은 copy-then-commit + logical id 교체이며, REMAP은 `MemoryDescriptor`가 지원 여부와 invalidate 방식을 선언한 장치에서만 쓴다. 미지원이면 `FAILED(unsupported)` 후 MOVE로 재계획 | TLB shootdown/GPU TLB invalidate가 서빙을 stall시킬 수 있고 DP1이 통제할 수 없음 | action 선택 시 capability 확인 | descriptor 테스트 | [문서] 아키텍처 §7.1(REMAP) + [제안] |
+
+## D2. 책임 경계와 DP1이 의존하는 보장 (범위 선언)
+
+DP1의 설계 범위는 **무엇을 어느 tier로 옮길지의 결정**(WHAT/WHERE)이다. 아래는 DP1이 **주어진 것으로 두는 보장**과 **범위 밖으로 두는 것**이다. 이 절은 보장을 DP1이 증명한다는 뜻이 아니라, **다른 계층이 제공해야 하는 계약**을 명시하는 것이다.
+
+| 구분 | 내용 | 소유 | 근거 |
+|---|---|---|---|
+| **DP1이 의존하는 보장 G1** | mapping(logical id → 물리 위치)과 commit 과정의 **신뢰성**: copy-then-commit, atomic commit, 실패 시 source 유지(rollback), 이동 중 접근 hazard 방지(C-H1~H9), 완료 유실 시 reconciliation | 공통 Migration subsystem (EngineCore + Worker) | [문서] 아키텍처 §7·14·19 |
+| **G2** | 전송 완료의 의미: 완료 통지 시점에 target이 가시화되고, 오류가 Worker에 전파된다. 순서와 coherency fence | device driver / runtime (Memory Backend I/F, TransferHandler 계약) | [가정] 장치별 확인하지 못함 |
+| **G3** | 하드웨어 주소 변환의 일관성: remap이 있다면 TLB/ATC/IOTLB 무효화는 driver/OS가 보장 | device driver / OS | [가정] |
+| **범위 밖 O1** | mapping 관리, commit, 상태기계, 일관성 검증, driver 호출에서 생기는 **overhead**(commit 지연, epoch grace로 인한 slot 점유 연장, TLB/page-table 비용, 완료 통지 지연)는 DP1의 책임이 아니며 DP1이 모델링하거나 최적화하지 않는다 | Migration subsystem / driver | 이 문서의 범위 선언 |
+| **범위 밖 O2** | HW 수준 주소 변환 구현, DMA/copy engine 구현, coherency 프로토콜 | device driver / 하드웨어 | — |
+| **DP1이 책임지는 비용** | 이동 **결정**이 만드는 비용: 이동량(bytes), 링크 점유 시간, 서빙 간섭, decision overhead(Selector/Executor 경계까지). 평가는 이를 링크 간섭 모델로 반영했다 | DP1 | [문서] 평가 4.8, 설계 §26 항목 8 |
+
+**주의: 범위 밖 선언이 평가 결과를 보호하지는 않는다.**
+1. G1~G3이 실제 구현에서 성립하지 않으면(예: commit이 느리거나 실패율이 높으면) DP1의 이득(QA1~QA3)은 줄어든다. 평가는 O1 overhead가 0이라고 가정했다(C-E1, C-E2). 즉 **DP1의 평가 수치는 "G1~G3이 비용 없이 성립한다"는 조건부 값**이다. 이 조건을 결과 한계에 명시한다.
+2. DP1이 O1을 통제할 수는 없지만 **관측은 할 수 있어야 한다.** Memory Backend I/F와 Migration subsystem이 이동당 전송 시간 추정과 완료 지연을 노출하면 DP1의 benefit-vs-cost gating이 그 값을 쓸 수 있다(시뮬레이터의 `est_transfer_s`와 같은 위치). 노출 계약은 [제안]이다.
+3. G1이 "보장된다"고 말하려면 그 보장을 **Migration subsystem이 시험으로 확인**해야 한다(property/장애 주입 테스트, C-I1~I4와 C-H 항목). 이 확인은 DP1의 산출물이 아니라 Migration subsystem의 산출물이다.
 
 ## E. 자원 / 용량 제약
 
