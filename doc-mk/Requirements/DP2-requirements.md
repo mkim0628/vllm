@@ -1,6 +1,7 @@
 # DP2 요구사항 도출: 기능 요구사항, 품질 속성, 품질 시나리오, 제약 사항
 
 > 상태: **초안(제안)**. `requirements-derivation` 스킬 Phase 2 (survey 단계). DP 번호는 최종 번호([`project-context.md`](project-context.md) §0): **DP2 = Prefill/Decode 실행 위치 결정 구조**. 과제 시나리오와 UC는 [`usecases.md`](usecases.md).
+> **[2026-10-09 방침 변경]** 품질 시나리오(§4)의 **수치 임계값과 "현 평가값"은 폐기 예정 입력**이다. 사용자 결정에 따라 전 DP(DP1~DP4)를 훑은 뒤 품질 요구사항을 **일관된 기준으로 다시 작성**한다(`memo-threshold-unification.md`, `dp-evaluation-inventory.md`). 현재 유효한 것은 **FR, QA, 제약, 품질 시나리오의 6요소와 metric 정의**이며 §4의 숫자는 참고로만 본다.
 > **이 문서의 모든 수치 임계값은 `[임시]`다.** 사용자 결정(2026-10-09, [`memo-threshold-unification.md`](memo-threshold-unification.md))에 따라 정량 조건은 모든 DP를 훑은 뒤 하나의 규칙으로 통일한다. 여기 적은 값은 DP2의 기존 평가 기준을 옮겨 적은 **작업용 값**이며 확정이 아니다. 근거 라벨: `[기준]`(공통·DP2 평가 문서) / `[DP문서]` / `[가정]` / `[임시]`(통합 전 작업값).
 > 출처: `DP문서`(위치 표기) / `도출` / `사용자`. 상태: `문서 확정` / `제안`. 시뮬레이션 값은 모두 [B+C]이며 실측 [A]가 아니다(GC-1).
 

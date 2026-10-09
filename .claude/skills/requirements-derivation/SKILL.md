@@ -25,6 +25,13 @@ description: "Use when deriving use cases, functional requirements (FR), quality
 - R9. 한국어, 기술 용어는 영어. 전문가 독자 기준으로 상세히 쓴다. 불확실하면 `미확인`이라고 쓴다.
 - R10. ID 체계 고정: UC-n, FR-n(전체) 또는 DPn-FR-n, DPn-QA-n, DPn-QS-n(품질 시나리오), DPn-C-n(제약). 문서 간 추적성 열을 유지한다 (UC ↔ FR ↔ QA/QS ↔ C).
 
+
+### 진행 방침 (사용자 결정 2026-10-09, `doc-mk/Requirements/memo-threshold-unification.md`)
+- **3단계로 진행한다**: (1) 각 DP를 읽고 FR, QA, 품질 시나리오, 제약을 뽑는다. (2) 전 DP(DP1~DP4)를 모두 훑는다(DP5는 없고 DP6은 이번에는 건너뜀). (3) **품질 요구사항의 정량 조건만** 모든 DP를 보고 일관된 규칙으로 다시 정한다.
+- **(1)~(2) 단계에서 R4를 임시 완화한다.** 품질 시나리오의 응답 측정은 `metric / 통계량 / 비교 기준 / 측정 조건`까지 쓰고 **임계값은 `TBD(통합 단계)`** 로 둔다. 각 DP의 평가 결과와 별점은 요구사항 문서에 쓰지 않는다(치워 둠). 대신 **DP 간 평가 환경·Baseline·정의의 차이는 반드시 알린다**(`dp-evaluation-inventory.md`).
+- 3단계에서는 DP 고유 지표 대신 **임계값을 정하는 규칙**을 통일하고, 외부 근거에 묶고, 결과에 맞춰 구간을 조정하지 않는다(`evaluation` 스킬 H5, H16).
+- QA3 정의는 `memo-qa3-resource-utilization.md`를 따른다(사용자 결정 전).
+
 ---
 
 ## Phase 1. 시나리오 → Use Case → 기본 기능 요구사항
