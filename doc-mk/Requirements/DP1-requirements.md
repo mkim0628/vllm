@@ -1,8 +1,15 @@
 # DP1 요구사항 도출: 기능 요구사항, 품질 속성, 품질 시나리오, 제약 사항
 
-> 상태: **초안(제안)**. 작성 기준: `requirements-derivation` 스킬 Phase 2. 전제와 공통 제약은 [`project-context.md`](project-context.md), 과제 시나리오와 UC는 [`usecases.md`](usecases.md).
+> 상태: **초안(제안), 2026-10-09 사용자 결정 반영(개정 1)**. 작성 기준: `requirements-derivation` 스킬 Phase 2. 전제와 공통 제약은 [`project-context.md`](project-context.md), 과제 시나리오와 UC는 [`usecases.md`](usecases.md).
 > 출처 표기: `DP문서`(위치 표기) / `도출`(Claude가 구조·시나리오에서 추론) / `사용자`. 수치 근거: `[DP문서]` `[기준]`(공통·DP1 평가 기준) `[가정]`(확정 필요). Evidence: 시뮬레이션 값은 모두 **[B+C]**이며 실측 [A]가 아니다(GC-1).
 > 상태 열: `문서 확정`(DP1 문서에 명시된 내용) / `제안`(도출했거나 문서 내용을 요구사항 문장으로 바꾼 것, 사용자 확인 전).
+
+**개정 1 반영 내용(사용자 결정 2026-10-09)**
+1. DP 번호를 최종 번호로 통일했다(project-context §0): DP1 migration 결정, DP2 P/D 실행 위치, DP3 KV eviction/reuse, DP4 요청 조율 계층(옛 DP0).
+2. **prefetch와 promotion은 DP1 범위**다. DP1은 eviction만이 아니라 promotion, 그리고 data behavior를 예측한 prefetch를 포함한다. 따라서 `usecases.md`의 FR-4는 DP1 범위이고, 이전 초안의 "tool lifecycle은 범위 밖" 제약(구 DP1-C-4)은 삭제했다.
+3. **LoRA, MoE, RAG를 DP1 범위에 포함**한다. 설계 문서의 "Phase 1은 sealed KV만"(C-D1)과 어긋나므로 설계 문서 개정 항목으로 §7에 올렸다.
+4. 참조 중(ref_cnt > 0)인 object는 이동할 수 없다는 점을 확인했다. **평가가 이를 가정하지 않았다면 평가가 잘못된 것**이고, 공통 품질 시나리오 확정 후 모든 DP 재평가가 필요하다(`memo-reevaluation.md`).
+5. QA 후보는 **ISO/IEC 25010:2023 품질 특성 목록** 안에서만 고르도록 §3을 다시 썼다.
 
 ## 0. 읽은 입력
 
@@ -66,6 +73,10 @@ Runtime Event ──► Migration Scheduler (event-driven, async)
 | DP1-FR-13 | 시스템은 memory health가 변하면(thermal throttle, 링크 열화, 용량 변화) 이를 event로 받아 migration을 **재평가**해야 한다 | DP문서 §5.8.2.3 규칙 5 | `RESOURCE_CHANGED` event | UC-9 | host link 대역폭 저하 시나리오에서 재평가 지연 | 문서 확정 |
 | DP1-FR-14 | 시스템은 write 수명이 제한된 매체(HBF, SSD-PIM)로의 demotion을 **endurance 예산 안에서만** 수행하고, 가능하면 replica를 만들어 이후 DROP으로 끝내야 한다 | DP문서 §2.1, §5.9.5, C-R5 | `endurance_budget`, REPLICATE→DROP 경로 | UC-1, 3 | tier별 write bytes 추적(시뮬레이터 미모델링) | 문서 확정(검증 불가 표시 필요) |
 | DP1-FR-15 | 시스템은 target 공간을 먼저 예약한 뒤 copy를 시작하고, 승격 교환(swap)이 서로의 slot을 기다리는 deadlock이 없도록 demotion을 먼저 단계화해야 한다 | DP문서 C-R1, C-R3 | Planner 단계화(DP1은 요청, 실행은 공통 subsystem) | UC-1, 9 | 용량 경계 테스트, swap 시나리오 | 문서 확정 |
+| DP1-FR-16 | 시스템은 **promotion**(하위 tier에 있으나 곧 필요한 object를 상위 tier로)과 **prefetch**(예측한 접근 시점 전에 상위 tier로 미리 복원)를 수행해야 한다. 접근 시점을 예측하지 못하면 접근 직후 필요한 부분부터 복원한다 | 사용자(2026-10-09), DP문서 §17.2, §13.5 | Future Behavior Predictor(C2), promotion pass(C1), Destination Tier Selector | UC-1, 3, 5 | QS-14, QS-1 | 제안 |
+| DP1-FR-17 | 시스템은 **Agent tool 정보(tool 호출 대기 시작·종료, 세션 재개)** 같은 행동 신호를 이동 결정의 입력으로 받을 수 있어야 한다. 신호가 없으면 접근 빈도·재사용 이력만으로 동작한다 | DP문서 PPT 9장("Agent Tool Info"), 설계 §13.2, 사용자(2026-10-09) | Data Behavior Monitor, Event Source | UC-1 | QS-14 | 제안 |
+| DP1-FR-18 | 시스템은 **KV, LoRA adapter, MoE expert, RAG 인덱스, Agent memory/Tool result** 5종 data class를 이동 대상으로 인식하고 class별 이동 가능 조건(sealed KV, 서빙 중 read-only weight, read-mostly 인덱스, mutable memory)에 따라 이동 결정을 내려야 한다 | 사용자(2026-10-09), 설계 §1, §11 | Data Object Registry, `can_migrate_now` adapter | UC-3, 4, 5 | QS-13 | 제안 (설계 C-D1 개정 필요) |
+| DP1-FR-19 | 시스템은 data class별 **이동 가능 조건(immutability)을 정의**하고, 조건을 만족하지 못하는 object(쓰는 중인 block, 갱신 중인 weight, 참조 중 block)를 이동 후보에서 제외해야 한다 | DP문서 C-H3, C-H5, C-D1, 사용자(참조 중 object 이동 불가 확인) | `can_migrate_now`, ref_cnt 확인 | UC-1~5 | QS-10, 13 | 제안 |
 
 ### 2.2 C1 (Resource State-driven + Data-Memory Affinity) 특화
 
@@ -88,13 +99,13 @@ Runtime Event ──► Migration Scheduler (event-driven, async)
 
 | 과제 FR (usecases.md) | DP1이 담당하는 부분 | DP1이 담당하지 않는 부분 |
 |---|---|---|
-| FR-1~3, 5 (UC-1 idle KV demote, 재방문 재사용, 공간 부족 정리) | DP1-FR-02, 03, 10, C1-01/03, C2-02. **ref_cnt = 0인 cached block**(요청 종료 후 prefix cache로 남은 block)을 이동한다. 이는 UC-1의 가정 Q-1(a)와 일치한다 | **tool 호출 시점의 KV 유지/회수/복구(lifecycle) 제어와 FR-4 prefetch는 DP1 범위 밖**(설계 §3.2, "별도 DP"). DP1은 접근 행동·자원 압박만으로 판단한다 |
+| FR-1~5 (UC-1 idle KV demote, 재방문 재사용, prefetch, 공간 부족 정리) | DP1-FR-02, 03, 10, 16, 17, C1-01/03, C2-02. **ref_cnt = 0인 cached block**(요청 종료 후 prefix cache로 남은 block)을 이동한다. 이는 UC-1의 가정 Q-1(a)와 일치한다. **FR-4 prefetch도 DP1 범위**(사용자 확정) | 없음 (전부 DP1 범위). 단 정확도 손실이 있는 정리는 DP3 |
 | FR-7, 8 (UC-2 long-context가 HBM 초과) | demote로 용량 확보. 단 **실행 중 요청의 block(ref_cnt > 0)은 step 중 이동하지 않음**(C-H5)이라 in-flight 요청의 KV는 REPLICATE 후 step 경계 REMAP이 필요하다 | FR-9 (정확도 손실이 있는 선택적 Drop)은 DP3 소관. DP1의 DROP은 replica/recomputable에 한정된 **무손실** |
-| FR-10, 11 (UC-3 RAG hot/cold) | DP1-FR-C1-02, C2-02. 평가에 RAG 시나리오(`rag_*`) 포함 | Phase 1은 sealed KV만(C-D1). RAG 인덱스 이동은 후속 phase |
-| FR-13~15 (UC-4 LoRA), FR-16, 17 (UC-5 MoE) | REPLICATE(LoRA 복제), 선호 tier(MoE→BW-rich tier). 평가에 `lora_*`, `moe_*` 시나리오 포함 | **Phase 1은 sealed KV만**(C-D1). LoRA/MoE는 immutability 정의 후 후속 phase. 설계 문서와 평가의 범위가 어긋난다(§8 D-4) |
+| FR-10, 11 (UC-3 RAG hot/cold) | DP1-FR-C1-02, C2-02, 18, 19. 평가에 RAG 시나리오(`rag_*`) 포함 | 없음 (DP1 범위, 사용자 확정). 설계 문서 C-D1(Phase 1은 sealed KV만) 개정 필요 |
+| FR-13~15 (UC-4 LoRA), FR-16, 17 (UC-5 MoE) | REPLICATE(LoRA 복제), 선호 tier(MoE→BW-rich tier), DP1-FR-18, 19. 평가에 `lora_*`, `moe_*` 시나리오 포함 | 없음 (DP1 범위, 사용자 확정). class별 immutability 정의가 선행 필요(§7 D-4) |
 | FR-18~20 (UC-6 연산 가능 메모리) | Descriptor에 지원 연산·성능을 받고(FR-06) 연산 지원 tier를 선호(C1-04) | **연산 위치 결정(GPU vs PIM/PNM)과 fallback은 DP2**. near-data compute는 DP1 action이 아님(C-S5) |
-| FR-21~25 (UC-7, 8 노드 간, P/D) | 없음. 노드 간 이동은 DP0/DP4 소관(C-S1, S2) | 전부 |
-| FR-26~28 (UC-9 혼합 부하) | DP1-FR-08(링크 budget), 13 | FR-27(과부하 admission/우선순위)은 DP0 |
+| FR-21~25 (UC-7, 8 노드 간, P/D) | 없음. 노드 간 이동은 DP4(요청 조율 계층) 소관(C-S1, S2) | 전부 |
+| FR-26~28 (UC-9 혼합 부하) | DP1-FR-08(링크 budget), 13 | FR-27(과부하 admission/우선순위)은 DP4 |
 | FR-6 (출력 불변) | DP1-FR-11 | 일관성 보장 자체는 공통 Migration subsystem(G1) |
 
 ## 3. 품질 속성 (QA)
@@ -112,21 +123,31 @@ DP1은 4개를 선정했다 (`DP-memory-backend-if.pptx` 1장, 설계 §18, `qa-
 
 QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_priority.json`).
 
-### 3.2 (b) 추가 후보 QA (DP1 시나리오와 관련 있어 보이는 것)
+**ISO/IEC 25010:2023 매핑** (사용자 제시 목록, 매핑은 Claude의 판단이며 확인 필요)
 
-> 선정 여부는 사용자 결정이다. 아래 `권장/보류`는 Claude의 의견이다. 프로젝트 전제로 Reliability/Availability 중 device runtime 내부 오류와 복구는 범위 밖이고(GC-3), 우리 계층의 degradation 처리는 후보다.
+| DP1 QA | ISO/IEC 25010:2023 특성 > 하위 특성 | 매핑 근거 |
+|---|---|---|
+| DP1-QA1 Throughput | Performance efficiency > **Capacity**, Time behavior | Max SLO Goodput은 SLO를 지키는 최대 처리 한계(Capacity)이며, 처리율(throughput rate)은 Time behavior에도 속한다. 주 매핑은 Capacity |
+| DP1-QA2 Latency | Performance efficiency > **Time behavior** | TTFT/TPOT는 응답·처리 시간 |
+| DP1-QA3 Resource Utilization | Performance efficiency > **Resource utilization** | HBM 사용량 |
+| DP1-QA4 Modifiability | Maintainability > **Modifiability**(+ Modularity), Flexibility > **Adaptability**(신규 memory 편입) | 신규 data class·정책·event 변경은 Modifiability, **신규 memory 하드웨어에 적응**은 Adaptability(하드웨어 환경 변화). QS-6은 두 특성을 함께 표기 |
 
-| ID | QA | 관련 이유 (어느 구조·시나리오 때문에) | 미선정 시 위험 | 선정 QA와의 관계 | 의견 |
-|---|---|---|---|---|---|
-| DP1-QA5 | **Decision Latency / Scalability** (결정 지연, object·tier 수 증가 시 결정 비용) | 설계 §19.2가 `T_event_to_decision = T_queue + T_monitor + T_analysis + T_selection`을 정의했다. 평가에서 결정 연산 C2 111 ms/run 대 C1 3 ms/run. 공통 QA 문서도 Decision Latency를 후속 QA로 예고(§1) | 결정이 늦어지면 hot object 승격 시점을 놓쳐 QA1/QA2 이득이 사라진다. C2의 monitoring/prediction 비용이 이득과 상쇄될 수 있음 | QA1/QA2와 trade-off(정확한 예측일수록 결정 비용 증가). QA4(C2 특화 모듈 증가)와도 연동 | **권장** |
-| DP1-QA6 | **Stability / Predictability** (thrashing, 꼬리 지연, 예측 오차에 대한 강건성) | C2는 예측이 틀리면 오배치가 생긴다(PPT 9장 단점, 설계 §15). 링크 간섭 반영 후 C2 migration 1,339 GiB(C1 138 GiB)로 TTFT 꼬리가 영향받음. C1은 TTFT P99가 Baseline 대비 x1.04~x1.27 악화하는 사례. 모델 오차 sweep(H17) | 평균은 좋아도 P99 꼬리나 왕복 이동으로 SLO가 깨진다 | QA2(꼬리)와 직접 연결, QA1과는 이득을 얻기 위한 이동량과 충돌 | **권장** |
-| DP1-QA7 | **Functional Correctness (무결성)** — 이동 후 data 일치, 이동 중 접근 정합성 | 사용자 확정 GC-7(DP3 제외 모두 출력 불변). 제약 C-I6, C-H1~H9가 요구. 시뮬레이터는 hazard를 모델링하지 않는다(C-E1) | 이동이 silent corruption을 일으키면 성능 이득이 무의미 | QA1~QA3와 독립(사전 조건) 성격이지만 설계 검토 대상으로 QA화하면 검증 가능 | **권장** (DP1 책임 범위는 "깨는 action을 하지 않는다"까지. 보장은 공통 subsystem) |
-| DP1-QA8 | **Availability — degradation 처리** (링크·메모리 상태 열화 시 재평가와 성능 유지) | `RESOURCE_CHANGED` event(설계 §5.8.2.3 규칙 5), Dynamic 시나리오 `dyn_host_path_contention_kv`(host link 25%로 저하), `host_path_pressure_b64`, `hbm_bw_shock_b256`. device runtime 내부 장애·복구는 GC-3으로 범위 밖이고 **우리 계층의 대응만** 대상 | 열화된 경로에 spill 상태를 유지해 SLO 위반이 지속 | QA2(꼬리)와 연계 | **권장** |
-| DP1-QA9 | **Observability** (이동 결정·이유·비용 추적) | constraints §6.2: DP1이 O1 overhead를 통제할 수 없지만 **관측은 할 수 있어야 한다**. `est_transfer_s` 노출, 측정-추정 closed loop(§5.9.6). 평가의 diagnostic 전부가 관측값에 의존 | 이득이 어디서 오는지, 결정이 왜 틀렸는지 알 수 없어 정책 튜닝과 디버깅 불가 | 모든 QA의 검증 수단 | **권장** (정량화는 완비율 수준) |
-| DP1-QA10 | Endurance (HBF/SSD-PIM write 수명 보호) | C-R5, `endurance_budget`, §5.9.5. 시뮬레이터 미모델링(C-E3), 차세대 메모리는 시뮬레이션 기반(GC-1) | 장기 운용 시 수명 소진 가능 | QA1/QA3의 이동 정책과 충돌(이동 줄이면 이득 감소) | **보류**: 측정 근거가 없어 정량 시나리오를 만들 수 없음. 제약(§5)으로만 둠 |
-| DP1-QA11 | Interoperability (vLLM upstream 호환: block pool, kv_offload, CUDA graph, async scheduling) | C-H2, C-H5, C-X2, `v1/core/block_pool.py`. DP0 C4(upstream 추적) | upstream 변경 시 DP1 hook이 깨짐 | QA4와 겹침 | **보류**: 평가 기준과 데이터 없음. 제약으로 기록 |
-| DP1-QA12 | Cost efficiency (비용 가중 점유) | 비용 가중 점유(`cost_model.py`, DRAM 대비 상대 $/GiB, ASSUMED)를 QA3 보조로 병기 중 | HBM 대신 더 싼 tier로 보냈는지 구분 못함 | QA3의 보조 | **보류**: 가격이 가정값. QA3 진단으로 유지 |
-| DP1-QA13 | Security / Isolation (tenant 격리) | C-H10(이동·해제된 slot 내용 노출 방지) | — | — | **제외**: 프로젝트 범위 밖(GC-6). 기존 cache salt 정책 유지가 전제 |
+### 3.2 (b) 추가 후보 QA (ISO/IEC 25010:2023 목록 안에서만 선택)
+
+> 선정 여부는 사용자 결정이다. `권장/보류`는 Claude의 의견이다. 이전 초안의 Observability, Stability, Cost efficiency는 표준 목록에 없어 매핑했다(Observability → Analysability, Stability → Time behavior 꼬리·Resource utilization의 세부 시나리오, Cost efficiency → 삭제, Resource utilization의 진단으로 유지).
+
+| ID | ISO 특성 > 하위 특성 | 후보 | 관련 이유 | 미선정 시 위험 | 선정 QA와의 관계 | 의견 |
+|---|---|---|---|---|---|---|
+| DP1-QA5 | Performance efficiency > Time behavior / Flexibility > **Scalability** | 결정 지연과 규모 | 설계 §19.2의 `T_event_to_decision` 정의. 결정 연산 C2 111 ms/run 대 C1 3 ms/run. Scalability는 2023 판에서 Flexibility 하위 특성으로 신설 | 결정이 늦으면 승격·prefetch 시점을 놓침 | QA1/QA2와 trade-off(예측이 정확할수록 결정 비용 증가) | **권장** |
+| DP1-QA6 | Performance efficiency > Time behavior(꼬리) / Resource utilization(링크) | 꼬리 지연, thrashing | C2 예측 오류, migration 1,339 GiB 대 138 GiB, C1 TTFT P99 악화(x1.04~x1.27) | 평균은 좋고 P99나 왕복 이동으로 SLO 위반 | QA2·QA3의 **세부 시나리오로 편입 가능**(독립 QA 아님) | **권장**(QA2/QA3 하위로) |
+| DP1-QA7 | Functional suitability > **Functional correctness** | 이동 전후 무결성 | GC-7, C-I6, C-H1~H9. 시뮬레이터는 hazard 미모델링(C-E1) | silent corruption이면 성능 이득이 무의미 | 다른 QA의 사전 조건. DP1 책임은 "깨는 이동 대상을 고르지 않는다"까지 | **권장** |
+| DP1-QA8 | Reliability > **Fault tolerance**, **Recoverability** | 링크·memory 열화 시 대응과 회복 | `RESOURCE_CHANGED`(설계 §5.8.2.3), `dyn_host_path_contention_kv`, `hbm_bw_shock_b256`. device runtime 내부 오류·복구는 GC-3으로 제외, **우리 계층의 대응만** | 열화된 경로에 spill 상태 유지, SLO 위반 지속 | QA2(꼬리)와 연계 | **권장** |
+| DP1-QA9 | Maintainability > **Analysability** | 이동 결정·비용 추적 | constraints §6.2(DP1은 O1을 통제할 수 없지만 관측은 할 수 있어야 함), 측정–추정 closed loop(§5.9.6) | 이득의 출처와 오판 원인을 알 수 없음 | 모든 QA의 검증 수단 | **권장** |
+| DP1-QA10 | Functional suitability > **Functional completeness** | 지원 data class 범위 | 사용자 확정: KV, LoRA, MoE, RAG, Agent memory를 모두 DP1에 포함(2026-10-09). 설계 C-D1은 sealed KV만 | 일부 class가 이동 대상에서 빠진 채 "DP1 완료"로 오인 | 요구 범위 자체(FR-18, 19) | **권장** |
+| DP1-QA11 | Compatibility > Interoperability / Co-existence | vLLM upstream(block pool, kv_offload, CUDA graph, async scheduling)과 다른 DP와의 접점 | C-H2, C-H5, C-X2. 접점 계약(DP4와 `medium`, 메트릭) | upstream 변경 시 hook이 깨짐 | QA4와 일부 겹침 | **보류**: 평가 기준·데이터 없음. 제약으로 기록 |
+| (해당 없음) | Reliability > Faultlessness/Availability(장치 수준) | write endurance(HBF, SSD-PIM 수명) | C-R5. 시뮬레이터 미모델링(C-E3), 차세대 memory는 시뮬레이션(GC-1), 장치 수준 신뢰성은 GC-3 | 장기 운용 시 수명 소진 | QA1/QA3의 이동 정책과 충돌 | **보류**: 정량 시나리오 불가, 제약으로 기록 |
+| (제외) | Security > Confidentiality | tenant 간 격리(C-H10) | 프로젝트 범위 밖(GC-6) | — | — | **제외** |
+| (제외) | Interaction capability, Safety | 최종 사용자 UI와 사람·환경 위해가 없는 런타임 라이브러리 | — | — | — | **해당 없음** |
 
 ## 4. 품질 시나리오 (6요소, 정량)
 
@@ -134,7 +155,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 
 ### 4.1 선정 QA
 
-#### DP1-QS-1 Throughput — 사용자 그룹이 교대로 활성화될 때의 처리량 (구분: 선정, DP1-QA1)
+#### DP1-QS-1 Throughput — 사용자 그룹이 교대로 활성화될 때의 처리량 (구분: 선정, DP1-QA1 · ISO: Performance efficiency > Capacity)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 다수의 agent/chat 요청 클라이언트(사용자 그룹) |
@@ -146,7 +167,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | C1 x1.30 (1.298, 95% CI가 경계에 걸림), C2 x1.42. 이득은 static 배치가 stale해지는 dynamic 조건에서만 확인(C2 6/6, C1 3/6 Dynamic 시나리오) [B+C] |
 | 연결 | QA: DP1-QA1. UC-1, 3. FR: DP1-FR-02, C1-01/03, C2-02. 평가: `Evaluation/DP1/benchmark.md` G.2 |
 
-#### DP1-QS-2 Throughput — 이득이 없는 정상 상태에서의 퇴보 금지 (구분: 선정, DP1-QA1)
+#### DP1-QS-2 Throughput — 이득이 없는 정상 상태에서의 퇴보 금지 (구분: 선정, DP1-QA1 · ISO: Performance efficiency > Capacity)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 일반 chat 서비스의 요청 클라이언트 |
@@ -158,7 +179,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | 공통 시나리오에서 두 후보 모두 Baseline과 같은 수준(parity) [B+C] |
 | 연결 | QA: DP1-QA1. FR: DP1-FR-08, 09. 평가: `common-benchmark.md` §2.1 |
 
-#### DP1-QS-3 Latency (TTFT) — 도착 burst에서의 첫 응답 지연 (구분: 선정, DP1-QA2)
+#### DP1-QS-3 Latency (TTFT) — 도착 burst에서의 첫 응답 지연 (구분: 선정, DP1-QA2 · ISO: Performance efficiency > Time behavior)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 요청 클라이언트(burst로 도착하는 요청군) |
@@ -170,7 +191,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | TTFT P99: Baseline 1,084 ms, C1 1,128 ms (x1.04, 악화), C2 785 ms (x0.72). 6지표 개선 배수 C1 x1.28, C2 x1.56 (둘 다 목표 1.25 충족, C1은 경계 바로 위). TTFT 개선 배수 C1 x1.58, C2 x2.18. 쌍별 최악 값은 이 문서에서 확인하지 못함(결과 §4 필요) [B+C] |
 | 연결 | QA: DP1-QA2. UC-1, 3, 9. FR: DP1-FR-C1-03, C2-02, DP1-FR-08. 평가: QA2 §5 |
 
-#### DP1-QS-4 Latency (TPOT) — decode 중 토큰당 지연 (구분: 선정, DP1-QA2)
+#### DP1-QS-4 Latency (TPOT) — decode 중 토큰당 지연 (구분: 선정, DP1-QA2 · ISO: Performance efficiency > Time behavior)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 요청 클라이언트(긴 context의 decode 중 요청) |
@@ -182,7 +203,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | TPOT P99: Baseline 17.1 ms, C1 18.3 ms (x1.07), C2 16.0 ms (x0.94). TPOT 개선 배수 C1 x1.04, C2 x1.12. Baseline이 이미 SLO(50 ms)의 약 1/3이라 TPOT 단독 개선 폭은 작고, QA2 별의 개선은 주로 TTFT에서 나온다. C1은 TPOT P99가 Baseline보다 7% 나쁘다 [B+C] |
 | 연결 | QA: DP1-QA2. FR: DP1-FR-09, C1-01. 평가: QA2 §5, 결과 §0.1 |
 
-#### DP1-QS-5 Resource Utilization — 쓰지 않는 data가 HBM을 점유할 때 (구분: 선정, DP1-QA3)
+#### DP1-QS-5 Resource Utilization — 쓰지 않는 data가 HBM을 점유할 때 (구분: 선정, DP1-QA3 · ISO: Performance efficiency > Resource utilization)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 요청 클라이언트(chat 요청이 갑자기 몰림). 선행 상태는 idle Agent memory·KV |
@@ -194,7 +215,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | HBM 사용량: Baseline 146.6 GiB, C1 142.7 GiB (x0.97, 절감 1.03), C2 178.0 GiB (x1.21, 절감 0.82). **두 후보 모두 목표 1.25에 미달**. C2는 성능을 얻으려 HBM을 더 쓴다. 공통 기준 pooled U는 모든 후보 ★(< 65%) [B+C] |
 | 연결 | QA: DP1-QA3. UC-1, 3, 9. FR: DP1-FR-C1-01, C2-02. 평가: `qa-criteria-dp1.md` §I |
 
-#### DP1-QS-6 Modifiability — 신규 메모리 편입 (구분: 선정, DP1-QA4)
+#### DP1-QS-6 Modifiability — 신규 메모리 편입 (구분: 선정, DP1-QA4 · ISO: Flexibility > Adaptability, Maintainability > Modularity·Modifiability)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 시스템 개발자(신규 메모리 통합 담당) |
@@ -206,7 +227,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | 4개 시나리오 평균(S1~S4): C1 1.75 module / 0.38 MM / $1.16, C2 2.50 module / 0.51 MM / $1.49. C2 공수 평균은 경계 0.5를 0.006 넘은 값이라 상수에 민감. S1 단독 값은 이 문서에서 확인하지 못함 |
 | 연결 | QA: DP1-QA4. UC-6. FR: DP1-FR-06, 07. 평가: `qa4-preregistration.md` S1 |
 
-#### DP1-QS-7 Modifiability — 신규 data class와 정책·event 변경 (구분: 선정, DP1-QA4)
+#### DP1-QS-7 Modifiability — 신규 data class와 정책·event 변경 (구분: 선정, DP1-QA4 · ISO: Maintainability > Modifiability)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 시스템 개발자 |
@@ -220,7 +241,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 
 ### 4.2 추가 후보 QA (채택 전 초안)
 
-#### DP1-QS-8 Decision Latency / Scalability — 결정 지연과 규모 (구분: 추가, DP1-QA5)
+#### DP1-QS-8 Decision Latency / Scalability — 결정 지연과 규모 (구분: 추가, DP1-QA5 · ISO: Time behavior / Scalability)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | Runtime event(메모리 압박, 요청 도착, 자원 변화)를 일으키는 서빙 엔진 |
@@ -232,7 +253,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | 결정 연산 총량 C1 3 ms/run, C2 111 ms/run. event-to-decision 지연의 P99는 이 문서에서 확인하지 못함(미측정) [B+C] |
 | 연결 | QA: DP1-QA5. FR: DP1-FR-01, C2-01. 평가: 설계 §19.1~19.2 |
 
-#### DP1-QS-9 Stability — 급반전 접근 패턴에서 thrashing과 꼬리 (구분: 추가, DP1-QA6)
+#### DP1-QS-9 Stability — 급반전 접근 패턴에서 thrashing과 꼬리 (구분: 추가, DP1-QA6 · ISO: Time behavior(꼬리) / Resource utilization, QA2·QA3 세부 시나리오로 편입 가능)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 요청 클라이언트(hot/cold가 급반전하는 workload) |
@@ -244,7 +265,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | 링크 점유율 C1 1.6%, C2 10.5%(둘 다 ≤ 25%). 오차 e ≤ 0.6까지 C2 우위 유지(결과 4.6, lognormal 한 종류라는 한계). 왕복 비율은 미측정 [B+C] |
 | 연결 | QA: DP1-QA6. FR: DP1-FR-08, C2-03. 평가: 설계 §26-8, SKILL H17 |
 
-#### DP1-QS-10 Functional Correctness — 이동 전후 무결성 (구분: 추가, DP1-QA7)
+#### DP1-QS-10 Functional Correctness — 이동 전후 무결성 (구분: 추가, DP1-QA7 · ISO: Functional suitability > Functional correctness)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | DP1 Migration Scheduler가 낸 MigrationIntent(이동 결정) |
@@ -256,7 +277,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | **미검증**. 시뮬레이터는 hazard가 없다고 가정(C-E1). 검증 책임은 공통 Migration subsystem (G1) |
 | 연결 | QA: DP1-QA7. FR: DP1-FR-10, 11. 제약: DP1-C-6, 7, 11 |
 
-#### DP1-QS-11 Availability(degradation) — host 경로 열화 시 대응 (구분: 추가, DP1-QA8)
+#### DP1-QS-11 Fault tolerance / Recoverability — host 경로 열화 시 대응 (구분: 추가, DP1-QA8 · ISO: Reliability > Fault tolerance / Recoverability)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 다른 작업과의 host link 공유 경합 또는 링크 열화(시스템 상태 변화, 외부 요인) |
@@ -268,7 +289,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | `dyn_host_path_contention_kv`의 시나리오별 값은 이 문서에서 확인하지 못함. HBM BW shock는 시뮬레이터가 모델링하지 못해 평가 benchmark에서 제외(benchmark.md §2). 회복 시간 미측정 [B+C] |
 | 연결 | QA: DP1-QA8. UC-9. FR: DP1-FR-13. 평가: `benchmark.md` G.1~G.2 |
 
-#### DP1-QS-12 Observability — 이동 결정 추적 (구분: 추가, DP1-QA9)
+#### DP1-QS-12 Analysability — 이동 결정 추적 (구분: 추가, DP1-QA9 · ISO: Maintainability > Analysability)
 | 요소 | 내용 |
 |---|---|
 | 1. 자극 유발원 | 시스템 개발자(성능 이상을 조사하는 운영·튜닝 담당) |
@@ -280,20 +301,44 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | 현 평가값 | 시뮬레이터는 diagnostic을 출력한다. 구현 수준 로그는 미정 |
 | 연결 | QA: DP1-QA9. FR: DP1-FR-12. 평가: SKILL §5 root cause 분류 |
 
+#### DP1-QS-13 Functional completeness — 지원 data class 범위 (구분: 추가, DP1-QA10 · ISO: Functional suitability > Functional completeness)
+| 요소 | 내용 |
+|---|---|
+| 1. 자극 유발원 | 다양한 AI data를 쓰는 요청 클라이언트(agent, RAG, LoRA 멀티 테넌트, MoE 모델) |
+| 2. 자극 | 5종 data class가 한 노드에 공존하며 HBM 압박 상태에서 접근된다(`mixed_all_ai_data_b64`: 6종 AI data class, 128K, batch 64, size x1.2, RAG idx 1 TiB). 개별 class 시나리오: `lora_multi_tenant_b64`, `moe_expert_skew_b256`, `rag_1tib_b16`, `agent_memory_long_lived` |
+| 3. 환경 | 정상 운전, SYS-H100과 SYS-B200, Llama-3.1-70B BF16 |
+| 4. 자극 대상체 | Data Object Registry, `can_migrate_now` adapter(class별), Migration Data Selector, Destination Tier Selector |
+| 5. 응답 | class별 이동 가능 조건(sealed KV, 서빙 중 read-only weight, read-mostly 인덱스, mutable memory)에 따라 이동 대상으로 인식하고, 조건을 만족하는 object에 한해 이동 결정을 내린다 |
+| 6. 응답 측정 | **지원 class 수 / 요구 class 수 = 5/5**(KV, LoRA adapter, MoE expert, RAG 인덱스, Agent memory·Tool result) `[사용자 확정 2026-10-09]`. class별 이동 가능 조건 문서화 5/5 `[가정]`. **class별 시나리오의 Max SLO Goodput ≥ 1.10 × Baseline-static**(comparison-valid 쌍 geometric mean) `[기준: 공통 QA1 ★★★ 경계]`와 **어떤 쌍에서도 ≥ 0.97 ×** `[기준: 잡음 하한]`, seed ≥ 5 |
+| 현 평가값 | 평가에는 위 시나리오가 포함되어 있으나 **class별 값은 이 문서에서 확인하지 못함**. 또한 평가가 **참조 중(ref_cnt > 0) object의 이동을 가정**했다면 이 값은 신뢰할 수 없다(`memo-reevaluation.md`). 설계 문서 C-D1(Phase 1은 sealed KV만)과 불일치 [B+C] |
+| 연결 | QA: DP1-QA10. UC-3, 4, 5. FR: DP1-FR-18, 19. 제약: DP1-C-6, C-8 |
+
+#### DP1-QS-14 Latency (재개 TTFT) — tool 대기 후 세션 재개와 prefetch (구분: 선정, DP1-QA2 · ISO: Performance efficiency > Time behavior)
+| 요소 | 내용 |
+|---|---|
+| 1. 자극 유발원 | agent 요청 클라이언트(tool 결과를 들고 같은 세션의 다음 turn을 보냄) |
+| 2. 자극 | tool 호출로 세션이 수백 ms~수십 초 idle(UC-1 가정) 후 후속 요청이 도착한다. 그 사이 idle KV는 하위 tier로 이동되어 있다. KV 320K context, 동시 16 세션 이상(`dyn_idle_kv_holds_hbm`: HBM x0.4) |
+| 3. 환경 | 정상 운전, SYS-H100과 SYS-B200, 대기 시간 분포는 사용자가 미정(가정: 수백 ms~수십 초) |
+| 4. 자극 대상체 | Future Behavior Predictor / promotion·prefetch 경로(C2, C1), Destination Tier Selector, Migration Scheduler |
+| 5. 응답 | 후속 요청 도착 전에 해당 KV를 상위 tier로 미리 복원(prefetch)하고, 예측하지 못했으면 도착 직후 필요한 부분부터 복원해 재계산을 피한다 |
+| 6. 응답 측정 | **재개 요청 TTFT P99 ≤ 2 s** `[기준: 공통 SLO]`. **재개 TTFT P50 ≤ 0.5 × (prefetch 없이 하위 tier에서 접근한 경우의 TTFT P50)** `[가정]`. **prefetch 적중률 ≥ 70%** `[가정]`(신규 metric: 후속 요청 도착 시점에 이미 상위 tier에 있는 KV bytes ÷ 재개에 필요한 KV bytes). **낭비 이동량 ≤ 30%** `[가정]`(신규 metric: 사용되지 않은 prefetch bytes ÷ 전체 prefetch bytes). seed ≥ 5. Baseline 대비로도 보고 |
+| 현 평가값 | prefetch 전용 지표(적중률, 낭비 이동량)와 재개 TTFT는 **측정하지 않음**. `dyn_idle_kv_holds_hbm`의 일반 지표 값도 이 문서에서 확인하지 못함 |
+| 연결 | QA: DP1-QA2. UC-1. FR: DP1-FR-16, 17, C2-02. 사용자 확정(FR-4가 DP1 범위) |
+
 ## 5. 제약 사항 (예상 질문 기반)
 
 설계 구조도의 각 블록과 화살표에서 리뷰어가 던질 질문을 만들고, 설계 범위를 벗어나는 것을 제약으로 확정했다. 근거 칼럼의 `C-xx`는 `dp1-constraints.md`의 ID, `G/O`는 같은 문서 §6이다. 프로젝트 공통 제약은 `project-context.md`의 GC-n.
 
 | ID | 예상 질문 | 제약 문장 | 유형 | 설계 영향 | 출처 | 근거 위치 |
 |---|---|---|---|---|---|---|
-| DP1-C-1 | "노드 간 이동은 누가 결정하나?" | DP1은 **단일 노드(한 서버) 안의** tier 사이 이동만 결정한다. 노드 간 이동과 원격 memory를 tier로 보는 이동은 DP0 소관이며 DP1과는 접점 계약(KV 이벤트 `medium`, 메트릭, `kv_transfer_params`)으로만 연결한다. 따라서 노드 간 KV 이동은 DP1 요구사항이 아니다 | 범위 밖/경계 | Registry의 tier 집합이 한 노드로 한정. 평가도 단일 노드 8-GPU만 모델링. (노드 간 PCIe 64GB/s는 GC-9) | DP문서 | 설계 §3.3, C-S1~S3 |
+| DP1-C-1 | "노드 간 이동은 누가 결정하나?" | DP1은 **단일 노드(한 서버) 안의** tier 사이 이동만 결정한다. 노드 간 이동과 원격 memory를 tier로 보는 이동은 DP4(요청 조율 계층, 옛 DP0) 소관이며 DP1과는 접점 계약(KV 이벤트 `medium`, 메트릭, `kv_transfer_params`)으로만 연결한다. 따라서 노드 간 KV 이동은 DP1 요구사항이 아니다 | 범위 밖/경계 | Registry의 tier 집합이 한 노드로 한정. 평가도 단일 노드 8-GPU만 모델링. (노드 간 PCIe 64GB/s는 GC-9) | DP문서 | 설계 §3.3, C-S1~S3 |
 | DP1-C-2 | "처음 data를 어디에 놓나?" | **초기 배치(initial placement)는 범위 밖**이다. DP1은 이미 존재하는 object의 재배치만 결정한다. allocation 경로는 기존 그대로 | 범위 밖 | 할당 경로(`allocate_slots`)를 DP1이 바꾸지 않는다 | DP문서 | C-S4, 설계 §3.2 |
 | DP1-C-3 | "KV 압축·양자화·near-data compute도 migration인가?" | **data 내용을 바꾸는 변환은 migration이 아니다.** DP1 action은 MOVE/REPLICATE/DROP/REMAP/RECLASSIFY뿐이다. 정확도 손실이 있는 KV Drop·압축은 DP3, 연산 위치 결정은 DP2 소관이다. DP1의 DROP은 replica나 재계산이 가능한 **무손실**에 한정한다 | 범위 밖/경계 | action enum 제한. 출력 동일성(GC-7) 보존 | DP문서 | C-S5, 설계 §2.1, §3.2 |
-| DP1-C-4 | "tool 호출 시점에 KV를 유지/회수/복구하는 건 어디서 하나?" | **Agent tool-call lifecycle에 따른 KV residency 관리는 DP1이 하지 않는다.** DP1은 resource 상태와 data 접근 행동만 보고 "어떤 KV를 어느 tier로" 결정한다. 따라서 `usecases.md`의 FR-4(재개 전 prefetch)는 DP1 요구사항이 아니다 | 범위 밖/경계 | C1은 tool lifecycle을 해석하지 않고 static hint만 둔다. 보완은 별도 DP(어느 DP인지는 문서마다 다름, §8 D-1) | DP문서 | 설계 §3.2, PPT 10장 |
+| DP1-C-4 | (삭제) | 이전 초안의 "tool 호출 시점 KV 관리는 DP1이 하지 않는다"는 제약은 **사용자 결정(2026-10-09, prefetch와 promotion은 DP1 범위)으로 삭제**했다. ID는 결번 | — | DP1-FR-16, 17로 이동 | 사용자 | — |
 | DP1-C-5 | "실제 byte 전송, commit, rollback은 누가 하나? 그 overhead는?" | DP1은 **결정(WHAT/WHERE/WHEN)** 만 책임진다. byte 전송, reserve/release, source pin, version check, atomic commit, 실패 rollback은 공통 Migration subsystem 소관(G1)이며 그 **overhead(commit 지연, epoch grace에 의한 slot 점유 연장, 완료 통지 지연)는 DP1이 모델링하거나 최적화하지 않는다(O1)**. 따라서 DP1의 평가 수치는 "G1~G3이 비용 없이 성립한다"는 **조건부 값**이다 | 범위 밖/증거 한계 | 이득 수치는 실제 구현에서 줄 수 있다. 결과 한계에 명시. 프로젝트의 GC-2(device runtime overhead 미고려)와 같은 방향 | DP문서 | 설계 §2, constraints §6, C-E1 |
-| DP1-C-6 | "이동 중에 읽거나 쓰면?" (부분 복사, 해제된 slot, 이동 중 쓰기, 이동 중 prefix hit) | **이동 대상은 sealed(불변) data이고 ref_cnt = 0인 object**다. 실행 중 요청이 참조하는 block(ref_cnt > 0)의 물리 위치는 그 step 중에 바꾸지 않는다. 이동 중에는 항상 source가 authoritative이며 commit 전 target은 어떤 reader에게도 보이지 않는다. 이를 **지키도록 보장하는 것은 공통 subsystem(G1)이고 DP1은 이를 깨는 이동 대상을 고르지 않는다** | 전제/경계 | 이동 가능 object 집합이 평가가 가정한 것보다 **좁을 수 있다**(평가는 참조 중 object도 이동한다고 가정, constraints §11-1) | DP문서 | C-I1~I4, C-H1~H9, §11 |
+| DP1-C-6 | "이동 중에 읽거나 쓰면?" (부분 복사, 해제된 slot, 이동 중 쓰기, 이동 중 prefix hit) | **이동 대상은 sealed(불변) data이고 ref_cnt = 0인 object**다. 실행 중 요청이 참조하는 block(ref_cnt > 0)의 물리 위치는 그 step 중에 바꾸지 않는다. 이동 중에는 항상 source가 authoritative이며 commit 전 target은 어떤 reader에게도 보이지 않는다. 이를 **지키도록 보장하는 것은 공통 subsystem(G1)이고 DP1은 이를 깨는 이동 대상을 고르지 않는다** | 전제/경계 | 이동 가능 object 집합이 평가가 가정한 것보다 좁다. **평가가 참조 중 object의 이동을 가정했다면 평가가 잘못된 것**(사용자 확인 2026-10-09, constraints §11-1에 같은 지적). 재평가 필요(`memo-reevaluation.md`) | DP문서 | C-I1~I4, C-H1~H9, §11 |
 | DP1-C-7 | "TP/PP/DP 다중 rank나 CUDA graph에서도 되나?" | 모든 rank가 같은 step 경계에서 같은 commit을 적용하고(모든 rank copy 완료 후 commit), CUDA graph replay 중에는 block table 주소를 바꾸지 않는다. **vLLM의 rank별 block 소유 방식은 확인하지 못했다**. 따라서 multi-rank, CUDA graph 호환은 아직 요구사항으로 확정할 수 없다 | 전제(미확인)/한계 | 평가는 GPU 8장을 집계 모델로 다룸. 구현 시 확인 필요 | DP문서 | C-X1, C-X2 `[가정]` |
-| DP1-C-8 | "초기 phase에서 어떤 data를 이동하나? LoRA/MoE/RAG는?" | **Phase 1은 sealed KV만 이동 대상**이다. LoRA, MoE, RAG 인덱스, Agent memory는 immutability를 별도로 정의한 뒤의 후속 phase다. 휘발 tier에는 재계산 가능하거나 replica가 있는 data만 유일 사본으로 둔다 | 범위/단계 | UC-3~5와 FR-10~17의 DP1 충족은 Phase 2 이후. 시뮬레이터 평가는 이 class들을 포함하므로 **설계 문서와 평가 범위가 불일치**(§8 D-4) | DP문서 | C-D1, C-D2, 아키텍처 §24 |
+| DP1-C-8 | "LoRA/MoE/RAG도 이동 대상인가?" | **KV, LoRA adapter, MoE expert, RAG 인덱스, Agent memory/Tool result 5종이 모두 DP1 범위**다(사용자 확정). 단 설계 문서 C-D1("Phase 1은 sealed KV만")과 불일치하므로 **설계 문서 개정과 class별 이동 가능 조건 정의가 선행**되어야 한다. 휘발 tier에는 재계산 가능하거나 replica가 있는 data만 유일 사본으로 둔다 | 범위/전제 | DP1-FR-18, 19, QS-13 | 사용자, DP문서 | C-D1, C-D2, 아키텍처 §24 |
 | DP1-C-9 | "신규 memory를 쓸 때 driver, 주소 변환, 전송 엔진은?" | HW 수준 주소 변환(page table, IOMMU, CXL HDM decoder), TLB 무효화, DMA/copy engine, coherency 프로토콜, vendor driver와 TransferHandler **구현**은 DP1 범위 밖이며 device driver/runtime 소관이다(G2, G3, O2). 가상 주소를 유지한 채 backing만 바꾸는 REMAP은 기본 경로가 아니며 descriptor가 지원을 선언한 장치에서만 쓴다 | 범위 밖/전제 | 프로젝트의 GC-2, GC-3, GC-5와 일치. REMAP 미지원 시 MOVE로 재계획 | DP문서 | G2, G3, O2, C-X6, C-X7 |
 | DP1-C-10 | "차세대 메모리 성능 수치는 실측인가?" | HBF, ScHBM, CXL-PNM, SSD-PIM의 성능은 **config parameter 기반 시뮬레이션 [B+C]** 이며 실측 [A]가 아니다. 이득 수치는 simulator 모델의 가정(비용 추정 오차 0, queueing/saturation 없음, 링크 간섭 모델 한 종류)에 의존하고, HBF write amplification, endurance, PCIe/CXL protocol overhead, 전력은 모델링하지 않는다 | 증거 한계 | 구현 후 [A] 실측과 cost 추정 보정 필요. QA 별점 해석은 조건부 | 사용자(GC-1), DP문서 | C-E2~E4, 설계 §26-14, GC-1 |
 | DP1-C-11 | "tenant 간 격리는? 이동된 slot 내용이 노출되지 않나?" | tenant 격리와 보안은 **과제 범위 밖**이다(GC-6). 기존 cache salt 정책이 유지된다는 전제만 둔다. 공유 pool(CXL) 해제 시 sanitize 정책은 요구사항이 아니다 | 범위 밖/전제 | DP1 문서의 C-H10은 `[가정]` 상태로 남음. 프로젝트 범위로 제외 | 사용자(GC-6), DP문서 | C-H10 |
@@ -302,7 +347,7 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | DP1-C-14 | "Baseline이 실제 vLLM과 같은가? Dynamic benchmark는 공정한가?" | Baseline-static은 **As-Is proxy**(공통 initial placement 후 migration 없음)이며 vLLM의 실제 `kv_offload`/CPU offload 동작과 동일하다고 확인한 것이 아니다. Dynamic benchmark는 Baseline의 실패 양상을 알고 설계했으므로 **이득은 static 배치가 stale해지는 경우에 한정해 읽는다** | 증거 한계 | 이득 주장 범위를 dynamic 조건으로 제한 | DP문서 | benchmark.md §2, 설계 §26-14 |
 | DP1-C-15 | "별점 경계는 객관적인가? 우열이 뒤집히지 않나?" | DP1 별점 경계(QA1 1.30 등)는 **결과를 본 뒤 정했다**(`defined_after_first_look`). C1 x1.298은 경계 1.30 바로 아래, C2 x1.422는 위이고 선택(C1 10 대 9)은 이 경계와 QA3 정의 이력에 민감하다. 따라서 QA 목표값을 확정할 때 경계 선택을 함께 명시해야 한다 | 증거 한계/전제 | 목표값(QS-1, 3~5)의 확정 필요(Q-D5) | DP문서 | qa-criteria-dp1 §A, §J |
 
-프로젝트 공통 제약 중 DP1에 직접 걸리는 것: **GC-1**(차세대 메모리는 시뮬레이션), **GC-2**(device runtime overhead 미고려), **GC-3**(device runtime의 reliability, availability 보장 가정), **GC-5**(kernel/compiler runtime 범위 밖), **GC-6**(tenant 격리, 장애 복구 범위 밖), **GC-7**(출력 불변, DP3 제외), **GC-10**(stale KV 무효화 범위 밖). GC-9(노드 간 PCIe 64GB/s)는 DP1이 단일 노드라 직접 걸리지 않는다. 단일 노드 안의 host link(PCIe 5.0 x16, 약 63 GB/s)는 평가 시스템 값이다.
+프로젝트 공통 제약 중 DP1에 직접 걸리는 것: **GC-1**(차세대 메모리는 시뮬레이션), **GC-2**(device runtime overhead 미고려), **GC-3**(device runtime의 reliability, availability 보장 가정), **GC-5**(kernel/compiler runtime 범위 밖), **GC-6**(tenant 격리, 장애 복구 범위 밖), **GC-7**(출력 불변, DP3 제외. DP3 = KV eviction 및 reuse), **GC-10**(stale KV 무효화 범위 밖). GC-9(노드 간 PCIe 64GB/s)는 DP1이 단일 노드라 직접 걸리지 않는다. 단일 노드 안의 host link(PCIe 5.0 x16, 약 63 GB/s)는 평가 시스템 값이다.
 
 ## 6. 추적성
 
@@ -325,11 +370,11 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | DP1-QA2 Latency | QS-3, 4 | DP1-C-5, 10, 15 |
 | DP1-QA3 Resource Utilization | QS-5 | DP1-C-6, 10, 15 |
 | DP1-QA4 Modifiability | QS-6, 7 | DP1-C-8, 9 |
-| DP1-QA5 Decision Latency (추가) | QS-8 | DP1-C-5, 10 |
-| DP1-QA6 Stability (추가) | QS-9 | DP1-C-10, 14 |
-| DP1-QA7 Correctness (추가) | QS-10 | DP1-C-6, 7 |
-| DP1-QA8 Availability-degradation (추가) | QS-11 | DP1-C-5, 9, 10 |
-| DP1-QA9 Observability (추가) | QS-12 | DP1-C-5 |
+| DP1-QA5 Decision Latency / Scalability (추가) | QS-8 | DP1-C-5, 10 |
+| DP1-QA6 Time behavior 꼬리·thrashing (추가) | QS-9 | DP1-C-10, 14 |
+| DP1-QA7 Functional correctness (추가) | QS-10 | DP1-C-6, 7 |
+| DP1-QA8 Fault tolerance·Recoverability (추가) | QS-11 | DP1-C-5, 9, 10 |
+| DP1-QA9 Analysability (추가) | QS-12 | DP1-C-5 |
 
 ## 7. 문서 간 불일치와 확인이 필요한 점 (사용자 확정 필요)
 
@@ -337,10 +382,12 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 
 | ID | 내용 | 영향 |
 |---|---|---|
-| D-1 | **DP 번호 체계가 문서마다 다르다.** `DP-memory-backend-if.pptx` 1장: DP2 = Prefill/Decode 실행, DP3 = Long Context KV Eviction & Reuse, **DP4 = Agent Tool-wait KV residency**. 그런데 `doc-mk/DP4/dp4-inter-node-kv-sharing-structure-draft.md`는 DP4 = 노드 간 KV 공유. DP1 PPT 10장은 "Agent aware KV 관리는 (DP3)"로 쓰고, DP1 설계 문서 §3.2는 "별도 DP"로 쓴다 | `usecases.md`의 UC-1 FR-4(prefetch)와 UC-7의 DP 연결을 어느 DP에 매핑할지 정해야 한다. 현재 UC 추적 표의 DP4는 노드 간 공유를 가정 |
-| D-2 | **UC-1(tool 대기 중 idle KV)의 담당.** DP1 설계는 tool lifecycle 관리를 범위 밖으로 하지만, DP1 평가의 Dynamic benchmark에는 `dyn_idle_kv_holds_hbm`("tool 대기 중 idle KV가 HBM 점유")이 포함되어 있다 | DP1은 UC-1의 "HBM 해소" 부분만 담당하고 "재개 전 복원" 부분은 다른 DP라고 정리했다(§2.4). 맞는지 확인 필요 |
+| ~~D-1~~ | **해소**: DP 번호는 project-context §0의 최종 번호로 통일(DP1 migration, DP2 P/D 실행 위치, DP3 KV eviction/reuse, DP4 요청 조율 계층 = 옛 DP0). 단 옛 DP4(노드 간 KV 공유)와 PPT의 "Agent tool-wait KV residency"가 어디에 속하는지는 가정(§0 참고)이라 확인 필요 | UC 추적 표를 최종 번호로 갱신함 |
+| ~~D-2~~ | **해소**: FR-4(prefetch)는 DP1 범위(사용자 확정). DP1 설계 문서 §3.2의 "Agent tool-call lifecycle ... 별도 DP"와 PPT 10장의 "(DP3)" 문구는 **설계 문서 개정 대상** | DP1 설계 문서에 prefetch/Agent tool info를 반영해야 함 |
 | D-3 | **QA3 정의.** 공통 문서(§6)는 "useful resource utilization(65/85%)", DP1 공식(v6)은 "HBM 사용량(GiB)"이다. 정의 이력에서 한때 QA3를 별점에서 빼고 진단으로 돌렸다가 v6에서 HBM 사용량으로 복귀했다. `qa_priority.json`은 4개를 모두 유지 | 품질 시나리오 QS-5는 DP1 v6 정의를 썼다. 과제 요구사항의 QA3 metric으로 이를 확정할지 확인 필요 |
-| D-4 | **Phase 범위.** 설계(C-D1)는 Phase 1을 sealed KV로 한정하는데 평가는 LoRA, MoE, RAG, Agent memory 시나리오를 포함한다 | UC-3~5의 DP1 충족 범위. 요구사항을 "Phase 1 KV 한정"과 "후속 phase"로 나눠 표시했다 |
+| ~~D-4~~ | **해소(방향)**: LoRA, MoE, RAG를 DP1에 포함(사용자 확정). **설계 문서 C-D1 개정과 class별 immutability 정의가 남은 작업**. 참고: LoRA adapter와 MoE expert weight는 서빙 중 read-only라 KV보다 이동 조건은 단순할 수 있으나, weight 갱신·RL reset 같은 경우(C-H9)의 처리가 필요 | FR-18, 19, QS-13 |
+
+| D-5 | **평가의 이동 가능 범위 가정 오류.** 평가 시뮬레이터가 참조 중(ref_cnt > 0) object도 이동한다고 가정했다면(constraints §11-1) 평가 이득이 과대일 수 있다. **어느 시나리오가 얼마나 이 가정에 의존하는지는 확인하지 못했다** | 모든 평가 수치의 재생성 필요. `memo-reevaluation.md` |
 
 ### 7.2 확정이 필요한 `[가정]` 값
 
@@ -351,14 +398,15 @@ QA 우선순위(소유자 확정, status: proposal): QA1 > QA2 > QA3 > QA4 (`qa_
 | Q-D3 | 왕복 재이동 비율 ≤ 5% | 5% | 근거 없음(임의) | QS-9 |
 | Q-D4 | degradation 후 SLO 95% 회복 시간 ≤ 60 s | 60 s | 평가의 hotset 주기 | QS-11 |
 | Q-D5 | QA 목표값: QA1 ≥ 1.30, QA2 ≥ 1.25, QA3 절감 ≥ 1.25 (DP1 ★★★ 경계)를 **요구사항의 목표값으로 확정**할지, 공통 기준(QA1 ≥ 1.10)을 쓸지 | DP1 기준 | DP1 평가 문서 | QS-1~5. 현재 설계는 QA1(C1이 경계 직전, 1.298), QA3(두 후보 모두 절감 1.25 미달)이 목표에 못 미침 |
-| Q-D6 | 추가 후보 QA의 채택 | QA5~QA9 권장, QA10~12 보류, QA13 제외 | §3.2 | QS-8~12의 확정 여부 |
+| Q-D6 | 추가 후보 QA의 채택 | QA5~QA10 권장, QA11 보류, endurance 보류, 나머지 제외/해당 없음 | §3.2 | QS-8~13의 확정 여부 |
+| Q-D8 | UC-1 tool 대기 시간 분포, prefetch 적중률 ≥ 70%, 낭비 이동량 ≤ 30%, 재개 TTFT P50 ≤ 0.5배 | 위 값 | 근거 없음(임의) | QS-14 |
 | Q-D7 | 로그 필수 필드 완비율 100%, 무결성 테스트 규모 ≥ 1,000 이벤트 | 위 값 | 근거 없음 | QS-10, 12 |
 
 ## 8. 체크리스트 (스킬 §7)
 
 - [x] 항목에 출처와 상태가 있다 (FR, 제약). QA 표에는 출처 열을 두었다.
 - [x] 선정 QA(§3.1)와 추가 후보(§3.2)를 분리했고 추가 후보에 관련 이유와 미선정 위험이 있다.
-- [x] 품질 시나리오 12개가 6요소를 모두 채웠다.
+- [x] 품질 시나리오 14개가 6요소를 모두 채웠다.
 - [x] 응답 측정에 metric, 통계량, 임계값, 비교 기준, 측정 조건, 근거 라벨이 있다. 확인하지 못한 값은 "미확인/미측정"으로 표기했다.
 - [x] 평가 문서의 metric 정의를 재사용했다 (Max SLO Goodput, TTFT/TPOT, HBM 사용량, module/MM/$). 신규 metric: `migration 재이동 비율`, `degradation 회복 시간`, `로그 완비율`은 신규(QS-9, 11, 12), 정의는 각 QS에 있다.
 - [x] 제약마다 예상 질문과 유형이 있다.

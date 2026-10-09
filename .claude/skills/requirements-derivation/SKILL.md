@@ -57,8 +57,9 @@ description: "Use when deriving use cases, functional requirements (FR), quality
 
 ### 3.2 품질 속성 추출 (R2)
 - (a) **DP 선정 QA**: 문서가 명시한 QA(예: QA1~QA4)를 그대로 가져온다. 이름·정의·metric은 원문 유지, 위치 표기.
-- (b) **추가 후보 QA**: 아래 체크 목록을 DP 시나리오에 대입해 *관련 있는 것만* 고른다.
-  Performance(Throughput / Latency TTFT·TPOT·tail), Resource Utilization(HBM/DRAM/CXL/링크 점유), Scalability, Modifiability / Extensibility, Functional Correctness(정확도·일관성), Availability / Fault tolerance(tier 장애·fallback), Reliability(데이터 손실·재시도) — 단 device runtime 내부 오류·복구는 범위 밖(`project-context.md` GC-3)이며, 우리 계층의 degradation 처리만 후보로 둔다, Observability(관측성·디버깅), Portability(HW 세대·벤더), Interoperability(vLLM upstream 호환), Energy / Cost efficiency, Security / Isolation(tenant 간 KV 격리), Predictability(지연 변동·jitter).
+- (b) **추가 후보 QA**: **ISO/IEC 25010:2023(SQuaRE 제품 품질 모델)의 9개 품질 특성과 하위 특성 목록 안에서만** 고른다(사용자 지정, 2026-10-09). 표준에 없는 이름(Observability, Predictability, Cost efficiency 등)은 가장 가까운 하위 특성으로 매핑하고 매핑 근거를 적는다. 매핑이 약하면 독립 QA로 만들지 않고 다른 QA의 세부 시나리오로 편입한다.
+  1 Functional suitability(Functional completeness / correctness / appropriateness), 2 Performance efficiency(Time behavior / Resource utilization / Capacity), 3 Compatibility(Co-existence / Interoperability), 4 Interaction capability(Appropriateness recognizability, Learnability, Operability, User error protection, User engagement, Inclusivity, User assistance, Self-descriptiveness), 5 Reliability(Faultlessness / Availability / Fault tolerance / Recoverability), 6 Security(Confidentiality / Integrity / Non-repudiation / Accountability / Authenticity / Resistance), 7 Maintainability(Modularity / Reusability / Analysability / Modifiability / Testability), 8 Flexibility(Adaptability / Scalability / Installability / Replaceability), 9 Safety(Operational constraint / Risk identification / Fail safe / Hazard warning / Safe integration).
+  이 과제에서 기본적으로 해당 없음: Interaction capability(최종 사용자 UI 없음), Safety(사람·환경에 대한 위해 없음), Security(tenant 격리 범위 밖, GC-6). Reliability 중 device runtime 내부 오류·복구는 범위 밖(GC-3)이며 우리 계층의 degradation 처리(Fault tolerance, Recoverability)만 후보로 둔다.
   각 후보에 `관련 이유(어느 시나리오/구조 때문에)`, `미선정 시 위험`을 한 줄씩 적고, 선정 QA와의 **trade-off 관계**(충돌/강화)를 표시한다.
 - 선정 여부는 사용자 결정이다. Claude는 `권장/보류` 의견만 낸다.
 
@@ -86,7 +87,7 @@ description: "Use when deriving use cases, functional requirements (FR), quality
    - 범위: "이건 누가 책임지나?" (예: 요청 라우팅, 모델 정확도, 장애 복구, 보안, 멀티 노드, 학습/훈련)
    - 환경: "어떤 HW/세대/메모리 구성에서만 성립하나?"
    - 전제: "vLLM 버전/엔진/모델은 고정인가? upstream 변경은?"
-   - 경계: "다른 DP와의 접점 계약은?" (예: DP0 ↔ DP1~DP4)
+   - 경계: "다른 DP와의 접점 계약은?" (예: DP4 요청 조율 계층 ↔ DP1~DP3)
    - 한계: "어느 규모/context 길이/동시성까지 보장하나?"
    - 증거: "측정 vs 시뮬레이션, 어디까지 실측([A])인가?"
 2. 질문 중 **설계 범위를 벗어나 보이는 것**을 제약으로 확정 문구화한다: `이 설계는 <X>를 다루지 않는다 / <Y>를 전제로 한다. 따라서 <Z>는 요구사항이 아니다.`
@@ -153,11 +154,11 @@ Bad 예시: `처리량이 충분히 향상된다`.
 ```
 doc-mk/Requirements/
   usecases.md              # Phase 1: SC, UC, 기본 FR, 추적 표
-  DP0-requirements.md ...  # Phase 2: DPn별 (n=0..4)
+  DP1-requirements.md ...  # Phase 2: DPn별 (n=1..4). DP 번호는 project-context.md §0 (2026-10-09 확정)
   consolidated.md          # (선택) 전 DP 통합 FR/QA/C 목록과 충돌 정리
   open-questions.md        # (선택) 사용자 확정 필요 누적 목록
 ```
-기존 `doc-mk/DP0/dp0-requirements.md`처럼 이미 요구사항 문서가 있는 DP는 **그 문서를 입력으로 읽고** 새 형식(6요소 품질 시나리오, 예상 질문 기반 제약)에서 부족한 부분을 보강한다. 원본 문서는 수정하지 않는다.
+기존 `doc-mk/DP0/dp0-requirements.md`(**확정된 번호로는 DP4 요청 조율 계층**)처럼 이미 요구사항 문서가 있는 DP는 **그 문서를 입력으로 읽고** 새 형식(6요소 품질 시나리오, 예상 질문 기반 제약)에서 부족한 부분을 보강한다. 원본 문서는 수정하지 않는다.
 
 ## 7. 완료 체크리스트
 - [ ] 모든 항목에 출처(R1)와 상태(확정/제안)가 있다.
