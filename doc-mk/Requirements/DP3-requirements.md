@@ -158,7 +158,7 @@ DP3 문서는 이미 **ISO 25010 용어**(Performance Efficiency, Time Behaviour
 | 3. 환경 | 정상 운전, Drop 비율 상한 sweep, 상위 k(Importance 임계)는 실행 전에 고정, B0(전량 HBM) 성립 구성에서 Accuracy 상한 확보 후 외삽 |
 | 4. 자극 대상체 | KV Sampler(판정), Recompute Token Selector, Selective Recomputer |
 | 5. 응답 | 중요한 KV를 남기고 필요한 토큰을 재계산해 task 결과의 품질 저하를 최소화한다 |
-| 6. 응답 측정 | **M-A1 Accuracy retention** = Task accuracy(후보) ÷ Task accuracy(B0), **task별 분리, 단일 평균 금지**(PPT: F1). **Drop이 0인 실행에서 B0와 다르면 측정 파이프라인 오류**(정합성 점검, 통과 못하면 비교 불가). Accuracy를 Drop된 바이트에 귀속. 반복 횟수는 성능 지표보다 크게. **임계값(허용 정확도 저하 한도): F1 하락 1% 이내, 기준 = 압축 전 + full recompute** `[사용자 확정 2026-10-09]`(상대/절대 확인 필요). 다른 임계값은 TBD(통합 단계) |
+| 6. 응답 측정 | **M-A1 Accuracy retention** = Task accuracy(후보) ÷ Task accuracy(B0), **task별 분리, 단일 평균 금지**(PPT: F1). **Drop이 0인 실행에서 B0와 다르면 측정 파이프라인 오류**(정합성 점검, 통과 못하면 비교 불가). Accuracy를 Drop된 바이트에 귀속. 반복 횟수는 성능 지표보다 크게. **임계값(허용 정확도 저하 한도): F1 하락 1% 이내, 기준 = 압축 전 + full recompute** `[사용자 확정 2026-10-09]`(**상대 비율 1%**, 사용자 확정). 다른 임계값은 TBD(통합 단계) |
 | 연결 | QA: DP3-QA4. UC-2. FR: DP3-FR-02, 03, 10. 제약: DP3-C-4 |
 
 #### DP3-QS-6 Functional correctness — 판정 품질과 대표–실제 불일치 (선정, DP3-QA4 · ISO: Functional correctness)
@@ -236,7 +236,7 @@ DP3 문서는 이미 **ISO 25010 용어**(Performance Efficiency, Time Behaviour
 | DP3-C-1 | "Eviction은 Demote인가 Drop인가? DP1과 뭐가 다른가?" | 본 DP에서 **Eviction = Drop**이다. 하위 Tier로의 이동(Demote)은 DP1의 결정이며 Accuracy와 교환되지 않는다. Demote만 하는 구조에서는 Attention Importance를 쓸 이유가 없다 | 범위/경계 | 문서 용어 정리 필요(DP1의 Data Eviction Manager와 충돌) | DP문서 | A §2.1, B §7 |
 | DP3-C-2 | "DP3는 언제 개입하나?" | DP3의 Drop은 **DP1 배치가 용량 제약을 만족하지 못할 때만** 개입한다(DP3는 DP1의 실패 처리 경로). 단 C1 오프라인 압축은 서빙 전에 일어나므로 이 규칙은 **런타임에 이미 상주하는 KV를 회수하는 경우로 한정할지** 결정해야 한다 | 경계/미결 | 원본 A §2.4 개정 필요 | DP문서 | A §2.4, B §5, §8-7 |
 | DP3-C-3 | "다른 세션이 쓰는 prefix cache는?" | **공유 prefix block은 Drop 대상에서 제외**한다. 중요도는 자기 세션의 Query 기준이라 다른 세션에 대한 판정 근거가 없다 | 범위 밖/전제 | 공유 block 비율이 높은 workload에서 이득 한정 | DP문서 | A §2.4 |
-| DP3-C-4 | "정확도를 잃어도 되나? 얼마까지?" | DP3는 **프로젝트의 정확도 불변 제약(GC-7)의 유일한 예외**다. 허용 한도는 **압축 전 + full recompute(selective recompute가 아닌 전체 재계산) 대비 모델 정확도(F1 score) 하락 1% 이내**다 `[사용자 확정 2026-10-09]`. "1%"가 상대인지 절대 포인트인지는 미확인이다. 제거한 토큰은 비가역이므로 한도를 넘으면 재계산만 가능하다 | 전제 | 정확도 한도가 QS-1, 5의 합격 조건 | 사용자(GC-7), DP문서 | A §2.1, §9.4 |
+| DP3-C-4 | "정확도를 잃어도 되나? 얼마까지?" | DP3는 **프로젝트의 정확도 불변 제약(GC-7)의 유일한 예외**다. 허용 한도는 **압축 전 + full recompute(selective recompute가 아닌 전체 재계산) 대비 모델 정확도(F1 score) 하락 1% 이내**다 `[사용자 확정 2026-10-09]`. **"1%"는 상대 비율**이다(사용자 확정: F1이 0.80이면 0.792까지 허용). 제거한 토큰은 비가역이므로 한도를 넘으면 재계산만 가능하다 | 전제 | 정확도 한도가 QS-1, 5의 합격 조건 | 사용자(GC-7), DP문서 | A §2.1, §9.4 |
 | DP3-C-5 | "이 이득은 어떤 구성에서 성립하나?" | DP3의 이득은 **DP1 구성의 함수**다. 연산형 메모리(ScHBM, CXL-PNM)로 강등해도 KV를 그 자리에서 쓸 수 있으면 Drop의 필요성이 줄어든다. 따라서 연산형 계층의 용량을 sweep 축에 넣지 않은 결론은 그 구성에서만 유효하고, **B1(Demote-only)이 이미 용량 제약을 만족하면 DP3는 필요 없다**(실패가 아니라 결과) | 환경/전제 | 결과 보고에 DP1 Configuration 병기 필수 | DP문서 | A §2.2, §9.2, §9.6, §10 |
 | DP3-C-6 | "Scheduler의 선점(preemption)과 뭐가 다른가?" | **Recompute 기반 선점도 KV를 버리고 재계산**하므로 DP3와 경쟁하는 교란 요인이다. 차이는 버릴 대상을 Attention Importance로 고르는가 request 단위로 고르는가뿐이다. 평가 조건은 선점 방식, prefix caching, 최대 동시 시퀀스, chunked prefill을 고정해야 한다 | 증거/조건 | Scheduler 고정 규칙 | DP문서 | A §9.6.1 |
 | DP3-C-7 | "attention score는 어디서 얻나? 커널은?" | importance 산출은 **기존 LLM 생성 구조의 Attention Manager가 attention score를 제공**한다는 것을 전제한다. fused attention kernel은 score를 내보내지 않는 경우가 많으므로 **kernel·compiler 수정이 필요하면 프로젝트 범위 밖(GC-5)** 이다. 이 점은 문서에 명시되지 않은 **도출**이며 확인이 필요하다 | 전제/범위 밖(도출) | score 공급 방식이 구현 가능성을 정함 | 도출(GC-5) | B §2(Attention Manager 소속) |
@@ -275,7 +275,7 @@ DP3 문서는 이미 **ISO 25010 용어**(Performance Efficiency, Time Behaviour
 | ID | 질문 | 현재 가정 |
 |---|---|---|
 | ~~Q-3-1~~ | **해소**: DP3 설계 문서는 B(압축·재사용·선택 재계산). A에서 온 항목은 보류 표시 | B 프레임 |
-| Q-3-2 | **부분 해소**: 기준 = 압축 전 + full recompute 대비 F1 하락 1% 이내(사용자). **남은 확인**: "1%"가 상대 비율(F1이 0.80이면 0.792까지)인가 절대 포인트(1%p, 0.79까지)인가, 어떤 task·데이터셋의 F1인가 | 상대/절대 미정 |
+| ~~Q-3-2~~ | **해소**: 기준 = 압축 전 + full recompute 대비 F1 하락 **상대 비율 1% 이내**(사용자). 남은 확인: 어떤 task·데이터셋의 F1인가 | 미정 |
 | Q-3-3 | attention score를 어떻게 얻는가(기존 구조가 제공한다고 전제해도 되는가) | 제공됨(GC-5) |
 | Q-3-4 | 추가 후보 QA(QA5~QA8) 채택 여부. 특히 Modifiability | QA5~QA8 권장, QA9 보류 |
 | Q-3-5 | C1 오프라인 산출물 생성은 DP1과의 순서 규칙(DP1 먼저)의 예외인가 | 예외로 구분(미결) |
