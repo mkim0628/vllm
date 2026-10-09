@@ -11,9 +11,11 @@
 | DP1 | **Migration 결정 구조** (evict, promote, **prefetch** 포함, 이기종 memory 사이 data 이동 결정) | `doc-mk/DP1/` |
 | DP2 | Prefill/Decode **실행 위치 결정 구조** | `doc-mk/DP2/` |
 | DP3 | **KV eviction 및 reuse** (long-context, 정확도와 교환되는 Drop 포함) | `doc-mk/DP3/` |
-| DP4 | **요청 조율 계층 구조** (옛 DP0) | `doc-mk/DP0/`. 옛 `doc-mk/DP4/`(노드 간 KV 공유)와 PPT의 "Agent tool-wait KV residency"가 최종 번호에서 어디에 속하는지는 **확인 필요**(옛 DP4 노드 간 KV 공유는 요청 조율의 서버 간 KV 공유로 보고 DP4에, tool-wait KV residency는 DP1의 prefetch로 보고 DP1에 둠, 가정) |
+| DP4 | **요청 조율 계층 구조** (옛 DP0). 하위로 DP0-1(구조 결정: S1 중앙 결정형 대 S2 2단계 위임형)과 DP0-2(구현 방식: OSS 확장 대 직접 개발) | `doc-mk/DP4/`(커밋 05023c6에서 옛 `DP0/`를 이름 변경). `doc-mk/DP0-1/`은 아직 옛 이름 |
+| DP6 | 옛 DP4: **비일관(non-coherent) CXL 공유 메모리에서 서버 간 KV 블록·메타데이터 일관성을 소프트웨어로 보장하는 구조**(C1 중앙 직렬화 대 C2 분산 락) | `doc-mk/DP6/`(커밋 05023c6에서 옛 `DP4/`를 이름 변경). `doc-mk/Evaluation/DP4/`는 아직 옛 DP4 평가 폴더 이름 |
+| (DP5) | repo에 아직 없음. 사용자 확인 필요 | — |
 
-옛 DP0는 최종 번호에서 사라졌다(DP4가 됨). `GC-7`의 "DP3 제외"는 최종 번호에서도 그대로 DP3(KV eviction 및 reuse)이다.
+옛 DP0는 최종 번호에서 DP4가 되었고 옛 DP4는 DP6이 되었다(사용자 확인 2026-10-09, repo 커밋 05023c6). "Agent tool-wait KV residency"는 DP1의 prefetch로 흡수했다. `GC-7`의 "DP3 제외"는 최종 번호에서도 그대로 DP3(KV eviction 및 reuse)이다.
 
 ## 1. 과제 정의
 - 계층적 memory가 있는 시스템에서 메모리를 효율적으로 사용해 성능을 높이는 **런타임**을 개발한다.

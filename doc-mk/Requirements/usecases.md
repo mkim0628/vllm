@@ -185,7 +185,7 @@
 | SC-4 | UC-4 | FR-13~FR-15 | DP1, DP4 |
 | SC-5 | UC-5 | FR-16~FR-17 | DP1, DP2 |
 | SC-6 | UC-6 | FR-18~FR-20 | DP2, DP1 |
-| SC-7 | UC-7 | FR-21~FR-23 | DP4 |
+| SC-7 | UC-7 | FR-21~FR-23 | DP4, DP6 |
 | SC-8 | UC-8 | FR-24~FR-25 | DP2, DP4 |
 | SC-9 | UC-9 | FR-26~FR-28 | 전체 |
 
