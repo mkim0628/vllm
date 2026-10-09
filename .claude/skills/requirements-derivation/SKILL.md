@@ -58,7 +58,7 @@ description: "Use when deriving use cases, functional requirements (FR), quality
 ### 3.2 품질 속성 추출 (R2)
 - (a) **DP 선정 QA**: 문서가 명시한 QA(예: QA1~QA4)를 그대로 가져온다. 이름·정의·metric은 원문 유지, 위치 표기.
 - (b) **추가 후보 QA**: 아래 체크 목록을 DP 시나리오에 대입해 *관련 있는 것만* 고른다.
-  Performance(Throughput / Latency TTFT·TPOT·tail), Resource Utilization(HBM/DRAM/CXL/링크 점유), Scalability, Modifiability / Extensibility, Functional Correctness(정확도·일관성), Availability / Fault tolerance(tier 장애·fallback), Reliability(데이터 손실·재시도), Observability(관측성·디버깅), Portability(HW 세대·벤더), Interoperability(vLLM upstream 호환), Energy / Cost efficiency, Security / Isolation(tenant 간 KV 격리), Predictability(지연 변동·jitter).
+  Performance(Throughput / Latency TTFT·TPOT·tail), Resource Utilization(HBM/DRAM/CXL/링크 점유), Scalability, Modifiability / Extensibility, Functional Correctness(정확도·일관성), Availability / Fault tolerance(tier 장애·fallback), Reliability(데이터 손실·재시도) — 단 device runtime 내부 오류·복구는 범위 밖(`project-context.md` GC-3)이며, 우리 계층의 degradation 처리만 후보로 둔다, Observability(관측성·디버깅), Portability(HW 세대·벤더), Interoperability(vLLM upstream 호환), Energy / Cost efficiency, Security / Isolation(tenant 간 KV 격리), Predictability(지연 변동·jitter).
   각 후보에 `관련 이유(어느 시나리오/구조 때문에)`, `미선정 시 위험`을 한 줄씩 적고, 선정 QA와의 **trade-off 관계**(충돌/강화)를 표시한다.
 - 선정 여부는 사용자 결정이다. Claude는 `권장/보류` 의견만 낸다.
 
