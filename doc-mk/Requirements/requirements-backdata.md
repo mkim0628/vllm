@@ -28,7 +28,7 @@
 
 | 번호 | 기능 요구사항 |
 |---|---|
-| FR-01 | 이기종 메모리(HBM, Host DRAM, CXL 메모리, HBF 등)를 지원한다 |
+| FR-01 | 이기종 메모리(HBM 외의 Host DRAM, CXL 메모리, HBF 등)에 KV cache, LoRA adapter, expert 같은 데이터를 저장하고 읽는다 |
 | FR-02 | 이기종 메모리 간 데이터 복사(이동)를 지원한다 |
 | FR-03 | vLLM 추론 엔진 연동을 지원한다 |
 | FR-04 | KV cache의 offload와 재사용을 지원한다 |
@@ -53,6 +53,11 @@
 | FR-18 | 다중 서버 서빙을 지원한다 |
 | FR-19 | 요청 라우팅(서버 선택)을 지원한다 |
 | FR-20 | 메모리 장치 스펙(대역폭, 지연, 용량) 입력을 지원한다 |
+| FR-21 | 각 메모리의 용량과 사용 현황을 조회한다 |
+| FR-22 | 데이터가 어느 메모리(서버)에 있는지 조회한다 |
+| FR-23 | 데이터별 접근 횟수와 최근 접근 시각을 기록한다 |
+| FR-24 | 후속 요청이 오기 전에 데이터를 상위 메모리로 미리 가져온다 (prefetch) |
+| FR-25 | 이동·배치 정책을 설정으로 바꾼다 |
 
 이전 판의 나머지 후보(다중 GPU, 스트리밍 응답, SLO 지정, 정책 교체, 통계 수집 등)는 보류했다. 필요하면 되살린다.
 
@@ -68,18 +73,18 @@
 | QB-04 | Performance efficiency > Time behaviour | TTFT, TPOT (처리 시간) | 전체 | **선정 (QA2)** |
 | QB-05 | Performance efficiency > Resource utilization | HBM 점유율 | 전체 | **선정 (QA3)** |
 | QB-06 | Performance efficiency > Capacity | SLO를 만족하는 최대 처리량(Max SLO Goodput), 최대 context·세션 수 | DP1, 2, 3, 4 | **선정 (QA1)** |
-| QB-07 | Compatibility > Co-existence | 이동 트래픽이 서빙과 함께 동작 | DP1, 4 | 후보 |
-| QB-08 | Compatibility > Interoperability | vLLM, llm-d, NIXL 등 외부 구성요소 연동 | DP4 | 후보 |
+| QB-07 | Compatibility > Co-existence | 이동 트래픽이 서빙과 함께 동작 | DP1, 4 | **선정 (QA7)** |
+| QB-08 | Compatibility > Interoperability | vLLM, llm-d, NIXL 등 외부 구성요소 연동 | DP4 | **선정 (QA8)** |
 | QB-09 | Interaction capability > Operability | 운영자가 정책·메모리 설정을 쉽게 조작 | 전체 | 후보 (낮음) |
 | QB-10 | Reliability > Availability | 서빙이 계속 가능한 정도 (런타임 계층에서는 열어 둠) | 전체 | 후보 |
-| QB-11 | Reliability > Fault tolerance | 전송·offload 실패 시 서빙 지속(재계산 대체) | DP2, 4 | 후보 |
+| QB-11 | Reliability > Fault tolerance | 전송·offload 실패 시 서빙 지속(재계산 대체) | DP2, 4 | **선정 (QA9)** |
 | QB-12 | Reliability > Recoverability | 장애 후 복구 (과제 범위 밖) | - | 제외 |
 | QB-13 | Maintainability > Modularity | 모듈 간 영향 최소화 | 전체 | 후보 |
 | QB-14 | Maintainability > Reusability | 모듈을 다른 DP·엔진에서 재사용 | 전체 | 후보 |
-| QB-15 | Maintainability > Analysability | 결정 근거 기록과 원인 진단 | DP4, 전체 | 후보 |
+| QB-15 | Maintainability > Analysability | 결정 근거 기록과 원인 진단 | DP4, 전체 | **선정 (QA10)** |
 | QB-16 | Maintainability > Modifiability | 새 tier·정책·객체 추가 용이성 | DP1, 2, 4 | **선정 (QA4)** |
 | QB-17 | Maintainability > Testability | 정책을 시뮬레이터에서 단독 재현·검증 | 전체 | 후보 |
-| QB-18 | Flexibility > Adaptability | 워크로드·입력 분포 변화에 대한 적응 | DP1 | 후보 |
+| QB-18 | Flexibility > Adaptability | 워크로드·입력 분포 변화에 대한 적응 | DP1 | **선정 (QA11)** |
 | QB-19 | Flexibility > Scalability | 노드·메모리 type 증가에 따른 확장성 | DP2, 4 | **선정 (QA5)** |
 | QB-20 | Flexibility > Replaceability | 구현 교체(OSS 대 자체 구현, 정책 교체) | DP4 | 후보 |
 
@@ -116,3 +121,15 @@ QA2는 고정 부하에서 분포를 재고, QA1은 SLO를 고정해 최대 처�
 ## 5. 다음 단계
 1. 소유자 확인: C-01~C-05 문장, §1.1 추가 후보, QA1의 ISO 매핑(Capacity 대 Time behaviour), 선정 QA의 중요도·난이도.
 2. 덱 재작성: 요구사항 정제(첨부 형식, FR·제약 표 + Use-case diagram), 유틸리티 트리, 아키텍처 드라이버. PPT가 열리지 않는 문제는 이때 구조를 단순화해 다시 만든다.
+
+## 6. 추가 QA (QA7~QA11, 2026-10-09 요청으로 5건 추가)
+
+| 번호 | ISO 하위 특성 | 품질 요구사항 | 관련 DP | metric (공란) |
+|---|---|---|---|---|
+| QA7 | Compatibility > Co-existence | 데이터 이동 트래픽이 서빙과 동시에 동작해도 서빙 지연의 증가가 한도 안이다 | DP1, 4 | 서빙 지연 증가율 [   ] 이내 |
+| QA8 | Compatibility > Interoperability | vLLM, llm-d, NIXL 등 외부 구성요소와 수정 없이 연동된다 | DP4 | 변경 없이 연동되는 인터페이스 수 [   ] 이상 |
+| QA9 | Reliability > Fault tolerance | KV 전송이나 offload가 실패해도 재계산 등으로 요청 처리를 이어간다 | DP2, 4 | fallback 성공률 [   ] 이상 |
+| QA10 | Maintainability > Analysability | 이동·배치·라우팅 결정의 근거를 기록하여 오결정 원인을 찾을 수 있다 | DP4, 전체 | 원인 파악 시간 [   ] 이내 |
+| QA11 | Flexibility > Adaptability | 워크로드나 입력 분포가 바뀌면 배치를 다시 맞추어 성능이 회복된다 | DP1 | 회복 시간 [   ] 이내 |
+
+총 요구사항: 기능 25건(FR-01~25) + 품질 11건(QA1~11) + 제약 7건(C-01~07) = 43건.
