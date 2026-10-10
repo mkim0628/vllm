@@ -11,13 +11,16 @@ doc-mk/Evaluation/
 ├── README.md                    # 이 문서
 ├── CLAUDE.md                    # 이 폴더 작업 규칙
 ├── qa-evaluation-criteria.md    # 공통 QA1~4, 별점, Evidence A/B/C (DP1~DP4 공통)
+├── qa-star-criteria-unified.md  # 공통 별 기준 v1 (QA1~QA6, 모든 DP 같은 기준, proposal) + unified_stars_check.md(자동 생성)
 ├── common-benchmark.md          # 공통 benchmark profile, baseline(T_ref), sweep/반복 규칙
 ├── system-specs.md              # 메모리 세대별 시스템 프로파일 SYS-A100/H100/B200/VR (+legacy SYS-1..5, 일부 자동 생성)
 ├── result-template.md           # 결과 문서 템플릿
 ├── tools/
 │   ├── gen_system_specs.py      # system-specs.md 생성 블록 렌더
 │   ├── gen_dp1_benchmark_doc.py # DP1/benchmark.md 생성 블록 렌더
-│   └── gen_dp1_result.py        # DP1 통합 결과 문서 생성 (results/data/SYS-*/qa_result.json -> 표)
+│   ├── gen_dp1_result.py        # DP1 통합 결과 문서 생성 (results/data/SYS-*/qa_result.json -> 표)
+│   ├── unified_stars.py         # 공통 별 기준 v1 적용·기존 별과 비교 (입력 unified_inputs.json)
+│   └── gen_unified_star_slides.py # 전체 DP PPT에 공통 기준 슬라이드 삽입, DP2 별 채움
 ├── DP1/                         # AI Data Migration
 │   ├── simulation-plan.md       # 평가/시뮬레이션 방법
 │   ├── benchmark.md             # DP1 맞춤형 benchmark (시나리오 표 자동 생성)
