@@ -42,3 +42,6 @@ SKILL H21의 세 sub-metric(M1 변경 module 수, M2 개발 공수, M3 에이전
 
 ## 변경 이력
 - 2026-10-10 최초 작성(사전 등록).
+- 2026-10-10 (측정 전, 후보 평가 실행 전) 구현 정의 명확화: (1) B의 S2는 "각 Tier의 admission 판단에 전력이 반영된다"는 A의 S2(모든 Tier에 적용되는 Cost 항)와 기능이 같도록 **Tier Admission Agent의 headroom과 HBM Budget Admission의 임계 모두**에 전력 가중을 넣는 것으로 구현한다(HBM 규칙만 바꾸는 더 작은 변경은 기능이 더 좁아 대응하지 않는다). (2) S3의 정책 주입 지점은 두 후보 모두 **기본 코드에 없고 변경에 포함**된다(A: Selector 정렬 키 주입, B: Task Board 중재 주입). 기본 코드의 B는 중재를 "AGENT_ORDER 첫 claimant"로 고정해 두었다.
+- 2026-10-10 (측정 중, 후보 평가 실행 전) 공개: (1) 위 (1)의 B S2 구현 정의는 **smoke에서 실패**했다(agent와 HBM budget의 에너지 반영만으로는 Tier 분포가 바뀌지 않음, 중재가 에너지를 보지 않음). 사전 등록 규칙(최소 변경)에 따라 주 값은 **smoke를 통과하는 최소 변경**(Task Board의 중재가 에너지를 반영)으로 하고, agent와 budget까지 넣은 확장판(`S2full`)은 민감도로 보고한다. (2) S1 smoke fixture는 A와 B 모두에서 ScHBM과 CXL-PNM 용량을 1 B로 줄인다(원 fixture는 B에서 `cxl_pnm2`가 선택되지 않음). (3) 시스템 코드 점검 중 B의 agent가 claim backlog를 세지 않는 결함을 발견해 평가 전에 고쳤다(`loop-log.md` 3.3).
+

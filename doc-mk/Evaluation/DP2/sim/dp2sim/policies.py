@@ -44,6 +44,7 @@ class Estimator:
         self.P = sim.P
         self.eps = eps
         self.lam = {}          # per-node EWMA dispatch rate (planner's own knowledge)
+        self.price_fn = None   # optional Cost hook (arch-styles evaluation: HBM opportunity cost); None = unchanged behaviour
         self._last = {}
 
     # -- transfers ---------------------------------------------------------------------------------------------
@@ -138,6 +139,8 @@ class Estimator:
                 t_base = P.iter_time(nv.groups, ()) if nv.ndec else 0.0
                 x3 = nv.ndec * max(0.0, P.iter_time(g2, ()) - t_base) / SLO_TPOT                         # TPOT SLO-fractions added to resident decodes
                 fd = tpot / SLO_TPOT + x3 + (self.xfer(evict, (d, "hbm"), (d, "dram"), view) / SLO_TTFT if evict else 0.0)
+                if self.price_fn is not None:
+                    fd += self.price_fn(nv, t, delta, evict)
                 # pair evaluation over n_p classes: owner node, d itself, and best others
                 tried = []
                 for i in (on, d):

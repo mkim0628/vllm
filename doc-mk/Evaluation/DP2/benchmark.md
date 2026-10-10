@@ -111,3 +111,30 @@ DP1의 4종(신규 memory / data type / policy / event)에 대응한다. 시뮬�
 
 - DP2 simulator는 구현 전이다 (`simulation-plan.md` §4 참조).
 - prefix cache 공유, chunked prefill의 세부 스케줄, NIXL 프로토콜 오버헤드, GPU 내 Prefill/Decode 간섭의 정밀 모델(단순 간섭 계수로 근사 예정)은 미반영이다.
+
+# 11. 노드 내(아키텍처 스타일) 벤치마크 (2026-10-10)
+
+> 이 절은 `arch-styles-plan.md`(사전 등록)의 시나리오 정의다. 기존 §1~§10(노드 간 P/D 평가, C1 대 C2)은 바꾸지 않는다 (SKILL H9). 시나리오 코드는 `sim/dp2sim/scenarios_node.py`(이름 앞에 `n_`), grid는 `sim/configs/grids_node.json`에 **Baseline-only 제어 실행 후 후보 실행 전에** 고정했다 (`results/iterations/loop-log.md` §3.2).
+
+**공통 변경**: P 노드를 없애고 노드 = Prefill + Decode **통합 노드**로 한다(노드 수 = 기존 D 노드 수: Common 1, 대부분 2, `skew` 4). 후보는 노드 안에서 Decode attention 실행 Tier만 정한다. 노드 선택은 모든 후보가 같은 규칙을 쓴다. 노드 간 현상을 다루는 3개(`dp2_prefill_burst_p_saturated`, `dp2_internode_link_contention`, `dyn_p_node_degrade`)는 제외한다(DP4 소관).
+
+| 시나리오 | 무엇인가 | 드러내는 As-Is 약점 | 핵심 파라미터 |
+|---|---|---|---|
+| `n_cb_kv_8k_b32` | 공통. 8K→256, 단일 노드, KV만 | HBM 풀 부족 시 대기·swap | 노드 1, HBM x0.12 |
+| `n_cb_kv_8k_b32_ramp` | 위와 같고 HBM 압박이 점진 증가 | 압박 증가에 고정 배치가 못 따라감 | HBM x0.2 → 감소 |
+| `n_cb_mixed_8k_b32` | KV + 다른 데이터가 HBM 30% 점유 | HBM 잔여 풀 부족 | occupant 30% |
+| `n_dp2_turn_hbm_small_tool` | 멀티턴, History 32K가 HBM, Tool 0.5K | (대조군 성격) HBM 여유 | hist 32K, tier HBM |
+| `n_dp2_turn_dram_small_tool` | History 64K가 DRAM에 내려간 뒤 재개 | 재개마다 HBM으로 swap-in, 다른 세션 축출 | hist 64K, HBM x0.35 |
+| `n_dp2_turn_hbf_hist` | History 128K가 HBF에 있는 재개 | 128K를 HBM으로 이동해야 Decode | hist 128K, tier HBF |
+| `n_dp2_turn_ssd_hist` | History 64K가 SSD-PIM에 있는 재개 (대조군) | Tier BW가 병목 | hist 64K, tier SSD-PIM |
+| `n_dp2_tool_large_result` | Tool 결과 16K로 큰 턴 (대조군) | Prefill 연산이 병목 | tool 16K |
+| `n_dp2_decode_heavy_p_idle` | 출력 2K 위주 (이름의 `p_idle`은 원 시나리오 이름) | Decode 병목, HBM KV 누적 | out 2K |
+| `n_dp2_long_ctx_decode_offload` | 128~256K History 재개, HBM x0.3, ScHBM 오프로드 on | HBM 초과분 swap으로 TTFT/TPOT 악화 | hist 128~256K |
+| `n_dp2_session_size_skew` | 소수 256K 대형 + 다수 8K 채팅 | 대형 세션이 HBM을 독점 | 노드 4, heavy-tail |
+| `n_dp2_stale_telemetry` | telemetry 갱신 0.5 s (단일 턴, mmpp) | 오래된 상태로 결정 (A 대 B 판별) | tel 0.5 s |
+| `n_dp2_planner_fault_fallback` | T/2에 조정 요소 중단 (안전성) | Baseline 수준 복귀 확인 | fault 150~210 s |
+| `n_dyn_turn_demotion_wave` | 세션 idle 후 History가 하위 Tier로 내려간 뒤 재개 | 재개 때 Tier 변화를 반영 못함 | 단일 부하 24 |
+| `n_dyn_load_ramp_burst` | 도착률 0.4→1.1 포화 ramp + burst | 고정 배치가 부하 변화를 못 따라감 | ramp + burst |
+| `n_dyn_decode_phase_shift` | 출력 길이 256→2K 전환 | Decode 풀 병목 | out 256→2K |
+
+**Baseline-GPU-local (T_ref)**: 노드에서 Prefill, **Decode attention은 항상 GPU(HBM)**. History가 HBM 밖이면 swap-in. (Baseline-PD-fixed의 Decode 의미와 같다.)

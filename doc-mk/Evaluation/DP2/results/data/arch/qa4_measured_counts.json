@@ -1,0 +1,420 @@
+{
+ "schema": "qa4_measured_counts v1",
+ "date": "2026-10-10",
+ "preregistration": "doc-mk/Evaluation/DP2/qa4-preregistration-arch.md",
+ "evidence": "[B+C] proxy implementation in the DP2 simulator, not vLLM",
+ "candidate_keys": {
+  "C1": "A-Dispatcher",
+  "C2": "B-Blackboard"
+ },
+ "scenarios": {
+  "S1": {
+   "title": "new Tier (cxl_pnm2, CXL-PNM-class device with 2x internal BW)",
+   "C1": {
+    "changes": [
+     {
+      "module": "Tier Descriptors",
+      "shared": true,
+      "files": [
+       "engine.py",
+       "physics.py"
+      ],
+      "loc_added": 4,
+      "module_size_loc": 15
+     },
+     {
+      "module": "Candidate Generator",
+      "shared": false,
+      "files": [
+       "physics.py"
+      ],
+      "loc_added": 1,
+      "module_size_loc": 54
+     }
+    ]
+   },
+   "smoke": {
+    "A-Dispatcher": {
+     "scenario": "S1",
+     "cand": "A",
+     "base_check": {
+      "goodput": 325.670149931863,
+      "ttft99": 1.3535096293498086,
+      "hbm": 9.737161115754736
+     },
+     "fixture": "squeeze (HBM pool x0.001, ScHBM and CXL-PNM capacity 1 B)",
+     "tiers": {
+      "cxl_pnm2": 30,
+      "hbf": 76
+     },
+     "served": 100,
+     "pass": true,
+     "tests": {
+      "test_node": "OK",
+      "test_sim": "OK"
+     }
+    },
+    "B-Blackboard": {
+     "scenario": "S1",
+     "cand": "B",
+     "base_check": {
+      "goodput": 325.670149931863,
+      "ttft99": 1.3535096293498086,
+      "hbm": 9.737161115754736
+     },
+     "fixture": "squeeze (HBM pool x0.001, ScHBM and CXL-PNM capacity 1 B)",
+     "tiers": {
+      "cxl_pnm2": 83
+     },
+     "served": 76,
+     "pass": true,
+     "tests": {
+      "test_node": "OK",
+      "test_sim": "OK"
+     }
+    }
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Tier Descriptors",
+      "shared": true,
+      "files": [
+       "engine.py",
+       "physics.py"
+      ],
+      "loc_added": 4,
+      "module_size_loc": 15
+     },
+     {
+      "module": "Tier Admission Agents",
+      "shared": false,
+      "files": [
+       "physics.py"
+      ],
+      "loc_added": 1,
+      "module_size_loc": 19
+     }
+    ]
+   }
+  },
+  "S2": {
+   "title": "new objective term (relative energy per decoded token, weight w_E)",
+   "C1": {
+    "changes": [
+     {
+      "module": "Cost Model",
+      "shared": false,
+      "files": [
+       "policies.py"
+      ],
+      "loc_added": 3,
+      "module_size_loc": 169
+     }
+    ]
+   },
+   "smoke": {
+    "A-Dispatcher": {
+     "scenario": "S2",
+     "cand": "A",
+     "base_check": {
+      "goodput": 325.670149931863,
+      "ttft99": 1.3535096293498086,
+      "hbm": 9.737161115754736
+     },
+     "fixture": "squeeze (HBM pool x0.001)",
+     "w_E0": {
+      "custom_hbm": 125,
+      "hbf": 28
+     },
+     "w_E5": {
+      "cxl_pnm": 10,
+      "hbf": 97
+     },
+     "pass": true,
+     "tests": {
+      "test_node": "OK",
+      "test_sim": "OK"
+     }
+    },
+    "B-Blackboard": {
+     "scenario": "S2",
+     "cand": "B",
+     "base_check": {
+      "goodput": 325.670149931863,
+      "ttft99": 1.3535096293498086,
+      "hbm": 9.737161115754736
+     },
+     "fixture": "squeeze (HBM pool x0.001)",
+     "w_E0": {
+      "custom_hbm": 152
+     },
+     "w_E5": {
+      "custom_hbm": 36,
+      "cxl_pnm": 55
+     },
+     "pass": true,
+     "tests": {
+      "test_node": "OK",
+      "test_sim": "OK"
+     }
+    }
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Task Board",
+      "shared": false,
+      "files": [
+       "arch_blackboard.py"
+      ],
+      "loc_added": 2,
+      "module_size_loc": 63
+     }
+    ]
+   }
+  },
+  "S3": {
+   "title": "policy swap (A: Selector argmin Cost -> min TTFT among TPOT-feasible; B: Task Board arbitration first claimant -> least-loaded claimant; constructor-injected)",
+   "C1": {
+    "changes": [
+     {
+      "module": "Resource Selector",
+      "shared": false,
+      "files": [
+       "engine.py",
+       "policies.py"
+      ],
+      "loc_added": 4,
+      "module_size_loc": 22
+     }
+    ]
+   },
+   "smoke": {
+    "A-Dispatcher": {
+     "scenario": "S3",
+     "cand": "A",
+     "base_check": {
+      "goodput": 325.670149931863,
+      "ttft99": 1.3535096293498086,
+      "hbm": 9.737161115754736
+     },
+     "fixture": "squeeze (HBM pool x0.001)",
+     "before": {
+      "custom_hbm": 125,
+      "hbf": 28
+     },
+     "after": {
+      "custom_hbm": 152
+     },
+     "new_policy_calls": 504,
+     "pass": true,
+     "tests": {
+      "test_node": "OK",
+      "test_sim": "OK"
+     }
+    },
+    "B-Blackboard": {
+     "scenario": "S3",
+     "cand": "B",
+     "base_check": {
+      "goodput": 325.670149931863,
+      "ttft99": 1.3535096293498086,
+      "hbm": 9.737161115754736
+     },
+     "fixture": "squeeze (HBM pool x0.001)",
+     "before": {
+      "custom_hbm": 152
+     },
+     "after": {
+      "custom_hbm": 112,
+      "cxl_pnm": 16
+     },
+     "new_policy_calls": 144,
+     "pass": true,
+     "tests": {
+      "test_node": "OK",
+      "test_sim": "OK"
+     }
+    }
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Task Board",
+      "shared": false,
+      "files": [
+       "arch_blackboard.py",
+       "nodeint.py"
+      ],
+      "loc_added": 4,
+      "module_size_loc": 63
+     }
+    ]
+   }
+  },
+  "S4": {
+   "title": "new telemetry signal (Tier degraded flag as hard constraint on the Decode attention tier)",
+   "C1": {
+    "changes": [
+     {
+      "module": "Dispatcher",
+      "shared": false,
+      "files": [
+       "arch_dispatcher.py"
+      ],
+      "loc_added": 1,
+      "module_size_loc": 39
+     },
+     {
+      "module": "Tier Descriptors",
+      "shared": true,
+      "files": [
+       "engine.py",
+       "policies.py"
+      ],
+      "loc_added": 6,
+      "module_size_loc": 15
+     },
+     {
+      "module": "Candidate Generator",
+      "shared": false,
+      "files": [
+       "policies.py"
+      ],
+      "loc_added": 2,
+      "module_size_loc": 54
+     }
+    ]
+   },
+   "smoke": {
+    "A-Dispatcher": {
+     "scenario": "S4",
+     "cand": "A",
+     "base_check": {
+      "goodput": 325.670149931863,
+      "ttft99": 1.3535096293498086,
+      "hbm": 9.737161115754736
+     },
+     "fixture": "squeeze (HBM pool x0.001), mark at t=40 s the most used offload tier",
+     "marked": "custom_hbm",
+     "uses_before": 53,
+     "uses_after_mark_plus_tel_plus_1s": 0,
+     "dispatches_after": 68,
+     "pass": true,
+     "tests": {
+      "test_node": "OK",
+      "test_sim": "OK"
+     }
+    },
+    "B-Blackboard": {
+     "scenario": "S4",
+     "cand": "B",
+     "base_check": {
+      "goodput": 325.670149931863,
+      "ttft99": 1.3535096293498086,
+      "hbm": 9.737161115754736
+     },
+     "fixture": "squeeze (HBM pool x0.001), mark at t=40 s the most used offload tier",
+     "marked": "custom_hbm",
+     "uses_before": 56,
+     "uses_after_mark_plus_tel_plus_1s": 0,
+     "dispatches_after": 53,
+     "pass": true,
+     "tests": {
+      "test_node": "OK",
+      "test_sim": "OK"
+     }
+    }
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Tier Admission Agents",
+      "shared": false,
+      "files": [
+       "arch_blackboard.py"
+      ],
+      "loc_added": 2,
+      "module_size_loc": 19
+     }
+    ]
+   }
+  }
+ },
+ "variants": {
+  "S2full": {
+   "title": "new objective term (relative energy per decoded token, weight w_E) [variant: energy in every agent + budget]",
+   "C2": {
+    "changes": [
+     {
+      "module": "Task Board",
+      "shared": false,
+      "files": [
+       "arch_blackboard.py"
+      ],
+      "loc_added": 2,
+      "module_size_loc": 63
+     },
+     {
+      "module": "Tier Admission Agents",
+      "shared": false,
+      "files": [
+       "arch_blackboard.py"
+      ],
+      "loc_added": 2,
+      "module_size_loc": 19
+     },
+     {
+      "module": "HBM Budget Admission",
+      "shared": false,
+      "files": [
+       "arch_blackboard.py"
+      ],
+      "loc_added": 1,
+      "module_size_loc": 16
+     }
+    ]
+   },
+   "smoke": {
+    "B-Blackboard": {
+     "scenario": "S2",
+     "cand": "B",
+     "base_check": {
+      "goodput": 325.670149931863,
+      "ttft99": 1.3535096293498086,
+      "hbm": 9.737161115754736
+     },
+     "fixture": "squeeze (HBM pool x0.001)",
+     "w_E0": {
+      "custom_hbm": 152
+     },
+     "w_E5": {
+      "cxl_pnm": 64
+     },
+     "pass": true,
+     "tests": {
+      "test_node": "OK",
+      "test_sim": "OK"
+     }
+    }
+   }
+  }
+ },
+ "smoke_base": {
+  "scenario": "BASE",
+  "cand": "A",
+  "base_check": {
+   "goodput": 325.670149931863,
+   "ttft99": 1.3535096293498086,
+   "hbm": 9.737161115754736
+  },
+  "fixture_A": {
+   "custom_hbm": 125,
+   "hbf": 28
+  },
+  "fixture_B": {
+   "custom_hbm": 152
+  }
+ }
+}

@@ -92,3 +92,25 @@ SKILL §5: 모든 comparison_valid 쌍·집계 QA에서 후보 ≥ Baseline(CI �
 ### 3.1 다음 단계 (이 기록 이후)
 1. Baseline-only 제어 실행으로 시나리오 grid·lam0 확정 후 아래 §3.2에 추가.
 2. 후보는 기능 점검용 소규모 실행만 하고 공개한다. 그 뒤 전체 실행.
+
+### 3.2 Baseline-only 제어 실행 (후보 실행 전, 2026-10-10)
+`sim/node_control.py` (Baseline-GPU-local만, seed 11/23, SYS-H100/B200). 원자료: `results/data/arch/control_baseline.json`(최종), `results/data/arch/iterations/`(1~2회차 요약, 2회차 JSON).
+
+| 회차 | class | 변경 | 이유 (Baseline 결과) |
+|---|---|---|---|
+| 1 | — | 기존 grid로 실행 | `n_cb_*` Baseline이 거의 모든 부하에서 goodput 0 (단일 통합 노드가 동시 8 이상에서 TTFT 2 s 불가), `n_dp2_turn_hbf_hist` 전 부하 goodput 0, 여러 시나리오에서 peak가 grid 끝 |
+| 2 | B + 정의 수정 | (a) **Baseline-GPU-local의 Decode를 항상 HBM으로** (History가 HBF에 있으면 HBM으로 이동 후 Decode; Baseline-PD-fixed의 Decode 의미). 처음 정의(D-local-always: History가 HBF면 HBF에서 직접 Decode)는 128K 컨텍스트 TPOT가 SLO를 넘어 infeasible (b) CB 동시성 grid를 (2..24)로 하향 확장 (c) 시나리오별로 peak가 grid 끝이면 상향 확장 | 사전 등록된 규칙(공통 5.2 grid 끝 확장, Baseline infeasible 시나리오로 승리 주장 금지). Baseline을 약하게 바꾼 것이 아니라 feasible하게 정의했다 |
+| 3 | B | `n_dp2_decode_heavy_p_idle`, `n_dyn_decode_phase_shift` grid를 768까지, `n_dp2_stale_telemetry`, `n_dp2_session_size_skew` open 부하 배수를 3.0까지 확장 | peak가 grid 끝 |
+| 3b | B | `n_dyn_decode_phase_shift` grid를 1536까지 (SYS-B200 peak 1024) | peak가 grid 끝 (`results/data/arch/control_baseline_extra.json`) |
+
+최종 grid는 `sim/configs/grids_node.json`, open-loop lam0는 `sim/configs/calibration_node.json`(Baseline 교정, 2 시스템 × 4 시나리오, seed 11). **이 시점까지 후보(A, B)의 평가 데이터는 없다.** `n_dyn_turn_demotion_wave`는 원 시나리오처럼 단일 부하(24)다.
+
+### 3.3 후보 코드 점검(평가에 쓰지 않음)과 평가 전 설계 수정 (공개)
+후보 점검은 `n_cb_kv_8k_b32`, SYS-H100, seed 11, 동시성 8, HBM 풀 x0.001의 짧은 실행(`qa4_smoke_arch.py`의 squeeze fixture)으로만 했다. 이 실행에서 Baseline 대비 성능은 보지 않았다. 발견한 것과 조치:
+
+| class | 발견 | 조치 |
+|---|---|---|
+| P (B 설계 결함) | B의 Tier agent가 **이미 claim했지만 아직 Decode가 시작되지 않은 Task**를 보지 못해, claim~Decode 시작(Prefill 포함) 사이에 모든 Task가 같은 Tier로 몰림 (중재 변경 smoke에서 확인) | agent가 **자기 claim backlog를 센다**(queue depth)는 Blackboard의 claim 프로토콜 정의에 맞게 `TierAdmissionAgent.claimed`를 추가. θ, ρ_hi, t_bb 등 **상수는 바꾸지 않았다** |
+| 도구 | QA4 smoke S1 fixture에서 B는 ScHBM만 1 B로 줄이면 CXL-PNM이 항상 headroom이 있어 `cxl_pnm2`를 쓰지 않음 | 사전 등록된 fixture 허용 조항에 따라 **ScHBM과 CXL-PNM 둘 다 1 B**로 줄임 (A와 B 모두 같은 fixture). 변경 이력에 공개 |
+| QA4 | B의 S2(에너지 항): 처음 구현(agent + budget 임계)은 smoke 실패(분포 불변). 중재(arbitration)가 에너지를 보지 않기 때문 | 사전 등록 규칙(작동하는 **최소** 변경)에 따라 smoke를 통과하는 최소 변경(중재의 에너지 반영)을 주 값으로, agent + budget까지 넣은 확장판은 민감도로 보고 |
+
