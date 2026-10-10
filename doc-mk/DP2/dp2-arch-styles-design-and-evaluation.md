@@ -66,7 +66,7 @@
 | Q4 module · MM · 비용(T1) | — | ★★★ 1.75 · 0.31 · $1.17 | ★★★ 1.25 · 0.22 · $0.96 |
 | 별 합계 | | **9** | 8 |
 
-쌍별 판정(comparison-valid 21쌍): 1안 Dispatcher는 승·무·패가 개선 쌍이 우세하나 패의 대부분이 TPOT 꼬리이고(SLO 이내), 2안은 3승 11무 7패.
+쌍별 판정(comparison-valid 21쌍): 1안 Dispatcher 11승 3무 7패(패의 대부분이 TPOT 꼬리이며 SLO 이내), 2안 Blackboard 3승 11무 7패.
 
 ### 3.3 왜 이렇게 나왔나
 - **1안**: Cost에 HBM 기회비용이 있어 History가 큰 turn이나 decode가 몰린 노드에서 ScHBM으로 보낸다(Decode의 16.5%). 그래서 TTFT 꼬리와 HBM 점유를 얻고, Cost가 SLO 안의 TPOT 여유를 소비하므로 TPOT 꼬리가 커진다(P99 19.5 ms, SLO 50 ms 이내).
