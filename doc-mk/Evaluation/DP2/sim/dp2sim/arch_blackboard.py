@@ -17,9 +17,20 @@ class TierAdmissionAgent:
     """Knowledge Source of one attention-capable Tier: claims iff the Tier has capacity and measured headroom (current offload
     attention time of the Tier <= theta * SLO_TPOT)."""
 
-    def __init__(self, sim, tier):
-        self.sim, self.tier = sim, tier
+    def __init__(self, sim, tier, board=None):
+        self.sim, self.tier, self.board = sim, tier, board
         self.claimed = {}                # node -> {rid: context tokens} of Tasks this agent has claimed but whose Decode has not started
+
+    def node_iter(self, nd, ctx, view=None):
+        """v2: projected node iteration time if this Task (context `ctx`) is added at this Tier, counting live decode groups, every
+        claim backlog entry on the node (all Tiers, kept by the board) and the Task itself."""
+        groups = dict((view.nodes[nd.idx].groups if view is not None else nd.groups()))
+        for tier, c in self.board.backlog_groups(nd.idx).items():
+            n0, s0 = groups.get(tier, (0, 0.0))
+            groups[tier] = (n0 + c[0], s0 + c[1])
+        n0, s0 = groups.get(self.tier, (0, 0.0))
+        groups[self.tier] = (n0 + 1, s0 + ctx)
+        return self.sim.P.iter_time(groups, ())
 
     def load(self, nd, view=None):
         """Offload attention time of this Tier on `nd`, counting resident sequences and the agent's own claim backlog. `view`: a
@@ -29,15 +40,15 @@ class TierAdmissionAgent:
         cnt, ctx = cnt + len(mine), ctx + sum(mine.values())
         return self.sim.P.decode_att(self.tier, cnt, ctx)[1] if cnt else 0.0
 
-    def headroom(self, nd, view=None):
-        return self.load(nd, view) <= self.sim.o["theta"] * SLO_TPOT
+    def headroom(self, nd, ctx, view=None):
+        return self.node_iter(nd, ctx, view) <= self.sim.o["theta"] * SLO_TPOT
 
-    def claim(self, node, delta, view=None):
+    def claim(self, node, delta, ctx, view=None):
         sim = self.sim
         free = view.nodes[node].free[self.tier] if view is not None else sim.kv.free(node, self.tier)
         if free < delta:
             return False
-        return self.headroom(sim.nodes[node], view)
+        return self.headroom(sim.nodes[node], ctx, view)
 
 
 class HbmBudgetAdmission:
@@ -72,15 +83,26 @@ class TaskBoard:
     def __init__(self, sim):
         self.sim = sim
         self.posted = set()
-        self.agents = {t: TierAdmissionAgent(sim, t) for t in AGENT_ORDER}
+        self.agents = {t: TierAdmissionAgent(sim, t, self) for t in (*AGENT_ORDER, "hbf")}
         self.budget = HbmBudgetAdmission(sim)
+        self.backlog = {}                # node -> {rid: (tier, ctx)}: every claimed Task whose Decode has not started (all Tiers)
+
+    def backlog_groups(self, node):
+        g = {}
+        for tier, ctx in self.backlog.get(node, {}).values():
+            c = g.get(tier, (0, 0.0))
+            g[tier] = (c[0] + 1, c[1] + ctx)
+        return g
 
     def on_committed(self, node, tier, req):
         ag = self.agents.get(tier)
         if ag is not None:
             ag.claimed.setdefault(node, {})[req.rid] = req.ctx_end
+        self.backlog.setdefault(node, {})[req.rid] = (tier, req.hist + req.q + req.out / 2.0)
 
     def on_decode_start(self, req):
+        for mine in self.backlog.values():
+            mine.pop(req.rid, None)
         for ag in self.agents.values():
             for mine in ag.claimed.values():
                 mine.pop(req.rid, None)
@@ -95,13 +117,14 @@ class TaskBoard:
         def delta(t):
             return need - (sess.kv_bytes if owner == (node, t) else 0.0)
 
-        if ot == "hbf" and (view.nodes[node].free["hbf"] if view is not None else sim.kv.free(node, "hbf")) >= delta("hbf"):
-            return "hbf"
-        if ot in self.agents and self.agents[ot].claim(node, delta(ot), view):
+        ctx = req.hist + req.q + req.out / 2.0
+        if ot in self.agents and self.agents[ot].claim(node, delta(ot), ctx, view):      # v2: hbf is also admitted by node TPOT headroom
             return ot
         if self.budget.grant(node, delta("hbm"), sess, resident=(ot == "hbm"), view=view):
             return "hbm"
-        claimants = [t for t in AGENT_ORDER if self.agents[t].claim(node, delta(t), view)]
+        if req.hist > 0:                             # v2: no movement-cost signal on the board -> History is only staged to HBM
+            return None
+        claimants = [t for t in AGENT_ORDER if self.agents[t].claim(node, delta(t), ctx, view)]
         if claimants:
             return claimants[0]                      # arbitration: first claimant in AGENT_ORDER
         return None

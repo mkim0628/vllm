@@ -124,3 +124,16 @@ SKILL §5: 모든 comparison_valid 쌍·집계 QA에서 후보 ≥ Baseline(CI �
 - **참고 후보 추가 (평가 전, 별 미부여)**: `Ref-Dispatcher-with-board-rules`(Dispatcher 아키텍처가 Blackboard의 규칙 집합을 snapshot 정보로 중앙에서 실행). A와 B는 아키텍처와 규칙 집합이 함께 다르므로, 같은 규칙 집합에서 아키텍처만 바꾼 비교를 위해 둔다. 1회차 부분 데이터(SYS-H100 Common 3개 시나리오)에서 A가 Baseline보다 높고 B는 같게 나온 것을 본 뒤, 그 차이가 아키텍처가 아니라 규칙 집합 때문일 수 있다고 판단해 추가했다(공개). 별점·선택에 쓰지 않는 참고 행이다.
 - 다음: 수정된 코드로 **2회차 전체 실행**(후보 3개 + 참고 1개, 처음부터).
 
+
+### 3.5 2회차 전체 실행 중단과 B 규칙 집합 v2 (2026-10-10, 재실행 전 사전 등록)
+2회차 전체 실행을 SYS-H100 1,584건(8개 시나리오 분량)에서 **중단**했다. SYS-B200은 0건이다. 부분 데이터는 `results/data/arch/iterations/run2_aborted/`에 보존한다(평가에 쓰지 않음). Baseline 미만 결과가 B에서 나왔으므로 Baseline-regression loop를 적용한다.
+
+- **관찰 (부분 데이터, 사후에 B의 값만 본 것이 아니라 A, Baseline과 함께 본 것)**: `n_dp2_turn_hbf_hist`에서 B goodput 0.00x (TPOT P99 335 ms), `n_dp2_turn_dram_small_tool`에서 B 0.72x (TTFT P99 x10, TPOT x6.6, reject 120k). 같은 규칙 집합을 중앙 Dispatcher로 돌린 참고 후보(Ref)도 B와 비슷했다. 즉 차이의 주된 원인은 아키텍처가 아니라 **규칙 집합**이다.
+- **진단 (class P, 정책 결함 2개)**: (1) `hbf`는 용량만 보고 admit했고 TPOT headroom 검사가 없어 128K 컨텍스트가 GPU-direct read로 계속 Decode됨. offload agent의 headroom도 노드 iteration 시간이 아니라 그 Tier의 attention 시간만 봄. (2) 사이클 간 이동 비용을 알 수 없는 board가 DRAM/SSD의 History를 offload 사다리에 올려 이동이 폭증함.
+- **가설 (실행 전)**: (1)+(2)를 고치면 B는 위 두 시나리오에서 Baseline 이상(parity 이상)이 된다. 효과는 HBM 점유 절감이 줄어드는 방향일 수 있다. 이 가설이 틀려도 결과를 그대로 보고한다.
+- **변경 (B만, class P 한 가지: 규칙 집합 v2)**:
+  1. 모든 Tier agent(`hbf` 포함)는 노드 수준 예상 TPOT headroom으로 admit한다: `iter_time(live groups + 노드의 모든 claim backlog(hbm 포함) + 이 Task의 ctx를 해당 Tier에 추가) <= θ·SLO_TPOT`. board가 모든 Tier의 backlog를 관리한다. Task ctx = hist + q + out/2.
+  2. History가 있는 Task(`hist > 0`)는 HBM staging(budget grant)까지만 시도하고 offload 사다리는 new-KV Task(`hist == 0`)에만 적용한다(board에 이동 비용 신호가 없다는 Blackboard 정의에 맞춤). 거절되면 큐에 남는다.
+  - **상수 θ, ρ_hi, t_bb, 시나리오, grid, Baseline, A는 바꾸지 않았다.** 참고 후보는 같은 규칙 v2를 쓴다(board.decide 공유).
+- **재실행**: 2회차와 같은 명령으로 3회차 전체 실행(후보 3개 + 참고 1개, 2 SYS, seed 5개, 모든 시나리오, 처음부터). 단위 테스트 8개 통과 확인.
+- QA4 harness의 B 변경 anchor는 v2 코드에 맞게 갱신했고 QA4는 v2 코드로 다시 측정한다(사전 등록 파일 변경 이력에 기록).

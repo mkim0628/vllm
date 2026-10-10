@@ -61,8 +61,8 @@ P[("B", "S2")] = [      # minimal working change (passes the smoke criterion): e
     ("arch_blackboard.py", ARB_OLD, ARB_ENERGY),
 ]
 P[("B", "S2full")] = P[("B", "S2")] + [      # sensitivity: energy also enters every Tier agent's headroom and the HBM budget threshold
-    ("arch_blackboard.py", '        return self.load(nd, view) <= self.sim.o["theta"] * SLO_TPOT\n',
-     '        w_e = self.sim.o.get("w_energy", 0.0)\n        return self.load(nd, view) <= self.sim.o["theta"] * SLO_TPOT * (1.0 + w_e * (ENERGY["hbm"] - ENERGY.get(self.tier, 1.0)))\n'),
+    ("arch_blackboard.py", '        return self.node_iter(nd, ctx, view) <= self.sim.o["theta"] * SLO_TPOT\n',
+     '        w_e = self.sim.o.get("w_energy", 0.0)\n        return self.node_iter(nd, ctx, view) <= self.sim.o["theta"] * SLO_TPOT * (1.0 + w_e * (ENERGY["hbm"] - ENERGY.get(self.tier, 1.0)))\n'),
     ("arch_blackboard.py", '        return (cap - free - idle + delta) / cap <= sim.o["rho_hi"]\n',
      '        return (cap - free - idle + delta) / cap <= sim.o["rho_hi"] / (1.0 + sim.o.get("w_energy", 0.0) * ENERGY["hbm"])\n'),
 ]
@@ -89,9 +89,9 @@ P[("A", "S4")] = [
     ("arch_dispatcher.py", "            c.alive = nv.idx == node\n", "            c.alive = nv.idx == node\n            c.degraded = nv.degraded\n"),
 ]
 P[("B", "S4")] = [
-    ("arch_blackboard.py", "        self.sim, self.tier = sim, tier\n", "        self.sim, self.tier = sim, tier\n        self.degraded = False\n"),
-    ("arch_blackboard.py", "        if free < delta:\n            return False\n        return self.headroom(sim.nodes[node], view)\n",
-     "        if self.degraded or free < delta:\n            return False\n        return self.headroom(sim.nodes[node], view)\n"),
+    ("arch_blackboard.py", "        self.sim, self.tier, self.board = sim, tier, board\n", "        self.sim, self.tier, self.board = sim, tier, board\n        self.degraded = False\n"),
+    ("arch_blackboard.py", "        if free < delta:\n            return False\n        return self.headroom(sim.nodes[node], ctx, view)\n",
+     "        if self.degraded or free < delta:\n            return False\n        return self.headroom(sim.nodes[node], ctx, view)\n"),
 ]
 TITLES = {"S1": "new Tier (cxl_pnm2, CXL-PNM-class device with 2x internal BW)",
           "S2": "new objective term (relative energy per decoded token, weight w_E)",
