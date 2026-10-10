@@ -61,8 +61,8 @@ P[("B", "S2")] = [      # minimal working change (passes the smoke criterion): e
     ("arch_blackboard.py", ARB_OLD, ARB_ENERGY),
 ]
 P[("B", "S2full")] = P[("B", "S2")] + [      # sensitivity: energy also enters every Tier agent's headroom and the HBM budget threshold
-    ("arch_blackboard.py", '        return self.load(nd) <= self.sim.o["theta"] * SLO_TPOT\n',
-     '        w_e = self.sim.o.get("w_energy", 0.0)\n        return self.load(nd) <= self.sim.o["theta"] * SLO_TPOT * (1.0 + w_e * (ENERGY["hbm"] - ENERGY.get(self.tier, 1.0)))\n'),
+    ("arch_blackboard.py", '        return self.load(nd, view) <= self.sim.o["theta"] * SLO_TPOT\n',
+     '        w_e = self.sim.o.get("w_energy", 0.0)\n        return self.load(nd, view) <= self.sim.o["theta"] * SLO_TPOT * (1.0 + w_e * (ENERGY["hbm"] - ENERGY.get(self.tier, 1.0)))\n'),
     ("arch_blackboard.py", '        return (cap - free - idle + delta) / cap <= sim.o["rho_hi"]\n',
      '        return (cap - free - idle + delta) / cap <= sim.o["rho_hi"] / (1.0 + sim.o.get("w_energy", 0.0) * ENERGY["hbm"])\n'),
 ]
@@ -76,7 +76,7 @@ P[("B", "S3")] = [
     ("arch_blackboard.py", "    def __init__(self, sim):\n        self.sim = sim\n        self.posted = set()\n",
      "    def __init__(self, sim, arbitrate=None):\n        self.sim = sim\n        self.posted = set()\n        self.arbitrate = arbitrate or (lambda claimants: claimants[0])\n"),
     ("arch_blackboard.py", "            return claimants[0]                      # arbitration: first claimant in AGENT_ORDER\n", "            return self.arbitrate(claimants)\n"),
-    ("nodeint.py", "self.board = TaskBoard(self)", 'self.board = TaskBoard(self, self.o.get("arbitrate"))'),
+    ("nodeint.py", "        elif cand == N_BBRD:\n            self.board = TaskBoard(self)\n", '        elif cand == N_BBRD:\n            self.board = TaskBoard(self, self.o.get("arbitrate"))\n'),
 ]
 P[("A", "S4")] = [
     ("policies.py", '"free", "evictable", "alive")', '"free", "evictable", "alive", "degraded")'),
@@ -90,8 +90,8 @@ P[("A", "S4")] = [
 ]
 P[("B", "S4")] = [
     ("arch_blackboard.py", "        self.sim, self.tier = sim, tier\n", "        self.sim, self.tier = sim, tier\n        self.degraded = False\n"),
-    ("arch_blackboard.py", "        sim = self.sim\n        if sim.kv.free(node, self.tier) < delta:\n            return False\n",
-     "        sim = self.sim\n        if self.degraded or sim.kv.free(node, self.tier) < delta:\n            return False\n"),
+    ("arch_blackboard.py", "        if free < delta:\n            return False\n        return self.headroom(sim.nodes[node], view)\n",
+     "        if self.degraded or free < delta:\n            return False\n        return self.headroom(sim.nodes[node], view)\n"),
 ]
 TITLES = {"S1": "new Tier (cxl_pnm2, CXL-PNM-class device with 2x internal BW)",
           "S2": "new objective term (relative energy per decoded token, weight w_E)",

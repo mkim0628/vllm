@@ -21,6 +21,7 @@ DP2: **Cost-based Prefill/Decode Execution Planning** — Turn 단위로 Prefill
 | `sim-extension-scope.md` | DP2 simulator 확장 범위 (접근 대안, 모듈 구성, 모델링 요구사항, 단계 M0~M6, 테스트 계획) — draft |
 | `benchmark.md` | CB-1~3 실현, Baseline-PD-fixed 정의, DP2 Stress 12 / Dynamic 4 / Scalability / QA4 변경 시나리오 — draft |
 | `results/` | 결과 문서 (`YYYY-MM-DD_<topic>.md`, `../result-template.md`) |
+| `arch-styles-plan.md`, `qa4-preregistration-arch.md` | **2026-10-10 재정의 평가**(노드 내 attention 실행 위치, 후보 축 = 아키텍처 스타일: A 중앙 Dispatcher 대 B Blackboard) 사전 등록. 시나리오는 `benchmark.md` §11, 코드는 `sim/dp2sim/{nodeint,arch_dispatcher,arch_blackboard,scenarios_node}.py`, 실행 `sim/{node_control,qa_eval_node,sens_arch,qa4_arch,qa4_apply}.py`, 결과 `results/data/arch/`, 로그 `results/iterations/loop-log.md` §3 |
 | (작성 예정) | `qa4-preregistration.md`, `qa_priority.json`, `sim/` |
 
 ## 작성 시 따를 문서
