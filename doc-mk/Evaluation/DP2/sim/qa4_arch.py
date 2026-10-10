@@ -115,6 +115,7 @@ RULES = [
     ("policies.py", r"Estimator\.evaluate", r"degraded", "Candidate Generator"),
     ("policies.py", r"Estimator\.evaluate", r"^\s*continue$", "Candidate Generator"),       # body of the degraded-tier skip (S4)
     ("policies.py", r"Estimator\.evaluate", r"w_e|ENERGY", "Cost Model"),
+    ("arch_dispatcher.py", r"PendingLedger.*", r".*", "Tier Descriptors"),
     ("arch_dispatcher.py", r"DispatcherPlanner.*", r".*", "Dispatcher"),
     ("arch_dispatcher.py", r"HbmOpportunityCost.*", r".*", "Cost Model"),
     ("arch_blackboard.py", r"<module>", r"ENERGY", "Task Board"),
@@ -126,7 +127,7 @@ RULES = [
 ]
 # component -> [(file, spec)] sizes measured on the pristine copy (AST lines, blank/comment lines excluded)
 SIZE = {
-    "Tier Descriptors": [("physics.py", "func:system"), ("engine.py", "meth:Sim._nodeview"), ("policies.py", "class:NodeView")],
+    "Tier Descriptors": [("physics.py", "func:system"), ("engine.py", "meth:Sim._nodeview"), ("policies.py", "class:NodeView"), ("arch_dispatcher.py", "class:PendingLedger")],
     "Candidate Generator": [("policies.py", "span:for nv in ndec_nodes:|results.append((cost, i, (d, t), ttft_p[i], tpot))")],
     "Cost Model": [("policies.py", "class:Estimator"), ("arch_dispatcher.py", "class:HbmOpportunityCost")],
     "Resource Selector": [("policies.py", "span:results.sort(key=lambda x: x[0])|return plan, ranked")],

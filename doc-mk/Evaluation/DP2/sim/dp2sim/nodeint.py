@@ -7,12 +7,13 @@ from __future__ import annotations
 from collections import defaultdict
 
 from .arch_blackboard import Poster, TaskBoard
-from .arch_dispatcher import DispatcherPlanner, HbmOpportunityCost
+from .arch_dispatcher import DispatcherPlanner, HbmOpportunityCost, PendingLedger, RuleDispatcher
 from .engine import GIB, Sim
 from .policies import Plan
 
 N_BASE, N_DISP, N_BBRD = "Baseline-GPU-local", "A-Dispatcher", "B-Blackboard"
-NODE_CANDS = (N_BASE, N_DISP, N_BBRD)
+N_DRULE = "Ref-Dispatcher-with-board-rules"      # reference: Dispatcher architecture + Blackboard rule set
+NODE_CANDS = (N_BASE, N_DISP, N_BBRD, N_DRULE)
 NODE_DEFAULTS = dict(lam_hbm=1.0, theta=0.8, rho_hi=0.85, t_bb=0.0005)
 
 
@@ -32,6 +33,7 @@ class NodeSim(Sim):
         self._frac_int = 0.0
         self._peak = 0.0
         self.disp = self.board = self.poster = None
+        self.ledger = PendingLedger() if cand == N_DISP else None
         if cand == N_DISP:
             self.disp = DispatcherPlanner(self)
             if self.o["lam_hbm"] > 0:
@@ -39,6 +41,9 @@ class NodeSim(Sim):
         elif cand == N_BBRD:
             self.board = TaskBoard(self)
             self.poster = Poster(self, self.board)
+        elif cand == N_DRULE:
+            self.board = TaskBoard(self)
+            self.disp = RuleDispatcher(self, self.board)
 
     # ------------------------------------------------------------------------------------------ shared node rule
     def assign_node(self, req, view):
@@ -78,9 +83,9 @@ class NodeSim(Sim):
         if not self.gq:
             return
         c = self.cand
-        if c == N_BASE or (self.fault and c in (N_DISP, N_BBRD)):
+        if c == N_BASE or (self.fault and c in (N_DISP, N_BBRD, N_DRULE)):
             self._dispatch_instant(fallback=(c != N_BASE))
-        elif c == N_DISP:
+        elif c in (N_DISP, N_DRULE):
             self.disp.dispatch()
         else:
             self.poster.post_all()
@@ -89,9 +94,11 @@ class NodeSim(Sim):
         ok = super().commit(req, plan, t_dec)
         if ok and self.board is not None:
             self.board.on_committed(plan.n_d[0], plan.n_d[1], req)
+        if ok and self.ledger is not None:
+            self.ledger.add(req.rid, plan.n_d[0], plan.n_d[1], req.hist + req.q + req.out / 2.0)
         if ok and not req.fallback and req.t_arr >= self.o["warmup"]:
             self.tier_counts[plan.n_d[1]] += 1
-            if self.cand == N_DISP:
+            if self.cand in (N_DISP, N_DRULE):
                 self.stats["decisions"] += 1
                 self.stats["t_dec"].append(req.t_dec or 0.0)
         return ok
@@ -99,7 +106,14 @@ class NodeSim(Sim):
     def start_decode(self, req):
         if self.board is not None:
             self.board.on_decode_start(req)
+        if self.ledger is not None:
+            self.ledger.started(req.rid, self.now)
         super().start_decode(req)
+
+    def take_snapshot(self):
+        super().take_snapshot()
+        if self.ledger is not None:
+            self.ledger.prune(self.now)
 
     # ------------------------------------------------------------------------------------- HBM occupancy (QA3)
     def _occ_now(self):

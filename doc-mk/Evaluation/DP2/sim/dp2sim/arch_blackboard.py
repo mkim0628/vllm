@@ -21,21 +21,23 @@ class TierAdmissionAgent:
         self.sim, self.tier = sim, tier
         self.claimed = {}                # node -> {rid: context tokens} of Tasks this agent has claimed but whose Decode has not started
 
-    def load(self, nd):
-        """Measured offload attention time of this Tier on `nd`, counting resident sequences and the agent's own claim backlog."""
-        cnt, ctx = nd.groups().get(self.tier, (0, 0.0))
+    def load(self, nd, view=None):
+        """Offload attention time of this Tier on `nd`, counting resident sequences and the agent's own claim backlog. `view`: a
+        telemetry snapshot to read instead of the live node (used only by the reference rule-dispatcher)."""
+        cnt, ctx = (view.nodes[nd.idx].groups if view is not None else nd.groups()).get(self.tier, (0, 0.0))
         mine = self.claimed.get(nd.idx, {})
         cnt, ctx = cnt + len(mine), ctx + sum(mine.values())
         return self.sim.P.decode_att(self.tier, cnt, ctx)[1] if cnt else 0.0
 
-    def headroom(self, nd):
-        return self.load(nd) <= self.sim.o["theta"] * SLO_TPOT
+    def headroom(self, nd, view=None):
+        return self.load(nd, view) <= self.sim.o["theta"] * SLO_TPOT
 
-    def claim(self, node, delta):
+    def claim(self, node, delta, view=None):
         sim = self.sim
-        if sim.kv.free(node, self.tier) < delta:
+        free = view.nodes[node].free[self.tier] if view is not None else sim.kv.free(node, self.tier)
+        if free < delta:
             return False
-        return self.headroom(sim.nodes[node])
+        return self.headroom(sim.nodes[node], view)
 
 
 class HbmBudgetAdmission:
@@ -45,16 +47,22 @@ class HbmBudgetAdmission:
     def __init__(self, sim):
         self.sim = sim
 
-    def grant(self, node, delta, sess, resident=False):
+    def grant(self, node, delta, sess, resident=False, view=None):
         sim = self.sim
-        free = sim.kv.free(node, "hbm")
-        if free < delta and sim.kv.victims(node, delta - free, sess.sid) is None:
-            return False
+        if view is not None:                      # reference rule-dispatcher: telemetry snapshot instead of live state
+            free, idle = view.nodes[node].free["hbm"], view.nodes[node].evictable
+            if free < delta and idle < delta - free:
+                return False
+        else:
+            free = sim.kv.free(node, "hbm")
+            if free < delta and sim.kv.victims(node, delta - free, sess.sid) is None:
+                return False
         if resident:
             return True
         cap = target("hbm") * sim.kv.pool[(node, "hbm")]
-        idle = sum(s.kv_bytes for s in sim.kv.sessions.values()
-                   if s.owner == (node, "hbm") and not s.active and not s.pinned and s.sid != sess.sid)
+        if view is None:
+            idle = sum(s.kv_bytes for s in sim.kv.sessions.values()
+                       if s.owner == (node, "hbm") and not s.active and not s.pinned and s.sid != sess.sid)
         return (cap - free - idle + delta) / cap <= sim.o["rho_hi"]
 
 
@@ -77,7 +85,7 @@ class TaskBoard:
             for mine in ag.claimed.values():
                 mine.pop(req.rid, None)
 
-    def decide(self, req, node):
+    def decide(self, req, node, view=None):
         sim = self.sim
         sess = req.sess
         owner = sess.owner if (req.hist > 0 and sess.owner is not None and sess.owner[0] == node) else None
@@ -87,13 +95,13 @@ class TaskBoard:
         def delta(t):
             return need - (sess.kv_bytes if owner == (node, t) else 0.0)
 
-        if ot == "hbf" and sim.kv.free(node, "hbf") >= delta("hbf"):
+        if ot == "hbf" and (view.nodes[node].free["hbf"] if view is not None else sim.kv.free(node, "hbf")) >= delta("hbf"):
             return "hbf"
-        if ot in self.agents and self.agents[ot].claim(node, delta(ot)):
+        if ot in self.agents and self.agents[ot].claim(node, delta(ot), view):
             return ot
-        if self.budget.grant(node, delta("hbm"), sess, resident=(ot == "hbm")):
+        if self.budget.grant(node, delta("hbm"), sess, resident=(ot == "hbm"), view=view):
             return "hbm"
-        claimants = [t for t in AGENT_ORDER if self.agents[t].claim(node, delta(t))]
+        claimants = [t for t in AGENT_ORDER if self.agents[t].claim(node, delta(t), view)]
         if claimants:
             return claimants[0]                      # arbitration: first claimant in AGENT_ORDER
         return None

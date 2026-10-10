@@ -114,3 +114,13 @@ SKILL §5: 모든 comparison_valid 쌍·집계 QA에서 후보 ≥ Baseline(CI �
 | 도구 | QA4 smoke S1 fixture에서 B는 ScHBM만 1 B로 줄이면 CXL-PNM이 항상 headroom이 있어 `cxl_pnm2`를 쓰지 않음 | 사전 등록된 fixture 허용 조항에 따라 **ScHBM과 CXL-PNM 둘 다 1 B**로 줄임 (A와 B 모두 같은 fixture). 변경 이력에 공개 |
 | QA4 | B의 S2(에너지 항): 처음 구현(agent + budget 임계)은 smoke 실패(분포 불변). 중재(arbitration)가 에너지를 보지 않기 때문 | 사전 등록 규칙(작동하는 **최소** 변경)에 따라 smoke를 통과하는 최소 변경(중재의 에너지 반영)을 주 값으로, agent + budget까지 넣은 확장판은 민감도로 보고 |
 
+### 3.4 1회차 전체 실행 중단과 A 설계 결함 수정 (2026-10-10)
+1회차 전체 실행(`qa_eval_node.py run`, 후보 3개)을 시작한 뒤 약 590건(SYS-H100, Common 3 + `n_dp2_turn_hbm_small_tool` 일부)이 끝난 시점에 **중단**했다. 중단 사유는 진행 속도 점검 중 한 번 확인한 진단 실행이다: `n_dp2_decode_heavy_p_idle`, SYS-H100, seed 11, 부하 320에서 **A-Dispatcher goodput 1,882 대 Baseline 8,382 (x0.22), TPOT P99 253 ms, 한 갱신 구간의 요청이 같은 Tier로 몰림**. 이것은 Baseline보다 나쁜 결과이므로 SKILL §5의 Baseline-regression loop를 적용한다.
+
+- **진단 (class P, 정책/아키텍처 결함)**: A의 Dispatcher가 snapshot(갱신 50 ms)만 보고 결정하고, **자기가 방금 dispatch한 Decode 배정**(아직 snapshot에 보이지 않음)을 상태에 반영하지 않았다. 그래서 같은 갱신 구간의 요청이 모두 "비어 보이는" 같은 Tier를 골랐다(herding). B에는 평가 전에 같은 성격의 결함(claim backlog)을 고쳤다(§3.3). 기존 C1과 같은 약점이었지만 Tier 선택지가 많은 노드 내 구성에서 드러났다.
+- **수정 (A만, 이 한 가지)**: Dispatcher가 자기 dispatch를 기록하는 `PendingLedger`(Resource State의 일부)를 추가하고 결정 시 snapshot 위에 겹쳐 본다(`arch_dispatcher.py`). 정책 상수(λ_HBM, ε, t_ref, telemetry)와 시나리오는 바꾸지 않았다.
+- **수정 후 같은 진단 실행**: A goodput 9,102 (Baseline 8,382, x1.09), TPOT P99 43 ms. 이 한 점만 봤고 다른 시나리오는 수정 전후로 비교하지 않았다.
+- 중단된 1회차 부분 데이터는 `results/data/arch/iterations/run1_aborted/`에 보존한다(평가에 쓰지 않음).
+- **참고 후보 추가 (평가 전, 별 미부여)**: `Ref-Dispatcher-with-board-rules`(Dispatcher 아키텍처가 Blackboard의 규칙 집합을 snapshot 정보로 중앙에서 실행). A와 B는 아키텍처와 규칙 집합이 함께 다르므로, 같은 규칙 집합에서 아키텍처만 바꾼 비교를 위해 둔다. 후보 평가 결과를 본 뒤 추가한 것이 아니라 수정 전 실행에서 A와 B의 규칙 집합이 결과를 가를 수 있다는 점을 보고 정했다.
+- 다음: 수정된 코드로 **2회차 전체 실행**(후보 3개 + 참고 1개, 처음부터).
+

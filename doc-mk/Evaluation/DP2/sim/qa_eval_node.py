@@ -20,7 +20,7 @@ import multiprocessing as mp
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from dp2sim.nodeint import N_BASE, N_BBRD, N_DISP, NodeSim  # noqa: E402
+from dp2sim.nodeint import N_BASE, N_BBRD, N_DISP, N_DRULE, NodeSim  # noqa: E402
 from dp2sim.runner import SEEDS  # noqa: E402
 from dp2sim.scenarios_node import NODE_SCENARIOS as SCENARIOS  # noqa: E402
 
@@ -37,7 +37,7 @@ def load_cal():
 
 SYSTEMS = ("SYS-H100", "SYS-B200")
 STAR_CANDS = (BASELINE, C1, C2)
-REF_CANDS = ()
+REF_CANDS = (N_DRULE,)       # reference (not starred): Dispatcher architecture running the Blackboard rule set
 ALL_CANDS = STAR_CANDS + REF_CANDS
 T95 = 2.776
 MATERIAL_REL = 0.01
