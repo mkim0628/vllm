@@ -10,6 +10,7 @@
 | `reference/build_dp_deck_example.py` | 기준 파일을 템플릿으로 써서 DP 슬라이드를 만드는 python-pptx 예시(헬퍼 함수 포함) |
 | `dp2-decision-structure-candidates-v2.pptx` | 위 스타일로 만든 예시 덱(DP2 후보 구조 A / B′ / 하이브리드 C, 11장) |
 | `dp1-abstraction-level-comparison.pptx` | DP1 후보 비교 슬라이드(별도 형식) |
+| `dp2-arch-styles-dispatcher-vs-blackboard.pptx` | DP2 아키텍처 스타일 비교 덱(배경 2 + 설계 1 + 보완 설계 1, 4장). 설명: [`dp2-arch-styles-dispatcher-vs-blackboard.md`](dp2-arch-styles-dispatcher-vs-blackboard.md) |
 
 ## 스타일 규칙 (기준 파일에서 관찰)
 
