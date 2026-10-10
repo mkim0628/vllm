@@ -1,0 +1,28 @@
+diff -ru -x __pycache__ -x DP1 base/DP2/sim/dp2sim/policies.py s2/DP2/sim/dp2sim/policies.py
+--- base/DP2/sim/dp2sim/policies.py	2026-10-04 16:51:13.760730124 +0000
++++ s2/DP2/sim/dp2sim/policies.py	2026-10-04 16:52:39.926921782 +0000
+@@ -14,6 +14,7 @@
+ 
+ SLO_TTFT = 2.0
+ SLO_TPOT = 0.050
++ENERGY = {"hbm": 1.0, "custom_hbm": 0.8, "cxl_pnm": 0.5, "hbf": 0.4}   # relative energy per decoded token (ASSUMED)
+ 
+ 
+ class NodeView:
+@@ -42,6 +43,7 @@
+         self.sim = sim
+         self.P = sim.P
+         self.eps = eps
++        self.w_e = sim.o.get("w_energy", 0.0)
+         self.lam = {}          # per-node EWMA dispatch rate (planner's own knowledge)
+         self._last = {}
+ 
+@@ -136,7 +138,7 @@
+                     continue
+                 t_base = P.iter_time(nv.groups, ()) if nv.ndec else 0.0
+                 x3 = nv.ndec * max(0.0, P.iter_time(g2, ()) - t_base) / SLO_TPOT                         # TPOT SLO-fractions added to resident decodes
+-                fd = tpot / SLO_TPOT + x3 + (self.xfer(evict, (d, "hbm"), (d, "dram"), view) / SLO_TTFT if evict else 0.0)
++                fd = tpot / SLO_TPOT + x3 + self.w_e * ENERGY.get(t, 1.0) + (self.xfer(evict, (d, "hbm"), (d, "dram"), view) / SLO_TTFT if evict else 0.0)
+                 # pair evaluation over n_p classes: owner node, d itself, and best others
+                 tried = []
+                 for i in (on, d):

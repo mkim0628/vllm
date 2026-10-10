@@ -1,0 +1,334 @@
+{
+ "model": "DP4 protocol model check (abstract non-coherent CXL shared memory)",
+ "evidence": "[C] design-level model",
+ "params": {
+  "nodes": 3,
+  "max_states": 1500000,
+  "prefetch": true
+ },
+ "invariant_definitions": {
+  "I1": "payload visibility: after seeing READY the payload read is the complete value the writer wrote",
+  "I2": "no use-after-free: a block with refcount>0 (a reader holds a pin) is never evicted/reallocated",
+  "I3": "mutual exclusion: at most one node inside the critical section of the global lock (C2)",
+  "I4": "no stale index resurrect: a READY entry observed after the block was freed is never used"
+ },
+ "limitations": [
+  "Design-level abstract model of non-coherent caches; not a verification of real CPU/CXL hardware memory models.",
+  "A pass means 'no counterexample inside this model and this explored scope', not correctness of an implementation.",
+  "Safety only (I1..I4); liveness/progress (e.g. spinning forever on a stale line) is not checked.",
+  "Scope: one block lifetime with one re-allocation, 2 (or 3) nodes + lock manager host / metadata server host, one global lock stripe, single-word cells, bounded request counts.",
+  "DMA read is modeled as synchronous per word; allocator state is folded into the entry cell (single region).",
+  "Lock manager placement, slot layout/reuse rules, stale slot-body assumption: author assumptions, see README."
+ ],
+ "results": [
+  {
+   "variant": "C1",
+   "kind": "normal",
+   "description": "central metadata server, CXL-RPC slots (ntstore + REQ_READY, CLFLUSH before read)",
+   "expected_violations": [],
+   "invariants": {
+    "I1": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I2": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I3": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I4": {
+     "result": "no_violation_found_exploration_capped"
+    }
+   },
+   "states": 1500000,
+   "transitions": 15000103,
+   "capped": true,
+   "complete": false,
+   "seconds": 62.18,
+   "params": {
+    "nodes": 3,
+    "prefetch": true,
+    "max_states": 1500000
+   }
+  },
+  {
+   "variant": "C2",
+   "kind": "normal",
+   "description": "shared metadata, 2-tier lock + lock manager, clflush before read / after write",
+   "expected_violations": [],
+   "invariants": {
+    "I1": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I2": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I3": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I4": {
+     "result": "no_violation_found_exploration_capped"
+    }
+   },
+   "states": 1500000,
+   "transitions": 13989172,
+   "capped": true,
+   "complete": false,
+   "seconds": 48.18,
+   "params": {
+    "nodes": 3,
+    "prefetch": true,
+    "max_states": 1500000
+   }
+  },
+  {
+   "variant": "C2_clflushopt",
+   "kind": "defect",
+   "description": "C2 with asynchronous clflushopt (+mfence) instead of clflush for metadata",
+   "expected_violations": [
+    "I2"
+   ],
+   "invariants": {
+    "I1": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I2": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I3": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I4": {
+     "result": "no_violation_found_exploration_capped"
+    }
+   },
+   "states": 1500000,
+   "transitions": 15716913,
+   "capped": true,
+   "complete": false,
+   "seconds": 52.74,
+   "params": {
+    "nodes": 3,
+    "prefetch": true,
+    "max_states": 1500000
+   }
+  },
+  {
+   "variant": "C2_no_invalidate_before_read",
+   "kind": "defect",
+   "description": "C2 without invalidate (flush) before reading metadata",
+   "expected_violations": [
+    "I2"
+   ],
+   "invariants": {
+    "I1": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I2": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I3": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I4": {
+     "result": "no_violation_found_exploration_capped"
+    }
+   },
+   "states": 1500000,
+   "transitions": 13877017,
+   "capped": true,
+   "complete": false,
+   "seconds": 48.35,
+   "params": {
+    "nodes": 3,
+    "prefetch": true,
+    "max_states": 1500000
+   }
+  },
+  {
+   "variant": "C2_no_flush_before_unlock",
+   "kind": "defect",
+   "description": "C2 without flushing modified metadata before unlock",
+   "expected_violations": [
+    "I2"
+   ],
+   "invariants": {
+    "I1": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I2": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I3": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I4": {
+     "result": "no_violation_found_exploration_capped"
+    }
+   },
+   "states": 1500000,
+   "transitions": 13979005,
+   "capped": true,
+   "complete": false,
+   "seconds": 48.98,
+   "params": {
+    "nodes": 3,
+    "prefetch": true,
+    "max_states": 1500000
+   }
+  },
+  {
+   "variant": "C2_manager_double_grant",
+   "kind": "defect",
+   "description": "lock manager grants LOCKED to every WAITING node",
+   "expected_violations": [
+    "I3"
+   ],
+   "invariants": {
+    "I1": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I2": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I3": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I4": {
+     "result": "no_violation_found_exploration_capped"
+    }
+   },
+   "states": 1500000,
+   "transitions": 13994635,
+   "capped": true,
+   "complete": false,
+   "seconds": 49.51,
+   "params": {
+    "nodes": 3,
+    "prefetch": true,
+    "max_states": 1500000
+   }
+  },
+  {
+   "variant": "publish_before_dma_complete",
+   "kind": "defect",
+   "description": "C2 publish READY before DMA completion",
+   "expected_violations": [
+    "I1"
+   ],
+   "invariants": {
+    "I1": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I2": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I3": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I4": {
+     "result": "no_violation_found_exploration_capped"
+    }
+   },
+   "states": 1500000,
+   "transitions": 15070974,
+   "capped": true,
+   "complete": false,
+   "seconds": 50.18,
+   "params": {
+    "nodes": 3,
+    "prefetch": true,
+    "max_states": 1500000
+   }
+  },
+  {
+   "variant": "C1_no_clflush_on_server",
+   "kind": "defect",
+   "description": "C1 server does not CLFLUSH slot lines before reading",
+   "expected_violations": [
+    "I1"
+   ],
+   "invariants": {
+    "I1": {
+     "result": "violated",
+     "message": "reader used payload (0,0) after seeing READY; expected complete value (1, 1)",
+     "cex_length": 21,
+     "trace": [
+      "server.metadata_server | load RF1 -> f: f = 0 (cache miss, read memory)",
+      "client2.reader | ntstore RB2 = 4: RB2=4 queued in NT buffer (cache bypass)",
+      "env | h0: prefetch fills RB2=1 into cache",
+      "env | h2: ntstore drains: RB2=4 reaches memory",
+      "client2.reader | sfence: NT buffer drained",
+      "client2.reader | ntstore RF2 = k: RF2=1 queued in NT buffer (cache bypass)",
+      "env | h2: ntstore drains: RF2=1 reaches memory",
+      "server.metadata_server | load RF2 -> f: f = 1 (cache miss, read memory)",
+      "server.metadata_server | load RB2 -> op: op = 1 (cache HIT (may be stale; memory=4))",
+      "server.metadata_server | ntstore PB2 = res: PB2=1 queued in NT buffer (cache bypass)",
+      "client2.reader | sfence: NT buffer drained",
+      "client2.reader | clflush PF2: line not cached",
+      "env | h0: ntstore drains: PB2=1 reaches memory",
+      "server.metadata_server | sfence: NT buffer drained",
+      "server.metadata_server | ntstore PF2 = f: PF2=1 queued in NT buffer (cache bypass)",
+      "env | h0: ntstore drains: PF2=1 reaches memory",
+      "client2.reader | load PF2 -> pf: pf = 1 (cache miss, read memory)",
+      "client2.reader | clflush PB2: line not cached",
+      "client2.reader | load PB2 -> res: res = 1 (cache miss, read memory)",
+      "client2.reader | dma_read P0 -> p0: read memory directly = 0",
+      "client2.reader | dma_read P1 -> p1: read memory directly = 0"
+     ]
+    },
+    "I2": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I3": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I4": {
+     "result": "no_violation_found_exploration_capped"
+    }
+   },
+   "states": 1500000,
+   "transitions": 14999754,
+   "capped": true,
+   "complete": false,
+   "seconds": 52.95,
+   "params": {
+    "nodes": 3,
+    "prefetch": true,
+    "max_states": 1500000
+   }
+  },
+  {
+   "variant": "payload_via_cpu_cache",
+   "kind": "defect",
+   "description": "C2 payload written with cached CPU stores, never flushed",
+   "expected_violations": [
+    "I1"
+   ],
+   "invariants": {
+    "I1": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I2": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I3": {
+     "result": "no_violation_found_exploration_capped"
+    },
+    "I4": {
+     "result": "no_violation_found_exploration_capped"
+    }
+   },
+   "states": 1500000,
+   "transitions": 16890651,
+   "capped": true,
+   "complete": false,
+   "seconds": 54.29,
+   "params": {
+    "nodes": 3,
+    "prefetch": true,
+    "max_states": 1500000
+   }
+  }
+ ]
+}

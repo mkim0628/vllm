@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "gpu": {
+    "name": "reference_gpu",
+    "hbm_bw_bytes_per_s": 8000000000000.0,
+    "compute_tflops_fp16": 2000000000000000.0,
+    "attention_bw_efficiency": 0.9,
+    "attention_flops_efficiency": 0.5
+  },
+  "model": {
+    "name": "dense_70b_class",
+    "num_layers": 80,
+    "hidden": 8192,
+    "num_heads": 64,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "dtype_bytes": 2,
+    "context_tokens": 32768,
+    "incremental_prefill_tokens": 512
+  },
+  "memories": [
+    {
+      "name": "hbm",
+      "medium": "HBM",
+      "role": "GPU 온패키지 HBM. 세대/수치는 클러스터가 정한다 (B200=HBM3e, Vera Rubin=HBM4)",
+      "capacity_bytes": 206158430208,
+      "ext_bw_bytes_per_s": 8000000000000.0,
+      "int_bw_bytes_per_s": 8000000000000.0,
+      "latency_s": 3e-07,
+      "gpu_reachable": true,
+      "supported_primitives": [],
+      "compute_tflops_fp16": null,
+      "attention_bw_efficiency": null,
+      "write_amplification": 1.0,
+      "endurance_budget_bytes": null,
+      "provenance": "SPEC. 기본값은 HBM3e(B200) 192GiB / 8 TB/s. apply_cluster()가 클러스터의 GPU 스펙으로 용량/대역폭을 덮어쓴다.",
+      "units": {
+        "capacity": "192 GiB",
+        "ext_bw": "8000.0 GB/s",
+        "int_bw": "8.0 TB/s",
+        "latency": "300 ns",
+        "int_ext_asymmetry": "1x",
+        "tdp": "0 W"
+      },
+      "tdp_watts": 0.0,
+      "tdp_provenance": "GPU 패키지 안 — GPU TDP에 포함되므로 0으로 둔다"
+    },
+    {
+      "name": "custom_hbm",
+      "medium": "CUSTOM_HBM",
+      "role": "GPU 노드 옆 별도 메모리 노드. 스펙은 페어링 GPU 상대값으로 정의한다",
+      "capacity_bytes": 412316860416,
+      "ext_bw_bytes_per_s": 63000000000.0,
+      "int_bw_bytes_per_s": 16000000000000.0,
+      "latency_s": 2e-06,
+      "hops": [
+        "gpu->host:pcie5_x16",
+        "host->dev:pcie5_x16"
+      ],
+      "gpu_reachable": false,
+      "supported_primitives": [
+        "QK_GEMM",
+        "SOFTMAX",
+        "AV_GEMM",
+        "CAUSAL_MASK"
+      ],
+      "compute_tflops_fp16": 450000000000000.0,
+      "attention_bw_efficiency": 0.7,
+      "write_amplification": 1.0,
+      "endurance_budget_bytes": null,
+      "provenance": "**페어링 GPU 상대 스펙** (사용자 규칙). apply_cluster()가 클러스터별로 재계산한다:\n  용량   = GPU HBM 용량 x 2\n  내부BW = GPU HBM 대역폭 x 2\n  연산   = GPU dense FP16 x 20%  (= FP8의 20%)\n  TDP    = GPU TDP / 3\n정적 기본값은 B200 페어링 기준. Vera Rubin 페어링 시 용량 768GB / 내부BW 56TB/s / 연산 1,665 TFLOPS / TDP 767W 가 된다.\next_bw/latency = SPEC PCIe 5.0 x16 (63.0 GB/s), CPU 2홉 경유. GPU 직접 읽기 불가.",
+      "note": "**GPU가 직접 읽지 못한다 — Host를 2홉 경유한다.** 따라서 Mode A는 성립하지 않고 재활성 경로는 Mode C(Attention 오프로드)뿐이며, 오프로드가 불가하면 Mode B(전량 복원)로 떨어진다. 내부/외부 비대칭이 **889배**이므로 KV를 이 노드 밖으로 내보내는 순간 비용이 폭발한다 — 오프로드는 선택이 아니라 전제다 (설계 문서 4.4).",
+      "units": {
+        "capacity": "384 GiB",
+        "ext_bw": "63.0 GB/s",
+        "int_bw": "16.0 TB/s",
+        "latency": "2.0 us",
+        "int_ext_asymmetry": "254x",
+        "compute_fp16": "450.00 TFLOPS",
+        "tdp": "333 W"
+      },
+      "tdp_watts": 333.3333333333333,
+      "tdp_provenance": "사용자 제공 (Rubin 2300W의 1/3)"
+    },
+    {
+      "name": "cxl_pnm",
+      "medium": "CXL_PNM",
+      "role": "대용량 연산형 확장 메모리 (LPDDR5X 기반)",
+      "capacity_bytes": 549755813888,
+      "ext_bw_bytes_per_s": 63000000000.0,
+      "int_bw_bytes_per_s": 400000000000.0,
+      "latency_s": 3e-07,
+      "hops": [
+        "gpu->cpu:pcie",
+        "cpu->dev:cxl"
+      ],
+      "gpu_reachable": false,
+      "supported_primitives": [
+        "QK_GEMM",
+        "SOFTMAX",
+        "AV_GEMM",
+        "CAUSAL_MASK"
+      ],
+      "compute_tflops_fp16": 3280000000000.0,
+      "attention_bw_efficiency": 0.7,
+      "write_amplification": 1.0,
+      "endurance_budget_bytes": null,
+      "provenance": "연산 = 사용자 제공 FP32 1.64 TFLOPS -> FP16 3.28 TFLOPS (2배, ASSUMED). ext_bw = SPEC CXL 2.0 over PCIe 5.0 x16 (63.0 GB/s). 내부BW = DRAM과 동일 (CXL memory expander의 media가 DRAM이므로) SPEC DDR5-6400 51.2 GB/s/채널 x8채널 = 400 GB/s. 용량/지연 = ASSUMED.",
+      "note": "FP16을 FP32의 2배로 가정했다. **1배라면 연산 성능이 균형점의 1.06배에 불과해 4.4의 연산 조건을 간신히 통과한다** — 내부 대역폭이 조금만 올라도 탈락한다. 이 가정이 결과를 바꾸는지 Sweep으로 확인해야 한다.",
+      "units": {
+        "capacity": "512 GiB",
+        "ext_bw": "63.0 GB/s",
+        "int_bw": "400 GB/s",
+        "latency": "300 ns",
+        "int_ext_asymmetry": "6.3x",
+        "compute_fp16": "3.28 TFLOPS",
+        "tdp": "150 W"
+      },
+      "tdp_watts": 150.0,
+      "tdp_provenance": "ASSUMED — 연산 유닛을 얹은 CXL 메모리 모듈 등급"
+    },
+    {
+      "name": "dram",
+      "medium": "DRAM",
+      "role": "CPU 측 주 메모리",
+      "capacity_bytes": 1099511627776,
+      "ext_bw_bytes_per_s": 64000000000.0,
+      "int_bw_bytes_per_s": 400000000000.0,
+      "latency_s": 2e-07,
+      "hops": [
+        "gpu->cpu:pcie"
+      ],
+      "gpu_reachable": false,
+      "supported_primitives": [],
+      "compute_tflops_fp16": null,
+      "attention_bw_efficiency": null,
+      "write_amplification": 1.0,
+      "endurance_budget_bytes": null,
+      "provenance": "SPEC: DDR5-6400 51.2 GB/s per channel; ext limited by PCIe 5.0 x16",
+      "units": {
+        "capacity": "1.00 TiB",
+        "ext_bw": "64.0 GB/s",
+        "int_bw": "400 GB/s",
+        "latency": "200 ns",
+        "int_ext_asymmetry": "6x",
+        "tdp": "50 W"
+      },
+      "tdp_watts": 50.0,
+      "tdp_provenance": "ASSUMED — 1 TiB급 메모리 확장 모듈"
+    },
+    {
+      "name": "hbf",
+      "medium": "HBF",
+      "role": "고대역 플래시 (HBM과 SSD 사이 용량 계층)",
+      "capacity_bytes": 2199023255552,
+      "ext_bw_bytes_per_s": 1000000000000.0,
+      "int_bw_bytes_per_s": 1000000000000.0,
+      "write_bw_bytes_per_s": 50000000000.0,
+      "latency_s": 5e-06,
+      "gpu_reachable": true,
+      "supported_primitives": [],
+      "compute_tflops_fp16": null,
+      "attention_bw_efficiency": null,
+      "write_amplification": 3.0,
+      "endurance_budget_bytes": 1e+17,
+      "provenance": "capacity/read BW/UCIe = SPEC (OCP HBF technical specification, FMS 2026); write BW, latency, WA, endurance = ASSUMED",
+      "note": "읽기 대역폭은 HBM에 근접하지만 매체가 NAND이므로 쓰기가 비싸고 수명이 유한하다. 비활성 전환마다 쓰고 재활성마다 읽는 왕복이 반복되면 수명이 소모되므로, 왕복 빈도가 높을 KV를 여기 두면 안 된다 (설계 문서 §11.5 M-E1).\n",
+      "units": {
+        "capacity": "2.00 TiB",
+        "ext_bw": "1000.0 GB/s",
+        "int_bw": "1.0 TB/s",
+        "latency": "5.0 us",
+        "int_ext_asymmetry": "1x",
+        "write_bw": "0.050 TB/s",
+        "endurance_budget": "100 PB",
+        "tdp": "100 W"
+      },
+      "tdp_watts": 100.0,
+      "tdp_provenance": "ASSUMED — High Bandwidth Flash 모듈"
+    },
+    {
+      "name": "ssd_pim",
+      "medium": "SSD_PIM",
+      "role": "연산 기능 내장 스토리지 (장기 보관)",
+      "capacity_bytes": 17592186044416,
+      "ext_bw_bytes_per_s": 16000000000.0,
+      "int_bw_bytes_per_s": 200000000000.0,
+      "latency_s": 6e-05,
+      "hops": [
+        "gpu->cpu:pcie",
+        "cpu->dev:nvme"
+      ],
+      "gpu_reachable": false,
+      "supported_primitives": [
+        "GEMV"
+      ],
+      "compute_tflops_fp16": 2000000000000.0,
+      "attention_bw_efficiency": 0.5,
+      "write_amplification": 4.0,
+      "endurance_budget_bytes": 1e+16,
+      "provenance": "ext=SPEC PCIe 5.0 x4; latency=PUBLIC NVMe; int BW, WA, endurance = ASSUMED",
+      "note": "SSD-PIM 연산은 GEMV로 제한하며 SSD에 저장된 Vector DB의 query-vector similarity 계산에만 사용한다. KV Decode Attention/Softmax/Causal Mask/FFN 실행 자원으로 사용하지 않는다. similarity score 생성 이후 ranking/top-k는 controller/host 후처리로 본다.\n",
+      "units": {
+        "capacity": "16.00 TiB",
+        "ext_bw": "16.0 GB/s",
+        "int_bw": "200 GB/s",
+        "latency": "60.0 us",
+        "int_ext_asymmetry": "12x",
+        "compute_fp16": "2.00 TFLOPS",
+        "endurance_budget": "10 PB",
+        "tdp": "75 W"
+      },
+      "tdp_watts": 75.0,
+      "tdp_provenance": "ASSUMED — 연산 유닛을 얹은 SSD"
+    }
+  ],
+  "_generated_from": "memories_default.yaml",
+  "_note": "Generated file - edit memories_default.yaml and rerun to_json.py. See the yaml for per-field src: SPEC / PUBLIC / ASSUMED tags.",
+  "_gpu_onpackage_hbm": {
+    "_note": "GPU 온패키지 HBM은 클러스터가 고르는 슬롯 하나다(메모리 이름 'hbm'). 아래는 세대별 스펙 참조이며, 실제 적용은 clusters.json의 gpus.*.hbm_* 값이다. 배치 후보 목록에 넣지 않는다 - 넣으면 한 도메인에 온패키지 HBM이 둘이 된다.",
+    "hbm3e": {
+      "pairs_with": "b200",
+      "capacity": "192 GiB",
+      "bandwidth": "8.0 TB/s",
+      "provenance": "SPEC: HBM3e, B200 온패키지"
+    },
+    "hbm4": {
+      "pairs_with": "vera_rubin",
+      "capacity": "384 GB",
+      "bandwidth": "28.0 TB/s",
+      "provenance": "사용자 제공: HBM4, Vera Rubin 온패키지"
+    }
+  }
+}
