@@ -27,18 +27,114 @@
 - 동시 요청이 많으면 KV를 HBM으로 끌어오는 비용(HBM 용량, 쓰기 대역폭, 링크)이 처리량을 깎는다. 따라서 실행 위치 결정은 HBM 기회비용을 알아야 한다.
 
 ### 2.3 후보 구조 (같은 입력, 같은 출력 값)
-공통: 노드 선택 규칙(`assign_node`)은 같고, 후보는 그 노드 안에서 **Decode attention이 실행될 Tier**만 정한다. Prefill은 항상 그 노드 GPU에서 chunked로 실행한다. 장애 구간은 모두 Baseline 규칙으로 복귀한다.
 
-| | 1안 중앙 Dispatcher (Master–Worker) | 2안 Blackboard |
-|---|---|---|
-| Component | Tier Descriptors · State Repository(snapshot 50 ms + 자기 dispatch 기록) · Candidate Generator · Cost Model · Resource Selector · Dispatcher | Tier Descriptors · Task Board · Tier Admission Agents · HBM Budget Admission · Poster |
-| Connector | scheduler → Dispatcher `assign()`, Dispatcher → Worker `plan(cmd)`, Worker → Dispatcher telemetry | Poster → Board `publish(Task)`, Agent ↔ Board `subscribe/claim/write facts` |
-| 결정 | 중앙 1곳. 기존 Cost에 **λ_HBM 항**(`c·u²·Δ/cap`, c = 1.0)을 더해 argmin. 직렬(결정 비용 `t_ref·k/64`) | 분산. Agent가 **라이브 로컬 측정**으로 claim, 추정기 없음. 게시→claim 지연 `t_bb`(병렬) |
-| 정보 | snapshot(지연) + estimator(오차 ε) | live 측정(지연 없음), 전역 목적 없음 |
+#### 2.3.1 공통 전제와 입출력
+- **입력**: 큐에 들어온 요청(요청마다 History 토큰 `hist`, 새 입력 `q`, 예상 출력 `out`), 세션 KV의 현재 위치(`owner = (node, tier)`), 노드와 Tier별 여유 용량·점유·실행 중인 Decode 그룹, Tier 사양(용량, 대역폭, attention 가능 여부, 연산 능력).
+- **출력**: 요청마다 **Decode attention이 실행될 Tier 하나**(`hbm | custom_hbm | cxl_pnm | hbf`)와, 그 Tier로 KV를 두기 위한 용량 예약. 어느 후보든 출력 형태는 같다.
+- **고정 규칙(후보 간 동일)**: ① 노드 선택(`assign_node`): History가 있으면 소유 노드, 없으면 snapshot에서 HBM 여유가 가장 큰 노드(노드 선택은 DP4의 몫이라 평가 대상이 아니다). ② Prefill은 항상 그 노드의 GPU에서 chunked로 실행한다(노드 내 P/D 분리 없음). ③ 노드의 Prefill 대기 토큰이 한도(`qcap`)에 있으면 어느 후보든 요청을 큐에 남긴다. ④ 조정 요소가 장애(`fault`)이면 모든 후보가 Baseline 규칙으로 복귀한다(안전 복귀).
+- **Decode 반복 시간 모델**(`physics.iter_time`): `κ·(비-attention(n_tok) + max(GPU attention 합, offload Tier attention 최대값))`. Tier별 attention 시간은 HBM = KV/BW 또는 FLOPs/연산, HBF = GPU 직접 읽기(외부 BW·효율 + layer당 지연), attention 가능한 Tier = 내부 BW·연산 + 활성화 전송 + layer당 지연. 두 후보는 같은 모델로 TPOT를 예측·측정한다.
 
-**1안의 보정 (loop 1)**: Dispatcher가 snapshot만 보면 한 갱신 구간의 요청이 같은 Tier로 몰린다(herding). Dispatcher가 자기 dispatch를 기록하는 `PendingLedger`를 Resource State에 추가했다.
+#### 2.3.2 기준선 Baseline-GPU-local (T_ref)
+vLLM As-Is에 해당한다. 모든 Decode attention을 GPU(HBM)에서 한다. History가 HBM에 있으면 그대로, 그 밖(HBF, DRAM, SSD)이면 HBM으로 staging(swap-in)한 뒤 실행하고, 새 KV는 HBM에 둔다. 결정 비용 0, 결정 지점 없음, 후보 선택 없음.
 
-**2안의 규칙 집합 v2 (loop 2)**: (1) 모든 Tier agent(`hbf` 포함)는 노드 수준 예상 TPOT headroom(`iter_time(live + 모든 claim backlog + 이 Task) ≤ θ·SLO_TPOT`)으로 admit, (2) History가 있는 Task는 HBM staging(budget grant)까지만 시도하고 offload 사다리는 새 KV에만 적용한다. 상수 θ = 0.8, ρ_hi = 0.85, t_bb = 0.5 ms는 사전 등록값이며 바꾸지 않았다.
+#### 2.3.3 1안: 중앙 Dispatcher (Master–Worker)
+
+**Component와 책임** (코드 `arch_dispatcher.py`, `policies.py`)
+
+| Component | 책임 | 입력 → 출력 | 상태 |
+|---|---|---|---|
+| Tier Descriptors | Tier 사양과 용량, 현재 그룹을 `NodeView`로 제공 | 물리 모델 → NodeView | 읽기 전용 |
+| State Repository | telemetry snapshot(갱신 주기 50 ms) 보관 + `PendingLedger` | snapshot, 자기 dispatch → 겹쳐 본 NodeView | snapshot과 ledger |
+| Candidate Generator | 노드의 Tier 후보(`DECODE_TIERS`)와 필터(용량, HBM은 축출 가능분 포함, HBF 존재 여부, TPOT feasibility) | NodeView, 요청 → 후보 집합 | 없음 |
+| Cost Model | 후보별 Cost(SLO 분율의 합)와 HBM 기회비용 λ_HBM | 후보 → 스칼라 | 상수 c = 1.0 |
+| Resource Selector | TTFT가 SLO 안인 후보 중 Cost 최소(없으면 SLO 초과비 최소) 선택 | 후보 순위 → ExecutionPlan | 없음 |
+| Dispatcher | 큐 스캔(최대 64개), 직렬 결정 시간 부과, commit 호출 | 큐 → Plan 확정 | `sched_busy`(한 번에 하나) |
+| Tier Worker / GPU Worker | 확정된 Plan의 실행(용량 예약, Prefill, Decode 시작), 상태 보고 | Plan → telemetry | 각자의 큐·그룹 |
+
+**Cost** (기존 SLO 분율 Cost + 신규 항)
+```
+fd(t)   = tpot(t)/SLO_TPOT                          # 이 Task를 t에 더했을 때의 노드 TPOT 예측
+        + x3(t)                                     # 이미 실행 중인 Decode들이 받는 TPOT 악화(SLO 분율)
+        + 축출 전송시간/SLO_TTFT                       # HBM에서 idle 세션을 내릴 때만
+        + λ_HBM(t)   (t = hbm 일 때만, 다른 Tier는 0)  # 신규 항: c · u² · Δ/cap, u = min(1.5, (사용+Δ)/cap)
+Cost    = 앞단(Prefill: 대기 + staging + chunked 시간)/SLO_TTFT + 타 요청 지연 항
+        + 핸드오프 stall/(out-1)/SLO_TPOT + fd(t)
+```
+λ_HBM의 u²는 HBM이 비어 있을 때 거의 0이고 가득 찰수록 급해지는 shadow price다. 이 항이 "HBM에 두면 빠르지만 다른 세션을 밀어낸다"는 비용을 Cost에 넣는 장치다.
+
+**처리 흐름**
+1. 요청이 큐(`gq`)에 쌓인다. Dispatcher는 `sched_busy`가 아닐 때 큐를 앞에서부터 최대 64개 스캔한다.
+2. 요청마다 snapshot에서 노드를 정하고(`assign_node`), 그 노드에 `PendingLedger`(이미 dispatch했지만 snapshot에 아직 안 보이는 Decode)를 겹쳐 본다. 노드의 Prefill 대기가 한도면 건너뛴다.
+3. `Estimator.evaluate`가 Tier 후보를 만든다(용량 부족이면 제외, TPOT 예측이 SLO를 넘으면 제외) → 후보별 Cost 계산 → TTFT feasible 후보 중 argmin을 Plan으로 확정(`k` = Tier 후보 수).
+4. 결정은 scheduler에서 **직렬**이다: 결정 시간 `t_ref·k/64`를 `sched_busy`로 점유한 뒤 `c1done` 이벤트에서 commit한다. commit이 용량 예약과 필요 시 idle 세션 축출, Prefill 시작을 수행하고 `PendingLedger`에 기록한다.
+5. Decode가 시작되면 ledger에 시작 시각을 적고, 새 snapshot(그 시각 이후)이 오면 해당 항목을 지운다(`prune`).
+6. 추정 오차는 `eps`(lognormal)로 Cost 입력에 곱한다(본 평가 기본 0, 민감도에서 0~0.6).
+
+**특성**: 결정 정보가 snapshot 지연(≤ 50 ms) + 추정기이므로 네트워크 상황이 아니라 **정보 신선도와 오차**가 한계다. `PendingLedger`는 한 갱신 구간의 요청이 모두 같은 Tier로 몰리는 herding을 막기 위한 필수 구성이다(없을 때 decode_heavy 1,882 대 8,382). 결정 지점이 하나라 장애 시 전체가 멈추므로 Baseline 복귀 경로를 둔다.
+
+#### 2.3.4 2안: Blackboard
+
+**Component와 책임** (코드 `arch_blackboard.py`)
+
+| Component | 책임 | 입력 → 출력 | 상태 |
+|---|---|---|---|
+| Poster (Thin Scheduler) | 큐의 요청마다 Task를 게시(최대 128개, 중복 게시 방지). 비용 계산 없음 | 큐 → Task | `posted` 집합 |
+| Task Board | Task의 상태(posted → claimed → done), claim 라운드 실행, 중재, claim backlog 관리 | Task, claim → 확정 | `posted`, **모든 Tier의 claim backlog**(노드 → 요청 → (Tier, ctx)) |
+| Tier Admission Agent (custom_hbm, cxl_pnm, **hbf**) | 자기 Tier의 용량과 **노드 TPOT headroom**을 라이브 측정해 claim 여부 결정 | 노드 그룹, backlog → bool | 자기 claim backlog |
+| HBM Budget Admission | HBM staging·상주 허용 여부: 용량(여유 + 축출 가능) 충족, 이용률 ≤ ρ_hi(idle 세션은 비어 있는 것으로 계산). 이미 HBM에 있으면 용량만 확인 | 노드 점유 → bool | 없음 |
+| GPU Worker | HBM staging과 GPU attention 실행 | — | — |
+| Tier Descriptors | Tier 사양 | — | 읽기 전용 |
+
+**Agent의 headroom** (v2): `iter_time(live 그룹 ⊕ 노드의 모든 claim backlog ⊕ 이 Task를 이 Tier에 추가) ≤ θ·SLO_TPOT`, θ = 0.8(= 40 ms). 측정은 snapshot이 아니라 노드의 **현재** 상태이고 estimator도 쓰지 않는다. 그리고 claim했지만 Decode가 아직 시작되지 않은 Task(backlog)를 포함해야 한다(없을 때 모든 Task가 같은 Tier로 몰린다).
+
+**결정 규칙 (`TaskBoard.decide`, v2)**
+```
+ctx = hist + q + out/2
+1. History가 Tier ot(hbm 제외)에 있고 ot의 agent가 있으면(custom_hbm, cxl_pnm, hbf)
+     agent[ot].claim(용량 충족 and 노드 headroom) → 성공이면 ot 에서 실행 (KV 있는 곳에서 실행)
+2. HBM Budget Admission.grant(...) → 성공이면 hbm (History는 staging, 새 KV는 상주)
+3. hist > 0 이면 → 거절(None): board에 이동 비용 신호가 없어 History는 HBM staging까지만 시도
+4. hist == 0 (새 KV) 이면 offload 사다리: custom_hbm → cxl_pnm 순으로 claim 가능한 agent 중
+     첫 claimant (중재 = AGENT_ORDER 순서)
+5. 모두 거절 → Task는 큐에 남고 다음 게시 때 다시 claim 시도 (rejects 카운터)
+```
+
+**처리 흐름**
+1. Poster가 큐의 요청마다 Task를 게시하고 `t_bb`(0.5 ms) 뒤 `bbclaim` 이벤트를 예약한다(여러 Task가 병렬로 진행, 직렬화 없음).
+2. `on_claim`: 요청이 아직 큐에 있으면 노드를 정하고(`assign_node`), 장애면 Baseline 규칙으로, 아니면 노드의 outstanding이 한도 미만일 때 `decide`를 호출한다.
+3. 성공이면 commit(용량 예약, Prefill 시작)하고 board와 해당 agent의 backlog에 기록, 큐에서 제거한다. Decode가 시작되면 backlog에서 지운다.
+4. 실패면 큐에 남고 다음 이벤트의 게시 때 재시도한다.
+
+**규칙 집합 v1 → v2 (loop 2)**: v1은 `hbf`를 용량만 보고 admit하고 offload agent의 headroom을 그 Tier의 attention 시간만으로 판단했으며, History를 offload 사다리에 올렸다. 그 결과 128K 컨텍스트가 HBF 직접 읽기로 계속 Decode되거나(`hbf_hist` goodput ×0.00) History 이동이 폭증(`dram_small_tool` ×0.72)했다. v2는 모든 Tier를 노드 수준 headroom으로 admit하고 History는 HBM staging까지만 시도한다. 상수는 바꾸지 않았다.
+
+**특성**: 결정이 라이브 측정에 기반하므로 telemetry 지연에 둔감하고 중앙 결정 비용이 없다. 반면 **전역 목적(비용 함수)이 없고 규칙 집합이 곧 정책**이다. board에는 HBM에 두는 것과 offload의 비용 차이를 볼 신호가 없어서 HBM 압박(ρ_hi)이 있을 때만 offload한다. 새 Tier는 agent 한 개 추가로, 새 telemetry 신호는 해당 agent 한 곳에 국소화된다.
+
+#### 2.3.5 두 구조의 차이 (구조적 속성 → 영향 QA)
+
+| 속성 | 1안 Dispatcher | 2안 Blackboard | 주로 영향받는 QA |
+|---|---|---|---|
+| 결정 주체 | 중앙 1곳(Planner) | 분산(Knowledge Source) | Q4(신규 요소 추가), 장애 격리 |
+| 결정 정보 | snapshot(≤ 50 ms 지연) + 추정기(오차 ε) + 자기 dispatch 기록 | 노드의 라이브 측정 + claim backlog, 추정기 없음 | Q2(꼬리), 오차 민감도 |
+| 목적 함수 | 전역 Cost(TPOT, TTFT, 타 요청 악화, HBM 기회비용) | 없음(Tier별 임계 규칙) | Q1, Q3 |
+| 결정 시점·비용 | Turn 시작, 직렬(`t_ref·k/64`) | Turn 시작, 병렬(`t_bb`) | Q2(TTFT 대기) |
+| 제어 흐름 | 중앙 → Worker command | 보드 event, KS가 구독하고 claim | 결합도, Q4 |
+| 상태 소유 | 중앙이 Tier 상태 사본 보유(snapshot, ledger) | Tier agent가 자기 상태 소유 | Q4(신호 추가 시 변경 범위: 3 module 대 1) |
+| 정책 변경 지점 | Cost Model, Selector | Task Board 중재, agent 규칙 | Q4(정책 교체) |
+| 약점 | 정보 신선도·추정 오차, 단일 지점 | 비용 신호 부재, admission margin | Q2, Q3 |
+
+#### 2.3.6 보완안 Hybrid C의 구조 (미구현 [C], 4.2 참조)
+Dispatcher의 Cost Evaluator → Selector는 그대로 두고, Tier 쪽에 **Tier Guard**(Knowledge Source형, 2안의 agent headroom을 차용)를 둔다. 흐름: ① Dispatcher가 후보 순위를 산출해 1순위로 `plan(cmd)`를 보낸다 → ② Tier Guard가 노드 live iteration 시간 + claim backlog로 거부 여부를 판단하고 거부하면 `veto(reason)`로 되돌려 보낸다 → ③ Dispatcher가 다음 후보를 시도한다(재계획 요청 수신 Component 추가). 결정 권한과 전역 Cost는 중앙에 유지하고 **거부권만** 분산한다. 이 구조에서 Tier 상태·한도를 Guard가 소유하면 신호 추가가 Guard 한 곳에 국소화될 것이라는 것이 가설이다(검증 전).
+
+#### 2.3.7 코드 매핑
+| 설계 요소 | 코드 |
+|---|---|
+| 공통 노드 시뮬레이터, 노드 선택, Baseline, 점유 측정 | `Evaluation/DP2/sim/dp2sim/nodeint.py` (`NodeSim`, `assign_node`, `baseline_plan_gpu`) |
+| Dispatcher, ledger, λ_HBM | `arch_dispatcher.py` (`DispatcherPlanner`, `PendingLedger`, `HbmOpportunityCost`) |
+| Cost Model, Candidate Generator, Selector | `policies.py` (`Estimator.evaluate`; 신규 훅 `price_fn`) |
+| Blackboard | `arch_blackboard.py` (`TaskBoard`, `TierAdmissionAgent`, `HbmBudgetAdmission`, `Poster`) |
+| 참고 후보(Dispatcher + Blackboard 규칙) | `arch_dispatcher.py` (`RuleDispatcher`) |
+| 물리 모델(iteration 시간, Tier 사양) | `physics.py` |
+| 시나리오 | `scenarios_node.py`, `configs/grids_node.json` |
 
 ### 2.4 구조 비교 (평가 전 예상과 평가 후 관찰)
 | | 1안 | 2안 |
