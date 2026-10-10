@@ -79,3 +79,16 @@ SKILL §5: 모든 comparison_valid 쌍·집계 QA에서 후보 ≥ Baseline(CI �
 - **H-V2 기각**: 결정이 느린 조건(N≥16)에서 상태 유사도 검증이 기존보다 낫지 않고, 임계가 엄격할수록(worker 16 전 구간, worker 4 5%) goodput이 x0.75~0.84로 떨어진다. 무효 판정이 늘면 동기 재계획 경로로 들어가고(재계획 비율 0.01 → 0.27~0.37), 이 경로는 C1과 같은 직렬 결정 비용(N=32에서 건당 수십 ms)을 내므로 C2의 이점(결정 지연 숨김)이 사라진다.
 - 해석 한계: 현재 상태 = telemetry snapshot이라 telemetry 1 s에서는 상태 변화를 못 본다(E1 1.0 s에서 차이 없음). Cost 재계산 비용을 c_val = 20 µs로 가정(과소일 수 있음). E2는 seed 2개, 노드당 부하 2점이라 잡음이 있다. `val_tol` 기본값은 None이라 본 평가는 기존 검증을 쓴 결과다.
 - 시사점: 상태 유사도 검증은 정확도를 올리지만 재계획 비용이 비싼 환경에서는 오히려 해롭다. 재계획을 C1식 직렬 결정이 아니라 backup 후보 확대나 top-k 재평가 같은 싼 경로로 두거나 임계(20% 이상)를 넓혀야 한다. 이 변형은 평가하지 않았다.
+
+
+## 3. 아키텍처 스타일 비교 (A Dispatcher / B Blackboard) — 사전 등록 (2026-10-10)
+
+**이 기록이 올라간 커밋이 사전 등록 시점이다.** 이전 평가(§0~§2, C1 대 C2)는 바꾸지 않는다 (H9). 사용자 결정(2026-10-10)으로 DP2가 노드 내 attention 실행 위치 결정으로 재정의되어, 후보 축이 결정 시점에서 아키텍처 스타일로 바뀌었다. 정의·상수·시나리오·QA 정의·가설은 [`../../arch-styles-plan.md`](../../arch-styles-plan.md), QA4 변경 시나리오는 [`../../qa4-preregistration-arch.md`](../../qa4-preregistration-arch.md)에 있다.
+
+### 3.0 이 시점에 이미 한 것 (후보 결과 없음)
+- `test_sim.py` 12개 통과 (revision `92995f7`, 작업 트리 clean). 기존 결과 2점 재현(`Baseline-PD-fixed cb_kv_8k_b32` load 16 seed 11 goodput 1012.6222, `C1 dp2_turn_dram_small_tool` load 12 seed 11 goodput 234.9163): 저장된 값과 소수 4자리까지 일치.
+- 새 후보·metric은 기존 `engine.py`를 수정하지 않고 서브클래스(`dp2sim/nodeint.py`)로 추가한다. `policies.py`에는 기본값이 no-op인 hook(`Estimator.price_fn`) 한 줄만 추가한다(기존 후보 결과 불변을 대조군으로 확인).
+
+### 3.1 다음 단계 (이 기록 이후)
+1. Baseline-only 제어 실행으로 시나리오 grid·lam0 확정 후 아래 §3.2에 추가.
+2. 후보는 기능 점검용 소규모 실행만 하고 공개한다. 그 뒤 전체 실행.
