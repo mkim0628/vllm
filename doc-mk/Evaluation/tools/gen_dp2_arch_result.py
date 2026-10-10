@@ -265,7 +265,7 @@ status: draft
 
 # 3. 벤치마크 / 시나리오
 
-Common 3개 + DP2 노드 내 13개 = 16개 시나리오 x 2 시스템 = 32쌍. 시나리오당 한 줄 설명은 `DP2/benchmark.md` §11. fit label:
+Common 3개 + DP2 노드 내 13개 = 16개 시나리오 x 2 시스템 = 32쌍. 노드 수는 1노드 3개(Common), 2노드 12개, 4노드 1개이며 노드 배정은 후보가 아닌 평가 하네스의 고정 라우팅이다(6장). 시나리오당 한 줄 설명은 `DP2/benchmark.md` §11. fit label:
 
 {fit_table()}
 
@@ -315,7 +315,7 @@ Baseline보다 나쁜 비교 가능 쌍(쌍별 verdict loss가 있는 항목, �
 - **A와 B는 아키텍처뿐 아니라 규칙 집합이 다르다.** 참고 후보 Ref(Dispatcher + board 규칙)로 분리를 시도했으나 Ref도 B와 비슷해 규칙 집합이 지배적이다. "Blackboard 스타일이 구조적으로 나쁘다"가 아니라 "cost 신호가 없는 Blackboard 규칙 집합은 이득이 없다"로 읽어야 한다. board에 cost 신호를 추가한 Blackboard는 이 비교에 포함되지 않았다.
 - QA3의 B 값은 SLO 달성률 조건으로 {bb['hbm_n_excluded']}쌍이 제외된 {bb['hbm_n_eq']}쌍 기준이며 경계(0.95)에 가깝다.
 - A의 TPOT P99는 Baseline의 {x(a['tpot_p99_x'])}이다. 별점 geomean이 이를 TTFT 개선과 상쇄한다. TPOT 꼬리가 중요하면 A를 그대로 쓸 수 없다.
-- 노드 간 결정(DP4), 장시간 실행, endurance, 실제 trace는 평가하지 않았다. 기본 grid는 Baseline 교정으로 정했고 saturated {npair['saturated']}쌍은 후보 판별력이 없다.
+- **노드 배정은 평가 하네스의 고정 라우팅이다**(모든 후보 동일, History가 있으면 소유 노드, 없으면 snapshot의 HBM 여유 최대 노드). 시나리오 16개 중 13개가 2~4노드라 결과에 이 라우팅의 노드 간 부하 분산 효과가 섞여 있고 1노드만으로 DP2를 분리한 재평가는 하지 않았다.\n- 노드 간 결정(DP4), 장시간 실행, endurance, 실제 trace는 평가하지 않았다. 기본 grid는 Baseline 교정으로 정했고 saturated {npair['saturated']}쌍은 후보 판별력이 없다.
 - A는 Cost 추정 오차에 민감하다(위 민감도 해석 (1)). **본 평가의 A는 오차 없는 추정(sigma = 0, `dp2_params.json` A18)으로 돌렸으므로 A의 이득은 상한에 가깝다.** 오차 모델은 lognormal 한 종류뿐이다(H17).\n- QA4의 공수와 비용은 가정 상수(`qa4_modifiability.py`)이며 실제 에이전트 세션 측정이 아니다.
 - loop를 6회 전에 중단했다(3.6). 중단 판단은 사용자가 뒤집을 수 있다.
 

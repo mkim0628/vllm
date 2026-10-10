@@ -31,7 +31,8 @@
 #### 2.3.1 공통 전제와 입출력
 - **입력**: 큐에 들어온 요청(요청마다 History 토큰 `hist`, 새 입력 `q`, 예상 출력 `out`), 세션 KV의 현재 위치(`owner = (node, tier)`), 노드와 Tier별 여유 용량·점유·실행 중인 Decode 그룹, Tier 사양(용량, 대역폭, attention 가능 여부, 연산 능력).
 - **출력**: 요청마다 **Decode attention이 실행될 Tier 하나**(`hbm | custom_hbm | cxl_pnm | hbf`)와, 그 Tier로 KV를 두기 위한 용량 예약. 어느 후보든 출력 형태는 같다.
-- **고정 규칙(후보 간 동일)**: ① 노드 선택(`assign_node`): History가 있으면 소유 노드, 없으면 snapshot에서 HBM 여유가 가장 큰 노드(노드 선택은 DP4의 몫이라 평가 대상이 아니다). ② Prefill은 항상 그 노드의 GPU에서 chunked로 실행한다(노드 내 P/D 분리 없음). ③ 노드의 Prefill 대기 토큰이 한도(`qcap`)에 있으면 어느 후보든 요청을 큐에 남긴다. ④ 조정 요소가 장애(`fault`)이면 모든 후보가 Baseline 규칙으로 복귀한다(안전 복귀).
+- **노드는 이미 정해져 있다**: DP2의 결정은 "노드 안에서 어느 Tier인가"뿐이다. 요청이 어느 노드로 가는지는 DP2의 설계 범위가 아니다(노드 선택은 DP4). 평가 환경에서 노드를 배정하는 고정 라우팅은 설계가 아니라 평가 하네스이며 3.1에 적었다.
+- **고정 규칙(후보 간 동일)**: ① Prefill은 항상 그 노드의 GPU에서 chunked로 실행한다(노드 내 P/D 분리 없음). ② 노드의 Prefill 대기 토큰이 한도(`qcap`)에 있으면 어느 후보든 요청을 큐에 남긴다. ③ 조정 요소가 장애(`fault`)이면 모든 후보가 Baseline 규칙으로 복귀한다(안전 복귀).
 - **Decode 반복 시간 모델**(`physics.iter_time`): `κ·(비-attention(n_tok) + max(GPU attention 합, offload Tier attention 최대값))`. Tier별 attention 시간은 HBM = KV/BW 또는 FLOPs/연산, HBF = GPU 직접 읽기(외부 BW·효율 + layer당 지연), attention 가능한 Tier = 내부 BW·연산 + 활성화 전송 + layer당 지연. 두 후보는 같은 모델로 TPOT를 예측·측정한다.
 
 #### 2.3.2 기준선 Baseline-GPU-local (T_ref)
@@ -64,7 +65,7 @@ Cost    = 앞단(Prefill: 대기 + staging + chunked 시간)/SLO_TTFT + 타 요�
 
 **처리 흐름**
 1. 요청이 큐(`gq`)에 쌓인다. Dispatcher는 `sched_busy`가 아닐 때 큐를 앞에서부터 최대 64개 스캔한다.
-2. 요청마다 snapshot에서 노드를 정하고(`assign_node`), 그 노드에 `PendingLedger`(이미 dispatch했지만 snapshot에 아직 안 보이는 Decode)를 겹쳐 본다. 노드의 Prefill 대기가 한도면 건너뛴다.
+2. 요청마다 (하네스가 배정한) 노드의 snapshot에 `PendingLedger`(이미 dispatch했지만 snapshot에 아직 안 보이는 Decode)를 겹쳐 본다. 후보는 그 노드의 Tier만이다. 노드의 Prefill 대기가 한도면 건너뛴다.
 3. `Estimator.evaluate`가 Tier 후보를 만든다(용량 부족이면 제외, TPOT 예측이 SLO를 넘으면 제외) → 후보별 Cost 계산 → TTFT feasible 후보 중 argmin을 Plan으로 확정(`k` = Tier 후보 수).
 4. 결정은 scheduler에서 **직렬**이다: 결정 시간 `t_ref·k/64`를 `sched_busy`로 점유한 뒤 `c1done` 이벤트에서 commit한다. commit이 용량 예약과 필요 시 idle 세션 축출, Prefill 시작을 수행하고 `PendingLedger`에 기록한다.
 5. Decode가 시작되면 ledger에 시작 시각을 적고, 새 snapshot(그 시각 이후)이 오면 해당 항목을 지운다(`prune`).
@@ -101,7 +102,7 @@ ctx = hist + q + out/2
 
 **처리 흐름**
 1. Poster가 큐의 요청마다 Task를 게시하고 `t_bb`(0.5 ms) 뒤 `bbclaim` 이벤트를 예약한다(여러 Task가 병렬로 진행, 직렬화 없음).
-2. `on_claim`: 요청이 아직 큐에 있으면 노드를 정하고(`assign_node`), 장애면 Baseline 규칙으로, 아니면 노드의 outstanding이 한도 미만일 때 `decide`를 호출한다.
+2. `on_claim`: 요청이 아직 큐에 있으면, 장애면 Baseline 규칙으로, 아니면 (하네스가 배정한) 노드의 outstanding이 한도 미만일 때 `decide`를 호출한다.
 3. 성공이면 commit(용량 예약, Prefill 시작)하고 board와 해당 agent의 backlog에 기록, 큐에서 제거한다. Decode가 시작되면 backlog에서 지운다.
 4. 실패면 큐에 남고 다음 이벤트의 게시 때 재시도한다.
 
@@ -128,7 +129,8 @@ Dispatcher의 Cost Evaluator → Selector는 그대로 두고, Tier 쪽에 **Tie
 #### 2.3.7 코드 매핑
 | 설계 요소 | 코드 |
 |---|---|
-| 공통 노드 시뮬레이터, 노드 선택, Baseline, 점유 측정 | `Evaluation/DP2/sim/dp2sim/nodeint.py` (`NodeSim`, `assign_node`, `baseline_plan_gpu`) |
+| 공통 노드 시뮬레이터, Baseline, 점유 측정 | `Evaluation/DP2/sim/dp2sim/nodeint.py` (`NodeSim`, `baseline_plan_gpu`) |
+| (평가 하네스) 노드 배정 고정 라우팅 | `nodeint.py` (`assign_node`), 설계 요소가 아님 |
 | Dispatcher, ledger, λ_HBM | `arch_dispatcher.py` (`DispatcherPlanner`, `PendingLedger`, `HbmOpportunityCost`) |
 | Cost Model, Candidate Generator, Selector | `policies.py` (`Estimator.evaluate`; 신규 훅 `price_fn`) |
 | Blackboard | `arch_blackboard.py` (`TaskBoard`, `TierAdmissionAgent`, `HbmBudgetAdmission`, `Poster`) |
@@ -145,6 +147,7 @@ Dispatcher의 Cost Evaluator → Selector는 그대로 두고, Tier 쪽에 **Tie
 ## 3. 평가
 
 ### 3.1 설정 (사전 등록: `../Evaluation/DP2/arch-styles-plan.md`, `qa4-preregistration-arch.md`)
+- **노드 배정은 평가 하네스다(설계 아님)**: 시뮬레이터가 멀티 노드 엔진이라 Tier 결정 전에 요청을 노드에 배정해야 한다. 모든 후보에 같은 고정 규칙을 쓴다(`assign_node`: History가 있으면 소유 노드, 없으면 snapshot에서 HBM 여유가 가장 큰 노드). 후보는 배정된 노드의 Tier만 정한다. 시나리오의 노드 수는 기존 시나리오의 D 노드 수를 그대로 썼다(1노드 3개, 2노드 12개, 4노드 1개). 따라서 결과에는 "한 노드 안의 결정"뿐 아니라 이 고정 라우팅에 의한 노드 간 부하 분산 효과가 섞여 있다. 후보 간에는 중립이지만 DP2만 분리한 측정은 아니다.
 - 시스템: SYS-H100(HBM3, PCIe5), SYS-B200(HBM3e, PCIe5) 통합. 시나리오 16개 x 2 시스템 = 32쌍, 그중 comparison-valid 21, saturated 11, infeasible 0.
 - 시나리오: Common 3(`n_cb_*`) + DP2 노드 내 13(HBM 상주 짧은 대화, History가 DRAM/SSD/HBF에 있는 대화, 128K 긴 컨텍스트 decode, decode 집중, 부하 급증, decode 단계 전환, stale telemetry, Dispatcher 장애 fallback 등). 정의는 `../Evaluation/DP2/benchmark.md` §11.
 - 실행: seed 5개(11, 23, 37, 53, 71), 시나리오별 부하 grid, 5,320 run. iso-load로 QA2와 QA3를 비교.
@@ -205,6 +208,7 @@ Dispatcher의 Cost Evaluator → Selector는 그대로 두고, Tier 쪽에 **Tie
 **왜 처음부터 C를 두지 않았나**: 혼합안은 이득이 Cost 모델에서 오는지 live 측정에서 오는지 분리할 수 없고, component와 인터페이스가 늘어 Q4에서 손해를 보는 것이 예상되므로 각 스타일의 장단을 먼저 측정해야 했다. 어떤 부분을 빌려 올지는 측정 후에 알 수 있었다(1안의 약점은 TPOT 꼬리와 추정 오차, 2안의 강점은 live 측정이고 약점은 cost 신호 부재). 그래서 C는 2안 전체가 아니라 admission 거부권만 빌린다. 이는 평가 후 정리한 이유이며 C의 효과는 검증되지 않았다.
 
 ## 5. 한계
+- **노드 배정 고정 라우팅이 결과에 섞여 있다**(3.1). 16개 시나리오 중 13개가 2~4노드이고, 1노드만으로 DP2를 분리한 재평가는 하지 않았다.
 - Evidence [B+C]: 같은 사람이 같은 simulator에서 구현한 proxy이고 vLLM 구현이 아니다. QA4의 공수와 비용은 가정 상수다.
 - A와 B는 아키텍처와 규칙 집합이 함께 다르다. 2안의 결과는 "cost 신호 없는 Blackboard 규칙 집합"에 대한 것이며 cost 신호를 넣은 Blackboard 변형은 평가하지 않았다.
 - 1안은 σ = 0에서 평가했고 오차 모델은 lognormal 한 종류다. QA3의 2안 값은 SLO 조건으로 7쌍이 제외된 14쌍 기준이다.

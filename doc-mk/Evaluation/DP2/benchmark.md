@@ -116,7 +116,7 @@ DP1의 4종(신규 memory / data type / policy / event)에 대응한다. 시뮬�
 
 > 이 절은 `arch-styles-plan.md`(사전 등록)의 시나리오 정의다. 기존 §1~§10(노드 간 P/D 평가, C1 대 C2)은 바꾸지 않는다 (SKILL H9). 시나리오 코드는 `sim/dp2sim/scenarios_node.py`(이름 앞에 `n_`), grid는 `sim/configs/grids_node.json`에 **Baseline-only 제어 실행 후 후보 실행 전에** 고정했다 (`results/iterations/loop-log.md` §3.2).
 
-**공통 변경**: P 노드를 없애고 노드 = Prefill + Decode **통합 노드**로 한다(노드 수 = 기존 D 노드 수: Common 1, 대부분 2, `skew` 4). 후보는 노드 안에서 Decode attention 실행 Tier만 정한다. 노드 선택은 모든 후보가 같은 규칙을 쓴다. 노드 간 현상을 다루는 3개(`dp2_prefill_burst_p_saturated`, `dp2_internode_link_contention`, `dyn_p_node_degrade`)는 제외한다(DP4 소관).
+**공통 변경**: P 노드를 없애고 노드 = Prefill + Decode **통합 노드**로 한다(노드 수 = 기존 D 노드 수: Common 1, 대부분 2, `skew` 4). 후보는 노드 안에서 Decode attention 실행 Tier만 정한다. 노드 배정은 DP2의 결정이 아니라 **평가 하네스의 고정 라우팅**이며 모든 후보가 같은 규칙을 쓴다(History가 있으면 소유 노드, 없으면 snapshot의 HBM 여유 최대 노드). 그래서 2~4노드 시나리오의 결과에는 이 라우팅에 의한 노드 간 부하 분산 효과가 섞인다. 노드 간 현상을 다루는 3개(`dp2_prefill_burst_p_saturated`, `dp2_internode_link_contention`, `dyn_p_node_degrade`)는 제외한다(DP4 소관).
 
 | 시나리오 | 무엇인가 | 드러내는 As-Is 약점 | 핵심 파라미터 |
 |---|---|---|---|
