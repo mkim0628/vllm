@@ -64,9 +64,9 @@
      },
      "fixture": "squeeze (HBM pool x0.001, ScHBM and CXL-PNM capacity 1 B)",
      "tiers": {
-      "cxl_pnm2": 83
+      "cxl_pnm2": 77
      },
-     "served": 76,
+     "served": 72,
      "pass": true,
      "tests": {
       "test_node": "OK",
@@ -93,7 +93,7 @@
        "physics.py"
       ],
       "loc_added": 1,
-      "module_size_loc": 21
+      "module_size_loc": 31
      }
     ]
    }
@@ -150,8 +150,8 @@
       "custom_hbm": 152
      },
      "w_E5": {
-      "custom_hbm": 36,
-      "cxl_pnm": 55
+      "custom_hbm": 65,
+      "cxl_pnm": 39
      },
      "pass": true,
      "tests": {
@@ -169,7 +169,7 @@
        "arch_blackboard.py"
       ],
       "loc_added": 2,
-      "module_size_loc": 63
+      "module_size_loc": 74
      }
     ]
    }
@@ -248,7 +248,7 @@
        "nodeint.py"
       ],
       "loc_added": 4,
-      "module_size_loc": 63
+      "module_size_loc": 74
      }
     ]
    }
@@ -319,7 +319,7 @@
      "marked": "custom_hbm",
      "uses_before": 56,
      "uses_after_mark_plus_tel_plus_1s": 0,
-     "dispatches_after": 53,
+     "dispatches_after": 48,
      "pass": true,
      "tests": {
       "test_node": "OK",
@@ -336,7 +336,7 @@
        "arch_blackboard.py"
       ],
       "loc_added": 2,
-      "module_size_loc": 21
+      "module_size_loc": 31
      }
     ]
    }
@@ -354,7 +354,7 @@
        "arch_blackboard.py"
       ],
       "loc_added": 2,
-      "module_size_loc": 63
+      "module_size_loc": 74
      },
      {
       "module": "Tier Admission Agents",
@@ -363,7 +363,7 @@
        "arch_blackboard.py"
       ],
       "loc_added": 2,
-      "module_size_loc": 21
+      "module_size_loc": 31
      },
      {
       "module": "HBM Budget Admission",

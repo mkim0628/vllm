@@ -137,3 +137,21 @@ SKILL §5: 모든 comparison_valid 쌍·집계 QA에서 후보 ≥ Baseline(CI �
   - **상수 θ, ρ_hi, t_bb, 시나리오, grid, Baseline, A는 바꾸지 않았다.** 참고 후보는 같은 규칙 v2를 쓴다(board.decide 공유).
 - **재실행**: 2회차와 같은 명령으로 3회차 전체 실행(후보 3개 + 참고 1개, 2 SYS, seed 5개, 모든 시나리오, 처음부터). 단위 테스트 8개 통과 확인.
 - QA4 harness의 B 변경 anchor는 v2 코드에 맞게 갱신했고 QA4는 v2 코드로 다시 측정한다(사전 등록 파일 변경 이력에 기록).
+
+### 3.6 3회차 전체 실행 결과와 loop 판정 (2026-10-10, revision 89eb30c, 5,320건 = 2 SYS x 5 seed x 시나리오 16 x 부하 grid x 후보 4)
+원자료: `results/data/arch/SYS-{H100,B200}/runs.jsonl`, 집계 `results/data/arch/qa_result.json`(`qa_eval_node.py agg`). 쌍 32개 중 comparison-valid 21, saturated 11, infeasible 0. 2회차에서 B에 나타난 파국적 퇴화(hbf_hist x0.00, dram_small_tool x0.72)는 사라졌다(v2 가설 확인). 다음은 **남은** 퇴화의 기록이다. 나쁜 결과도 그대로 적는다.
+
+| 후보 | QA1 ratio (geomean, 21쌍) | TTFT P99 x / TPOT P99 x | HBM 비율 (iso-load 쌍) | 판정 |
+|---|---|---|---|---|
+| A-Dispatcher | 1.075 | 0.565 / 1.344 | 0.940 (20쌍) | Baseline 이상. TPOT 꼬리는 Baseline보다 나쁨(단 TPOT P99 43 ms < SLO 50 ms) |
+| B-Blackboard | 1.005 | 1.148 / 1.046 | 1.050 (14쌍, 7쌍 제외) | goodput parity. TTFT 꼬리 악화, HBM 절감 없음(오히려 +5%), QA2 ★ |
+| Ref (Dispatcher + board 규칙) | 0.988 | 1.163 / 0.984 | 1.000 | B와 같은 양상 |
+
+**Trigger**: B가 (i) QA2 별 ★ < Baseline ★★, (ii) 7개 시나리오 쌍에서 goodput 0.93~0.98x(`n_dp2_turn_dram_small_tool` H100 0.93x, `n_dp2_stale_telemetry` H100 0.95x, `n_dp2_turn_hbf_hist` H100 0.96x 등), A가 (iii) TPOT 꼬리 x1.34와 일부 쌍(`n_dp2_session_size_skew` H100 등)에서 TPOT verdict loss (goodput은 Baseline 이상).
+
+**진단 (diagnostic 인용)**:
+- B: `n_dp2_long_ctx_decode_offload` H100에서 A는 ScHBM으로 1,066 turn을 보냈지만 B는 0 turn(Decode가 전부 HBM, TPOT P50 Baseline과 같음). `n_dp2_decode_heavy_p_idle`도 B의 offload turn 0, reject 416,728. Board 규칙은 "HBM budget이 허용하면 HBM, 거절될 때만 offload"이고 **HBM에 두는 것과 offload의 비용 차이를 볼 수 있는 신호가 board에 없다**. 그래서 B는 HBM 압박(ρ_hi=0.85)이 있을 때만 offload하며, 압박이 있는 시나리오에서는 ρ_hi 거절이 요청을 큐에 잡아 TTFT 꼬리를 늘린다(Baseline은 용량 한도까지 admit). 이것은 상수 문제가 아니라 규칙 집합의 구조적 성질이다 (Ref도 같은 양상).
+- A: TPOT를 SLO(50 ms) 안에서 소비하며 TTFT와 HBM을 얻는다(TTFT P99 x0.565). TPOT 꼬리 악화는 Cost 모델이 TPOT feasibility 한도 안의 여유를 쓰는 설계 의도의 결과이며 SLO 위반은 아니다.
+
+**판정 (class)**: B의 남은 퇴화는 정책 상수나 special-case로 고칠 결함이 아니라 (a) cost 신호 부재, (b) admission margin의 대가다. 이를 고치려면 board에 Cost 모델과 이동 비용 신호를 넣어야 하고, 그러면 구조가 A(Dispatcher)로 수렴해 비교하려는 스타일 차이가 사라진다. 시나리오별 상수 tuning은 금지(SKILL §5)라 하지 않는다. **중단 결정**: 이 규칙 집합 v2로 B를 확정하고 loop를 여기서 중단한다. SKILL의 최대 6회에는 도달하지 않았으며(시도: A herding 수정, B v2), 사용자 override 가능. B에 대해서는 "under the tested conditions the Blackboard rule set shows no benefit over the baseline (goodput parity, TTFT 꼬리 악화, HBM 절감 없음)"라고 보고한다. A의 TPOT 꼬리 악화는 설계 의도(SLO 이내)로 기록하고 결과 문서 한계에 TPOT P99 x1.34를 명시한다. 별점·선택은 이 데이터로 그대로 진행한다.
+- 다음: QA4를 v2 코드로 재측정(`qa4_arch.py`/`qa4_apply.py`), 민감도(`sens_arch.py`), 결과 문서.
