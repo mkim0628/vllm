@@ -121,6 +121,6 @@ SKILL §5: 모든 comparison_valid 쌍·집계 QA에서 후보 ≥ Baseline(CI �
 - **수정 (A만, 이 한 가지)**: Dispatcher가 자기 dispatch를 기록하는 `PendingLedger`(Resource State의 일부)를 추가하고 결정 시 snapshot 위에 겹쳐 본다(`arch_dispatcher.py`). 정책 상수(λ_HBM, ε, t_ref, telemetry)와 시나리오는 바꾸지 않았다.
 - **수정 후 같은 진단 실행**: A goodput 9,102 (Baseline 8,382, x1.09), TPOT P99 43 ms. 이 한 점만 봤고 다른 시나리오는 수정 전후로 비교하지 않았다.
 - 중단된 1회차 부분 데이터는 `results/data/arch/iterations/run1_aborted/`에 보존한다(평가에 쓰지 않음).
-- **참고 후보 추가 (평가 전, 별 미부여)**: `Ref-Dispatcher-with-board-rules`(Dispatcher 아키텍처가 Blackboard의 규칙 집합을 snapshot 정보로 중앙에서 실행). A와 B는 아키텍처와 규칙 집합이 함께 다르므로, 같은 규칙 집합에서 아키텍처만 바꾼 비교를 위해 둔다. 후보 평가 결과를 본 뒤 추가한 것이 아니라 수정 전 실행에서 A와 B의 규칙 집합이 결과를 가를 수 있다는 점을 보고 정했다.
+- **참고 후보 추가 (평가 전, 별 미부여)**: `Ref-Dispatcher-with-board-rules`(Dispatcher 아키텍처가 Blackboard의 규칙 집합을 snapshot 정보로 중앙에서 실행). A와 B는 아키텍처와 규칙 집합이 함께 다르므로, 같은 규칙 집합에서 아키텍처만 바꾼 비교를 위해 둔다. 1회차 부분 데이터(SYS-H100 Common 3개 시나리오)에서 A가 Baseline보다 높고 B는 같게 나온 것을 본 뒤, 그 차이가 아키텍처가 아니라 규칙 집합 때문일 수 있다고 판단해 추가했다(공개). 별점·선택에 쓰지 않는 참고 행이다.
 - 다음: 수정된 코드로 **2회차 전체 실행**(후보 3개 + 참고 1개, 처음부터).
 
