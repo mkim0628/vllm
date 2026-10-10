@@ -1,0 +1,34 @@
+{
+  "_provenance": "값은 사용자가 첨부한 전체 DP PPT(715e849d-___DP___.pptx, 2026-10-10)와 각 DP 결과 문서/데이터에서 옮겼다. DP4는 PPT 26~31장(후보 1=OSS 확장 llm-d, 후보 2=자체 구현)이 유일한 출처다(doc-mk/Evaluation/DP4는 옛 DP4=현 DP6 자료라 쓰지 않는다). DP1 QA4와 DP2 QA4는 코드가 results/data/qa4_modifiability.json에서 직접 평균을 낸다.",
+  "DP1": {
+    "source": "PPT 13장, doc-mk/Evaluation/DP1/results/2026-10-02_dp1-qa-evaluation.md (H100+B200 통합, 21쌍)",
+    "baseline": {"tps": 336, "ttft_p99_ms": 1084, "tpot_p99_ms": 17.1, "hbm_gib": 146.6},
+    "values": {
+      "C1": {"qa1_tps": 436, "qa1_ratio": 1.2976, "ttft_p99_ms": 1128, "tpot_p99_ms": 18.3, "hbm_gib": 142.7},
+      "C2": {"qa1_tps": 478, "qa1_ratio": 1.4226, "ttft_p99_ms": 785, "tpot_p99_ms": 16.0, "hbm_gib": 178.0}
+    },
+    "previous_stars": {"C1": {"QA1": 2, "QA2": 3, "QA3": 2, "QA4": 3}, "C2": {"QA1": 3, "QA2": 3, "QA3": 1, "QA4": 2}}
+  },
+  "DP2": {
+    "source": "doc-mk/Evaluation/DP2/results/2026-10-06_dp2-qa-evaluation.md, doc-mk/DP2/DP2-appendix-qa-result.pptx (C1 스케줄링 시점 결정 대 C2 사전 계획 결정, H100+B200 통합, 38쌍). PPT의 DP2 선정 QA는 QA1, QA2, QA4이며 QA3·QA5(결과 문서의 GPU 사용률·확장성)는 PPT 선정 QA가 아니라 제외했다.",
+    "baseline": {"tps": 575, "ttft_p99_ms": 2461, "tpot_p99_ms": 8.9},
+    "values": {
+      "C1": {"qa1_tps": 954, "qa1_ratio": 1.66, "ttft_p99_ms": 984, "tpot_p99_ms": 12.0},
+      "C2": {"qa1_tps": 956, "qa1_ratio": 1.66, "ttft_p99_ms": 1015, "tpot_p99_ms": 12.0}
+    },
+    "previous_stars": {"C1": {"QA1": 3, "QA2": 3, "QA4": 3}, "C2": {"QA1": 3, "QA2": 3, "QA4": 3}}
+  },
+  "DP4": {
+    "source": "PPT 26~31장 (후보 1=OSS 확장, 후보 2=자체 구현). QA1·QA2·QA6는 Baseline 실측 + 후보 추정 [A+C], QA4는 변경 시나리오 환산 [C]. 이 PPT의 Q3=공통 QA4, Q4=공통 QA6.",
+    "baseline": {"tps": 3200, "ttft_p99_ms": 2300, "tpot_p99_ms": 53, "se16_pct": 97},
+    "values": {
+      "C1": {"qa1_tps": 3360, "qa1_ratio": 1.05, "ttft_p99_ms": 2060, "tpot_p99_ms": 48, "se16_pct": 93,
+              "qa4_equal": {"usd_t2": 1.02, "man_days": 3.3, "modules": 2.7},
+              "qa4_weighted": {"usd_t2": 1.28, "man_days": 3.9, "modules": 3.1}},
+      "C2": {"qa1_tps": 3340, "qa1_ratio": 1.04, "ttft_p99_ms": 1940, "tpot_p99_ms": 48, "se16_pct": 64,
+              "qa4_equal": {"usd_t2": 0.48, "man_days": 3.1, "modules": 2.3},
+              "qa4_weighted": {"usd_t2": 0.38, "man_days": 2.6, "modules": 1.9}}
+    },
+    "previous_stars": {"C1": {"QA1": 2, "QA2": 2, "QA4": 2, "QA6": 3}, "C2": {"QA1": 2, "QA2": 3, "QA4": 3, "QA6": 1}}
+  }
+}
