@@ -9,6 +9,7 @@ description: Create or revise editable Korean SW Architect review presentations 
 
 ## 자료를 먼저 확인한다
 
+0. **DP1~DP4 설계 PPT는 먼저 `doc-mk/slides/README.md`와 `doc-mk/slides/reference/DP-PPT-style-reference.pptx`를 확인한다.** 사용자가 지정한 프로젝트 스타일이며 아래 BP 스타일보다 우선한다(새 덱은 다른 파일명으로 저장).
 1. [스타일 규칙](references/style-guide.md)을 읽는다. 기본은 정한웅 스타일이며 유상욱의 대안 비교·Coverage 표현을 활용한다. 사용자가 유상욱 스타일을 지정하면 그 스타일을 일관되게 적용한다.
 2. [심사 준비 체크리스트](references/review-checklist.md)를 읽는다. 이 자료는 내용·논리 지침이다. 특강 PDF의 파란 배경을 발표 디자인으로 혼합하지 않는다.
 3. [슬라이드 설계 양식](references/slide-patterns.md)에서 필요한 구성을 선택한다.
