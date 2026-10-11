@@ -1,6 +1,6 @@
 # DP3 QA 기준
 
-DP3에는 DP 전용 별 기준이 없다. **`../qa-star-criteria-unified.md`(공통 별 기준 v2)를 그대로 쓴다.**
+DP3에는 DP 전용 별 기준이 없다. **`../qa-star-criteria-unified.md`(공통 별 기준 v3)를 그대로 쓴다.**
 
 | QA | DP3에서의 지표 | 기준 |
 |---|---|---|

@@ -147,18 +147,20 @@ def load():
         for c in ("C1", "C2"):
             inp[dp]["values"][c]["qa4"] = q[c]
     inp["DP1-1안"]["values"]["C1"]["qa4"] = inp["DP1"]["values"]["C1"]["qa4"]   # PPT 3장은 1안에 C1과 같은 QA4 값을 표기
-    # DP2: v3 evaluates QA1, QA2, QA3 (QA4 excluded: both structures need the same compute/cost-model changes); QA3 from the instrumented re-run
-    for c in ("C1", "C2"):
-        inp["DP2"]["values"][c].pop("qa4", None)
-    q = EVAL / "DP2" / "results" / "data-hbm" / "qa_result.json"
-    if q.exists():
-        t = json.load(open(q))["tables"]["combined"]
-        key = lambda tag: [k for k in t if tag in k][0]
-        b = t[key("Baseline")]
-        inp["DP2"]["baseline"]["hbm_gib"], inp["DP2"]["baseline"]["hbm_share"] = b["hbm_gib"], b["hbm_share"]
-        for c in ("C1", "C2"):
-            v = t[key(c)]
-            inp["DP2"]["values"][c].update(hbm_gib=v["hbm_gib"], hbm_share=v["hbm_share"], qa3_ratio=b["hbm_gib"] / v["hbm_gib"])
+    # DP2: node-internal evaluation (2026-10-11 owner: DP2 decides inside one node). Source = DP2/results/data/arch/qa_result.json
+    # (candidates A-Dispatcher = 1안 scheduling-time decision / Client-Dispatcher, B-Blackboard = 2안 pre-plan / Shared Repository).
+    # v3 evaluates QA1, QA2, QA3 only (QA4 excluded by the owner). QA3 uses hbm_save over the equal-performance pairs of that candidate.
+    qa = json.load(open(EVAL / "DP2" / "results" / "data" / "arch" / "qa_result.json"))
+    t = qa["tables"]["combined"]
+    bl = t["Baseline-GPU-local"]
+    inp["DP2"]["source"] = "DP2/results/2026-10-10_dp2-arch-styles.md, data/arch/qa_result.json (노드 내 결정, H100+B200 통합, comparison-valid 21쌍)"
+    inp["DP2"]["baseline"] = dict(tps=bl["qa1_abs"], ttft_p99_ms=bl["ttft_p99"] * 1e3, tpot_p99_ms=bl["tpot_p99"] * 1e3, hbm_gib=bl["hbm_abs_gib"])
+    inp["DP2"]["values"] = {}
+    for c, key in (("C1", "A-Dispatcher"), ("C2", "B-Blackboard")):
+        v = t[key]
+        inp["DP2"]["values"][c] = dict(qa1_tps=v["qa1_abs"], qa1_ratio=v["qa1_ratio"], ttft_p99_ms=v["ttft_p99"] * 1e3, tpot_p99_ms=v["tpot_p99"] * 1e3,
+                                       hbm_gib=v["hbm_abs_gib"], hbm_base_gib=v["hbm_base_gib"], qa3_ratio=v["hbm_save"], hbm_n_eq=v["hbm_n_eq"])
+    inp["DP2"]["previous_stars"] = {"C1": {"QA1": 2, "QA2": 2, "QA3": 2}, "C2": {"QA1": 2, "QA2": 1, "QA3": 2}}   # 10-10 document (QA4 excluded)
     # DP3: simulation summary (aggregated by DP3/sim/aggregate.py) and, if present, the QA5 file
     sm = json.load(open(EVAL / "DP3" / "results" / "data" / "dp3_summary.json"))
     ag = sm["aggregate"]

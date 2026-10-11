@@ -4,7 +4,7 @@ next to the Baseline/candidate reduction multiple that the star uses.  Output: t
 
   DP1: tier_util.hbm of DP1/results/data/SYS-*/qa_result.json  (time-integrated occupied bytes / effective HBM capacity after the scenario's hbm multiplier)
        pairs = comparison_valid pairs of SYS-H100 and SYS-B200 (21, same set as the reported 146.6 / 142.7 / 178.0 GiB)
-  DP2: results/data-hbm/qa_result.json (hbm_share = mean KV bytes resident in D-node HBM / usable HBM KV pool)
+  DP2: results/data/arch/qa_result.json (node-internal evaluation; hbm_frac = mean KV occupancy / HBM KV pool, equal-performance pairs)
   DP3: dp3_summary pairs; share = hbm_gib / hbm_budget (usable HBM minus weights, times the scenario's KV fraction)
 """
 import json
@@ -50,11 +50,17 @@ for key, e in summ["pairs"].items():
         gib[k].append(e["pol"][p]["hbm_gib"])
 out["DP3"] = {k: dict(share=gm(sh[k]), gib=gm(gib[k]), n=len(sh[k])) for k in P}
 
-# DP2 (after the instrumented re-run)
-q = EVAL / "DP2/results/data-hbm/qa_result.json"
-if q.exists():
-    t = json.load(open(q))["tables"]["combined"]
-    out["DP2"] = {k: dict(share=t[c]["hbm_share"], gib=t[c]["hbm_gib"], n=t[c]["n"]) for k, c in (("Baseline", "Baseline-PD-fixed"), ("C1", "C1-scheduling-time"), ("C2", "C2-plan-first"))
-                  if c in t} if False else {c: dict(share=v.get("hbm_share"), gib=v.get("hbm_gib"), x=v.get("hbm_x"), n=v.get("n")) for c, v in t.items()}
+# DP2 (node-internal evaluation): mean HBM KV occupancy fraction (hbm_frac) over the equal-performance comparison-valid pairs of each candidate
+qa = json.load(open(EVAL / "DP2/results/data/arch/qa_result.json"))
+lab = {k: v["fit"] for k, v in qa["labels"].items()}
+valid = [k for k, f in lab.items() if f == "comparison_valid"]
+out["DP2"] = {}
+for tag, key in (("Baseline", "Baseline-GPU-local"), ("C1", "A-Dispatcher"), ("C2", "B-Blackboard")):
+    if tag == "Baseline":
+        pairs = valid
+    else:
+        pairs = [p for p in valid if qa["per_scenario"][p][key]["iso"]["slo_met"] >= qa["per_scenario"][p]["Baseline-GPU-local"]["iso"]["slo_met"] - 0.01]
+    out["DP2"][tag] = dict(share=gm([qa["per_scenario"][p][key]["iso"]["hbm_frac"] for p in pairs]), n=len(pairs),
+                           gib=gm([qa["per_scenario"][p][key]["iso"]["hbm_avg"] for p in pairs]))
 (EVAL / "tools" / "hbm_share.json").write_text(json.dumps(out, indent=1, ensure_ascii=False))
 print(json.dumps(out, indent=1, ensure_ascii=False)[:1500])

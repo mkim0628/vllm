@@ -202,7 +202,7 @@ def build_slides(prs, res, inp):
     rows = [["QA", "metric (같은 DP의 Baseline 대비 또는 절대 SLO)", "★★★", "★★", "★", "적용 DP"],
             ["QA1 처리량", "R = Max SLO goodput ÷ Baseline (쌍별 기하평균)", "R ≥ 4/3 (≈1.33)", "0.97 ≤ R < 4/3", "R < 0.97", "DP1 · DP2 · DP4"],
             ["QA2 지연", ["r = √(Baseline TTFT P99 ÷ 후보 TTFT P99 × Baseline TPOT P99 ÷ 후보 TPOT P99)", "(r > 1이면 좋아짐) · TTFT P99 > 2 s 또는 TPOT P99 > 50 ms이면 r과 상관없이 ★로 강등"], "r ≥ 1.20", "0.90 ≤ r < 1.20", "r < 0.90 또는 SLO 초과", "DP1 ~ DP4"],
-            ["QA3 자원", ["HBM에 올라간 Context KV의 시간 평균 GiB → 감소 배수 = Baseline ÷ 후보", "(표기: HBM KV 용량 대비 점유 비율 %도 병기)"], "배수 ≥ 1.25", "0.95 ≤ 배수 < 1.25", "배수 < 0.95", "DP1 · DP2 · DP3"],
+            ["QA3 자원", ["HBM에 올라간 AI Data(KV·LoRA·MoE expert·RAG 인덱스·Agent memory 등)의 시간 평균 GiB → 감소 배수 = Baseline ÷ 후보", "(표기: HBM 용량 대비 점유 비율 %도 병기)"], "배수 ≥ 1.25", "0.95 ≤ 배수 < 1.25", "배수 < 0.95", "DP1 · DP2 · DP3"],
             ["QA4 변경 용이성", ["세 지표를 각각 판정하고 셋이 모두 만족해야 그 별 (AND)", "① 토큰 비용(mid tier $/변경) ② 공수(MM/변경) ③ 변경 module 수"], "① ≤ $0.5 그리고 ② ≤ 0.5 그리고 ③ ≤ 2", "① ≤ $2 그리고 ② ≤ 1.0 그리고 ③ < 6", "그 밖 (하나라도 ★★ 기준을 넘음)", "DP1 · DP4"],
             ["QA5 기능 정확성", "F1 상대 하락 (압축 전 + full recompute 대비)", "≤ 1%", "≤ 3% (제안)", "> 3%", "DP3"],
             ["QA6 확장성", "SE(N_max=16) = Goodput(N) ÷ ((N/N0) × Goodput(N0)), N0=2", "≥ 90%", "70 ~ 90%", "< 70%", "DP4"]]
@@ -271,18 +271,18 @@ def build_slides(prs, res, inp):
 
     # ---------------------------------------------------------------- QA3
     hs = json.load(open(HERE / "hbm_share.json"))
-    crit("QA3 자원 (HBM 사용량) — 공통 별 기준", "기준 = Baseline 대비 감소 배수(Baseline ÷ 후보) · PPT에는 HBM KV 용량 대비 점유 비율(%)을 병기 · 성능은 섞지 않는다 · DP1·DP2·DP3 적용",
+    crit("QA3 자원 (HBM 사용량) — 공통 별 기준", "기준 = Baseline 대비 감소 배수(Baseline ÷ 후보) · PPT에는 HBM 용량 대비 점유 비율(%)을 병기 · 성능은 섞지 않는다 · DP1·DP2·DP3 적용",
          [["★★★", "감소 배수 ≥ 1.25", "HBM 점유 20% 감소 = DP1 평균 146.6 GiB 중 약 29 GiB(8K KV object 약 1.6개분). QA2와 같은 '눈에 띄는 개선' 크기로 둔 정책 선택", "환산 [C]"],
           ["★★", "0.95 ≤ 감소 배수 < 1.25", "하한 0.95: Baseline끼리 비교한 점유 잡음 범위 0.984~1.016보다 느슨하게 둠(5% 이내 증가는 열세로 보지 않음)", "측정 [B+C]"],
           ["★", "감소 배수 < 0.95", "HBM을 5% 넘게 더 쓴다(잡음 밖)", "측정 [B+C]"]],
-         ["측정하는 것(쉬운 말): 모델이 돌아가는 동안 HBM에 올라와 있는 Context KV의 평균 크기. 측정 구간 동안 HBM의 KV 양을 계속 재서 시간으로 평균낸다(순간 최대 아님). 모델 가중치·활성값은 뺀다.",
+         ["측정하는 것(쉬운 말): 모델이 돌아가는 동안 HBM에 올라와 있는 AI Data(KV, LoRA adapter, MoE expert, RAG 인덱스, Agent memory 등)의 평균 크기. 측정 구간 동안 HBM의 양을 계속 재서 시간으로 평균낸다(순간 최대 아님). 모델 가중치·활성값은 뺀다. DP1은 이 모든 종류를 잰다. DP2·DP3는 후보가 바꾸는 데이터가 KV뿐이라 KV만 잰다(다른 종류는 고정 배치).",
           "예: 100초 중 40초는 100 GiB, 60초는 50 GiB → (40×100 + 60×50) ÷ 100 = 70 GiB. 감소 배수 3.0이면 HBM을 1/3만 쓴다.",
           "PPT 표기: GiB, (HBM KV 용량 대비 점유 %, Baseline 대비 감소 배수). 용량 대비 비율은 시나리오·시스템별 비율의 기하평균이다.",
           f"DP1: C1 {hs['DP1']['C1']['gib']:.1f} GiB(용량의 {hs['DP1']['C1']['share']*100:.0f}%, ×{hs['DP1']['Baseline']['gib']/hs['DP1']['C1']['gib']:.2f}) · C2 {hs['DP1']['C2']['gib']:.1f} GiB({hs['DP1']['C2']['share']*100:.0f}%, ×{hs['DP1']['Baseline']['gib']/hs['DP1']['C2']['gib']:.2f}) · Baseline {hs['DP1']['Baseline']['share']*100:.0f}%. DP3: C1 {hs['DP3']['C1']['gib']:.1f} GiB({hs['DP3']['C1']['share']*100:.0f}%, ×{hs['DP3']['Baseline']['gib']/hs['DP3']['C1']['gib']:.2f}) · C2 {hs['DP3']['C2']['gib']:.1f} GiB({hs['DP3']['C2']['share']*100:.0f}%, ×{hs['DP3']['Baseline']['gib']/hs['DP3']['C2']['gib']:.2f}) · Baseline {hs['DP3']['Baseline']['share']*100:.0f}%."],
          ["DP3 C2의 ×1.26은 경계 1.25에서 +0.7%다. H100만 보면 1.34, B200만 보면 1.20이라 시스템 선택에 따라 ★★/★★★이 갈린다.",
           "DP1은 QA3 정의를 결과를 본 뒤 여러 번 바꿨다(활용률 → 풀 U → 성능÷비용 → HBM 사용량).",
           "'비우되 성능이 나빠지는 정책'이 유리하므로 QA1·QA2와 함께 읽어야 한다. 용량 대비 비율은 DP별 용량 정의가 달라 DP 간 비교용이 아니다."],
-         "※ 용량 대비 비율: DP1 = tier_util.hbm(시나리오 HBM 배율 반영 유효 용량), DP3 = HBM 가용(0.9)에서 가중치를 뺀 KV 몫, DP2 = D 노드 HBM KV 풀.",
+         "※ 용량 대비 비율: DP1 = tier_util.hbm(시나리오 HBM 배율 반영 유효 용량), DP3 = HBM 가용(0.9)에서 가중치를 뺀 KV 몫, DP2 = 노드 HBM KV 풀(hbm_frac).",
          "출처: DP1/qa-criteria-dp1.md §A·§I·§J · DP1/sim/simulator.py(occ_bytes_sum) · DP3/sim/dp3sim.py · tools/hbm_share.py",
          lt="무엇을 재는가 (이전 기준 포함)")
 
@@ -368,33 +368,33 @@ def build_slides(prs, res, inp):
     add(s)
 
     # ---------------------------------------------------------------- DP2 result
-    s = B.frame("DP2 평가 결과 — 공통 기준 v3 (H100 + B200 통합)", "C1 스케줄링 시점 결정 vs C2 사전 계획 결정 · 괄호 = 후보 ÷ Baseline · 시뮬레이션 [B+C] · 선정 QA: QA1, QA2, QA3(HBM 점유) · QA4 제외",
-                "※ QA3는 시뮬레이터에 HBM 점유 계측을 추가해 같은 시나리오·seed로 다시 돌린 값이다(2026-10-11). QA1·QA2 값은 기존 결과(2026-10-06)와 같다.")
+    s = B.frame("DP2 평가 결과 — 공통 기준 v3 (노드 내 결정, H100 + B200 통합)", "1안 중앙 Dispatcher(스케줄링 시점 결정) vs 2안 Blackboard(공유 Task Board) · 한 노드 안에서 attention을 어디서 실행할지 결정 · 괄호 = 후보 ÷ Baseline · 시뮬레이션 [B+C]",
+                "※ 선정 QA: QA1, QA2, QA3(HBM 점유). QA4는 제외(두 구조 모두 연산 자원·Cost 계산 복잡도 증가가 필요해 변경 용이성 차이가 없다고 봄). 근거: DP2/results/2026-10-10_dp2-arch-styles.md")
     v1, v2 = inp["DP2"]["values"]["C1"], inp["DP2"]["values"]["C2"]
     b = inp["DP2"]["baseline"]
     q1, q2 = res["DP2"]["C1"], res["DP2"]["C2"]
     r1, r2 = U.qa2_ratio(inp["DP2"], v1), U.qa2_ratio(inp["DP2"], v2)
-    h2 = hs.get("DP2", {})
-    def hb(c):
-        v = inp["DP2"]["values"][c]
-        if "hbm_gib" not in v:
-            return "측정 중"
-        return f"{S(res['DP2'][c]['QA3'])}  {v['hbm_gib']:.1f} GiB (용량의 {v['hbm_share']*100:.0f}%, 감소 ×{v['qa3_ratio']:.2f})"
-    rows = [["QA", "평가 metric (↑/↓ 좋음)", "Baseline-PD-fixed", "C1 스케줄링 시점 결정", "C2 사전 계획 결정"],
-            ["QA1 처리량", "Max SLO goodput (tok/s) ↑", f"{b['tps']:,}", f"{S(q1['QA1'])}  {v1['qa1_tps']:,} (×{v1['qa1_ratio']:.2f}) [B+C]", f"{S(q2['QA1'])}  {v2['qa1_tps']:,} (×{v2['qa1_ratio']:.2f}) [B+C]"],
-            ["QA2 지연 (TTFT)", "TTFT P99 (ms) ↓", f"{b['ttft_p99_ms']:,}", f"{v1['ttft_p99_ms']:,} (×0.40)", f"{v2['ttft_p99_ms']:,} (×0.41)"],
-            ["QA2 지연 (TPOT)", "TPOT P99 (ms) ↓", f"{b['tpot_p99_ms']}", f"{v1['tpot_p99_ms']} (×1.34)", f"{v2['tpot_p99_ms']} (×1.35)"],
-            ["QA2 별점", "개선 r + SLO 강등", "TTFT > 2 s", f"{S(q1['QA2'])} (r={r1:.2f}, SLO 충족) [B+C]", f"{S(q2['QA2'])} (r={r2:.2f}, SLO 충족) [B+C]"],
-            ["QA3 자원 (HBM)", "HBM KV 시간평균 GiB (용량 대비 %, 감소 배수) ↓", (f"{inp['DP2']['baseline']['hbm_gib']:.1f} GiB (용량의 {inp['DP2']['baseline']['hbm_share']*100:.0f}%)" if "hbm_gib" in inp["DP2"]["baseline"] else "측정 중"), hb("C1"), hb("C2")],
+    h2 = hs["DP2"]
+    def hb(c, v, st):
+        return f"{S(st['QA3'])}  {v['hbm_gib']:.0f} GiB (용량의 {h2[c]['share']*100:.0f}%, 감소 ×{v['qa3_ratio']:.2f}, {v['hbm_n_eq']}쌍)"
+    slo = lambda v: "SLO 충족" if U.qa2_slo_ok(v["ttft_p99_ms"], v["tpot_p99_ms"]) else "TTFT > 2 s → ★"
+    rows = [["QA", "평가 metric (↑/↓ 좋음)", "Baseline-GPU-local (vLLM As-Is)", "1안 중앙 Dispatcher", "2안 Blackboard"],
+            ["QA1 처리량", "Max SLO goodput (tok/s) ↑", f"{b['tps']:,.0f}", f"{S(q1['QA1'])}  {v1['qa1_tps']:,.0f} (×{v1['qa1_ratio']:.2f}) [B+C]", f"{S(q2['QA1'])}  {v2['qa1_tps']:,.0f} (×{v2['qa1_ratio']:.2f}) [B+C]"],
+            ["QA2 지연 (TTFT)", "TTFT P99 (ms) ↓", f"{b['ttft_p99_ms']:,.0f}", f"{v1['ttft_p99_ms']:,.0f} (×{v1['ttft_p99_ms']/b['ttft_p99_ms']:.2f})", f"{v2['ttft_p99_ms']:,.0f} (×{v2['ttft_p99_ms']/b['ttft_p99_ms']:.2f})"],
+            ["QA2 지연 (TPOT)", "TPOT P99 (ms) ↓", f"{b['tpot_p99_ms']:.1f}", f"{v1['tpot_p99_ms']:.1f} (×{v1['tpot_p99_ms']/b['tpot_p99_ms']:.2f})", f"{v2['tpot_p99_ms']:.1f} (×{v2['tpot_p99_ms']/b['tpot_p99_ms']:.2f})"],
+            ["QA2 별점", "개선 r + SLO 강등", "TTFT > 2 s", f"{S(q1['QA2'])} (r={r1:.2f}, {slo(v1)}) [B+C]", f"{S(q2['QA2'])} (r={r2:.2f}, {slo(v2)}) [B+C]"],
+            ["QA3 자원 (HBM)", "HBM KV 시간평균 GiB (용량 대비 %, 감소 배수) ↓", f"{b['hbm_gib']:.0f} GiB (용량의 {h2['Baseline']['share']*100:.0f}%)", hb("C1", v1, q1), hb("C2", v2, q2)],
             ["별 합계", "QA1 + QA2 + QA3", "—", f"{sum(q1.values())}", f"{sum(q2.values())}"]]
-    B.table(s, 0.4, 1.3, [2.0, 3.2, 1.9, 2.8, 2.63], rows, size=9.5, row_h=0.42, align=["l", "l", "c", "c", "c"], bold_first_col=True)
-    B.blocks(s, ["시스템: SYS-H100 + SYS-B200 통합. 노드 = 8-GPU, 6종 메모리, Llama-3.1-70B BF16, 노드 간 링크 RDMA 50 GB/s(ASSUMED). 시나리오 19개 × 2시스템 = 38쌍.",
-                 "QA4(변경 용이성)는 제외했다: 연산 자원 증가와 Cost 계산 복잡도 증가는 두 구조 모두에 해당해 변경 용이성의 차이가 없다고 보았다.",
-                 "QA3 추가: Baseline보다 HBM을 적게 쓰는 쪽이 유리하다. HBM 점유 = D 노드 HBM에 올라간 KV의 시간 평균."],
-             ["**두 후보의 trade-off가 이 평가에서는 나오지 않는다**: 별 합계가 같고 goodput 비 C2/C1 = ×1.002다. 두 후보가 같은 Cost Model과 Selector를 쓰고, 노드 4~6개·결정 1 ms에서는 결정 시점 차이가 0에 가깝다(plan age 1.2 ms, 재계획 거의 없음).",
-              "차이가 나는 조건은 규모다(QA5 확장성, H100 seed 2개): N=8~16에서 C1이 C2(plan worker 4)보다 goodput이 높고(×1.25~1.29), N=32에서는 C1 결정 지연 64 ms로 goodput 0, C2는 15,638 tok/s. 이 값은 별 평가 세트(seed ≥ 5, 2시스템)에 넣지 않았다.",
-              "QA1 ×1.66은 Baseline이 SLO를 거의 못 지키도록 설계된 시나리오가 끌어올린다."],
-             y=4.5, h=2.5, lt="평가 환경과 선정 QA", rt="정직한 주의", size=9.5)
+    B.table(s, 0.4, 1.3, [1.9, 3.2, 2.1, 2.8, 2.53], rows, size=9.5, row_h=0.42, align=["l", "l", "c", "c", "c"], bold_first_col=True)
+    B.blocks(s, ["1안(스케줄링 시점 결정): 노드 상태(telemetry)와 Cost 모델로 Turn 시작 때 실행 위치를 정한다. HBM 기회비용 항을 포함해 HBM을 덜 쓰고(×1.06 감소) TTFT P99를 줄이며(×0.57) 처리량이 오른다(×1.07).",
+                 "대가: TPOT P99가 ×1.34 나빠진다(snapshot 주기 50 ms 사이에 쌓인 부하를 Cost 모델이 못 봄). Cost 추정 오차 σ ≥ 0.4에서는 Baseline 아래로 내려간다.",
+                 "2안(Blackboard): 공유 Task Board에 게시하고 Tier agent가 라이브 측정으로 claim. 신호가 없으면 Baseline과 같은 결정을 하고(×1.00), HBM 압박 시 admission이 요청을 큐에 잡아 TTFT 꼬리가 길어진다(×1.15).",
+                 "QA1은 두 후보 모두 ★★(×1.07, ×1.00). 후보를 가르는 것은 QA2(1안 ★★, 2안 ★)와 QA3(1안 ★★, 2안 ★★) 합계 6 대 5다."],
+             ["1안 TTFT P99 1,995 ms는 SLO 2 s를 5 ms 아래다. 경계 바로 아래라 별이 한 번에 두 단계 바뀌는 구간이다(2 s를 넘으면 ★).",
+              "trade-off는 별 합계로는 약하다: 1안이 QA1~QA3에서 앞서고, 2안이 앞서는 것은 제외한 QA4(module 1.25 대 1.75)와 TPOT 꼬리(×1.05 대 ×1.34)다.",
+              "QA3는 SLO 달성률이 Baseline − 1pp 이상인 쌍만 쓴다(1안 20쌍, 2안 14쌍). 별 집계 비교 가능 21쌍, saturated 11쌍.",
+              "Cost 추정 오차 σ = 0, telemetry 50 ms, 결정 지연·게시 지연(0.5 ms)은 ASSUMED. KV 외 AI Data(LoRA·MoE)는 고정 배치다."],
+             y=4.6, h=2.4, lt="두 구조의 차이", rt="정직한 주의", size=9.5)
     add(s)
 
     # ---------------------------------------------------------------- DP3 result
@@ -435,7 +435,7 @@ def build_slides(prs, res, inp):
             ["D2", "QA2 TPOT 상한 50 ms(요청의 '2 ms'는 오타로 해석), R 경계 1.20 / 0.90", "50 ms로 적용. 확인 필요", "DP4 후보1 ★(TTFT 3% 초과), DP1 C1 ★★"],
             ["D3", "QA4 AND 조건에서 DP4 시나리오 가중 사용 여부", "지금은 DP1·DP2와 같은 단순 평균. 가중(S2~S4 ×2)을 쓰면 후보2 QA4 ★★★", "DP4 선택(후보1 대 후보2)"],
             ["D4", "QA5 두 번째 경계 3%", "제안 3%, task의 F1 변동을 재서 확인", "DP3 별"],
-            ["D5", "DP2 후보 간 trade-off가 안 나오는 문제", "평가 세트에 규모(N=8~32) 시나리오를 사전 등록해 추가(seed ≥ 5, 2시스템)", "DP2 별과 선택"],
+            ["D5", "DP2 정의: 한 노드 안의 결정(2026-10-10 재정의)으로 평가함", "PPT 설계 장 6p의 후보 이름(스케줄링 시점 / 사전 계획)과 평가의 후보(중앙 Dispatcher / Blackboard)를 맞춘다", "DP2 설계 장 문구"],
             ["D6", "DP3 r, rho 가정(0.30, 0.15)과 C2의 선택 재계산 필수 여부, HBF에서 압축 끄기", "r, rho는 사전 등록값 + 민감도. 재계산·HBF 정책은 설계 결정", "DP3 별과 선택"],
             ["D7", "QA 번호", "요구사항 덱의 QA-05 확장성 / QA-06 정확성을 PPT(QA5 정확성, QA6 확장성)에 맞춰 교환", "문서 일관성"],
             ["D8", "Evaluation/DP4 폴더", "옛 DP4(현 DP6) 자료다. 현 DP4 평가 문서 위치를 정한다", "평가 문서 정리"]]
@@ -446,14 +446,14 @@ def build_slides(prs, res, inp):
     # ---- why absolute values differ
     s = B.frame("부록 — 같은 QA의 절대값이 DP마다 다른 이유", "그래서 별은 절대값이 아니라 '같은 DP의 Baseline 대비'(+ 절대 SLO)로 매긴다 · DP 간 절대값 비교는 하지 않는다",
                 "※ DP1~DP3 = 시뮬레이션 [B+C], DP4 Baseline = 실측 [A]. 값은 각 DP 결과 문서·PPT 기준.")
-    rows = [["", "DP1 이기종 메모리 데이터 배치", "DP2 Prefill/Decode 실행 위치", "DP3 KV 압축·재사용", "DP4 다중 서버 요청 조율"],
-            ["평가 단위", "서버 1대(8-GPU, TP8)", "P노드 + D노드 (노드당 TP8)", "서버 1대(8-GPU, TP8)", "2노드 × 8 GPU = 16 GPU (실측)"],
-            ["대표 워크로드", "KV 32K~512K, RAG 8 TiB, LoRA·MoE 혼합, HBM 압박", "단일 턴 8K + 멀티턴 History 16K~256K", "재사용 문맥 8K~256K, 질의 64~2K", "입력 8K / 출력 256, prefix 재사용 통제"],
-            ["Baseline 정의", "정적 배치(이동 없음)", "P/D 역할 고정", "전체 KV 그대로 재사용", "상태·캐시 비인지 라우팅"],
-            ["부하 방식", "load sweep 최대(Max SLO goodput)", "Baseline 최적 부하 + sweep", "Baseline 용량의 70%로 고정", "load sweep, 서버 수 N 증설"],
-            ["QA1 Baseline (tok/s)", "336", "575", "—", "3,200"],
-            ["QA2 Baseline TTFT P99 (ms)", "1,084", "2,461", "571", "2,300"],
-            ["QA3 Baseline HBM (GiB)", "146.6", "—", "107.1", "—"]]
+    rows = [["", "DP1 이기종 메모리 데이터 배치", "DP2 노드 내 attention 실행 위치", "DP3 KV 압축·재사용", "DP4 다중 서버 요청 조율"],
+            ["평가 단위", "서버 1대(8-GPU, TP8)", "노드 내 결정(통합 노드 1~4개, 노드 선택은 DP4)", "서버 1대(8-GPU, TP8)", "2노드 × 8 GPU = 16 GPU (실측)"],
+            ["대표 워크로드", "KV 32K~512K, RAG 8 TiB, LoRA·MoE 혼합, HBM 압박", "단일 턴 8K + 멀티턴 History 16K~256K(Tier별 위치)", "재사용 문맥 8K~256K, 질의 64~2K", "입력 8K / 출력 256, prefix 재사용 통제"],
+            ["Baseline 정의", "정적 배치(이동 없음)", "GPU-local (vLLM As-Is, 모든 attention을 GPU에서)", "전체 KV 그대로 재사용", "상태·캐시 비인지 라우팅"],
+            ["부하 방식", "load sweep 최대(Max SLO goodput)", "Baseline 최적 부하(iso-load) + sweep", "Baseline 용량의 70%로 고정", "load sweep, 서버 수 N 증설"],
+            ["QA1 Baseline (tok/s)", "336", "1,075", "—", "3,200"],
+            ["QA2 Baseline TTFT P99 (ms)", "1,084", "3,529", "571", "2,300"],
+            ["QA3 Baseline HBM (GiB)", "146.6", "605", "107.1", "—"]]
     B.table(s, 0.4, 1.3, [2.2, 2.6, 2.6, 2.6, 2.53], rows, size=9, row_h=0.4, align=["l", "l", "l", "l", "l"], bold_first_col=True)
     B.blocks(s, ["대상 단위가 다르다: DP4만 16 GPU 클러스터라 처리량이 한 자릿수 배 크다(3,200 vs 336). DP1~DP3는 8-GPU 1대.",
                  "워크로드가 다르다: DP1·DP3는 긴 문맥(수십~수백 K token)이라 KV 적재가 지배하고 처리량이 낮다. DP4는 8K라 높다.",
@@ -476,7 +476,7 @@ def build_slides(prs, res, inp):
     B.table(s, 0.4, 1.3, [2.4, 2.9, 3.6, 3.63], rows, size=9.5, row_h=0.42, align=["l", "l", "l", "l"], bold_first_col=True)
     rows = [["DP", "공통 시나리오에서의 QA (후보 ÷ Baseline 또는 배수)", "왜 이렇게 되나"],
             ["DP1", "QA1 ×1.00 (둘 다, Baseline이 이미 포화), C1 TTFT P99 ×2.95 나쁨 · C2 ×1.03", "이동할 이득이 없는 정적 워크로드라 이동 비용만 남는다. 이득은 Dynamic 시나리오에서 나온다"],
-            ["DP2", "QA1 ×1.69, TTFT P99 ×1.50 나쁨(후보 ÷ Baseline), TPOT ×1.75", "단일 턴이라 History 효과는 없지만 Baseline의 고정 역할이 D 노드 Prefill 능력을 낭비한다"],
+            ["DP2", "1안: QA1 ×1.00~1.11, TPOT P99 ×1.19~2.32 나쁨 / 2안: Baseline과 같음(×1.00) (H100·B200 공통 3개 시나리오 중 비교 가능 쌍)", "History 없는 단일 턴이라 attention 위치를 바꿀 이유가 적다. 1안만 Cost 모델이 일부 offload를 선택해 TPOT 꼬리가 길어진다"],
             ["DP3", f"C1 TTFT {ag['C1-Offline']['by_family']['ttft/common']:.2f}배 개선, HBM {ag['C1-Offline']['by_family']['hbm/common']:.2f}배 감소 / C2 TTFT {ag['C2-Online']['by_family']['ttft/common']:.2f}배, HBM {ag['C2-Online']['by_family']['hbm/common']:.2f}배", "8K 문맥도 DRAM에서 적재해야 하는 구성이라 압축이 적재 시간을 줄인다"],
             ["DP4", "W1(공통 벤치마크): 처리량 ×1.05 · ×1.04, TTFT P99 ×0.90 · ×0.84", "정책 효과가 크지 않게 prefix 재사용을 통제한 기준선"]]
     B.table(s, 0.4, 3.3, [1.0, 6.0, 5.53], rows, size=9.5, row_h=0.62, align=["c", "l", "l"], bold_first_col=True)
@@ -499,14 +499,36 @@ def build_slides(prs, res, inp):
            ["공통 시나리오에서 C1의 TTFT가 나쁜 것은 숨기지 않았다(진단 값).", "Dynamic은 benchmark-fit 시나리오(loop 2에서 추가)라 이득 크기에 selection이 개입했다."],
            "※ 출처: DP1/benchmark.md, DP1/results/2026-10-02_dp1-qa-evaluation.md (SYS-B200 Combined 표)")
 
-    dp_scn("부록 — DP2 시나리오: Prefill 실행 위치를 정하는 조건", "Common 3 + Stress 12 + Dynamic 4 · P/D 노드 사이 · Baseline = P/D 역할 고정(Baseline-PD-fixed)",
-           [["Common (CB-1~3)", "단일 턴 8K, D 노드 HBM 압박", "TTFT P99 ×1.50 나쁨, QA2 개선 배수 ×0.78", "QA1 ×1.69 (고정 역할 낭비 제거)"],
-            ["Stress 12 — History 재개", "History 32K~256K가 HBM·DRAM·HBF·SSD에 있는 멀티턴 재개", "TPOT P99가 ×2~3 나빠지는 시나리오가 있다(H100 hbf_hist 12.5 → 36.5 ms, SLO 50 ms 이내)", "긴 History offload goodput ×3.20(H100), DRAM·SSD 재개 ×1.5~1.7"],
-            ["Stress 12 — 포화·경합", "Prefill burst, Decode 편중, 노드 간 링크 경합(BW ×0.25)", "이득이 작은 곳: Decode 편중 goodput ×1.10~1.20", "링크 경합·burst에서 TTFT 큰 개선 (Stress 24쌍 TTFT ×0.29)"],
-            ["Dynamic 4", "P 노드 처리량 저하 등 runtime 변화", "TPOT ×1.01로 변화 없음", "TTFT ×0.41, QA1 ×1.29"]],
-           ["이득은 'KV가 있던 곳과 Prefill 노드가 달라 전송이 낭비되는' 조건에 있고 Planner가 좋은 위치를 고른다.", "C1·C2는 구분되지 않는다(goodput 비 ×1.002)."],
-           ["Baseline이 SLO를 거의 못 지키게 설계한 시나리오가 ×1.66을 끌어올린다. 중앙 시나리오는 ×1.0~1.7.", "TPOT P99가 ×1.34로 나쁘다(SLO 50 ms 이내)."],
-           "※ 출처: DP2/benchmark.md, DP2/results/2026-10-06_dp2-qa-evaluation.md (집합별 표, 비율은 후보 ÷ Baseline)")
+    # ---- DP1 interpretation
+    s = B.frame("부록 — DP1 결과 해석: 왜 C2가 지연도 처리량도 좋은가", "C1 = 메모리 자원 상태에 반응해 이동, C2 = 데이터별 접근 패턴(hotness·재사용·유휴)으로 이동 · 지연은 C2가 P50과 P99 모두 낮다",
+                "※ 출처: DP1/results/2026-10-02_dp1-qa-evaluation.md §0.2 (H100 + B200 통합, 21쌍). 아래 '원인'은 그 문서의 진단이며 요청 단위 분해로 확인한 것은 아니다.")
+    rows = [["지표 (21쌍 기하평균)", "Baseline (이동 없음)", "C1 자원 상태 기반", "C2 AI Data 특성 기반"],
+            ["TTFT P50 (ms)", "407", "181 (×0.44)", "118 (×0.29)"],
+            ["TTFT P99 (ms)", "1,084", "1,128 (×1.04)", "785 (×0.72)"],
+            ["TPOT P50 / P99 (ms)", "14.0 / 17.1", "12.7 / 18.3", "12.0 / 16.0"],
+            ["Dynamic 6개 TTFT P99 중앙값 (ms)", "—", "1,411", "663"],
+            ["이동량 (GiB) / 링크 점유", "0", "138 / 1.6%", "1,339 / 10.5%"],
+            ["결정 연산 (ms/run)", "0", "3", "111"],
+            ["HBM 점유 (용량 대비)", "51%", "50%", "62%"]]
+    B.table(s, 0.4, 1.3, [3.6, 2.8, 3.0, 3.13], rows, size=10, row_h=0.36, align=["l", "c", "c", "c"], bold_first_col=True)
+    B.blocks(s, ["C1은 용량 압박·대역폭 같은 자원 상태가 나빠진 뒤에 반응한다. 같은 종류(KV) 안에서 어느 세션이 hot인지 모르므로 hot 대상이 바뀌는 시나리오(hot 대화 이동, 사용자 그룹 교대)에서 Baseline과 같다. Dynamic에서 Baseline을 이긴 쌍은 C1 5개, C2 8개다.",
+                 "C2는 접근 빈도·재사용·유휴 시간으로 '곧 뜨거워질 것'을 예측해 hot 데이터를 미리 HBM 쪽으로 올리고 cold를 내린다. 그래서 요청이 오는 시점에 hot KV가 이미 빠른 tier에 있어 TTFT가 줄고(P50·P99 모두), decode 접근도 빨라 처리량이 오른다.",
+                 "C1의 P50이 Baseline보다 낮은데 P99가 높은 것은, 압박 뒤 반응형 이동이 늦게 도착하고 이동이 서빙 링크를 나눠 쓰는 간섭이 꼬리에 얹히기 때문으로 보인다(문서 진단: 간섭 반영 후 P99 격차가 벌어짐)."],
+             ["대가는 HBM이다: C2는 성능을 위해 hot 데이터를 HBM에 더 올려 점유가 62%(C1 50%)다. 이동량(1,339 대 138 GiB)·링크 점유·결정 연산도 크다. 이 비용은 지연 개선 배수를 깎았다(C2 ×1.66 → ×1.56).",
+              "그래서 'C1이 지연이 더 좋다'는 설명은 이 시뮬레이션에서 근거가 없다. 정적 워크로드(공통 3개)에서도 C1 TTFT P99는 ×2.95 나쁘고 C2는 ×1.03이다.",
+              "시뮬레이션 [B+C]이며 이동 비용 모델(링크 간섭)과 접근 패턴 생성이 ASSUMED다. Dynamic은 Baseline의 실패 양상을 알고 설계한 시나리오다."],
+             y=4.35, h=2.65, lt="해석", rt="대가와 한계", size=9.5)
+    new_slide = s
+    add(s)
+
+    dp_scn("부록 — DP2 시나리오: 한 노드 안에서 attention 실행 위치를 정하는 조건", "Common 3 + Stress 10 + Dynamic 3 = 16 시나리오 × 2시스템 = 32쌍(비교 가능 21, saturated 11) · 노드 선택은 DP4 · Baseline = GPU-local",
+           [["Common (CB-1~3)", "단일 턴 8K, 통합 노드 1개", "1안 TPOT P99 ×1.19~2.32(B200 CB-1 ×2.32)", "H100 CB-3에서 1안 goodput ×1.11"],
+            ["Stress — History 재개", "History 32K~256K가 HBM·DRAM·HBF·SSD에 있는 멀티턴, 긴 문맥 decode offload", "1안 long_ctx_decode_offload: TPOT P99 ×2.31~2.45 나쁨", "1안 long_ctx_decode_offload: goodput ×1.23(B200)·×1.23(H100), TTFT P99 ×0.39~0.46"],
+            ["Stress — 포화·쏠림", "decode 편중, 대형 세션 쏠림, stale telemetry, Tool 결과 큼(대조군)", "2안 decode 편중: TTFT P99 ×1.87~4.02 나쁨. 2안 stale telemetry(B200): HBM ×1.98", "1안 decode 편중: TTFT P99 ×0.13~0.19. 2안 stale telemetry(B200): goodput ×1.36"],
+            ["Dynamic 3", "decode phase 이동, load ramp·burst, demotion wave", "1안 load ramp(B200): TTFT P99 ×4.82 나쁨", "1안 load ramp: goodput ×1.25~1.28"]],
+           ["이득은 'History가 HBM 밖에 있거나 decode가 한 노드에 몰려' attention 위치를 바꿀 가치가 있는 조건에 있다. 신호가 없으면 두 후보 모두 Baseline과 같다(saturated 11쌍).", "1안은 TTFT·HBM·처리량을 얻고 TPOT 꼬리(P99 ×1.34)를 낸다."],
+           ["비율은 후보 ÷ Baseline(시나리오·시스템 쌍별, iso-load). 일부 시나리오는 후보와 Baseline의 부하 지점이 달라 단순 비교가 아니다.", "Cost 추정 오차 σ = 0 가정이다(σ ≥ 0.4에서 1안은 Baseline 아래)."],
+           "※ 출처: DP2/benchmark.md §11, DP2/results/2026-10-10_dp2-arch-styles.md §4.2 (시나리오별 표)")
 
     dp_scn("부록 — DP3 시나리오: KV 압축·재사용이 갈리는 조건", "Common 3 + Stress 12 + Dynamic 3 · 문맥 8K~256K 재사용 · Baseline = 전체 KV 재사용(As-Is) · 도착률 = Baseline 용량의 70%",
            [["Common (CB-1~3) 8K", "DRAM에서 적재하는 8K 문맥, HBM 압박", "C2 TTFT ×0.79~0.96 (온라인 점수 계산 + 재계산)", f"C1 TTFT ×{ag['C1-Offline']['by_family']['ttft/common']:.1f}, HBM ×{ag['C1-Offline']['by_family']['hbm/common']:.1f}"],
@@ -561,8 +583,8 @@ def build_slides(prs, res, inp):
     B.table(s, 0.4, 1.3, [1.9, 4.2, 3.2, 3.23], rows, size=8.5, row_h=0.42, align=["l", "l", "l", "l"], bold_first_col=True)
     B.blocks(s, ["시스템 구성: 노드 1대 = 8-GPU(NVLink 도메인 1개). 6종 메모리(HBM, ScHBM, CXL-PNM, DRAM, HBF, SSD-PIM)가 모든 profile에 있다. 모델 Llama-3.1-70B BF16, KV 320 KiB/token.",
                  "신규 메모리 스펙: 실물이 없어 vendor·문헌 값과 가정으로 정했다. 신규 메모리에는 과거 세대가 없어 같은 장치를 모든 플랫폼에 쓰고 host link 속도만 바꾼다(link-bound scaling).",
-                 "Interconnect: host PCIe 5.0 x16 63 GB/s(방향당), CXL 2.0. ScHBM의 외부 BW는 host link 1가닥을 도메인 전체가 공유한다. HBF는 GPU 직결(UCIe)이라 link와 무관. 노드 간 RDMA 50 GB/s [ASSUMED, DP2만]."],
-             ["시뮬레이터: DP1 = 객체 이동 정책 시뮬레이터, DP2 = P/D 노드 사이 스케줄링, DP3 = 요청 단위 GPU timeline(적재 → prefill → decode). 서비스 시간 = 바이트 ÷ 대역폭 + 지연, tier별 FIFO.",
+                 "Interconnect: host PCIe 5.0 x16 63 GB/s(방향당), CXL 2.0. ScHBM의 외부 BW는 host link 1가닥을 도메인 전체가 공유한다. HBF는 GPU 직결(UCIe)이라 link와 무관. (DP2는 노드 내 결정이라 노드 간 링크를 쓰지 않는다.)"],
+             ["시뮬레이터: DP1 = 객체 이동 정책 시뮬레이터, DP2 = 노드 내 attention 실행 위치 결정(Dispatcher 대 Blackboard), DP3 = 요청 단위 GPU timeline(적재 → prefill → decode). 서비스 시간 = 바이트 ÷ 대역폭 + 지연, tier별 FIFO.",
               "모든 평가는 seed ≥ 5, load sweep, Baseline-regression loop를 따른다. 시스템 profile 값은 결과를 보고 바꾸지 않았다.",
               "한계: 신규 메모리 값은 가정이고, A100/H100/B200 수치도 원문 검증을 못 했다. PCIe 6.0 raw 값, cxl_pnm FP16 = FP32 × 2 가정이 결과를 바꿀 수 있다."],
              y=4.75, h=2.25, lt="무엇을 어떻게 가정했나", rt="시뮬레이션 방식과 한계", size=9)
@@ -640,7 +662,7 @@ def main(src, dst):
     for col, c in ((2, "C1"), (4, "C2")):
         v = inp["DP2"]["values"][c]
         st = res["DP2"][c]
-        l3 = (S(st["QA3"]), hbm_txt(v["hbm_gib"], v["hbm_share"], inp["DP2"]["baseline"]["hbm_gib"]), None) if "hbm_gib" in v else ("미평가", "(HBM 측정 중)", "7F7F7F")
+        l3 = (S(st["QA3"]), hbm_txt(v["hbm_gib"], hs["DP2"][c]["share"], v["hbm_base_gib"]), None)
         fill_value_cell(t.cell(4, col), tpl, [
             (S(st["QA1"]), f"{v['qa1_tps']:,}(x{v['qa1_ratio']:.2f})", None),
             (S(st["QA2"]), f"{v['ttft_p99_ms']:,}(x{v['ttft_p99_ms']/inp['DP2']['baseline']['ttft_p99_ms']:.2f}), {v['tpot_p99_ms']}(x{v['tpot_p99_ms']/inp['DP2']['baseline']['tpot_p99_ms']:.2f})", "FF0000"),

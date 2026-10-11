@@ -58,7 +58,7 @@ status: draft
 |---|---:|---|---|
 | QA2 TTFT P99 (ms) ↓ | {ms(ag['abs'][BASE]['ttft'])} | **{ms(ag['abs'][C1]['ttft'])}** (x{ag[C1]['ttft']['ratio_gm']:.2f} 개선) | {ms(ag['abs'][C2]['ttft'])} (x{ag[C2]['ttft']['ratio_gm']:.2f}, **Baseline보다 나쁨**) |
 | QA2 TPOT P99 (ms) ↓ | {ag['abs'][BASE]['tpot']*1e3:.1f} | {ag['abs'][C1]['tpot']*1e3:.1f} (x{ag[C1]['tpot']['ratio_gm']:.2f}) | {ag['abs'][C2]['tpot']*1e3:.1f} (x{ag[C2]['tpot']['ratio_gm']:.2f}) |
-| QA2 별 | — | {S(stars['C1']['QA2'])} (A3·R3, r={ag[C1]['qa2_r']:.2f}) | {S(stars['C2']['QA2'])} (A3·R1, r={ag[C2]['qa2_r']:.2f}) |
+| QA2 별 | — | {S(stars['C1']['QA2'])} (r={ag[C1]['qa2_r']:.2f}, SLO 충족) | {S(stars['C2']['QA2'])} (r={ag[C2]['qa2_r']:.2f} < 0.90 → ★) |
 | QA3 HBM KV 시간평균 (GiB) ↓ | {ag['abs'][BASE]['hbm']:.1f} | **{ag['abs'][C1]['hbm']:.1f}** (감소 x{ag[C1]['hbm']['ratio_gm']:.2f}) | {ag['abs'][C2]['hbm']:.1f} (감소 x{ag[C2]['hbm']['ratio_gm']:.2f}) |
 | QA3 별 | — | {S(stars['C1']['QA3'])} | {S(stars['C2']['QA3'])} (경계 1.25에서 {(ag[C2]['hbm']['ratio_gm']/1.25-1)*100:+.1f}%) |
 | QA5 F1 상대 하락 (%) ↓ | 0 (정의상) | {('%.1f' % q5['C1']['f1_drop_pct']) if q5_ok else '측정 진행 중'} | {('%.1f' % q5['C2']['f1_drop_pct']) if q5_ok else '측정 진행 중'} |
@@ -87,7 +87,7 @@ status: draft
 | 항목 | 정의 / formula | 출처 |
 |---|---|---|
 | QA2 TTFT P99 / TPOT P99 | TTFT = 첫 토큰 시각 − 도착 시각(admission 대기·KV 적재·GPU 대기 포함). TPOT = (마지막 − 첫 토큰)/(출력 − 1). 요청 P99, seed 평균, 쌍별 기하평균. r = √(TTFT 배수 × TPOT 배수) | unified §3.2 |
-| QA3 HBM 사용량 | HBM에 올라간 Context KV(상주 Comp.KV 객체 + 요청 작업 사본)의 시간 평균 GiB. 처음 10% 제외. 감소 배수 = Baseline ÷ 후보 | unified §3.3 |
+| QA3 HBM 사용량 | HBM에 올라간 KV(상주 Comp.KV 객체 + 요청 작업 사본)의 시간 평균 GiB. DP3 후보가 바꾸는 AI Data는 KV뿐이라 KV만 잰다(LoRA·MoE 등은 시나리오에 없음). 처음 10% 제외. 감소 배수 = Baseline ÷ 후보 | unified §3.3 |
 | QA5 F1 상대 하락 | (F1_full − F1_후보) ÷ F1_full, 같은 모델·task, 압축 전 full KV 대비 | unified §3.5 |
 | 집계 | comparison-valid 쌍(= Baseline이 모든 요청을 끝냄, run당 완료 요청 ≥ 10, 정책 간 2% 이상 차이)의 기하평균 | simulation-plan §2 |
 | 임시 정의 | QA5의 C1 매핑(대표 Query 근접 비율 = 1 − mismatch), §6 | simulation-plan §3 |
@@ -115,7 +115,7 @@ w("""
 |---|---|---:|---|---|""")
 w(f"| QA2 Latency (TTFT) | TTFT P99 (ms) ↓ | {ms(ag['abs'][BASE]['ttft'])} | {ms(ag['abs'][C1]['ttft'])} (x{ag[C1]['ttft']['ratio_gm']:.2f}) [B+C] | {ms(ag['abs'][C2]['ttft'])} (x{ag[C2]['ttft']['ratio_gm']:.2f}) [B+C] |")
 w(f"| QA2 Latency (TPOT) | TPOT P99 (ms) ↓ | {ag['abs'][BASE]['tpot']*1e3:.1f} | {ag['abs'][C1]['tpot']*1e3:.1f} (x{ag[C1]['tpot']['ratio_gm']:.2f}) | {ag['abs'][C2]['tpot']*1e3:.1f} (x{ag[C2]['tpot']['ratio_gm']:.2f}) |")
-w(f"| QA2 별점 | A(절대 SLO)·R(개선) 평균 | — | {S(stars['C1']['QA2'])} [B+C] | {S(stars['C2']['QA2'])} [B+C] |")
+w(f"| QA2 별점 | 개선 r + SLO 강등 | — | {S(stars['C1']['QA2'])} [B+C] | {S(stars['C2']['QA2'])} [B+C] |")
 w(f"| QA3 Resource (HBM) | HBM KV 시간평균 GiB ↓ | {ag['abs'][BASE]['hbm']:.1f} | {S(stars['C1']['QA3'])} {ag['abs'][C1]['hbm']:.1f} (감소 x{ag[C1]['hbm']['ratio_gm']:.2f}) [B+C] | {S(stars['C2']['QA3'])} {ag['abs'][C2]['hbm']:.1f} (감소 x{ag[C2]['hbm']['ratio_gm']:.2f}) [B+C] |")
 if q5_ok:
     w(f"| QA5 Accuracy | F1 상대 하락 % ↓ | 0 | {S(stars['C1']['QA5'])} {q5['C1']['f1_drop_pct']:.1f}% ± {q5['C1']['ci95_halfwidth']:.1f} [소형 실측+매핑] | {S(stars['C2']['QA5'])} {q5['C2']['f1_drop_pct']:.1f}% ± {q5['C2']['ci95_halfwidth']:.1f} [소형 실측+매핑] |")

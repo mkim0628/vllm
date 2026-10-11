@@ -19,7 +19,7 @@ status: draft
 |---|---:|---|---|
 | QA2 TTFT P99 (ms) ↓ | 571 | **268** (x2.14 개선) | 693 (x0.82, **Baseline보다 나쁨**) |
 | QA2 TPOT P99 (ms) ↓ | 8.1 | 8.4 (x0.98) | 8.7 (x0.94) |
-| QA2 별 | — | ★★★ (A3·R3, r=1.44) | ★★☆ (A3·R1, r=0.88) |
+| QA2 별 | — | ★★★ (r=1.44, SLO 충족) | ★☆☆ (r=0.88 < 0.90 → ★) |
 | QA3 HBM KV 시간평균 (GiB) ↓ | 107.1 | **30.3** (감소 x3.53) | 85.1 (감소 x1.26) |
 | QA3 별 | — | ★★★ | ★★★ (경계 1.25에서 +0.6%) |
 | QA5 F1 상대 하락 (%) ↓ | 0 (정의상) | 17.0 | -2.0 |
@@ -28,7 +28,7 @@ status: draft
 - 집계: 18 시나리오 × 2 시스템 중 **comparison-valid 32쌍**의 기하평균(제외 4쌍은 §3). 부하 = Baseline 용량의 70%.
 - **C1 Offline은 지연·HBM 모두 크게 낫다**(TTFT 28/32쌍, HBM 32/32쌍에서 이김). **C2 Online은 HBM은 줄이지만 TTFT는 32쌍 중 2쌍만 이긴다**(온라인 점수 계산 + 재계산이 요청 경로에 들어오고, 전체 KV를 적재해야 해서 적재 이득이 없다).
 - 약점: **Baseline이 GPU 직접 읽기(HBF) tier에서 적재 비용 없이 서빙할 때 C1·C2 모두 TTFT가 ×0.09~0.14로 크게 진다**(ST-06). 이득은 유지 비율 r = 0.30 가정에 의존한다(r = 0.5이면 C1 TTFT 이득이 H100에서 사라진다, §5).
-- 별 합계(QA5 제외): C1 7, C2 8.
+- 별 합계(QA5 제외): C1 7, C2 7.
 
 # 1. 시스템 환경
 
@@ -48,7 +48,7 @@ status: draft
 | 항목 | 정의 / formula | 출처 |
 |---|---|---|
 | QA2 TTFT P99 / TPOT P99 | TTFT = 첫 토큰 시각 − 도착 시각(admission 대기·KV 적재·GPU 대기 포함). TPOT = (마지막 − 첫 토큰)/(출력 − 1). 요청 P99, seed 평균, 쌍별 기하평균. r = √(TTFT 배수 × TPOT 배수) | unified §3.2 |
-| QA3 HBM 사용량 | HBM에 올라간 Context KV(상주 Comp.KV 객체 + 요청 작업 사본)의 시간 평균 GiB. 처음 10% 제외. 감소 배수 = Baseline ÷ 후보 | unified §3.3 |
+| QA3 HBM 사용량 | HBM에 올라간 KV(상주 Comp.KV 객체 + 요청 작업 사본)의 시간 평균 GiB. DP3 후보가 바꾸는 AI Data는 KV뿐이라 KV만 잰다(LoRA·MoE 등은 시나리오에 없음). 처음 10% 제외. 감소 배수 = Baseline ÷ 후보 | unified §3.3 |
 | QA5 F1 상대 하락 | (F1_full − F1_후보) ÷ F1_full, 같은 모델·task, 압축 전 full KV 대비 | unified §3.5 |
 | 집계 | comparison-valid 쌍(= Baseline이 모든 요청을 끝냄, run당 완료 요청 ≥ 10, 정책 간 2% 이상 차이)의 기하평균 | simulation-plan §2 |
 | 임시 정의 | QA5의 C1 매핑(대표 Query 근접 비율 = 1 − mismatch), §6 | simulation-plan §3 |
@@ -89,7 +89,7 @@ status: draft
 |---|---|---:|---|---|
 | QA2 Latency (TTFT) | TTFT P99 (ms) ↓ | 571 | 268 (x2.14) [B+C] | 693 (x0.82) [B+C] |
 | QA2 Latency (TPOT) | TPOT P99 (ms) ↓ | 8.1 | 8.4 (x0.98) | 8.7 (x0.94) |
-| QA2 별점 | A(절대 SLO)·R(개선) 평균 | — | ★★★ [B+C] | ★★☆ [B+C] |
+| QA2 별점 | 개선 r + SLO 강등 | — | ★★★ [B+C] | ★☆☆ [B+C] |
 | QA3 Resource (HBM) | HBM KV 시간평균 GiB ↓ | 107.1 | ★★★ 30.3 (감소 x3.53) [B+C] | ★★★ 85.1 (감소 x1.26) [B+C] |
 | QA5 Accuracy | F1 상대 하락 % ↓ | 0 | ★☆☆ 17.0% ± 9.5 [소형 실측+매핑] | ★★★ -2.0% ± 4.8 [소형 실측+매핑] |
 
@@ -231,6 +231,6 @@ full KV F1 = 0.730. r = 1.0 경로가 full과 일치하는 sanity: 93/93.
 
 # 7. 결론
 
-- **결정 관련 진술**: Baseline(전체 KV 재사용) 대비 **C1 Offline은 지연(TTFT ×2.14)과 HBM(×3.53)을 크게 줄이고 TPOT는 비슷하다**. **C2 Online은 HBM 절감이 작고 TTFT는 Baseline보다 나쁘다**(×0.82). 별 합계(QA5 제외)는 C1 7, C2 8로 C1이 앞선다. QA5 포함 최종 선택은 QA5 결과가 나온 뒤 확정한다(QA 우선순위 제안: QA2 > QA5 > QA3).
+- **결정 관련 진술**: Baseline(전체 KV 재사용) 대비 **C1 Offline은 지연(TTFT ×2.14)과 HBM(×3.53)을 크게 줄이고 TPOT는 비슷하다**. **C2 Online은 HBM 절감이 작고 TTFT는 Baseline보다 나쁘다**(×0.82). 별 합계(QA5 제외)는 C1 7, C2 7로 C1이 앞선다. QA5 포함 최종 선택은 QA5 결과가 나온 뒤 확정한다(QA 우선순위 제안: QA2 > QA5 > QA3).
 - **이득이 존재하는 조건 / 없는 조건**: C1 이득은 외부 tier에서 문맥을 적재해야 하는 경우(DRAM·CXL)와 HBM이 빠듯한 경우에 크다. **Baseline이 GPU 직접 읽기 tier(HBF)에서 서빙하는 경우, 유지 비율을 0.5로 키우는 경우(H100), 256K처럼 재계산 prefill이 긴 경우에는 이득이 없거나 진다.** C2는 어떤 조건에서도 TTFT 이득이 작다.
 - **다음 단계**: (1) 소유자: C2에서 선택 재계산이 필수인지, HBF 같은 직접 읽기 tier에서는 압축을 끄는 정책을 설계에 넣을지 결정(loop-log (f)). (2) ST-05 horizon을 늘려(class B) SSD 차가운 시나리오 평가. (3) QA5 micro-benchmark 표본 확대와 재계산 포함 실측. (4) r 경계(1% / 3%) 확인.
