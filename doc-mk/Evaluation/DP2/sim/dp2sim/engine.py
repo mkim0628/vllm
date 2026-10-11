@@ -717,10 +717,12 @@ class Sim:
         for (t, kind, a) in sc.ext_events(o):
             self.push(t, kind, a)
         self.end = None
+        self._hbm_t, self._hbm_int = 0.0, 0.0      # time integral of KV bytes resident in HBM (all nodes), measured after warm-up
         while self.q:
             t, _, kind, a, b = heapq.heappop(self.q)
             if t > self.max_end:
                 break
+            self._hbm_acc(t)
             self.now = t
             if self.end is None and t >= self.horizon and (self.completed_meas >= o["min_turns"] or t >= self.max_end):
                 self.end = t
@@ -729,6 +731,13 @@ class Sim:
         if self.end is None:
             self.end = min(self.now, self.max_end)
         return self.finish()
+
+    def _hbm_acc(self, t):
+        """QA3 instrument (added 2026-10-11): HBM-resident KV bytes integrated over time (occupancy is piecewise constant between events)."""
+        lo = max(self._hbm_t, self.warm)
+        if t > lo:
+            self._hbm_int += (t - lo) * sum(self.kv.occ[(n.idx, "hbm")] for n in self.nodes)
+        self._hbm_t = t
 
     def dispatch_event(self, kind, a, b):
         if kind == "nodew":
@@ -853,6 +862,7 @@ class Sim:
         end = self.end
         w0 = self.warm
         win = max(1e-9, end - w0)
+        self._hbm_acc(end)
         for nd in self.nodes:
             nd.advance(end)
         ttfts, tpots, good_tok, met, served = [], [], 0.0, 0, 0
@@ -938,5 +948,6 @@ class Sim:
                          regret_p99_s=pct(st["regret"], .99) if st["regret"] else 0.0,
                          mis_selection_rate=(st["mis"] / st["dec_n"]) if st["dec_n"] else 0.0),
             ttft_components_mean_s={k: comp.get(k, 0.0) for k in ("schedule", "decision", "queue", "move", "prefill")},
-            extra=dict(end=end, horizon=self.horizon, turns=served, demote_gib=st["demote_bytes"] / GIB),
+            extra=dict(end=end, horizon=self.horizon, turns=served, demote_gib=st["demote_bytes"] / GIB, hbm_gib_mean=self._hbm_int / win / GIB,
+                       hbm_pool_gib=sum(target('hbm') * self.kv.pool[(n.idx, 'hbm')] for n in self.nodes) / GIB),
         )

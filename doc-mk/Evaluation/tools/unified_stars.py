@@ -17,14 +17,14 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 EVAL = HERE.parent
 
-# ---------------------------------------------------------------- rules (v2)
-QA1_HI, QA1_LO = 2.0, 0.97                  # Max SLO goodput / Baseline  (v1: 1.30)
-QA2_T = ((2000.0, 50.0), (4000.0, 100.0))   # absolute level A: (TTFT P99 ms, TPOT P99 ms) for 3 / 2 stars
-QA2_R = (1.20, 0.90)                        # improvement R: r = sqrt(TTFT_base/TTFT * TPOT_base/TPOT), 3 / 2 stars
+# ---------------------------------------------------------------- rules (v3)
+QA1_HI, QA1_LO = 4.0 / 3.0, 0.97           # Max SLO goodput / Baseline (v2: 2.0, v1: 1.30)
+QA2_SLO = (2000.0, 50.0)                    # TTFT P99 ms, TPOT P99 ms: exceeding either caps the star at 1
+QA2_R = (1.20, 0.90)                        # improvement r = sqrt(TTFT_base/TTFT * TPOT_base/TPOT): 3 / 2 stars
 QA3_HI, QA3_LO = 1.25, 0.95                 # HBM reduction multiple = Baseline / candidate
-QA4_REF = (0.5, 0.5, 2.0)                   # reference = 3-star bound of each sub-metric: USD(T2), man-month, modules
-QA4_W = (0.5, 0.3, 0.2)                     # cost, effort, modules (order of importance)
-QA4_S = (1.0, 3.2)                          # S <= 1.0 -> 3 stars, S <= 3.2 -> 2 stars (3.2 = score of the 2-star bound 2.0/1.0/6)
+QA4_COST = (0.5, 2.0)                       # USD (mid tier) per change: <= -> 3 / 2 stars
+QA4_MM = (0.5, 1.0)                         # man-month per change
+QA4_MOD = (2.0, 6.0)                        # modules: <= 2 -> 3, < 6 -> 2
 QA5_T = (1.0, 3.0)                          # relative F1 drop (%) vs pre-compression + full recompute
 QA6_T = (90.0, 70.0)                        # SE(N_max) percent
 MD_PER_MM = 21.0
@@ -38,14 +38,12 @@ def qa1(r):
     return 3 if r >= QA1_HI else 2 if r >= QA1_LO else 1
 
 
-def v1_qa1(r):
-    return 3 if r >= 1.30 else 2 if r >= QA1_LO else 1
+def v2_qa1(r):
+    return 3 if r >= 2.0 else 2 if r >= 0.97 else 1
 
 
-def qa2_abs(ttft_ms, tpot_ms):
-    def lvl(v, t3, t2):
-        return 3 if v <= t3 else 2 if v <= t2 else 1
-    return min(lvl(ttft_ms, QA2_T[0][0], QA2_T[1][0]), lvl(tpot_ms, QA2_T[0][1], QA2_T[1][1]))
+def qa2_slo_ok(ttft_ms, tpot_ms):
+    return ttft_ms <= QA2_SLO[0] and tpot_ms <= QA2_SLO[1]
 
 
 def qa2_r(base_ttft, base_tpot, ttft, tpot):
@@ -57,12 +55,17 @@ def qa2_imp(r):
 
 
 def qa2(ttft_ms, tpot_ms, r):
-    """QA2 = round-half-up of the mean of the absolute-SLO level A and the improvement level R."""
-    return half_up((qa2_abs(ttft_ms, tpot_ms) + qa2_imp(r)) / 2)
+    """QA2 = star from the improvement over Baseline; capped at 1 star if TTFT P99 > 2 s or TPOT P99 > 50 ms."""
+    return qa2_imp(r) if qa2_slo_ok(ttft_ms, tpot_ms) else 1
+
+
+def v2_qa2(ttft_ms, tpot_ms, r):
+    a = 3 if (ttft_ms <= 2000 and tpot_ms <= 50) else 2 if (ttft_ms <= 4000 and tpot_ms <= 100) else 1
+    return half_up((a + qa2_imp(r)) / 2)
 
 
 def v1_qa2(ttft_ms, tpot_ms):
-    return qa2_abs(ttft_ms, tpot_ms)
+    return 3 if (ttft_ms <= 2000 and tpot_ms <= 50) else 2 if (ttft_ms <= 4000 and tpot_ms <= 100) else 1
 
 
 def qa3(base, cand):
@@ -70,23 +73,26 @@ def qa3(base, cand):
     return 3 if red >= QA3_HI else 2 if red >= QA3_LO else 1
 
 
-def qa4_score(usd_t2, mm, modules):
-    return sum(w * v / ref for w, v, ref in zip(QA4_W, (usd_t2, mm, modules), QA4_REF))
+def qa4_subs(usd_t2, mm, modules):
+    c = 3 if usd_t2 <= QA4_COST[0] else 2 if usd_t2 <= QA4_COST[1] else 1
+    e = 3 if mm <= QA4_MM[0] else 2 if mm <= QA4_MM[1] else 1
+    m = 3 if modules <= QA4_MOD[0] else 2 if modules < QA4_MOD[1] else 1
+    return c, e, m
 
 
 def qa4(usd_t2, mm, modules):
+    """AND rule: a star is earned only if all three sub-metrics reach it (= the minimum sub-star)."""
+    return min(qa4_subs(usd_t2, mm, modules))
+
+
+def v2_qa4(usd_t2, mm, modules):
     sc = qa4_score(usd_t2, mm, modules)
-    return 3 if sc <= QA4_S[0] else 2 if sc <= QA4_S[1] else 1
+    return 3 if sc <= 1.0 else 2 if sc <= 3.2 else 1
 
 
-def v1_qa4(usd_t2, mm, modules):
-    c = 3 if usd_t2 <= 0.5 else 2 if usd_t2 <= 2.0 else 1
-    e = 3 if mm <= 0.5 else 2 if mm <= 1.0 else 1
-    m = 3 if modules <= 2.0 else 2 if modules < 6.0 else 1
-    for s in (3, 2):
-        if sum(w for w, v in zip(QA4_W, (c, e, m)) if v >= s) > 0.5 + 1e-12:
-            return s
-    return 1
+def qa4_score(usd_t2, mm, modules):
+    """Diagnostic only (v2 weighted score, not used for stars)."""
+    return 0.5 * usd_t2 / 0.5 + 0.3 * mm / 0.5 + 0.2 * modules / 2.0
 
 
 def qa5(drop_pct):
@@ -95,6 +101,27 @@ def qa5(drop_pct):
 
 def qa6(se):
     return 3 if se >= QA6_T[0] else 2 if se >= QA6_T[1] else 1
+
+
+PRIORITY = {"DP1": ["QA1", "QA2", "QA3", "QA4"], "DP2": ["QA1", "QA2", "QA3"], "DP3": ["QA2", "QA5", "QA3"], "DP4": ["QA1", "QA2", "QA4", "QA6"]}
+
+
+def select(dp, res):
+    """Higher star total wins; a tie is broken by the DP's QA priority (SKILL H13). Returns (winner or None, totals, how)."""
+    tot = {c: sum(v.values()) for c, v in res[dp].items()}
+    best = max(tot.values())
+    top = [c for c, t in tot.items() if t == best]
+    if len(top) == 1:
+        return top[0], tot, "합계"
+    for qa in PRIORITY[dp]:
+        vals = {c: res[dp][c].get(qa, 0) for c in top}
+        if len(set(vals.values())) > 1:
+            m = max(vals.values())
+            w = [c for c in top if vals[c] == m]
+            if len(w) == 1:
+                return w[0], tot, f"동점 → {qa}"
+            top = w
+    return None, tot, "동점, 우선순위로도 못 가름"
 
 
 def S(n):
@@ -120,6 +147,18 @@ def load():
         for c in ("C1", "C2"):
             inp[dp]["values"][c]["qa4"] = q[c]
     inp["DP1-1안"]["values"]["C1"]["qa4"] = inp["DP1"]["values"]["C1"]["qa4"]   # PPT 3장은 1안에 C1과 같은 QA4 값을 표기
+    # DP2: v3 evaluates QA1, QA2, QA3 (QA4 excluded: both structures need the same compute/cost-model changes); QA3 from the instrumented re-run
+    for c in ("C1", "C2"):
+        inp["DP2"]["values"][c].pop("qa4", None)
+    q = EVAL / "DP2" / "results" / "data-hbm" / "qa_result.json"
+    if q.exists():
+        t = json.load(open(q))["tables"]["combined"]
+        key = lambda tag: [k for k in t if tag in k][0]
+        b = t[key("Baseline")]
+        inp["DP2"]["baseline"]["hbm_gib"], inp["DP2"]["baseline"]["hbm_share"] = b["hbm_gib"], b["hbm_share"]
+        for c in ("C1", "C2"):
+            v = t[key(c)]
+            inp["DP2"]["values"][c].update(hbm_gib=v["hbm_gib"], hbm_share=v["hbm_share"], qa3_ratio=b["hbm_gib"] / v["hbm_gib"])
     # DP3: simulation summary (aggregated by DP3/sim/aggregate.py) and, if present, the QA5 file
     sm = json.load(open(EVAL / "DP3" / "results" / "data" / "dp3_summary.json"))
     ag = sm["aggregate"]
@@ -177,7 +216,7 @@ def evaluate(inp):
 
 
 def v1_stars(inp):
-    """Stars under the v1 rules, to print what v2 changed."""
+    """Stars under the previously published v2 rules (QA1 2.0, QA2 A+R average, QA4 weighted score), to print what v3 changed."""
     out = {}
     for dp, d in inp.items():
         if dp.startswith("_"):
@@ -185,34 +224,34 @@ def v1_stars(inp):
         for c, v in d["values"].items():
             o = {}
             if "qa1_ratio" in v:
-                o["QA1"] = v1_qa1(v["qa1_ratio"])
+                o["QA1"] = v2_qa1(v["qa1_ratio"])
             if "ttft_p99_ms" in v:
-                o["QA2"] = v1_qa2(v["ttft_p99_ms"], v["tpot_p99_ms"])
+                o["QA2"] = v2_qa2(v["ttft_p99_ms"], v["tpot_p99_ms"], qa2_ratio(d, v))
             q4 = v.get("qa4") or v.get("qa4_equal")
             if q4:
-                o["QA4"] = v1_qa4(q4["usd_t2"], q4["mm"], q4["modules"])
+                o["QA4"] = v2_qa4(q4["usd_t2"], q4["mm"], q4["modules"])
             out[(dp, c)] = o
     return out
 
 
 def v1_vs_v2(inp, res):
     v1 = v1_stars(inp)
-    L = ["| DP | 후보 | QA | v1 별 | v2 별 | 이유 |", "|---|---|---|---|---|---|"]
+    L = ["| DP | 후보 | QA | v2 별 | v3 별 | 이유 |", "|---|---|---|---|---|---|"]
     for (dp, c), o in v1.items():
         for qa, s1 in o.items():
             s2 = res[dp][c][qa]
             if s1 != s2:
                 v = inp[dp]["values"][c]
-                why = {"QA1": f"R={v.get('qa1_ratio', 0):.3f} < 2.0 (v1 경계 1.30)",
-                       "QA2": f"절대 SLO 등급과 개선 등급을 평균 (개선 r={qa2_ratio(inp[dp], v):.2f})" if "ttft_p99_ms" in v else "",
-                       "QA4": "가중 점수 S"}[qa]
+                why = {"QA1": f"R={v.get('qa1_ratio', 0):.3f} (★★★ 경계 2.0 → 4/3)",
+                       "QA2": f"개선 r={qa2_ratio(inp[dp], v):.2f}, TTFT {v.get('ttft_p99_ms', 0):,.0f} ms / TPOT {v.get('tpot_p99_ms', 0):.1f} ms (SLO 초과 시 ★)" if "ttft_p99_ms" in v else "",
+                       "QA4": "세 지표 AND 조건 (최소 sub-star)"}[qa]
                 L.append(f"| {dp} | {c} | {qa} | {S(s1)} | {S(s2)} | {why} |")
     return "\n".join(L) if len(L) > 2 else "(바뀐 별 없음)"
 
 
 def md_table(inp, res):
     L = []
-    L.append("| DP | 후보 | QA | 값 | 기존 별 | 공통 기준 v2 별 | 일치 |")
+    L.append("| DP | 후보 | QA | 값 | 기존 별 | 공통 기준 v3 별 | 일치 |")
     L.append("|---|---|---|---|---|---|---|")
     tot_prev, tot_new = {}, {}
     for dp, d in inp.items():
@@ -228,7 +267,7 @@ def md_table(inp, res):
                     tot_prev[(dp, c)] = tot_prev.get((dp, c), 0) + prev
                 tot_new[(dp, c)] = tot_new.get((dp, c), 0) + new
     L.append("")
-    L.append("| DP | 후보 | 별 합계(기존, 비교 가능 QA) | 별 합계(공통 기준 v2) | 일치 |")
+    L.append("| DP | 후보 | 별 합계(기존, 비교 가능 QA) | 별 합계(공통 기준 v3) | 일치 |")
     L.append("|---|---|---:|---:|---|")
     for k in tot_new:
         L.append(f"| {k[0]} | {k[1]} | {tot_prev.get(k, '—')} | {tot_new[k]} | {'O' if tot_prev.get(k) == tot_new[k] else ('N/A' if tot_prev.get(k) is None else '**X**')} |")
@@ -239,13 +278,13 @@ def fmt_value(dp, c, qa, v, d):
     if qa == "QA1":
         return f"{v['qa1_tps']:,.0f} tok/s (x{v['qa1_ratio']:.3f})" if "qa1_tps" in v else f"x{v['qa1_ratio']:.3f}"
     if qa == "QA2":
-        return f"TTFT P99 {v['ttft_p99_ms']:,.0f} ms · TPOT P99 {v['tpot_p99_ms']:.1f} ms · A{qa2_abs(v['ttft_p99_ms'], v['tpot_p99_ms'])}/R{qa2_imp(qa2_ratio(d, v))} (r={qa2_ratio(d, v):.2f})"
+        return f"TTFT P99 {v['ttft_p99_ms']:,.0f} ms · TPOT P99 {v['tpot_p99_ms']:.1f} ms · r={qa2_ratio(d, v):.2f}{'' if qa2_slo_ok(v['ttft_p99_ms'], v['tpot_p99_ms']) else ' · SLO 초과'}"
     if qa == "QA3":
         red = v.get("qa3_ratio") or d["baseline"]["hbm_gib"] / v["hbm_gib"]
         return f"HBM {v['hbm_gib']:.1f} GiB (감소 배수 {red:.2f})"
     if qa == "QA4":
         q = v.get("qa4") or v["qa4_equal"]
-        return f"${q['usd_t2']:.2f} · {q['mm']:.2f} MM · {q['modules']:.2f} module → S={qa4_score(q['usd_t2'], q['mm'], q['modules']):.2f}"
+        return f"${q['usd_t2']:.2f} · {q['mm']:.2f} MM · {q['modules']:.2f} module → sub {'/'.join(S(x) for x in qa4_subs(q['usd_t2'], q['mm'], q['modules']))}"
     if qa == "QA5":
         return f"F1 하락 {v['f1_drop_pct']}%"
     if qa == "QA6":
@@ -265,7 +304,7 @@ def sensitivity(inp, res):
         for c, v in d["values"].items():
             if "ttft_p99_ms" in v:
                 r = qa2_ratio(d, v)
-                L.append(f"- QA2 {dp} {c}: r={r:.3f} (R 경계 {QA2_R[0]}/{QA2_R[1]}까지 {r/QA2_R[0]-1:+.1%}/{r/QA2_R[1]-1:+.1%}), A={qa2_abs(v['ttft_p99_ms'], v['tpot_p99_ms'])}, R={qa2_imp(r)}")
+                L.append(f"- QA2 {dp} {c}: r={r:.3f} (R 경계 {QA2_R[0]}/{QA2_R[1]}까지 {r/QA2_R[0]-1:+.1%}/{r/QA2_R[1]-1:+.1%}), SLO {'충족' if qa2_slo_ok(v['ttft_p99_ms'], v['tpot_p99_ms']) else '초과(★)'}, R={qa2_imp(r)}")
     # admissible QA2 R windows that keep every previous star
     for dp, d in inp.items():
         if dp.startswith("_"):
@@ -273,11 +312,11 @@ def sensitivity(inp, res):
         for c, v in d["values"].items():
             q4 = v.get("qa4") or v.get("qa4_equal")
             if q4:
-                L.append(f"- QA4 {dp} {c}: S={qa4_score(q4['usd_t2'], q4['mm'], q4['modules']):.2f} (★★★ ≤{QA4_S[0]}, ★★ ≤{QA4_S[1]})")
+                L.append(f"- QA4 {dp} {c}: 비용/공수/module sub-star = {'/'.join(S(x) for x in qa4_subs(q4['usd_t2'], q4['mm'], q4['modules']))} (AND 조건 → {S(qa4(q4['usd_t2'], q4['mm'], q4['modules']))})")
     if "DP4" in inp:
         for c, v in inp["DP4"]["values"].items():
             w = v["qa4_weighted"]
-            L.append(f"- DP4 {c} QA4 (S2~S4 가중 2 원 값): S={qa4_score(w['usd_t2'], w['mm'], w['modules']):.2f} → {S(qa4(w['usd_t2'], w['mm'], w['modules']))}")
+            L.append(f"- DP4 {c} QA4 (PPT 원 값, S2~S4 가중 2): sub {'/'.join(S(x) for x in qa4_subs(w['usd_t2'], w['mm'], w['modules']))} → {S(qa4(w['usd_t2'], w['mm'], w['modules']))}")
     return L
 
 
@@ -288,9 +327,9 @@ def main():
     inp = load()
     res = evaluate(inp)
     table, tp, tn = md_table(inp, res)
-    lines = ["# 공통 별 기준 v2 적용 점검 (자동 생성, 직접 편집 금지)", "",
+    lines = ["# 공통 별 기준 v3 적용 점검 (자동 생성, 직접 편집 금지)", "",
              "> 생성: `python doc-mk/Evaluation/tools/unified_stars.py`. 규칙은 `qa-star-criteria-unified.md`. 값은 `tools/unified_inputs.json`(출처 기록), DP1·DP2 `results/data/qa4_modifiability.json`, DP3 `results/data/dp3_summary.json`.", "",
-             "## 1. 기존 별과 공통 기준 v2 별의 비교", "", table, "", "## 2. v1 → v2에서 바뀐 별", "", v1_vs_v2(inp, res), "", "## 3. 민감도·경계 근접", ""]
+             "## 1. 기존 별과 공통 기준 v3 별의 비교", "", table, "", "## 2. v2 → v3에서 바뀐 별", "", v1_vs_v2(inp, res), "", "## 3. 민감도·경계 근접", ""]
     lines += sensitivity(inp, res)
     a.out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
