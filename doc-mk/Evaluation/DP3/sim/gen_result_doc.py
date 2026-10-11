@@ -61,8 +61,8 @@ status: draft
 | QA2 TTFT P99 (ms) ↓ | {ms(ag['abs'][BASE]['ttft'])} | **{ms(ag['abs'][C1]['ttft'])}** (x{ag[C1]['ttft']['ratio_gm']:.2f} 개선) | {ms(ag['abs'][C2]['ttft'])} (x{ag[C2]['ttft']['ratio_gm']:.2f}, **Baseline보다 나쁨**) |
 | QA2 TPOT P99 (ms) ↓ | {ag['abs'][BASE]['tpot']*1e3:.1f} | {ag['abs'][C1]['tpot']*1e3:.1f} (x{ag[C1]['tpot']['ratio_gm']:.2f}) | {ag['abs'][C2]['tpot']*1e3:.1f} (x{ag[C2]['tpot']['ratio_gm']:.2f}) |
 | QA2 별 | — | {S(stars['C1']['QA2'])} (r={ag[C1]['qa2_r']:.2f}, SLO 충족) | {S(stars['C2']['QA2'])} (r={ag[C2]['qa2_r']:.2f} < 0.90 → ★) |
-| QA3 HBM KV 시간평균 (GiB) ↓ | {ag['abs'][BASE]['hbm']:.1f} | **{ag['abs'][C1]['hbm']:.1f}** (감소 x{ag[C1]['hbm']['ratio_gm']:.2f}) | {ag['abs'][C2]['hbm']:.1f} (감소 x{ag[C2]['hbm']['ratio_gm']:.2f}) |
-| QA3 별 | — | {S(stars['C1']['QA3'])} | {S(stars['C2']['QA3'])} (경계 1.25에서 {(ag[C2]['hbm']['ratio_gm']/1.25-1)*100:+.1f}%) |
+| QA3 HBM KV 시간평균 (GiB) ↓ | {ag['abs'][BASE]['hbm']:.1f} | **{ag['abs'][C1]['hbm']:.1f}** (감소율 {(1-1/ag[C1]['hbm']['ratio_gm'])*100:.1f}%) | {ag['abs'][C2]['hbm']:.1f} (감소율 {(1-1/ag[C2]['hbm']['ratio_gm'])*100:.1f}%) |
+| QA3 별 | — | {S(stars['C1']['QA3'])} | {S(stars['C2']['QA3'])} (경계 20%에서 {((1-1/ag[C2]['hbm']['ratio_gm'])*100-20):+.1f}%p) |
 | QA5 F1 상대 하락 (%) ↓ | 0 (정의상) | {('%.1f' % q5['C1']['f1_drop_pct']) if q5_ok else '측정 진행 중'} | {('%.1f' % q5['C2']['f1_drop_pct']) if q5_ok else '측정 진행 중'} |
 | QA5 별 | — | {S(stars['C1']['QA5']) if 'QA5' in stars['C1'] else '미평가'} | {S(stars['C2']['QA5']) if 'QA5' in stars['C2'] else '미평가'} |
 
@@ -90,7 +90,7 @@ status: draft
 |---|---|---|
 | QA1 Max SLO goodput | 요청별 SLO(TTFT ≤ 2 s, TPOT ≤ 50 ms)를 만족한 요청의 output token / 측정 구간, 부하 격자 lam0 × {{0.5 … 8}}(최대가 끝이면 × 64까지 확장)의 최대, 쌍별 비율의 기하평균 | unified §3.1, simulation-plan 변경 이력 |
 | QA2 TTFT P99 / TPOT P99 | TTFT = 첫 토큰 시각 − 도착 시각(admission 대기·KV 적재·GPU 대기 포함). TPOT = (마지막 − 첫 토큰)/(출력 − 1). 요청 P99, seed 평균, 쌍별 기하평균. r = √(TTFT 배수 × TPOT 배수) | unified §3.2 |
-| QA3 HBM 사용량 | HBM에 올라간 KV(상주 Comp.KV 객체 + 요청 작업 사본)의 시간 평균 GiB. DP3 후보가 바꾸는 AI Data는 KV뿐이라 KV만 잰다(LoRA·MoE 등은 시나리오에 없음). 처음 10% 제외. 감소 배수 = Baseline ÷ 후보 | unified §3.3 |
+| QA3 HBM 사용량 | HBM에 올라간 KV(상주 Comp.KV 객체 + 요청 작업 사본)의 시간 평균 GiB. DP3 후보가 바꾸는 AI Data는 KV뿐이라 KV만 잰다(LoRA·MoE 등은 시나리오에 없음). 처음 10% 제외. 감소율 = (Baseline − 후보) ÷ Baseline | unified §3.3 |
 | QA5 F1 상대 하락 | (F1_full − F1_후보) ÷ F1_full, 같은 모델·task, 압축 전 full KV 대비 | unified §3.5 |
 | 집계 | comparison-valid 쌍(= Baseline이 모든 요청을 끝냄, run당 완료 요청 ≥ 10, 정책 간 2% 이상 차이)의 기하평균 | simulation-plan §2 |
 | 임시 정의 | QA5의 C1 매핑(대표 Query 근접 비율 = 1 − mismatch), §6 | simulation-plan §3 |
@@ -120,7 +120,7 @@ w(f"| QA1 Throughput | Max SLO goodput (tok/s) ↑ | {inp['DP3']['baseline']['tp
 w(f"| QA2 Latency (TTFT) | TTFT P99 (ms) ↓ | {ms(ag['abs'][BASE]['ttft'])} | {ms(ag['abs'][C1]['ttft'])} (x{ag[C1]['ttft']['ratio_gm']:.2f}) [B+C] | {ms(ag['abs'][C2]['ttft'])} (x{ag[C2]['ttft']['ratio_gm']:.2f}) [B+C] |")
 w(f"| QA2 Latency (TPOT) | TPOT P99 (ms) ↓ | {ag['abs'][BASE]['tpot']*1e3:.1f} | {ag['abs'][C1]['tpot']*1e3:.1f} (x{ag[C1]['tpot']['ratio_gm']:.2f}) | {ag['abs'][C2]['tpot']*1e3:.1f} (x{ag[C2]['tpot']['ratio_gm']:.2f}) |")
 w(f"| QA2 별점 | 개선 r + SLO 강등 | — | {S(stars['C1']['QA2'])} [B+C] | {S(stars['C2']['QA2'])} [B+C] |")
-w(f"| QA3 Resource (HBM) | HBM KV 시간평균 GiB ↓ | {ag['abs'][BASE]['hbm']:.1f} | {S(stars['C1']['QA3'])} {ag['abs'][C1]['hbm']:.1f} (감소 x{ag[C1]['hbm']['ratio_gm']:.2f}) [B+C] | {S(stars['C2']['QA3'])} {ag['abs'][C2]['hbm']:.1f} (감소 x{ag[C2]['hbm']['ratio_gm']:.2f}) [B+C] |")
+w(f"| QA3 Resource (HBM) | HBM KV 시간평균 GiB ↓ | {ag['abs'][BASE]['hbm']:.1f} | {S(stars['C1']['QA3'])} {ag['abs'][C1]['hbm']:.1f} (감소율 {(1-1/ag[C1]['hbm']['ratio_gm'])*100:.1f}%) [B+C] | {S(stars['C2']['QA3'])} {ag['abs'][C2]['hbm']:.1f} (감소율 {(1-1/ag[C2]['hbm']['ratio_gm'])*100:.1f}%) [B+C] |")
 if q5_ok:
     w(f"| QA5 Accuracy | F1 상대 하락 % ↓ | 0 | {S(stars['C1']['QA5'])} {q5['C1']['f1_drop_pct']:.1f}% ± {q5['C1']['ci95_halfwidth']:.1f} [소형 실측+매핑] | {S(stars['C2']['QA5'])} {q5['C2']['f1_drop_pct']:.1f}% ± {q5['C2']['ci95_halfwidth']:.1f} [소형 실측+매핑] |")
 else:
@@ -183,7 +183,7 @@ w(f"""
 w("""
 ## 5.2 민감도 (비교 가능 쌍, 부하 × 1.0, Baseline ÷ 후보)
 
-| 정책 | 시스템 | TTFT 배수 | HBM 감소 배수 | 쌍 수 |
+| 정책 | 시스템 | TTFT 배수(Baseline ÷ 후보) | HBM 배수(Baseline ÷ 후보, 진단) | 쌍 수 |
 |---|---|---:|---:|---:|""")
 for k, v in sens.items():
     sysid, name = k.split("|")
@@ -220,7 +220,7 @@ w("""
 3. **사전 등록한 가정이 결과를 좌우한다**: r = 0.30, rho = 0.15, 도착률 0.7 × Baseline 용량, HBM 사용 가능 0.9. 결과를 본 뒤 바꾸지 않았다. §5.2 민감도에서 r이 바뀌면 C1 이득이 사라질 수 있음을 보였다.
 4. **미모델링**: C1의 Comp.KV 사전 산출 비용·저장 공간(C1에 유리), C2의 top-k 선택·압축 사본 복사 비용(C2에 유리), 다중 문맥 blending, 노드 간 전송, DP1 배치 정책 변경. 외부 배치는 모든 정책에 같다. 압축 객체가 작아 HBM에 더 많이 상주할 수 있다는 이득은 모델링하지 않아 압축 후보에 불리한 방향이다.
 5. 노드 1개, 출력 256 token 고정, 요청 간 문맥 재사용은 Zipf 풀로 모델. 실제 RAG/Agent trace가 아니다.
-6. **QA3 C2 판정은 경계에 붙어 있다**: 감소 배수 {ratio:.3f} vs 경계 1.25. H100만 보면 1.34, B200만 보면 1.20이다.
+6. **QA3 C2 판정은 경계에 붙어 있다**: 감소율 {rate:.1f}% vs 경계 20%. H100만 보면 25.5%, B200만 보면 16.7%이다.
 7. 정확도 micro-benchmark 폴더와 sim 폴더가 같은 commit에 없어 git_rev에 +dirty가 붙었다. sim 코드·시나리오는 commit 4776de4 그대로다.
 
 # 7. 결론
@@ -228,7 +228,7 @@ w("""
 - **결정 관련 진술**: Baseline(전체 KV 재사용) 대비 **C1 Offline은 지연(TTFT ×{c1t:.2f})과 HBM(×{c1h:.2f})을 크게 줄이고 TPOT는 비슷하다**. **C2 Online은 HBM 절감이 작고 TTFT는 Baseline보다 나쁘다**(×{c2t:.2f}). 별 합계(QA5 제외)는 C1 {s1}, C2 {s2}로 C1이 앞선다. QA5 포함 최종 선택은 QA5 결과가 나온 뒤 확정한다(QA 우선순위 제안: QA2 > QA5 > QA3).
 - **이득이 존재하는 조건 / 없는 조건**: C1 이득은 외부 tier에서 문맥을 적재해야 하는 경우(DRAM·CXL)와 HBM이 빠듯한 경우에 크다. **Baseline이 GPU 직접 읽기 tier(HBF)에서 서빙하는 경우, 유지 비율을 0.5로 키우는 경우(H100), 256K처럼 재계산 prefill이 긴 경우에는 이득이 없거나 진다.** C2는 어떤 조건에서도 TTFT 이득이 작다.
 - **다음 단계**: (1) 소유자: C2에서 선택 재계산이 필수인지, HBF 같은 직접 읽기 tier에서는 압축을 끄는 정책을 설계에 넣을지 결정(loop-log (f)). (2) ST-05 horizon을 늘려(class B) SSD 차가운 시나리오 평가. (3) QA5 micro-benchmark 표본 확대와 재계산 포함 실측. (4) r 경계(1% / 3%) 확인.
-""".replace("{ratio:.3f}", f"{ag[C2]['hbm']['ratio_gm']:.3f}").replace("{c1t:.2f}", f"{ag[C1]['ttft']['ratio_gm']:.2f}").replace("{c1h:.2f}", f"{ag[C1]['hbm']['ratio_gm']:.2f}").replace("{c2t:.2f}", f"{ag[C2]['ttft']['ratio_gm']:.2f}").replace("{s1}", str(sum(stars['C1'].values()))).replace("{s2}", str(sum(stars['C2'].values()))))
+""".replace("{rate:.1f}", f"{(1-1/ag[C2]['hbm']['ratio_gm'])*100:.1f}").replace("{c1t:.2f}", f"{ag[C1]['ttft']['ratio_gm']:.2f}").replace("{c1h:.2f}", f"{ag[C1]['hbm']['ratio_gm']:.2f}").replace("{c2t:.2f}", f"{ag[C2]['ttft']['ratio_gm']:.2f}").replace("{s1}", str(sum(stars['C1'].values()))).replace("{s2}", str(sum(stars['C2'].values()))))
 out = RES / "2026-10-11_dp3-qa-evaluation.md"
 out.write_text("\n".join(L), encoding="utf-8")
 print("wrote", out)

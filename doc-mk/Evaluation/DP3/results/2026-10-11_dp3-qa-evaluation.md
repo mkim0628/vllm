@@ -22,8 +22,8 @@ status: draft
 | QA2 TTFT P99 (ms) ↓ | 571 | **268** (x2.14 개선) | 693 (x0.82, **Baseline보다 나쁨**) |
 | QA2 TPOT P99 (ms) ↓ | 8.1 | 8.4 (x0.98) | 8.7 (x0.94) |
 | QA2 별 | — | ★★★ (r=1.44, SLO 충족) | ★☆☆ (r=0.88 < 0.90 → ★) |
-| QA3 HBM KV 시간평균 (GiB) ↓ | 107.1 | **30.3** (감소 x3.53) | 85.1 (감소 x1.26) |
-| QA3 별 | — | ★★★ | ★★★ (경계 1.25에서 +0.6%) |
+| QA3 HBM KV 시간평균 (GiB) ↓ | 107.1 | **30.3** (감소율 71.7%) | 85.1 (감소율 20.5%) |
+| QA3 별 | — | ★★★ | ★★★ (경계 20%에서 +0.5%p) |
 | QA5 F1 상대 하락 (%) ↓ | 0 (정의상) | 17.0 | -2.0 |
 | QA5 별 | — | ★☆☆ | ★★★ |
 
@@ -51,7 +51,7 @@ status: draft
 |---|---|---|
 | QA1 Max SLO goodput | 요청별 SLO(TTFT ≤ 2 s, TPOT ≤ 50 ms)를 만족한 요청의 output token / 측정 구간, 부하 격자 lam0 × {0.5 … 8}(최대가 끝이면 × 64까지 확장)의 최대, 쌍별 비율의 기하평균 | unified §3.1, simulation-plan 변경 이력 |
 | QA2 TTFT P99 / TPOT P99 | TTFT = 첫 토큰 시각 − 도착 시각(admission 대기·KV 적재·GPU 대기 포함). TPOT = (마지막 − 첫 토큰)/(출력 − 1). 요청 P99, seed 평균, 쌍별 기하평균. r = √(TTFT 배수 × TPOT 배수) | unified §3.2 |
-| QA3 HBM 사용량 | HBM에 올라간 KV(상주 Comp.KV 객체 + 요청 작업 사본)의 시간 평균 GiB. DP3 후보가 바꾸는 AI Data는 KV뿐이라 KV만 잰다(LoRA·MoE 등은 시나리오에 없음). 처음 10% 제외. 감소 배수 = Baseline ÷ 후보 | unified §3.3 |
+| QA3 HBM 사용량 | HBM에 올라간 KV(상주 Comp.KV 객체 + 요청 작업 사본)의 시간 평균 GiB. DP3 후보가 바꾸는 AI Data는 KV뿐이라 KV만 잰다(LoRA·MoE 등은 시나리오에 없음). 처음 10% 제외. 감소율 = (Baseline − 후보) ÷ Baseline | unified §3.3 |
 | QA5 F1 상대 하락 | (F1_full − F1_후보) ÷ F1_full, 같은 모델·task, 압축 전 full KV 대비 | unified §3.5 |
 | 집계 | comparison-valid 쌍(= Baseline이 모든 요청을 끝냄, run당 완료 요청 ≥ 10, 정책 간 2% 이상 차이)의 기하평균 | simulation-plan §2 |
 | 임시 정의 | QA5의 C1 매핑(대표 Query 근접 비율 = 1 − mismatch), §6 | simulation-plan §3 |
@@ -94,7 +94,7 @@ status: draft
 | QA2 Latency (TTFT) | TTFT P99 (ms) ↓ | 571 | 268 (x2.14) [B+C] | 693 (x0.82) [B+C] |
 | QA2 Latency (TPOT) | TPOT P99 (ms) ↓ | 8.1 | 8.4 (x0.98) | 8.7 (x0.94) |
 | QA2 별점 | 개선 r + SLO 강등 | — | ★★★ [B+C] | ★☆☆ [B+C] |
-| QA3 Resource (HBM) | HBM KV 시간평균 GiB ↓ | 107.1 | ★★★ 30.3 (감소 x3.53) [B+C] | ★★★ 85.1 (감소 x1.26) [B+C] |
+| QA3 Resource (HBM) | HBM KV 시간평균 GiB ↓ | 107.1 | ★★★ 30.3 (감소율 71.7%) [B+C] | ★★★ 85.1 (감소율 20.5%) [B+C] |
 | QA5 Accuracy | F1 상대 하락 % ↓ | 0 | ★☆☆ 17.0% ± 9.5 [소형 실측+매핑] | ★★★ -2.0% ± 4.8 [소형 실측+매핑] |
 
 **시스템:** SYS-H100, SYS-B200 통합(8-GPU TP8 aggregate). 집계 단위: comparison-valid 32쌍의 기하평균. 괄호는 Baseline ÷ 후보(TTFT·TPOT·HBM 모두 >1이 개선).
@@ -186,7 +186,7 @@ TTFT/TPOT는 P99(ms), HBM은 시간평균 GiB. 배수 = Baseline ÷ 후보(>1 �
 
 ## 5.2 민감도 (비교 가능 쌍, 부하 × 1.0, Baseline ÷ 후보)
 
-| 정책 | 시스템 | TTFT 배수 | HBM 감소 배수 | 쌍 수 |
+| 정책 | 시스템 | TTFT 배수(Baseline ÷ 후보) | HBM 배수(Baseline ÷ 후보, 진단) | 쌍 수 |
 |---|---|---:|---:|---:|
 | C1 r=0.15 | SYS-H100 | 3.90 | 8.26 | 15 |
 | C1 r=0.30 | SYS-H100 | 1.70 | 3.56 | 15 |
@@ -230,7 +230,7 @@ full KV F1 = 0.730. r = 1.0 경로가 full과 일치하는 sanity: 93/93.
 3. **사전 등록한 가정이 결과를 좌우한다**: r = 0.30, rho = 0.15, 도착률 0.7 × Baseline 용량, HBM 사용 가능 0.9. 결과를 본 뒤 바꾸지 않았다. §5.2 민감도에서 r이 바뀌면 C1 이득이 사라질 수 있음을 보였다.
 4. **미모델링**: C1의 Comp.KV 사전 산출 비용·저장 공간(C1에 유리), C2의 top-k 선택·압축 사본 복사 비용(C2에 유리), 다중 문맥 blending, 노드 간 전송, DP1 배치 정책 변경. 외부 배치는 모든 정책에 같다. 압축 객체가 작아 HBM에 더 많이 상주할 수 있다는 이득은 모델링하지 않아 압축 후보에 불리한 방향이다.
 5. 노드 1개, 출력 256 token 고정, 요청 간 문맥 재사용은 Zipf 풀로 모델. 실제 RAG/Agent trace가 아니다.
-6. **QA3 C2 판정은 경계에 붙어 있다**: 감소 배수 1.258 vs 경계 1.25. H100만 보면 1.34, B200만 보면 1.20이다.
+6. **QA3 C2 판정은 경계에 붙어 있다**: 감소율 20.5% vs 경계 20%. H100만 보면 25.5%, B200만 보면 16.7%이다.
 7. 정확도 micro-benchmark 폴더와 sim 폴더가 같은 commit에 없어 git_rev에 +dirty가 붙었다. sim 코드·시나리오는 commit 4776de4 그대로다.
 
 # 7. 결론

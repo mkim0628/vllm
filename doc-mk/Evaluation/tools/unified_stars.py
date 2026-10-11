@@ -22,7 +22,7 @@ EVAL = HERE.parent
 QA1_HI, QA1_LO = 4.0 / 3.0, 0.97           # Max SLO goodput / Baseline (v2: 2.0, v1: 1.30)
 QA2_SLO = (2000.0, 50.0)                    # TTFT P99 ms, TPOT P99 ms: exceeding either caps the star at 1
 QA2_R = (1.20, 0.90)                        # improvement r = sqrt(TTFT_base/TTFT * TPOT_base/TPOT): 3 / 2 stars
-QA3_HI, QA3_LO = 1.25, 0.95                 # HBM reduction multiple = Baseline / candidate
+QA3_HI, QA3_LO = 0.20, -0.05                # HBM reduction rate = 1 - candidate / Baseline (>= 20% -> 3 stars, up to 5% more HBM -> 2 stars)
 QA4_COST = (0.5, 2.0)                       # USD (mid tier) per change: <= -> 3 / 2 stars
 QA4_MM = (0.5, 1.0)                         # man-month per change
 QA4_MOD = (2.0, 6.0)                        # modules: <= 2 -> 3, < 6 -> 2
@@ -69,9 +69,17 @@ def v1_qa2(ttft_ms, tpot_ms):
     return 3 if (ttft_ms <= 2000 and tpot_ms <= 50) else 2 if (ttft_ms <= 4000 and tpot_ms <= 100) else 1
 
 
+def qa3_rate(base, cand):
+    """HBM reduction rate = (Baseline - candidate) / Baseline; negative means the candidate uses more HBM."""
+    return 1.0 - cand / base
+
+
 def qa3(base, cand):
-    red = base / cand
-    return 3 if red >= QA3_HI else 2 if red >= QA3_LO else 1
+    return qa3_from_rate(qa3_rate(base, cand))
+
+
+def qa3_from_rate(rate):
+    return 3 if rate >= QA3_HI - 1e-9 else 2 if rate >= QA3_LO - 1e-9 else 1
 
 
 def qa4_subs(usd_t2, mm, modules):
@@ -217,8 +225,8 @@ def evaluate(inp):
                 st["QA1"] = qa1(v["qa1_ratio"])
             if "ttft_p99_ms" in v:
                 st["QA2"] = qa2(v["ttft_p99_ms"], v["tpot_p99_ms"], qa2_ratio(d, v))
-            if "qa3_ratio" in v:
-                st["QA3"] = 3 if v["qa3_ratio"] >= QA3_HI else 2 if v["qa3_ratio"] >= QA3_LO else 1
+            if "qa3_ratio" in v:      # stored as Baseline / candidate; the rule uses the reduction rate 1 - cand/base = 1 - 1/ratio
+                st["QA3"] = qa3_from_rate(1.0 - 1.0 / v["qa3_ratio"])
             elif "hbm_gib" in v:
                 st["QA3"] = qa3(d["baseline"]["hbm_gib"], v["hbm_gib"])
             q4 = v.get("qa4") or v.get("qa4_equal")
@@ -297,8 +305,8 @@ def fmt_value(dp, c, qa, v, d):
     if qa == "QA2":
         return f"TTFT P99 {v['ttft_p99_ms']:,.0f} ms · TPOT P99 {v['tpot_p99_ms']:.1f} ms · r={qa2_ratio(d, v):.2f}{'' if qa2_slo_ok(v['ttft_p99_ms'], v['tpot_p99_ms']) else ' · SLO 초과'}"
     if qa == "QA3":
-        red = v.get("qa3_ratio") or d["baseline"]["hbm_gib"] / v["hbm_gib"]
-        return f"HBM {v['hbm_gib']:.1f} GiB (감소 배수 {red:.2f})"
+        rate = (1.0 - 1.0 / v["qa3_ratio"]) if v.get("qa3_ratio") else qa3_rate(d["baseline"]["hbm_gib"], v["hbm_gib"])
+        return f"HBM {v['hbm_gib']:.1f} GiB (감소율 {rate*100:+.1f}%)"
     if qa == "QA4":
         q = v.get("qa4") or v["qa4_equal"]
         return f"${q['usd_t2']:.2f} · {q['mm']:.2f} MM · {q['modules']:.2f} module → sub {'/'.join(S(x) for x in qa4_subs(q['usd_t2'], q['mm'], q['modules']))}"

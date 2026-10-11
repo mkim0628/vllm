@@ -197,12 +197,12 @@ def build_slides(prs, res, inp):
         return s
 
     # ---------------------------------------------------------------- overview (12p)
-    s = B.frame("공통 별 기준 v3 — 모든 DP에 같은 QA는 같은 기준", "QA마다 metric 계산식 → ★ 기준 → 근거 · QA2는 Baseline 대비 개선 + SLO 초과 시 ★ · QA3는 Baseline 대비 감소 배수 · QA4는 세 지표 AND 조건 · proposal (소유자 확정 전)",
+    s = B.frame("공통 별 기준 v3 — 모든 DP에 같은 QA는 같은 기준", "QA마다 metric 계산식 → ★ 기준 → 근거 · QA2는 Baseline 대비 개선 + SLO 초과 시 ★ · QA3는 Baseline 대비 감소율 · QA4는 세 지표 AND 조건 · proposal (소유자 확정 전)",
                 "※ 근거 문서: doc-mk/Evaluation/qa-star-criteria-unified.md · 별 계산: tools/unified_stars.py (값과 출처는 tools/unified_inputs.json, HBM 점유 비율은 tools/hbm_share.json)")
     rows = [["QA", "metric (같은 DP의 Baseline 대비 또는 절대 SLO)", "★★★", "★★", "★", "적용 DP"],
             ["QA1 처리량", "R = Max SLO goodput ÷ Baseline (쌍별 기하평균)", "R ≥ 4/3 (≈1.33)", "0.97 ≤ R < 4/3", "R < 0.97", "DP1 · DP2 · DP3 · DP4"],
             ["QA2 지연", ["r = √(Baseline TTFT P99 ÷ 후보 TTFT P99 × Baseline TPOT P99 ÷ 후보 TPOT P99)", "(r > 1이면 좋아짐) · TTFT P99 > 2 s 또는 TPOT P99 > 50 ms이면 r과 상관없이 ★로 강등"], "r ≥ 1.20", "0.90 ≤ r < 1.20", "r < 0.90 또는 SLO 초과", "DP1 ~ DP4"],
-            ["QA3 자원", ["HBM에 올라간 AI Data(KV·LoRA·MoE expert·RAG 인덱스·Agent memory 등)의 시간 평균 GiB → 감소 배수 = Baseline ÷ 후보", "(표기: HBM 용량 대비 점유 비율 %도 병기)"], "배수 ≥ 1.25", "0.95 ≤ 배수 < 1.25", "배수 < 0.95", "DP1 · DP2 · DP3"],
+            ["QA3 자원", ["HBM에 올라간 AI Data(KV·LoRA·MoE expert·RAG 인덱스·Agent memory 등)의 시간 평균 GiB → 감소율 = (Baseline − 후보) ÷ Baseline", "(표기: HBM 용량 대비 점유 비율 %도 병기)"], "감소율 ≥ 20%", "−5% ≤ 감소율 < 20%", "감소율 < −5%", "DP1 · DP2 · DP3"],
             ["QA4 변경 용이성", ["세 지표를 각각 판정하고 셋이 모두 만족해야 그 별 (AND)", "① 토큰 비용(mid tier $/변경) ② 공수(MM/변경) ③ 변경 module 수"], "① ≤ $0.5 그리고 ② ≤ 0.5 그리고 ③ ≤ 2", "① ≤ $2 그리고 ② ≤ 1.0 그리고 ③ < 6", "그 밖 (하나라도 ★★ 기준을 넘음)", "DP1 · DP2 · DP4"],
             ["QA5 기능 정확성", "F1 상대 하락 (압축 전 + full recompute 대비)", "≤ 1%", "≤ 3% (제안)", "> 3%", "DP3"],
             ["QA6 확장성", "SE(N_max=16) = Goodput(N) ÷ ((N/N0) × Goodput(N0)), N0=2", "≥ 90%", "70 ~ 90%", "< 70%", "DP4"]]
@@ -214,7 +214,7 @@ def build_slides(prs, res, inp):
                  "경계마다 근거를 달았다: 측정(잡음 폭), 환산(자원·시간), 표준·문헌, 정책 선택을 구분해 적었다.",
                  "QA2: Baseline보다 나빠지면(r < 0.90) 절대 SLO를 지켜도 ★, SLO를 넘으면 개선 폭과 무관하게 ★다.",
                  "QA4: 세 지표 중 하나라도 한 단계 낮으면 전체가 그 단계다. 별 합계가 높은 후보를 선택하고 동점일 때만 QA 우선순위를 쓴다."],
-             ["QA3의 기준은 Baseline 대비 감소 배수이고, 용량 대비 점유 비율(%)은 병기하는 참고 값이다(DP별 용량 구성이 달라 DP 간 비교용이 아님).",
+             ["QA3의 기준은 Baseline 대비 감소율((Baseline − 후보) ÷ Baseline, 음수면 HBM을 더 쓴 것)이고, 용량 대비 점유 비율(%)은 병기하는 참고 값이다(DP별 용량 구성이 달라 DP 간 비교용이 아님).",
               "QA5의 두 번째 경계(3%)는 데이터로 도출하지 못한 제안값이다.",
               "시뮬레이션 [B+C]와 Baseline 실측 + 시뮬레이션 [A+C]를 같은 표에 쓴다. 근거 수준은 별과 분리해 표기한다."],
              y=5.35, h=1.65, lt="원칙", rt="주의", size=9)
@@ -271,15 +271,17 @@ def build_slides(prs, res, inp):
 
     # ---------------------------------------------------------------- QA3
     hs = json.load(open(HERE / "hbm_share.json"))
-    crit("QA3 자원 (HBM 사용량) — 공통 별 기준", "기준 = Baseline 대비 감소 배수(Baseline ÷ 후보) · PPT에는 HBM 용량 대비 점유 비율(%)을 병기 · 성능은 섞지 않는다 · DP1·DP2·DP3 적용",
-         [["★★★", "감소 배수 ≥ 1.25", "HBM 점유 20% 감소 = DP1 평균 146.6 GiB 중 약 29 GiB(8K KV object 약 1.6개분). QA2와 같은 '눈에 띄는 개선' 크기로 둔 정책 선택", "환산 [C]"],
-          ["★★", "0.95 ≤ 감소 배수 < 1.25", "하한 0.95: Baseline끼리 비교한 점유 잡음 범위 0.984~1.016보다 느슨하게 둠(5% 이내 증가는 열세로 보지 않음)", "측정 [B+C]"],
-          ["★", "감소 배수 < 0.95", "HBM을 5% 넘게 더 쓴다(잡음 밖)", "측정 [B+C]"]],
+    for _k in hs["DP1"]:
+        hs["DP1"][_k]["gib"] = round(hs["DP1"][_k]["gib"], 1)      # same rounding as the reported GiB values
+    crit("QA3 자원 (HBM 사용량) — 공통 별 기준", "기준 = Baseline 대비 감소율((Baseline − 후보) ÷ Baseline) · PPT에는 HBM 용량 대비 점유 비율(%)을 병기 · 성능은 섞지 않는다 · DP1·DP2·DP3 적용",
+         [["★★★", "감소율 ≥ 20%", "HBM 점유 20% 감소 = DP1 평균 146.6 GiB 중 약 29 GiB(8K KV object 약 1.6개분). QA2와 같은 '눈에 띄는 개선' 크기로 둔 정책 선택", "환산 [C]"],
+          ["★★", "−5% ≤ 감소율 < 20%", "하한 −5%: Baseline끼리 비교한 점유 잡음 범위(±1.6%)보다 느슨하게 둠(5% 이내 증가는 열세로 보지 않음)", "측정 [B+C]"],
+          ["★", "감소율 < −5%", "HBM을 5% 넘게 더 쓴다(잡음 밖)", "측정 [B+C]"]],
          ["측정하는 것(쉬운 말): 모델이 돌아가는 동안 HBM에 올라와 있는 AI Data(KV, LoRA adapter, MoE expert, RAG 인덱스, Agent memory 등)의 평균 크기. 측정 구간 동안 HBM의 양을 계속 재서 시간으로 평균낸다(순간 최대 아님). 모델 가중치·활성값은 뺀다. DP1은 이 모든 종류를 잰다. DP2·DP3는 후보가 바꾸는 데이터가 KV뿐이라 KV만 잰다(다른 종류는 고정 배치).",
-          "예: 100초 중 40초는 100 GiB, 60초는 50 GiB → (40×100 + 60×50) ÷ 100 = 70 GiB. 감소 배수 3.0이면 HBM을 1/3만 쓴다.",
-          "PPT 표기: GiB, (HBM KV 용량 대비 점유 %, Baseline 대비 감소 배수). 용량 대비 비율은 시나리오·시스템별 비율의 기하평균이다.",
-          f"DP1: C1 {hs['DP1']['C1']['gib']:.1f} GiB(용량의 {hs['DP1']['C1']['share']*100:.0f}%, ×{hs['DP1']['Baseline']['gib']/hs['DP1']['C1']['gib']:.2f}) · C2 {hs['DP1']['C2']['gib']:.1f} GiB({hs['DP1']['C2']['share']*100:.0f}%, ×{hs['DP1']['Baseline']['gib']/hs['DP1']['C2']['gib']:.2f}) · Baseline {hs['DP1']['Baseline']['share']*100:.0f}%. DP3: C1 {hs['DP3']['C1']['gib']:.1f} GiB({hs['DP3']['C1']['share']*100:.0f}%, ×{hs['DP3']['Baseline']['gib']/hs['DP3']['C1']['gib']:.2f}) · C2 {hs['DP3']['C2']['gib']:.1f} GiB({hs['DP3']['C2']['share']*100:.0f}%, ×{hs['DP3']['Baseline']['gib']/hs['DP3']['C2']['gib']:.2f}) · Baseline {hs['DP3']['Baseline']['share']*100:.0f}%."],
-         ["DP3 C2의 ×1.26은 경계 1.25에서 +0.7%다. H100만 보면 1.34, B200만 보면 1.20이라 시스템 선택에 따라 ★★/★★★이 갈린다.",
+          "예: 100초 중 40초는 100 GiB, 60초는 50 GiB → (40×100 + 60×50) ÷ 100 = 70 GiB. 감소율 67%면 HBM을 1/3만 쓴다(Baseline 100 GiB → 33 GiB).",
+          "PPT 표기: GiB (HBM 용량 대비 점유 %, Baseline 대비 감소율). 용량 대비 비율은 시나리오·시스템별 비율의 기하평균이다.",
+          f"DP1: C1 {hs['DP1']['C1']['gib']:.1f} GiB(용량의 {hs['DP1']['C1']['share']*100:.0f}%, 감소율 {(1-hs['DP1']['C1']['gib']/hs['DP1']['Baseline']['gib'])*100:+.1f}%) · C2 {hs['DP1']['C2']['gib']:.1f} GiB({hs['DP1']['C2']['share']*100:.0f}%, 감소율 {(1-hs['DP1']['C2']['gib']/hs['DP1']['Baseline']['gib'])*100:+.1f}%) · Baseline {hs['DP1']['Baseline']['share']*100:.0f}%. DP3: C1 {hs['DP3']['C1']['gib']:.1f} GiB({hs['DP3']['C1']['share']*100:.0f}%, 감소율 {(1-hs['DP3']['C1']['gib']/hs['DP3']['Baseline']['gib'])*100:+.1f}%) · C2 {hs['DP3']['C2']['gib']:.1f} GiB({hs['DP3']['C2']['share']*100:.0f}%, 감소율 {(1-hs['DP3']['C2']['gib']/hs['DP3']['Baseline']['gib'])*100:+.1f}%) · Baseline {hs['DP3']['Baseline']['share']*100:.0f}%."],
+         ["DP3 C2의 감소율 20.5%는 경계 20%에서 0.5%p 위다. H100만 보면 25.5%, B200만 보면 16.7%라 시스템 선택에 따라 ★★/★★★이 갈린다. DP2 2안 −5.0%는 하한 −5%에 걸려 있다.",
           "DP1은 QA3 정의를 결과를 본 뒤 여러 번 바꿨다(활용률 → 풀 U → 성능÷비용 → HBM 사용량).",
           "'비우되 성능이 나빠지는 정책'이 유리하므로 QA1·QA2와 함께 읽어야 한다. 용량 대비 비율은 DP별 용량 정의가 달라 DP 간 비교용이 아니다."],
          "※ 용량 대비 비율: DP1 = tier_util.hbm(시나리오 HBM 배율 반영 유효 용량), DP3 = HBM 가용(0.9)에서 가중치를 뺀 KV 몫, DP2 = 노드 HBM KV 풀(hbm_frac).",
@@ -382,7 +384,7 @@ def build_slides(prs, res, inp):
             ["QA2 지연 (TTFT)", "TTFT P99 (ms) ↓", f"{b1['ttft_p99_ms']:,}", f"{c1v['ttft_p99_ms']:,} (×{c1v['ttft_p99_ms']/b1['ttft_p99_ms']:.2f})", f"{c2v['ttft_p99_ms']:,} (×{c2v['ttft_p99_ms']/b1['ttft_p99_ms']:.2f})"],
             ["QA2 지연 (TPOT)", "TPOT P99 (ms) ↓", f"{b1['tpot_p99_ms']}", f"{c1v['tpot_p99_ms']} (×{c1v['tpot_p99_ms']/b1['tpot_p99_ms']:.2f})", f"{c2v['tpot_p99_ms']} (×{c2v['tpot_p99_ms']/b1['tpot_p99_ms']:.2f})"],
             ["QA2 별점", "개선 r + SLO 강등", "—", f"{S(s1['QA2'])} (r={ra:.2f}, {slo1(c1v)})", f"{S(s2['QA2'])} (r={rb:.2f}, {slo1(c2v)})"],
-            ["QA3 자원 (HBM)", "HBM AI Data 시간평균 GiB (용량 대비 %, 감소 배수) ↓", f"{b1['hbm_gib']} GiB (용량의 {h1['Baseline']['share']*100:.0f}%)", f"{S(s1['QA3'])}  {h1['C1']['gib']:.1f} GiB (용량의 {h1['C1']['share']*100:.0f}%, 감소 {h1['Baseline']['gib']/h1['C1']['gib']:.2f}배)", f"{S(s2['QA3'])}  {h1['C2']['gib']:.1f} GiB (용량의 {h1['C2']['share']*100:.0f}%, 감소 {h1['Baseline']['gib']/h1['C2']['gib']:.2f}배)"],
+            ["QA3 자원 (HBM)", "HBM AI Data 시간평균 GiB (용량 대비 %, 감소율) ↓", f"{b1['hbm_gib']} GiB (용량의 {h1['Baseline']['share']*100:.0f}%)", f"{S(s1['QA3'])}  {h1['C1']['gib']:.1f} GiB (용량의 {h1['C1']['share']*100:.0f}%, 감소율 {(1-h1['C1']['gib']/h1['Baseline']['gib'])*100:+.1f}%)", f"{S(s2['QA3'])}  {h1['C2']['gib']:.1f} GiB (용량의 {h1['C2']['share']*100:.0f}%, 감소율 {(1-h1['C2']['gib']/h1['Baseline']['gib'])*100:+.1f}%)"],
             ["QA4 변경 용이성", "비용($) / 공수(MM) / module — AND 조건", "—", f"{S(s1['QA4'])}  ${c1v['qa4']['usd_t2']:.2f} / {c1v['qa4']['mm']:.2f} / {c1v['qa4']['modules']:.2f} ({sub(c1v['qa4'])})", f"{S(s2['QA4'])}  ${c2v['qa4']['usd_t2']:.2f} / {c2v['qa4']['mm']:.2f} / {c2v['qa4']['modules']:.2f} ({sub(c2v['qa4'])})"],
             ["별 합계", "QA1 + QA2 + QA3 + QA4", "—", f"{sum(s1.values())}", f"{sum(s2.values())}"]]
     B.table(s, 0.4, 1.3, [1.7, 3.1, 1.8, 3.0, 2.93], rows, size=9.5, row_h=0.42, align=["l", "l", "c", "c", "c"], bold_first_col=True)
@@ -405,18 +407,18 @@ def build_slides(prs, res, inp):
     r1, r2 = U.qa2_ratio(inp["DP2"], v1), U.qa2_ratio(inp["DP2"], v2)
     h2 = hs["DP2"]
     def hb(c, v, st):
-        return f"{S(st['QA3'])}  {v['hbm_gib']:.0f} GiB (용량의 {h2[c]['share']*100:.0f}%, 감소 ×{v['qa3_ratio']:.2f}, {v['hbm_n_eq']}쌍)"
+        return f"{S(st['QA3'])}  {v['hbm_gib']:.0f} GiB (용량의 {h2[c]['share']*100:.0f}%, 감소율 {(1-1/v['qa3_ratio'])*100:+.1f}%, {v['hbm_n_eq']}쌍)"
     slo = lambda v: "SLO 충족" if U.qa2_slo_ok(v["ttft_p99_ms"], v["tpot_p99_ms"]) else "TTFT > 2 s → ★"
     rows = [["QA", "평가 metric (↑/↓ 좋음)", "Baseline-GPU-local (vLLM As-Is)", "1안 중앙 Dispatcher", "2안 Blackboard"],
             ["QA1 처리량", "Max SLO goodput (tok/s) ↑", f"{b['tps']:,.0f}", f"{S(q1['QA1'])}  {v1['qa1_tps']:,.0f} (×{v1['qa1_ratio']:.2f}) [B+C]", f"{S(q2['QA1'])}  {v2['qa1_tps']:,.0f} (×{v2['qa1_ratio']:.2f}) [B+C]"],
             ["QA2 지연 (TTFT)", "TTFT P99 (ms) ↓", f"{b['ttft_p99_ms']:,.0f}", f"{v1['ttft_p99_ms']:,.0f} (×{v1['ttft_p99_ms']/b['ttft_p99_ms']:.2f})", f"{v2['ttft_p99_ms']:,.0f} (×{v2['ttft_p99_ms']/b['ttft_p99_ms']:.2f})"],
             ["QA2 지연 (TPOT)", "TPOT P99 (ms) ↓", f"{b['tpot_p99_ms']:.1f}", f"{v1['tpot_p99_ms']:.1f} (×{v1['tpot_p99_ms']/b['tpot_p99_ms']:.2f})", f"{v2['tpot_p99_ms']:.1f} (×{v2['tpot_p99_ms']/b['tpot_p99_ms']:.2f})"],
             ["QA2 별점", "개선 r + SLO 강등", "TTFT > 2 s", f"{S(q1['QA2'])} (r={r1:.2f}, {slo(v1)}) [B+C]", f"{S(q2['QA2'])} (r={r2:.2f}, {slo(v2)}) [B+C]"],
-            ["QA3 자원 (HBM)", "HBM KV 시간평균 GiB (용량 대비 %, 감소 배수) ↓", f"{b['hbm_gib']:.0f} GiB (용량의 {h2['Baseline']['share']*100:.0f}%)", hb("C1", v1, q1), hb("C2", v2, q2)],
+            ["QA3 자원 (HBM)", "HBM KV 시간평균 GiB (용량 대비 %, 감소율) ↓", f"{b['hbm_gib']:.0f} GiB (용량의 {h2['Baseline']['share']*100:.0f}%)", hb("C1", v1, q1), hb("C2", v2, q2)],
             ["QA4 변경 용이성", "비용($) / 공수(MM) / module — AND 조건", "—", f"{S(q1['QA4'])}  ${v1['qa4']['usd_t2']:.2f} / {v1['qa4']['mm']:.2f} / {v1['qa4']['modules']:.2f} [B+C]", f"{S(q2['QA4'])}  ${v2['qa4']['usd_t2']:.2f} / {v2['qa4']['mm']:.2f} / {v2['qa4']['modules']:.2f} [B+C]"],
             ["별 합계", "QA1 + QA2 + QA3 + QA4", "—", f"{sum(q1.values())}", f"{sum(q2.values())}"]]
     B.table(s, 0.4, 1.3, [1.9, 3.2, 2.1, 2.8, 2.53], rows, size=9.5, row_h=0.4, align=["l", "l", "c", "c", "c"], bold_first_col=True)
-    B.blocks(s, ["1안(스케줄링 시점 결정): 노드 상태(telemetry)와 Cost 모델로 Turn 시작 때 실행 위치를 정한다. HBM 기회비용 항을 포함해 HBM을 덜 쓰고(×1.06 감소) TTFT P99를 줄이며(×0.57) 처리량이 오른다(×1.07).",
+    B.blocks(s, ["1안(스케줄링 시점 결정): 노드 상태(telemetry)와 Cost 모델로 Turn 시작 때 실행 위치를 정한다. HBM 기회비용 항을 포함해 HBM을 덜 쓰고(감소율 6%) TTFT P99를 줄이며(×0.57) 처리량이 오른다(×1.07).",
                  "대가: TPOT P99가 ×1.34 나빠진다(snapshot 주기 50 ms 사이에 쌓인 부하를 Cost 모델이 못 봄). Cost 추정 오차 σ ≥ 0.4에서는 Baseline 아래로 내려간다.",
                  "2안(Blackboard): 공유 Task Board에 게시하고 Tier agent가 라이브 측정으로 claim. 신호가 없으면 Baseline과 같은 결정을 하고(×1.00), HBM 압박 시 admission이 요청을 큐에 잡아 TTFT 꼬리가 길어진다(×1.15).",
                  "QA1·QA3·QA4는 두 후보가 같은 별이다(QA4 두 후보 ★★★: 2안이 module 1.25 대 1.75, 비용 $0.32 대 $0.39로 더 작다). 후보를 가르는 것은 QA2(1안 ★★, 2안 ★)로 합계 9 대 8이다."],
@@ -437,18 +439,18 @@ def build_slides(prs, res, inp):
     q5c = {c: (f"{S(res['DP3'][c]['QA5'])} F1 하락 {D3['values'][c]['f1_drop_pct']:.1f}%" if q5ok else "측정 중 (표본 부족)") for c in ("C1", "C2")}
     h3 = hs["DP3"]
     def hb3(c, st):
-        return f"{S(st['QA3'])}  {h3[c]['gib']:.1f} GiB (용량의 {h3[c]['share']*100:.0f}%, 감소 ×{h3['Baseline']['gib']/h3[c]['gib']:.2f})"
+        return f"{S(st['QA3'])}  {h3[c]['gib']:.1f} GiB (용량의 {h3[c]['share']*100:.0f}%, 감소율 {(1-h3[c]['gib']/h3['Baseline']['gib'])*100:+.1f}%)"
     rows = [["QA", "평가 metric (↑/↓ 좋음)", "Baseline (As-Is)", "C1 Offline", "C2 Online"],
             ["QA1 처리량", "Max SLO goodput (tok/s) ↑", f"{b3['tps']:,.0f}", f"{S(s1['QA1'])}  {c1['qa1_tps']:,.0f} (×{c1['qa1_ratio']:.2f})", f"{S(s2['QA1'])}  {c2['qa1_tps']:,.0f} (×{c2['qa1_ratio']:.2f})"],
             ["QA2 지연 (TTFT)", "TTFT P99 (ms) ↓", f"{b3['ttft_p99_ms']:,.0f}", f"{c1['ttft_p99_ms']:,.0f} (×{1/ag['C1-Offline']['ttft']['ratio_gm']:.2f})", f"{c2['ttft_p99_ms']:,.0f} (×{1/ag['C2-Online']['ttft']['ratio_gm']:.2f})"],
             ["QA2 지연 (TPOT)", "TPOT P99 (ms) ↓", f"{b3['tpot_p99_ms']:.1f}", f"{c1['tpot_p99_ms']:.1f} (×{1/ag['C1-Offline']['tpot']['ratio_gm']:.2f})", f"{c2['tpot_p99_ms']:.1f} (×{1/ag['C2-Online']['tpot']['ratio_gm']:.2f})"],
             ["QA2 별점", "개선 r + SLO 강등", "—", f"{S(s1['QA2'])} (r={r1:.2f}, SLO 충족)", f"{S(s2['QA2'])} (r={r2:.2f}, SLO 충족)"],
-            ["QA3 자원 (HBM)", "HBM KV 시간평균 GiB (용량 대비 %, 감소 배수) ↓", f"{h3['Baseline']['gib']:.1f} GiB (용량의 {h3['Baseline']['share']*100:.0f}%)", hb3("C1", s1), hb3("C2", s2)],
+            ["QA3 자원 (HBM)", "HBM KV 시간평균 GiB (용량 대비 %, 감소율) ↓", f"{h3['Baseline']['gib']:.1f} GiB (용량의 {h3['Baseline']['share']*100:.0f}%)", hb3("C1", s1), hb3("C2", s2)],
             ["QA5 기능 정확성", "F1 상대 하락 (%) ↓", "0 (정의)", q5c["C1"], q5c["C2"]],
             ["별 합계", "QA1 + QA2 + QA3 + QA5", "—", f"{sum(s1.values())}", f"{sum(s2.values())}"]]
     B.table(s, 0.4, 1.3, [1.9, 3.2, 1.9, 2.8, 2.73], rows, size=9.5, row_h=0.37, align=["l", "l", "c", "c", "c"], bold_first_col=True)
     B.blocks(s, ["C1은 HBM을 C2보다 훨씬 적게 쓴다: 압축한 Comp.KV(유지 비율 r = 0.30)만 상주시켜 Baseline의 28%, C2는 80%다. TTFT도 줄인다(28/32쌍).",
-                 "C2는 전체 KV를 적재해 상주 객체가 줄지 않고, 점수 계산 뒤 요청의 작업 사본만 줄어든다(HBM ×1.26). TTFT는 Baseline보다 나쁘다(32쌍 중 2쌍만 이김).",
+                 "C2는 전체 KV를 적재해 상주 객체가 줄지 않고, 점수 계산 뒤 요청의 작업 사본만 줄어든다(HBM 감소율 21%). TTFT는 Baseline보다 나쁘다(32쌍 중 2쌍만 이김).",
                  "처리량(QA1)도 C1이 낫다(×1.51 대 ×0.99): 압축으로 요청당 적재·attention이 줄어 SLO를 지키는 도착률이 올라간다. 일부 쌍(CB-3 등)은 도착률이 포화에 못 닿아 ×1.00이다.",
                  "정확도는 반대로 C2가 낫다: C2(실제 질의로 점수) F1이 full과 구분되지 않고, C1(대표 질의)은 질의가 멀수록 크게 떨어진다. 이것이 DP3의 trade-off다.",
                  "Baseline이 못 끝내는 시나리오(ST-11, DY-03 H100)에서 C1은 끝낸다."],
@@ -538,7 +540,7 @@ def build_slides(prs, res, inp):
     rows = [["DP", "공통 시나리오에서의 QA (후보 ÷ Baseline 또는 배수)", "왜 이렇게 되나"],
             ["DP1", "QA1 ×1.00 (둘 다, Baseline이 이미 포화), C1 TTFT P99 ×2.95 나쁨 · C2 ×1.03", "이동할 이득이 없는 정적 워크로드라 이동 비용만 남는다. 이득은 Dynamic 시나리오에서 나온다"],
             ["DP2", "1안: QA1 ×1.00~1.11, TPOT P99 ×1.19~2.32 나쁨 / 2안: Baseline과 같음(×1.00) (H100·B200 공통 3개 시나리오 중 비교 가능 쌍)", "History 없는 단일 턴이라 attention 위치를 바꿀 이유가 적다. 1안만 Cost 모델이 일부 offload를 선택해 TPOT 꼬리가 길어진다"],
-            ["DP3", f"C1 TTFT {ag['C1-Offline']['by_family']['ttft/common']:.2f}배 개선, HBM {ag['C1-Offline']['by_family']['hbm/common']:.2f}배 감소 / C2 TTFT {ag['C2-Online']['by_family']['ttft/common']:.2f}배, HBM {ag['C2-Online']['by_family']['hbm/common']:.2f}배", "8K 문맥도 DRAM에서 적재해야 하는 구성이라 압축이 적재 시간을 줄인다"],
+            ["DP3", f"C1 TTFT {ag['C1-Offline']['by_family']['ttft/common']:.2f}배 개선, HBM 감소율 {(1-1/ag['C1-Offline']['by_family']['hbm/common'])*100:.0f}% / C2 TTFT {ag['C2-Online']['by_family']['ttft/common']:.2f}배, HBM 감소율 {(1-1/ag['C2-Online']['by_family']['hbm/common'])*100:.0f}%", "8K 문맥도 DRAM에서 적재해야 하는 구성이라 압축이 적재 시간을 줄인다"],
             ["DP4", "W1(공통 벤치마크): 처리량 ×1.05 · ×1.04, TTFT P99 ×0.90 · ×0.84", "정책 효과가 크지 않게 prefix 재사용을 통제한 기준선"]]
     B.table(s, 0.4, 3.3, [1.0, 6.0, 5.53], rows, size=9.5, row_h=0.62, align=["c", "l", "l"], bold_first_col=True)
     B.tb(s, 0.4, 6.55, 12.5, 0.4, [("공통 시나리오만 보면 DP마다 QA 방향이 다르다(DP1은 거의 중립, DP3는 크게 개선). 그래서 별은 공통 + DP 전용 시나리오를 함께 집계한 값이고, 공통만의 별은 참고값이다.", dict(size=10, bold=True, color=NAVY))], name="foot_msg")
@@ -614,7 +616,7 @@ def build_slides(prs, res, inp):
     add(s)
 
     dp_scn("부록 — DP3 시나리오: KV 압축·재사용이 갈리는 조건", "Common 3 + Stress 12 + Dynamic 3 · 문맥 8K~256K 재사용 · Baseline = 전체 KV 재사용(As-Is) · 도착률 = Baseline 용량의 70%",
-           [["Common (CB-1~3) 8K", "DRAM에서 적재하는 8K 문맥, HBM 압박", "C2 TTFT ×0.79~0.96 (온라인 점수 계산 + 재계산)", f"C1 TTFT ×{ag['C1-Offline']['by_family']['ttft/common']:.1f}, HBM ×{ag['C1-Offline']['by_family']['hbm/common']:.1f}"],
+           [["Common (CB-1~3) 8K", "DRAM에서 적재하는 8K 문맥, HBM 압박", "C2 TTFT ×0.79~0.96 (온라인 점수 계산 + 재계산)", f"C1 TTFT ×{ag['C1-Offline']['by_family']['ttft/common']:.1f}, HBM 감소율 {(1-1/ag['C1-Offline']['by_family']['hbm/common'])*100:.0f}%"],
             ["Stress — 문맥 길이", "32K / 64K / 128K / 256K (DRAM·CXL)", "256K에서 C1 TTFT ×0.73(H100): 재계산 prefill이 김", "32K~128K에서 C1 TTFT 개선, HBM 감소"],
             ["Stress — tier·재사용", "SSD 차가운 재사용, HBF 직접 읽기, skew/uniform, 긴·짧은 질의, 대표 Query 불일치", "HBF(ST-06): C1·C2 TTFT ×0.09~0.14. SSD(ST-05)는 표본 부족", "HBM 압박·분산 재사용(ST-08, 10)에서 C1 이득 큼"],
             ["Dynamic 3", "hot set 이동, burst, HBM 압박 증가", "C2는 Baseline보다 TTFT 나쁨 (×0.76~0.88)", "ST-11·DY-03 H100: Baseline이 못 끝내는 걸 C1이 끝냄"]],
@@ -695,6 +697,8 @@ def main(src, dst):
     tpl = tradeoff_table(tpl_slide).cell(4, 2)._tc.txBody.findall(qn("a:p"))[0]
 
     hs = json.load(open(HERE / "hbm_share.json"))
+    for _k in hs["DP1"]:
+        hs["DP1"][_k]["gib"] = round(hs["DP1"][_k]["gib"], 1)      # same rounding as the reported GiB values
 
     def set_star(p, star):
         """First run(s) of the paragraph that hold only star glyphs are rewritten to `star` (rest of the paragraph is kept)."""
@@ -707,13 +711,13 @@ def main(src, dst):
                 break
 
     def hbm_txt(gib, share, base_gib, ratio=None):
-        return f"{gib:.1f}(용량 {share*100:.0f}%, 감소 {(ratio if ratio else base_gib/gib):.2f}배)"
+        return f"{gib:.1f}(용량 {share*100:.0f}%, 감소율 {(1 - (1/ratio if ratio else gib/base_gib))*100:+.1f}%)"
 
     def relabel_hbm(t, paras_idx):
         for col in (1, 3):
             p = t.cell(4, col).text_frame.paragraphs[paras_idx]
             rs = p.runs
-            rs[-1].text = rs[-1].text.rstrip(")") + ", 용량 %, 감소 배수)" if rs[-1].text.endswith(")") else rs[-1].text
+            rs[-1].text = rs[-1].text.rstrip(")") + ", 용량 %, 감소율)" if rs[-1].text.endswith(")") else rs[-1].text
             if not rs[-1].text.endswith(")"):
                 rs[-1].text += ")"
 
@@ -829,7 +833,7 @@ def main(src, dst):
     banner(prs.slides[12], "※ 공통 별 기준 v3: DP1 별 합계는 C1 9, C2 9(동점 → QA1에서 C2). 이 장의 표는 DP1 기준(v5)이고 v3와 QA2·QA4 판정이 다르다.")
     banner(prs.slides[18], "※ 공통 별 기준 v3 QA1과 같은 방식이다. ★★★ 경계는 4/3(≈1.33)이다. ★★ 하한 0.97은 같다.")
     banner(prs.slides[19], "※ 공통 별 기준 v3에서 대체됨: QA2 = Baseline 대비 개선 r(≥ 1.20 ★★★, ≥ 0.90 ★★)이며 TTFT > 2 s 또는 TPOT > 50 ms이면 ★.")
-    banner(prs.slides[20], "※ 공통 별 기준 v3 QA3과 같은 기준이다(감소 배수 1.25/0.95). PPT에는 용량 대비 점유 %를 병기한다. 기존 별 그대로.")
+    banner(prs.slides[20], "※ 공통 별 기준 v3 QA3과 같은 기준이다(감소율 20% / −5%). PPT에는 용량 대비 점유 %를 병기한다. 기존 별 그대로.")
     banner(prs.slides[21], "※ 공통 별 기준 v3에서 대체됨: 별 = 세 sub-star의 최솟값(AND), 비용은 mid tier $0.5/$2, 공수 0.5/1.0 MM. DP1 별 그대로.")
     banner(prs.slides[26], "※ 공통 별 기준 v3에서 대체됨: QA1 경계는 0.97/4/3(이 장의 0.90/1.10 대신). Q1 = 공통 QA1. DP4 별 그대로.")
     banner(prs.slides[27], "※ 공통 별 기준 v3에서 대체됨: 개선 r로 별을 정하고 절대 SLO 초과 시 ★. Q2 = 공통 QA2. DP4 후보1 ★, 후보2 ★★.")
