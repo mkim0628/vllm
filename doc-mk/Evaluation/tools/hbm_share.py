@@ -32,6 +32,19 @@ for sysid in ("SYS-H100", "SYS-B200"):
                 gib[k].append(v[c]["tier_occ_gib"]["hbm"])
 out["DP1"] = {k: dict(share=gm(sh[k]), gib=gm(gib[k]), n=len(sh[k])) for k in C}
 
+# DP1 C1 without Data-Memory Affinity (ablation run, same 21 comparison-valid pairs)
+sh_, gib_ = [], []
+for sysid in ("SYS-H100", "SYS-B200"):
+    r = json.load(open(EVAL / "DP1/results/data/ablation/none" / sysid / "qa_result.json"))
+    for setn in ("common_benchmark", "dp1_stress_benchmark", "dp1_dynamic_benchmark"):
+        for sc, l in (r[setn].get("fit") or {}).items():
+            if (l if isinstance(l, str) else l.get("fit")) != "comparison_valid":
+                continue
+            v = r[setn]["per_scenario"][sc]["C1-resource-driven"]
+            sh_.append(v["tier_util"]["hbm"])
+            gib_.append(v["tier_occ_gib"]["hbm"])
+out["DP1"]["C1_noaff"] = dict(share=gm(sh_), gib=gm(gib_), n=len(sh_))
+
 # DP3
 sys.path.insert(0, str(EVAL / "DP3" / "sim"))
 import dp3sim as D  # noqa: E402

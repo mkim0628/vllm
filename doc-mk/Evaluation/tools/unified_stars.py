@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -103,7 +104,7 @@ def qa6(se):
     return 3 if se >= QA6_T[0] else 2 if se >= QA6_T[1] else 1
 
 
-PRIORITY = {"DP1": ["QA1", "QA2", "QA3", "QA4"], "DP2": ["QA1", "QA2", "QA3"], "DP3": ["QA2", "QA5", "QA3"], "DP4": ["QA1", "QA2", "QA4", "QA6"]}
+PRIORITY = {"DP1": ["QA1", "QA2", "QA3", "QA4"], "DP2": ["QA1", "QA3", "QA2", "QA4"], "DP3": ["QA2", "QA5", "QA1", "QA3"], "DP4": ["QA1", "QA2", "QA4", "QA6"]}   # DP2/DP3: proposals
 
 
 def select(dp, res):
@@ -129,8 +130,8 @@ def S(n):
 
 
 # ---------------------------------------------------------------- data
-def qa4_from_json(dp):
-    d = json.load(open(EVAL / dp / "results" / "data" / "qa4_modifiability.json"))
+def qa4_from_json(dp, path=None):
+    d = json.load(open(path or (EVAL / dp / "results" / "data" / "qa4_modifiability.json")))
     out = {}
     for c in ("C1", "C2"):
         sc = [v[c] for v in d["scenarios"].values()]
@@ -149,7 +150,8 @@ def load():
     inp["DP1-1안"]["values"]["C1"]["qa4"] = inp["DP1"]["values"]["C1"]["qa4"]   # PPT 3장은 1안에 C1과 같은 QA4 값을 표기
     # DP2: node-internal evaluation (2026-10-11 owner: DP2 decides inside one node). Source = DP2/results/data/arch/qa_result.json
     # (candidates A-Dispatcher = 1안 scheduling-time decision / Client-Dispatcher, B-Blackboard = 2안 pre-plan / Shared Repository).
-    # v3 evaluates QA1, QA2, QA3 only (QA4 excluded by the owner). QA3 uses hbm_save over the equal-performance pairs of that candidate.
+    # QA4 (owner 2026-10-11: added back) comes from the node-internal change scenarios (qa4_modifiability.json, S1-S4).
+    # QA3 uses hbm_save over the equal-performance pairs of that candidate.
     qa = json.load(open(EVAL / "DP2" / "results" / "data" / "arch" / "qa_result.json"))
     t = qa["tables"]["combined"]
     bl = t["Baseline-GPU-local"]
@@ -160,7 +162,10 @@ def load():
         v = t[key]
         inp["DP2"]["values"][c] = dict(qa1_tps=v["qa1_abs"], qa1_ratio=v["qa1_ratio"], ttft_p99_ms=v["ttft_p99"] * 1e3, tpot_p99_ms=v["tpot_p99"] * 1e3,
                                        hbm_gib=v["hbm_abs_gib"], hbm_base_gib=v["hbm_base_gib"], qa3_ratio=v["hbm_save"], hbm_n_eq=v["hbm_n_eq"])
-    inp["DP2"]["previous_stars"] = {"C1": {"QA1": 2, "QA2": 2, "QA3": 2}, "C2": {"QA1": 2, "QA2": 1, "QA3": 2}}   # 10-10 document (QA4 excluded)
+    q4 = qa4_from_json("DP2", EVAL / "DP2" / "results" / "data" / "arch" / "qa4_modifiability.json")
+    for c in ("C1", "C2"):
+        inp["DP2"]["values"][c]["qa4"] = q4[c]
+    inp["DP2"]["previous_stars"] = {"C1": {"QA1": 2, "QA2": 2, "QA3": 2, "QA4": 3}, "C2": {"QA1": 2, "QA2": 1, "QA3": 2, "QA4": 3}}   # 10-10 document
     # DP3: simulation summary (aggregated by DP3/sim/aggregate.py) and, if present, the QA5 file
     sm = json.load(open(EVAL / "DP3" / "results" / "data" / "dp3_summary.json"))
     ag = sm["aggregate"]
@@ -170,6 +175,16 @@ def load():
         a = ag["abs"][pol]
         inp["DP3"]["values"][c] = dict(ttft_p99_ms=a["ttft"] * 1e3, tpot_p99_ms=a["tpot"] * 1e3, hbm_gib=a["hbm"],
                                        qa2_r=ag[pol]["qa2_r"], qa3_ratio=ag[pol]["hbm"]["ratio_gm"], n_pairs=ag[pol]["ttft"]["n"])
+    q1p = EVAL / "DP3" / "results" / "data" / "dp3_qa1.json"       # QA1 added 2026-10-11 (registered in DP3/simulation-plan.md change log)
+    if q1p.exists():
+        q1 = json.load(open(q1p))["pairs"]
+        valid = [k for k, e in sm["pairs"].items() if e["valid"] and q1[k]["Baseline-As-Is"]["max_goodput"] > 0]
+        gm = lambda x: math.exp(sum(math.log(a) for a in x) / len(x))
+        inp["DP3"]["baseline"]["tps"] = gm([q1[k]["Baseline-As-Is"]["max_goodput"] for k in valid])
+        for c, pol in (("C1", "C1-Offline"), ("C2", "C2-Online")):
+            inp["DP3"]["values"][c]["qa1_tps"] = gm([q1[k][pol]["max_goodput"] for k in valid])
+            inp["DP3"]["values"][c]["qa1_ratio"] = gm([q1[k][pol]["max_goodput"] / q1[k]["Baseline-As-Is"]["max_goodput"] for k in valid])
+            inp["DP3"]["values"][c]["qa1_n"] = len(valid)
     q5 = EVAL / "DP3" / "results" / "data" / "dp3_qa5.json"
     if q5.exists():
         q = json.load(open(q5))

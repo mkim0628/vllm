@@ -19,6 +19,7 @@ import dp3_scenarios as SC  # noqa: E402
 
 DATA = HERE.parent / "results" / "data"
 MULTS = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0)
+EXT = (12.0, 16.0, 24.0, 32.0, 48.0, 64.0)     # second pass for pairs whose peak is at the grid end (SKILL: extend when the peak sits at the grid end)
 SEEDS = (11, 23, 37, 53, 71)
 POL = {p.name: p for p in (D.BASELINE, D.C1, D.C2)}
 
@@ -46,15 +47,22 @@ def main():
     with Pool(a.workers) as pool:
         for t, g in pool.imap_unordered(job, tasks, chunksize=8):
             acc.setdefault((t[0], t[1], t[2], t[3]), []).append(g)
-    out = {"schema": "dp3_qa1 v1", "mults": MULTS, "seeds": SEEDS, "pairs": {}}
+    # second pass: extend the grid for every pair where some policy still peaks at the last load
+    ext_pairs = [(sy, si) for (sy, si) in rates if any(max(MULTS, key=lambda m: st.mean(acc[(sy, si, pn, m)])) == MULTS[-1] for pn in POL)]
+    tasks2 = [(sy, si, pn, m, sd, rates[(sy, si)]) for (sy, si) in ext_pairs for pn in POL for m in EXT for sd in SEEDS]
+    with Pool(a.workers) as pool:
+        for t, g in pool.imap_unordered(job, tasks2, chunksize=8):
+            acc.setdefault((t[0], t[1], t[2], t[3]), []).append(g)
+    out = {"schema": "dp3_qa1 v1", "mults": MULTS, "ext_mults": EXT, "ext_pairs": [f"{a}/{b}" for a, b in ext_pairs], "seeds": SEEDS, "pairs": {}}
     for (sysid, sid) in rates:
         ent = {}
         for pn in POL:
-            curve = {str(m): st.mean(acc[(sysid, sid, pn, m)]) for m in MULTS}
+            ms = [m for m in MULTS + EXT if (sysid, sid, pn, m) in acc]
+            curve = {str(m): st.mean(acc[(sysid, sid, pn, m)]) for m in ms}
             ent[pn] = dict(curve=curve, max_goodput=max(curve.values()), argmax=max(curve, key=curve.get))
         out["pairs"][f"{sysid}/{sid}"] = ent
     (DATA / "dp3_qa1.json").write_text(json.dumps(out, indent=1))
-    print("wrote", DATA / "dp3_qa1.json", len(tasks), "runs")
+    print("wrote", DATA / "dp3_qa1.json", len(tasks) + len(tasks2), "runs;", len(ext_pairs), "pairs extended")
 
 
 if __name__ == "__main__":

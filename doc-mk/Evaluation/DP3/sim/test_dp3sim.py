@@ -42,8 +42,8 @@ def test_online_scoring_adds_ttft_vs_offline_same_ratio():
 def test_slower_tier_slower_ttft():
     fast = SC.BY_ID["ST-03"]
     slow = SC.BY_ID["ST-05"]
-    a = D.summarize(D.run(fast, SYS, D.BASELINE, 11, 0.2))["ttft_p50"]
-    b = D.summarize(D.run(slow, SYS, D.BASELINE, 11, 0.2))["ttft_p50"]
+    a = D.summarize(D.run(fast, SYS, D.BASELINE, 11, 0.2))["ttft_p99"]
+    b = D.summarize(D.run(slow, SYS, D.BASELINE, 11, 0.2))["ttft_p99"]
     assert b > a
 
 

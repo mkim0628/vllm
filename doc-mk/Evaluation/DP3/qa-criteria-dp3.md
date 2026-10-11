@@ -4,6 +4,7 @@ DP3에는 DP 전용 별 기준이 없다. **`../qa-star-criteria-unified.md`(공
 
 | QA | DP3에서의 지표 | 기준 |
 |---|---|---|
+| QA1 처리량 | Max SLO goodput 쌍별 비율의 기하평균 | unified §3.1 (★★★ ≥ 4/3) |
 | QA2 지연 | 시나리오 쌍별 TTFT P99·TPOT P99의 기하평균과 Baseline 대비 r | unified §3.2 (절대 SLO 등급 A와 개선 등급 R의 평균) |
 | QA3 자원 | HBM에 올라간 Context KV의 시간 평균 GiB의 Baseline ÷ 후보 | unified §3.3 (1.25 / 0.95) |
 | QA5 기능 정확성 | F1 상대 하락 (소형 모델 eviction micro-benchmark + 매핑) | unified §3.5 (1% / 3%, 3%는 제안) |

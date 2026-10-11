@@ -43,7 +43,7 @@ dp: DP3
 candidates: [C1-Offline, C2-Online]
 sys_ids: [SYS-H100, SYS-B200]
 git_rev: {rev}   # +dirty = 같은 폴더의 accuracy/ 측정 파일이 아직 commit되지 않은 상태. sim 코드·시나리오는 commit 4776de4 그대로
-evidence: {{ QA2: "[B+C]", QA3: "[B+C]", QA5: "[A 소형 모델 실측 + C 매핑]" }}
+evidence: {{ QA1: "[B+C]", QA2: "[B+C]", QA3: "[B+C]", QA5: "[A 소형 모델 실측 + C 매핑]" }}
 status: draft
 ---
 
@@ -56,6 +56,8 @@ status: draft
 
 | QA | Baseline (As-Is) | C1 Offline | C2 Online |
 |---|---:|---|---|
+| QA1 Max SLO goodput (tok/s) ↑ | {inp['DP3']['baseline']['tps']:,.0f} | {inp['DP3']['values']['C1']['qa1_tps']:,.0f} (×{inp['DP3']['values']['C1']['qa1_ratio']:.2f}) | {inp['DP3']['values']['C2']['qa1_tps']:,.0f} (×{inp['DP3']['values']['C2']['qa1_ratio']:.2f}) |
+| QA1 별 | — | {S(stars['C1']['QA1'])} | {S(stars['C2']['QA1'])} |
 | QA2 TTFT P99 (ms) ↓ | {ms(ag['abs'][BASE]['ttft'])} | **{ms(ag['abs'][C1]['ttft'])}** (x{ag[C1]['ttft']['ratio_gm']:.2f} 개선) | {ms(ag['abs'][C2]['ttft'])} (x{ag[C2]['ttft']['ratio_gm']:.2f}, **Baseline보다 나쁨**) |
 | QA2 TPOT P99 (ms) ↓ | {ag['abs'][BASE]['tpot']*1e3:.1f} | {ag['abs'][C1]['tpot']*1e3:.1f} (x{ag[C1]['tpot']['ratio_gm']:.2f}) | {ag['abs'][C2]['tpot']*1e3:.1f} (x{ag[C2]['tpot']['ratio_gm']:.2f}) |
 | QA2 별 | — | {S(stars['C1']['QA2'])} (r={ag[C1]['qa2_r']:.2f}, SLO 충족) | {S(stars['C2']['QA2'])} (r={ag[C2]['qa2_r']:.2f} < 0.90 → ★) |
@@ -86,6 +88,7 @@ status: draft
 
 | 항목 | 정의 / formula | 출처 |
 |---|---|---|
+| QA1 Max SLO goodput | 요청별 SLO(TTFT ≤ 2 s, TPOT ≤ 50 ms)를 만족한 요청의 output token / 측정 구간, 부하 격자 lam0 × {{0.5 … 8}}(최대가 끝이면 × 64까지 확장)의 최대, 쌍별 비율의 기하평균 | unified §3.1, simulation-plan 변경 이력 |
 | QA2 TTFT P99 / TPOT P99 | TTFT = 첫 토큰 시각 − 도착 시각(admission 대기·KV 적재·GPU 대기 포함). TPOT = (마지막 − 첫 토큰)/(출력 − 1). 요청 P99, seed 평균, 쌍별 기하평균. r = √(TTFT 배수 × TPOT 배수) | unified §3.2 |
 | QA3 HBM 사용량 | HBM에 올라간 KV(상주 Comp.KV 객체 + 요청 작업 사본)의 시간 평균 GiB. DP3 후보가 바꾸는 AI Data는 KV뿐이라 KV만 잰다(LoRA·MoE 등은 시나리오에 없음). 처음 10% 제외. 감소 배수 = Baseline ÷ 후보 | unified §3.3 |
 | QA5 F1 상대 하락 | (F1_full − F1_후보) ÷ F1_full, 같은 모델·task, 압축 전 full KV 대비 | unified §3.5 |
@@ -113,6 +116,7 @@ w("""
 
 | QA | 평가 metric | Baseline (T_ref) | C1 Offline | C2 Online |
 |---|---|---:|---|---|""")
+w(f"| QA1 Throughput | Max SLO goodput (tok/s) ↑ | {inp['DP3']['baseline']['tps']:,.0f} | {S(stars['C1']['QA1'])} {inp['DP3']['values']['C1']['qa1_tps']:,.0f} (×{inp['DP3']['values']['C1']['qa1_ratio']:.2f}) [B+C] | {S(stars['C2']['QA1'])} {inp['DP3']['values']['C2']['qa1_tps']:,.0f} (×{inp['DP3']['values']['C2']['qa1_ratio']:.2f}) [B+C] |")
 w(f"| QA2 Latency (TTFT) | TTFT P99 (ms) ↓ | {ms(ag['abs'][BASE]['ttft'])} | {ms(ag['abs'][C1]['ttft'])} (x{ag[C1]['ttft']['ratio_gm']:.2f}) [B+C] | {ms(ag['abs'][C2]['ttft'])} (x{ag[C2]['ttft']['ratio_gm']:.2f}) [B+C] |")
 w(f"| QA2 Latency (TPOT) | TPOT P99 (ms) ↓ | {ag['abs'][BASE]['tpot']*1e3:.1f} | {ag['abs'][C1]['tpot']*1e3:.1f} (x{ag[C1]['tpot']['ratio_gm']:.2f}) | {ag['abs'][C2]['tpot']*1e3:.1f} (x{ag[C2]['tpot']['ratio_gm']:.2f}) |")
 w(f"| QA2 별점 | 개선 r + SLO 강등 | — | {S(stars['C1']['QA2'])} [B+C] | {S(stars['C2']['QA2'])} [B+C] |")
