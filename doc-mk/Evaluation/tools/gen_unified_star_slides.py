@@ -197,13 +197,13 @@ def build_slides(prs, res, inp):
         return s
 
     # ---------------------------------------------------------------- overview (12p)
-    s = B.frame("공통 별 기준 v3 — 모든 DP에 같은 QA는 같은 기준", "QA마다 metric 계산식 → ★ 기준 → 근거 · QA2는 Baseline 대비 개선 + SLO 초과 시 ★ · QA3는 Baseline 대비 감소율 · QA4는 세 지표 AND 조건 · proposal (소유자 확정 전)",
+    s = B.frame("공통 별 기준 v3 — 모든 DP에 같은 QA는 같은 기준", "QA별 metric → ★ 기준 → 근거 · QA2 개선 + SLO 강등 · QA3 감소율 · QA4 토큰 비용·M/M AND · proposal",
                 "※ 근거 문서: doc-mk/Evaluation/qa-star-criteria-unified.md · 별 계산: tools/unified_stars.py (값과 출처는 tools/unified_inputs.json, HBM 점유 비율은 tools/hbm_share.json)")
     rows = [["QA", "metric (같은 DP의 Baseline 대비 또는 절대 SLO)", "★★★", "★★", "★", "적용 DP"],
-            ["QA1 처리량", "R = Max SLO goodput ÷ Baseline (쌍별 기하평균)", "R ≥ 4/3 (≈1.33)", "0.97 ≤ R < 4/3", "R < 0.97", "DP1 · DP2 · DP3 · DP4"],
+            ["QA1 처리량", "R = Max SLO goodput ÷ Baseline (쌍별 기하평균)", "R ≥ 2.0", "1.3 ≤ R < 2.0", "R < 1.3", "DP1 · DP2 · DP3 · DP4"],
             ["QA2 지연", ["r = √(Baseline TTFT P99 ÷ 후보 TTFT P99 × Baseline TPOT P99 ÷ 후보 TPOT P99)", "(r > 1이면 좋아짐) · TTFT P99 > 2 s 또는 TPOT P99 > 50 ms이면 r과 상관없이 ★로 강등"], "r ≥ 1.20", "0.90 ≤ r < 1.20", "r < 0.90 또는 SLO 초과", "DP1 ~ DP4"],
-            ["QA3 자원", ["HBM에 올라간 AI Data(KV·LoRA·MoE expert·RAG 인덱스·Agent memory 등)의 시간 평균 GiB → 감소율 = (Baseline − 후보) ÷ Baseline", "(표기: HBM 용량 대비 점유 비율 %도 병기)"], "감소율 ≥ 20%", "−5% ≤ 감소율 < 20%", "감소율 < −5%", "DP1 · DP2 · DP3"],
-            ["QA4 변경 용이성", ["세 지표를 각각 판정하고 셋이 모두 만족해야 그 별 (AND)", "① 토큰 비용(mid tier $/변경) ② 공수(MM/변경) ③ 변경 module 수"], "① ≤ $0.5 그리고 ② ≤ 0.5 그리고 ③ ≤ 2", "① ≤ $2 그리고 ② ≤ 1.0 그리고 ③ < 6", "그 밖 (하나라도 ★★ 기준을 넘음)", "DP1 · DP2 · DP4"],
+            ["QA3 자원", ["HBM에 올라간 AI Data(KV·LoRA·MoE expert·RAG 인덱스·Agent memory 등)의 시간 평균 GiB → 감소율 = (Baseline − 후보) ÷ Baseline", "(표기: HBM 용량 대비 점유 비율 %도 병기)"], "감소율 ≥ 40%", "−5% ≤ 감소율 < 40%", "감소율 < −5%", "DP1 · DP2 · DP3"],
+            ["QA4 변경 용이성", ["두 지표를 각각 판정하고 둘 다 만족해야 그 별 (AND)", "① 토큰 비용(mid tier $/변경) ② 개발 공수(M/M) · LOC·module 수는 보조 지표(부록)"], "① ≤ $0.5 그리고 ② ≤ 0.5 MM", "① ≤ $2 그리고 ② ≤ 1.0 MM", "그 밖 (하나라도 ★★ 기준을 넘음)", "DP1 · DP2 · DP4"],
             ["QA5 기능 정확성", "F1 상대 하락 (압축 전 + full recompute 대비)", "≤ 1%", "≤ 3% (제안)", "> 3%", "DP3"],
             ["QA6 확장성", "SE(N_max=16) = Goodput(N) ÷ ((N/N0) × Goodput(N0)), N0=2", "≥ 90%", "70 ~ 90%", "< 70%", "DP4"]]
     fills = {i: ["EAF0FA", None, "E2EFDA", "FFF2CC", "FBE5D6", None] for i in range(1, 7)}
@@ -213,7 +213,7 @@ def build_slides(prs, res, inp):
     B.blocks(s, ["같은 QA는 DP와 무관하게 같은 metric·집계·경계를 쓴다. DP마다 다른 것은 후보와 시나리오(공통 + DP 전용)뿐이다.",
                  "경계마다 근거를 달았다: 측정(잡음 폭), 환산(자원·시간), 표준·문헌, 정책 선택을 구분해 적었다.",
                  "QA2: Baseline보다 나빠지면(r < 0.90) 절대 SLO를 지켜도 ★, SLO를 넘으면 개선 폭과 무관하게 ★다.",
-                 "QA4: 세 지표 중 하나라도 한 단계 낮으면 전체가 그 단계다. 별 합계가 높은 후보를 선택하고 동점일 때만 QA 우선순위를 쓴다."],
+                 "QA4: 토큰 비용과 M/M 중 하나라도 한 단계 낮으면 전체가 그 단계다. 별 합계가 높은 후보를 선택하고 동점일 때만 QA 우선순위를 쓴다."],
              ["QA3의 기준은 Baseline 대비 감소율((Baseline − 후보) ÷ Baseline, 음수면 HBM을 더 쓴 것)이고, 용량 대비 점유 비율(%)은 병기하는 참고 값이다(DP별 용량 구성이 달라 DP 간 비교용이 아님).",
               "QA5의 두 번째 경계(3%)는 데이터로 도출하지 못한 제안값이다.",
               "시뮬레이션 [B+C]와 Baseline 실측 + 시뮬레이션 [A+C]를 같은 표에 쓴다. 근거 수준은 별과 분리해 표기한다."],
@@ -227,18 +227,25 @@ def build_slides(prs, res, inp):
         add(s)
 
     # ---------------------------------------------------------------- QA1
-    crit("QA1 처리량 — 공통 별 기준", "R = Max SLO goodput(output tok/s) ÷ 같은 DP Baseline · 시나리오 쌍별 비율의 기하평균 · SLO = TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms",
-         [["★★★", "R ≥ 4/3 (≈ 1.33)", "같은 수요를 75% 이하의 서버로 처리 = 서버 4대 중 1대가 필요 없다(자원 25% 절감). 새 메모리 HW와 스케줄링 복잡도를 정당화할 최소 규모로 둔 환산 값", "환산 [C], 정책 선택"],
-          ["★★", "0.97 ≤ R < 4/3", "하한 0.97 = Baseline끼리 seed 묶음을 바꿔 비교한 20회 집계 범위 0.968~1.033의 아래 끝. 그 안은 잡음이라 열세로 보지 않는다", "측정 [B+C], DP1 star_basis.py"],
-          ["★", "R < 0.97", "잡음 대역 밖의 열세: Baseline보다 느리다", "측정 [B+C]"]],
-         ["이전: DP1·DP2 0.97/1.30, DP4 0.90/1.10(공통 룰 §4.3). 통합: 0.97/4/3.",
-          "결과: DP1 C1 ×1.298(★★) · C2 ×1.423(★★★), DP2 ×1.66 · ×1.66(★★★), DP4 ×1.05 · ×1.04(★★).",
-          "DP1 보완 버전(C1 + Affinity)은 436 ÷ 336 = ×1.2976이다. '×1.3'으로 반올림해 적었지만 판정 값은 소수 값이라 ★★다. 문서와 PPT에는 ×1.298로 쓴다."],
-         ["상위 구간의 차이가 별에 보이는 해상도는 4/3 근처에서 가장 크다. DP4는 ×1.04~1.05로 모두 ★★ 하위에 있다.",
-          "DP4는 Baseline이 실측이지만 재측정 잡음 폭을 아직 재지 않았다. 0.97은 시뮬레이터의 잡음 폭이다.",
-          "DP2의 ×1.66은 Baseline이 SLO를 거의 못 지키는 시나리오가 끌어올린다."],
-         "※ 공통 별점(0.90/1.10)은 필요하면 병기한다. 다른 기준 계열의 영향은 qa-star-criteria-unified.md §7.",
-         "출처: DP1/qa-criteria-dp1.md §A·§J · DP1/sim/star_basis.py · tools/unified_stars.py")
+    s = B.frame("QA1 처리량 — 공통 별 기준", "R = Max SLO goodput(output tok/s) ÷ 같은 DP Baseline · 시나리오 쌍별 비율의 기하평균 · SLO = TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms",
+                "※ 문헌 수치는 각 논문 초록 기준(arXiv·USENIX)이며 비교 대상과 모델·하드웨어가 논문마다 다르다. 1.3배 경계는 위 문헌이 직접 뒷받침하지 않는 정책 선택이다.",
+                "출처: vLLM SOSP 2023 (arxiv.org/abs/2309.06180) · Sarathi-Serve OSDI 2024 (arxiv.org/abs/2403.02310) · Orca OSDI 2022 (usenix.org/conference/osdi22/presentation/yu)")
+    rows = [["별", "성능 기준 (정량)", "왜 이 값인가", "확인 수준"],
+            ["★★★", "R ≥ 2.0 × Baseline", "주요 SW 구조 개선이 보고한 처리량 개선의 하한(vLLM 2~4배)이 2배이며, 같은 수요를 절반의 서버로 처리하는 자원 환산 단위다. 아래 표", "문헌 [B] + 환산 [C]"],
+            ["★★", "1.3 ≤ R < 2.0 × Baseline", "2배에 못 미치지만 Baseline 대비 30% 이상 개선(서버 약 23% 절감). 이전 DP1 경계(1.30)를 유지한 정책 선택", "정책 선택"],
+            ["★", "R < 1.3 × Baseline", "개선이 30% 미만이거나 Baseline보다 느림(Baseline끼리 재측정 범위 0.968~1.033 아래는 명백한 열세)", "측정 [B+C] (하한)"]]
+    B.table(s, 0.4, 1.3, [0.8, 2.4, 7.4, 1.93], rows, size=9.5, row_h=0.5, fills={1: [FILL[3]] * 4, 2: [FILL[2]] * 4, 3: [FILL[1]] * 4}, align=["c", "l", "l", "l"])
+    lit = [["논문", "주요 SW 개선", "비교 대상", "보고된 개선"],
+           ["vLLM — SOSP 2023", "KV 메모리 관리·스케줄링", "FasterTransformer, Orca", "동일 지연 수준에서 처리량 2~4배"],
+           ["Sarathi-Serve — OSDI 2024", "Chunked Prefill·배치 스케줄링", "vLLM", "지연 제약하의 처리 용량 2.6배(Mistral-7B, A100 1장), 최대 3.7배(Yi-34B, A100 2장)"],
+           ["Orca — OSDI 2022", "토큰 생성 단계별 스케줄링·선택적 배칭", "FasterTransformer", "동일 지연 수준에서 처리량 36.9배 (GPT-3 175B)"]]
+    B.table(s, 0.4, 3.55, [2.6, 3.1, 2.3, 4.53], lit, size=9.5, row_h=0.45, align=["l", "l", "l", "l"], bold_first_col=True)
+    B.blocks(s, ["★★★ 2배는 위 세 연구가 비교 대상 대비 보고한 개선(2~37배) 중 가장 작은 값(vLLM 2배)이다. Baseline은 DP마다 다르다(DP1 정적 배치, DP2 GPU-local 등).",
+                 "이전: DP1·DP2 0.97/1.30, DP4 0.90/1.10(공통 룰 §4.3)."],
+             ["위 연구는 시스템 전체를 새로 설계한 결과이고 DP 후보는 배치·스케줄링 정책 단위의 변경이다. 2배는 그 기준으로 높은 편이라 ★★★ 후보가 없을 수 있다.",
+              "★ 구간이 '개선 30% 미만'과 '열세'를 함께 담는다. 두 경우를 구분하려면 R 값을 병기한다."],
+             y=5.5, h=1.5, lt="기준과 이전 기준", rt="주의", size=9.5)
+    add(s)
 
     # ---------------------------------------------------------------- QA2
     s = B.frame("QA2 지연 — 공통 별 기준", "Baseline 대비 개선(r)으로 별을 매기고, 절대 SLO(TTFT P99 2 s, TPOT P99 50 ms)를 넘으면 ★로 강등 · TTFT P99·TPOT P99의 시나리오 쌍별 기하평균",
@@ -271,50 +278,57 @@ def build_slides(prs, res, inp):
 
     # ---------------------------------------------------------------- QA3
     hs = json.load(open(HERE / "hbm_share.json"))
-    for _k in hs["DP1"]:
-        hs["DP1"][_k]["gib"] = round(hs["DP1"][_k]["gib"], 1)      # same rounding as the reported GiB values
-    crit("QA3 자원 (HBM 사용량) — 공통 별 기준", "기준 = Baseline 대비 감소율((Baseline − 후보) ÷ Baseline) · PPT에는 HBM 용량 대비 점유 비율(%)을 병기 · 성능은 섞지 않는다 · DP1·DP2·DP3 적용",
-         [["★★★", "감소율 ≥ 20%", "HBM 점유 20% 감소 = DP1 평균 146.6 GiB 중 약 29 GiB(8K KV object 약 1.6개분). QA2와 같은 '눈에 띄는 개선' 크기로 둔 정책 선택", "환산 [C]"],
-          ["★★", "−5% ≤ 감소율 < 20%", "하한 −5%: Baseline끼리 비교한 점유 잡음 범위(±1.6%)보다 느슨하게 둠(5% 이내 증가는 열세로 보지 않음)", "측정 [B+C]"],
-          ["★", "감소율 < −5%", "HBM을 5% 넘게 더 쓴다(잡음 밖)", "측정 [B+C]"]],
-         ["측정하는 것(쉬운 말): 모델이 돌아가는 동안 HBM에 올라와 있는 AI Data(KV, LoRA adapter, MoE expert, RAG 인덱스, Agent memory 등)의 평균 크기. 측정 구간 동안 HBM의 양을 계속 재서 시간으로 평균낸다(순간 최대 아님). 모델 가중치·활성값은 뺀다. DP1은 이 모든 종류를 잰다. DP2·DP3는 후보가 바꾸는 데이터가 KV뿐이라 KV만 잰다(다른 종류는 고정 배치).",
-          "예: 100초 중 40초는 100 GiB, 60초는 50 GiB → (40×100 + 60×50) ÷ 100 = 70 GiB. 감소율 67%면 HBM을 1/3만 쓴다(Baseline 100 GiB → 33 GiB).",
-          "PPT 표기: GiB (HBM 용량 대비 점유 %, Baseline 대비 감소율). 용량 대비 비율은 시나리오·시스템별 비율의 기하평균이다.",
-          f"DP1: C1 {hs['DP1']['C1']['gib']:.1f} GiB(용량의 {hs['DP1']['C1']['share']*100:.0f}%, 감소율 {(1-hs['DP1']['C1']['gib']/hs['DP1']['Baseline']['gib'])*100:+.1f}%) · C2 {hs['DP1']['C2']['gib']:.1f} GiB({hs['DP1']['C2']['share']*100:.0f}%, 감소율 {(1-hs['DP1']['C2']['gib']/hs['DP1']['Baseline']['gib'])*100:+.1f}%) · Baseline {hs['DP1']['Baseline']['share']*100:.0f}%. DP3: C1 {hs['DP3']['C1']['gib']:.1f} GiB({hs['DP3']['C1']['share']*100:.0f}%, 감소율 {(1-hs['DP3']['C1']['gib']/hs['DP3']['Baseline']['gib'])*100:+.1f}%) · C2 {hs['DP3']['C2']['gib']:.1f} GiB({hs['DP3']['C2']['share']*100:.0f}%, 감소율 {(1-hs['DP3']['C2']['gib']/hs['DP3']['Baseline']['gib'])*100:+.1f}%) · Baseline {hs['DP3']['Baseline']['share']*100:.0f}%."],
-         ["DP3 C2의 감소율 20.5%는 경계 20%에서 0.5%p 위다. H100만 보면 25.5%, B200만 보면 16.7%라 시스템 선택에 따라 ★★/★★★이 갈린다. DP2 2안 −5.0%는 하한 −5%에 걸려 있다.",
-          "DP1은 QA3 정의를 결과를 본 뒤 여러 번 바꿨다(활용률 → 풀 U → 성능÷비용 → HBM 사용량).",
-          "'비우되 성능이 나빠지는 정책'이 유리하므로 QA1·QA2와 함께 읽어야 한다. 용량 대비 비율은 DP별 용량 정의가 달라 DP 간 비교용이 아니다."],
-         "※ 용량 대비 비율: DP1 = tier_util.hbm(시나리오 HBM 배율 반영 유효 용량), DP3 = HBM 가용(0.9)에서 가중치를 뺀 KV 몫, DP2 = 노드 HBM KV 풀(hbm_frac).",
-         "출처: DP1/qa-criteria-dp1.md §A·§I·§J · DP1/sim/simulator.py(occ_bytes_sum) · DP3/sim/dp3sim.py · tools/hbm_share.py",
-         lt="무엇을 재는가 (이전 기준 포함)")
+    s = B.frame("QA3 자원 (HBM 사용량) — 공통 별 기준", "기준 = Baseline 대비 감소율((Baseline − 후보) ÷ Baseline) · PPT에는 HBM 용량 대비 점유 비율(%)을 병기 · 성능은 섞지 않는다 · DP1·DP2·DP3 적용",
+                "※ 논문 수치는 초록 기준으로 확인한 것과 못 한 것을 표에 표시했다. 측정 대상(KV 또는 전체 GPU 메모리)과 압축 포함 여부가 논문마다 다르다.",
+                "출처: ShadowKV ICML 2025 (proceedings.mlr.press/v267/sun25b.html) · DirectKV OSDI 2026 (usenix.org/conference/osdi26/presentation/luo) · HeadInfer (arxiv.org/abs/2502.12574)")
+    rows = [["별", "성능 기준 (정량)", "왜 이 값인가", "확인 수준"],
+            ["★★★", "감소율 ≥ 40%", "배치·오프로딩 계열 시스템이 보고한 전체 GPU 메모리 절감(DirectKV 평균 43%)을 기준으로 올림 값. 압축·희소 attention을 더한 사례는 80% 이상까지 보고되므로 40%는 그 하위 구간", "문헌 [B] + 정책 선택"],
+            ["★★", "−5% ≤ 감소율 < 40%", "하한 −5%: Baseline끼리 비교한 점유 잡음 범위(±1.6%)보다 느슨하게 둠(5% 이내 증가는 열세로 보지 않음)", "측정 [B+C]"],
+            ["★", "감소율 < −5%", "HBM을 5% 넘게 더 쓴다(잡음 밖)", "측정 [B+C]"]]
+    B.table(s, 0.4, 1.3, [0.8, 2.4, 7.4, 1.93], rows, size=9.5, row_h=0.5, fills={1: [FILL[3]] * 4, 2: [FILL[2]] * 4, 3: [FILL[1]] * 4}, align=["c", "l", "l", "l"])
+    lit = [["연구·출처", "핵심 방법", "보고된 달성치", "수치의 정확한 의미"],
+           ["ShadowKV — ICML 2025", "Key를 저랭크로 GPU에 유지, Value는 CPU 오프로딩, 필요한 KV 선택·복원", "GPU 내 KV 용량 1/6 미만(83% 이상 절감) [초록 페이지에서는 미확인: 초록은 batch 6배, 처리량 3.04배]", "KV의 GPU footprint. 압축·희소 attention 포함이라 배치 변경만의 효과가 아님"],
+           ["DirectKV — OSDI 2026", "GPU 커널이 CPU의 KV에 직접 접근, GPU staging buffer 제거", "GH200에서 기존 오프로딩 시스템 대비 GPU 메모리 평균 43% 감소 [초록 확인]", "전체 GPU 메모리 사용량 기준(본문 §7.3.3 약 82GB → 47GB는 미확인)"],
+           ["HeadInfer — 2025", "Head 단위로 KV를 가져와 연산, 나머지는 CPU에 유지", "Llama-3-8B·1M 문맥: GPU 내 KV 128GB → 1GB, 전체 GPU 메모리 207GB → 17GB [초록 확인]", "논문의 메모리 산정·평가 사례. 소비자 GPU 중심이라 HBM 실측 사례로 부르면 안 됨"]]
+    B.table(s, 0.4, 3.45, [1.9, 3.2, 3.9, 3.13], lit, size=8.5, row_h=0.62, align=["l", "l", "l", "l"], bold_first_col=True)
+    B.blocks(s, ["측정하는 것: HBM에 올라와 있는 AI Data(KV·LoRA·MoE expert·RAG 인덱스·Agent memory 등)의 시간 평균 크기(순간 최대 아님, 모델 가중치·활성값 제외). DP1은 전체 종류, DP2·DP3는 후보가 바꾸는 KV만 잰다.",
+                 "예: 100초 중 40초 100 GiB, 60초 50 GiB → 70 GiB. 감소율 67%면 HBM을 1/3만 쓴다."],
+             ["★★★ 40%는 정책 선택이다. 문헌 값은 대상이 다르다(전체 GPU 메모리 대 KV, 압축 포함 여부). 압축이 없는 배치 정책(DP1·DP2)이 40%에 닿기는 어렵다.",
+              "이전 ★★★ 경계는 20%였다. 경계를 올렸으므로 DP3 C2(20.5%)처럼 20~40% 구간 후보는 ★★이 된다(평가는 다시 해야 함)."],
+             y=5.7, h=1.3, lt="무엇을 재는가", rt="주의", size=9)
+    add(s)
 
     # ---------------------------------------------------------------- QA4
-    s = B.frame("QA4 변경 용이성 — 공통 별 기준", "세 지표를 각각 판정하고 셋이 모두(AND) 그 별의 기준을 만족해야 그 별 · 한 지표라도 낮으면 전체가 낮은 쪽 · 변경 시나리오 단순 평균에 적용",
-                "※ 공수·비용은 구현 측정(module·LOC)에 가정 상수를 곱한 값이며 실제 에이전트 세션 측정이 아니다 [B+C]. 1 MM = 21 man-day, 비용은 mid tier($3/$15 per MTok).",
-                "출처: DP1/qa4-preregistration.md · DP4 평가 장(토큰 비용 경계) · 공통 QA 문서 §7 · tools/unified_stars.py")
-    t1 = [["별", "① 토큰 비용 ($/변경, mid tier)", "② 개발 공수 (MM/변경)", "③ 변경 module 수", "조건"],
-          ["★★★", "≤ $0.5", "≤ 0.5", "≤ 2 (주요 interface 유지)", "①②③ 모두 ★★★ 기준 이내"],
-          ["★★", "≤ $2", "≤ 1.0", "3 ~ 5 (2 초과 6 미만)", "①②③ 모두 ★★ 기준 이내 (하나라도 ★★★ 밖)"],
-          ["★", "> $2", "> 1.0", "≥ 6 또는 major interface 변경", "①②③ 중 하나라도 ★★ 기준 밖"]]
-    B.table(s, 0.4, 1.3, [0.8, 2.6, 2.2, 2.6, 4.33], t1, size=9.5, row_h=0.4, fills={1: [FILL[3]] * 5, 2: [FILL[2]] * 5, 3: [FILL[1]] * 5}, align=["c", "l", "l", "l", "l"])
-    t2 = [["경계", "근거", "확인 수준"],
-          ["① 비용 $0.5 / $2", "$0.5 = 원본 약 25k 토큰(module 약 3개 읽기 + 소규모 수정)을 한 세션에서 재작업 없이 끝내는 비용(유효 입력 재과금 6배, $3/$15 가정). $2는 그 4배 = 다중 세션·외부 코드 탐색", "사전 등록 가정 (DP4 pre-reg). 단가는 2차 자료"],
-          ["② 공수 0.5 / 1.0 MM", "0.5 MM = 엔지니어 1명이 2주 sprint 안에 흡수. 1 MM = 한 달 전담이면 로드맵 항목", "사전 등록 가정 (DP1 qa4-preregistration)"],
-          ["③ module 2 / 6", "공통 룰 §7", "공통 룰"]]
-    B.table(s, 0.4, 3.0, [1.5, 4.6, 1.6], t2, size=8.5, row_h=0.62, align=["l", "l", "l"])
-    rows = [["후보", "① 비용", "② 공수", "③ module", "①/②/③ sub-star", "QA4"]]
-    names = {"DP1": ("DP1 C1", "DP1 C2"), "DP4": ("DP4 후보1", "DP4 후보2")}
-    for dp in ("DP1", "DP4"):
-        for k, c in enumerate(("C1", "C2")):
-            q = inp[dp]["values"][c].get("qa4") or inp[dp]["values"][c]["qa4_equal"]
-            a, b2, m = U.qa4_subs(q["usd_t2"], q["mm"], q["modules"])
-            rows.append([names[dp][k], f"${q['usd_t2']:.2f}", f"{q['mm']:.2f}", f"{q['modules']:.2f}", f"{S(a)} / {S(b2)} / {S(m)}", S(res[dp][c]["QA4"])])
-    B.table(s, 8.3, 3.0, [1.0, 0.65, 0.6, 0.7, 1.15, 0.55], rows, size=8.5, row_h=0.34, align=["l", "c", "c", "c", "c", "c"])
-    B.blocks(s, ["예: 비용 $0.4, 공수 0.3 MM, module 4 → ③이 ★★이므로 전체 ★★. 비용 $0.4, 공수 0.3, module 2 → 전체 ★★★.",
-                 "이전(v2)의 가중 점수는 지표 하나가 아주 나빠도 다른 지표가 0에 가까우면 ★★★이 가능했다. AND 조건은 그 경우를 막는다."],
-             ["DP4 후보2는 module 2.30이 ★★★ 경계 2를 넘어 ★★이다(비용 $0.48, 공수 0.15 MM은 ★★★). DP4의 시나리오 가중(S2~S4 ×2, module 1.9)을 쓰면 ★★★이다. 지금은 DP1·DP2와 같은 단순 평균을 쓴다.",
-              "DP1 C2는 공수 0.51 MM이 경계 0.5를 근소하게(2%) 넘어 ★★다. 비용·공수·module을 하나의 비중으로 합치지 않으므로 우선순위(토큰 비용 > 공수 > module)는 별에 반영되지 않는다."],
-             y=5.2, h=1.8, lt="규칙", rt="주의", size=9.5)
+    s = B.frame("QA4 변경 용이성 — 공통 별 기준", "토큰 비용과 M/M(개발 공수) 두 지표가 모두 기준을 만족해야(AND) 그 별 · LOC·module 수는 보조 지표(부록) · 변경 시나리오 단순 평균에 적용",
+                "※ 공수·비용은 구현 측정(module·LOC)에 가정 상수를 곱한 값이며 실제 에이전트 세션 측정이 아니다 [B+C]. 1 MM = 21 man-day, 비용은 mid tier($3/$15 per MTok). 상수와 수식 전체는 부록.",
+                "출처: DP1/qa4-preregistration.md §4 · DP4 평가 장(토큰 비용 경계) · 부록 QA4 보조 지표 장")
+    t1 = [["별", "① 토큰 비용 ($/변경, mid tier)", "② 개발 공수 (M/M)", "조건"],
+          ["★★★", "≤ $0.5", "≤ 0.5", "①과 ② 모두 ★★★ 기준 이내"],
+          ["★★", "≤ $2", "≤ 1.0", "①과 ② 모두 ★★ 기준 이내 (하나라도 ★★★ 밖)"],
+          ["★", "> $2", "> 1.0", "① 또는 ②가 ★★ 기준 밖"]]
+    B.table(s, 0.4, 1.3, [0.8, 3.0, 2.6, 6.13], t1, size=9.5, row_h=0.38, fills={1: [FILL[3]] * 4, 2: [FILL[2]] * 4, 3: [FILL[1]] * 4}, align=["c", "l", "l", "l"])
+    f = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.4), Inches(2.85), Inches(12.53), Inches(0.95))
+    f.name = "formula"
+    f.fill.solid(); f.fill.fore_color.rgb = rgb("EAF0FA"); f.line.color.rgb = rgb(NAVY); f.shadow.inherit = False
+    tf = f.text_frame; tf.word_wrap = True; tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    lines = ["토큰 비용($) = [ C̄ × p_in + N × C̄ × p_cache + T_out × p_out ] ÷ 10⁶     (mid tier: p_in 3, p_cache 0.3, p_out 15 $/MTok)",
+             "C̄ = C0 + a_read × tpl × k_real × S (읽는 module 크기 S)     N = n0 + n_m × n (turn 수, n = 변경 module 수)     T_out = tpl × k_real × L × n_iter + o_turn × N (L = 추가 LOC)",
+             "M/M = [ n × c_mod + (L × k_real ÷ P) × f_ovh ] ÷ 21     (c_mod 3일/module, P 40 LOC/일, f_ovh 2.0, k_real 5)"]
+    for k, ln in enumerate(lines):
+        p = tf.paragraphs[0] if k == 0 else tf.add_paragraph()
+        p.alignment = PP_ALIGN.LEFT
+        r = p.add_run(); r.text = ln
+        r.font.size = Pt(10); r.font.bold = (k != 1); r.font.name = FONT; r.font.color.rgb = rgb(NAVY)
+    t2 = [["항목", "토큰 비용 ①", "M/M ②"],
+          ["지배하는 입력", "변경 module 수 n(turn 수 N과 context C̄)와 읽는 module 크기 S", "변경 module 수 n(n × c_mod)와 추가 LOC L(L × k_real ÷ P)"],
+          ["추가 LOC L의 영향", "작다: 쓰는 코드의 비용이 전체의 1~13% (DP1·DP2 16개 변경 중)", "크다: LOC 항이 공수의 8~66%, 나머지가 module 항(34~92%)"],
+          ["①과 ②의 상관 (16개 변경)", "DP1 0.74, DP2 0.93 — 둘 다 n에 크게 의존해 같이 움직인다", "단 순위가 뒤집히는 경우가 있다: DP1 S1 C2(n=2, L=29, S=106)는 $0.45·0.63 MM, S2 C2(n=3, L=3, S=190)는 $0.56·0.46 MM"]]
+    B.table(s, 0.4, 3.9, [2.4, 5.0, 5.13], t2, size=8.5, row_h=0.4, align=["l", "l", "l"], bold_first_col=True)
+    B.blocks(s, ["토큰 비용은 module 수 n과 읽는 크기 S가 정하고 추가 LOC는 거의 영향이 없다(이 모델의 가정). 'LOC·module 수가 토큰 비용을 결정한다'는 module 수와 읽는 크기에만 맞다.",
+                 "M/M은 n과 L의 함수다(LOC 항이 비교적 크다). 큰 module을 읽는 변경은 비용이, LOC를 많이 쓰는 변경은 M/M이 더 커진다."],
+             ["두 지표가 n에 같이 의존해 상관이 높다(0.74~0.93). M/M의 추가 정보는 LOC 항뿐이라 제한적이지만 사람 시간을 따로 보이려고 유지했다.",
+              "M/M은 리뷰 시간 측정이 아니라 가정 상수(c_mod, P, f_ovh)로 계산한 값이다. DP4는 다른 식을 쓴다(E, B, U). 공통 수식 통일은 열린 결정이다."],
+             y=5.95, h=1.05, lt="두 지표의 관계", rt="주의", size=8)
     add(s)
 
     # ---------------------------------------------------------------- QA5, QA6
@@ -673,6 +687,32 @@ def build_slides(prs, res, inp):
               "모든 평가는 seed ≥ 5, load sweep, Baseline-regression loop를 따른다. 시스템 profile 값은 결과를 보고 바꾸지 않았다.",
               "한계: 신규 메모리 값은 가정이고, A100/H100/B200 수치도 원문 검증을 못 했다. PCIe 6.0 raw 값, cxl_pnm FP16 = FP32 × 2 가정이 결과를 바꿀 수 있다."],
              y=4.75, h=2.25, lt="무엇을 어떻게 가정했나", rt="시뮬레이션 방식과 한계", size=9)
+    add(s)
+    # ---- appendix: QA4 auxiliary metrics (LOC, module count) and the cost conditions
+    s = B.frame("부록 — QA4 보조 지표(LOC·module 수)와 토큰 비용·M/M 계산 조건", "별은 토큰 비용과 M/M으로 정하고 LOC·module 수는 두 값을 계산하는 입력(보조 지표)으로 남긴다 · DP1·DP2 변경 시나리오 S1~S4 구현 측정 · mid tier",
+                "※ 상수는 모두 ASSUMED(DP1/qa4-preregistration.md §4, 2026-10-03). 가격은 예시이며 실제 가격표가 아니다. 측정값은 시뮬레이터 복사본에 변경을 구현해 센 LOC·module 수다 [B+C].")
+    consts = [["식", "조건·상수"],
+              ["토큰 비용 = [C̄·p_in + N·C̄·p_cache + T_out·p_out] ÷ 10⁶", "C̄ = C0 + a_read·tpl·k_real·S, N = n0 + n_m·n, T_out = tpl·k_real·L·n_iter + o_turn·N"],
+              ["M/M = [n·c_mod + (L·k_real ÷ P)·f_ovh] ÷ 21", "c_mod 3일/module, P 40 LOC/일, f_ovh 2.0, k_real 5(sim LOC → 실제 vLLM LOC)"],
+              ["입력", "n = 변경 module 수, L = 추가 LOC(비공백·비주석), S = touched module 크기 합(LOC)"],
+              ["토큰 상수", "tpl 12 token/LOC, C0 25k, a_read 1.5, n0 10, n_m 5, n_iter 2, o_turn 300, p_in/p_cache/p_out = 3/0.3/15 $/MTok"],
+              ["DP4 전용 식", "토큰 비용 = [(M×8,000 + E)×6×$3 + L×13×2×$15] ÷ 10⁶, 공수 = 0.5·M + L÷400 + B + U man-day (E: OSS 탐색 토큰, B: 빌드·배포, U: upstream 재검증). DP1·DP2 식과 상수가 달라 통일이 필요하다"]]
+    B.table(s, 0.4, 1.3, [4.9, 7.63], consts, size=8.5, row_h=0.36, align=["l", "l"], bold_first_col=True)
+    def per_sc(path, cands):
+        d = json.load(open(path))
+        rows = [["시나리오", "후보", "n", "L", "S", "토큰 $", "M/M"]]
+        for sid, sc in d["scenarios"].items():
+            for cn, lab in cands:
+                v = sc[cn]
+                rows.append([sid, lab, str(v["modules"]), str(v["loc_added"]), str(v["module_size_loc"]), f"{v['agent']['T2_mid']['usd']:.2f}", f"{v['man_months']:.2f}"])
+        return rows
+    r1 = per_sc(U.EVAL / "DP1/results/data/qa4_modifiability.json", (("C1", "C1"), ("C2", "C2")))
+    r2 = per_sc(U.EVAL / "DP2/results/data/arch/qa4_modifiability.json", (("C1", "1안"), ("C2", "2안")))
+    B.tb(s, 0.4, 3.55, 6.0, 0.25, [("DP1 (n·L·S는 측정, $·M/M은 위 식으로 계산)", dict(bold=True, color=NAVY, size=9))], name="t1")
+    B.table(s, 0.4, 3.8, [0.9, 0.7, 0.6, 0.7, 0.8, 1.0, 1.0], r1, size=8, row_h=0.27, align=["c"] * 7)
+    B.tb(s, 6.9, 3.55, 6.0, 0.25, [("DP2 (노드 내 평가)", dict(bold=True, color=NAVY, size=9))], name="t2")
+    B.table(s, 6.9, 3.8, [0.9, 0.7, 0.6, 0.7, 0.8, 1.0, 1.0], r2, size=8, row_h=0.27, align=["c"] * 7)
+    B.tb(s, 0.4, 6.6, 12.5, 0.35, [("S1 새 tier · S2 비용 함수/목적 항 · S3 정책 교체 · S4 새 telemetry/event. 토큰 비용은 n과 S에, M/M은 n과 L에 크게 의존한다(본문 QA4 장).", dict(size=9, color=GREY))], name="legend")
     add(s)
     return new
 
