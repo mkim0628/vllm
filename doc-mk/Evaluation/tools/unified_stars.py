@@ -119,6 +119,7 @@ def load():
         q = qa4_from_json(dp)
         for c in ("C1", "C2"):
             inp[dp]["values"][c]["qa4"] = q[c]
+    inp["DP1-1안"]["values"]["C1"]["qa4"] = inp["DP1"]["values"]["C1"]["qa4"]   # PPT 3장은 1안에 C1과 같은 QA4 값을 표기
     # DP3: simulation summary (aggregated by DP3/sim/aggregate.py) and, if present, the QA5 file
     sm = json.load(open(EVAL / "DP3" / "results" / "data" / "dp3_summary.json"))
     ag = sm["aggregate"]
