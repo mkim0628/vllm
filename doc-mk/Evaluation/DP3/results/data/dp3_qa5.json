@@ -1,23 +1,23 @@
 {
  "C1": {
-  "f1_drop_pct": 9.98,
-  "ci95_halfwidth": 18.74
+  "f1_drop_pct": 16.98,
+  "ci95_halfwidth": 9.49
  },
  "C2": {
-  "f1_drop_pct": -12.03,
-  "ci95_halfwidth": 15.26
+  "f1_drop_pct": -1.99,
+  "ci95_halfwidth": 4.76
  },
  "_meta": {
-  "n_examples": 30,
+  "n_examples": 93,
   "r": "0.3",
   "mean_mismatch": 0.331,
-  "full_f1": 0.5956837606837607,
+  "full_f1": 0.7303943251699212,
   "drops_pct": {
-   "aware": -12.03,
-   "repA": 42.62,
-   "repB": -1.32,
-   "repC": 32.8,
-   "random": 58.73
+   "aware": -1.99,
+   "repA": 41.19,
+   "repB": 6.88,
+   "repC": 37.37,
+   "random": 54.54
   },
   "min_examples": 30,
   "model": "Qwen2.5-1.5B-Instruct (micro-benchmark)"
