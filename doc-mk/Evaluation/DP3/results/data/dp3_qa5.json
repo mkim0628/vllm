@@ -1,0 +1,25 @@
+{
+ "C1": {
+  "f1_drop_pct": 23.66,
+  "ci95_halfwidth": NaN
+ },
+ "C2": {
+  "f1_drop_pct": -42.86,
+  "ci95_halfwidth": 150.0
+ },
+ "_meta": {
+  "n_examples": 4,
+  "r": "0.3",
+  "mean_mismatch": 0.331,
+  "full_f1": 0.7,
+  "drops_pct": {
+   "aware": -42.86,
+   "repA": 71.43,
+   "repB": 0.0,
+   "repC": 71.43,
+   "random": 71.43
+  },
+  "min_examples": 30,
+  "model": "Qwen2.5-1.5B-Instruct (micro-benchmark)"
+ }
+}
