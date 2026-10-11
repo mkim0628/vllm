@@ -46,3 +46,7 @@ DP3: Long Context KV 캐시 압축·재사용. Baseline = As-Is(전체 Context K
 # 5. 평가하지 않는 것
 
 실측(real HW), 노드 간 전송, DP1 배치 정책 변경, 다중 문맥 blending 품질, 사전 압축 비용·공간.
+
+# 변경 이력 (사전 등록 이후)
+
+- **2026-10-11 (QA1 추가, 소유자 요청)**: DP3 선정 QA에 QA1(처리량)을 추가한다. 평가 실행 전 정의: Max SLO goodput = 요청별 SLO(TTFT ≤ 2 s 그리고 TPOT ≤ 50 ms)를 만족한 요청의 output token / 측정 구간, 부하 격자 lam0 × {0.5, 0.75, 1.0, 1.25, 1.5, 2, 3, 4, 6, 8}의 최대(seed 평균). 기존 격자(최대 lam0 × 1.25 = Baseline 용량의 87%)는 포화에 닿지 않아 처리량을 잴 수 없어 격자를 넓힌다(`sim/run_qa1.py`). 정책 상수·시나리오·SLO는 바꾸지 않는다. 기존 결과는 보존하고 별도 파일(`results/data/dp3_qa1.json`)에 쓴다. 비교 가능 쌍은 기존 집계와 같은 집합에 Baseline goodput > 0을 더한다.

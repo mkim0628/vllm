@@ -79,6 +79,8 @@ class RunResult:
     arrived: int = 0
     unfinished: int = 0
     wait_s: float = 0.0
+    good_tokens: float = 0.0     # output tokens of requests that met TTFT <= SLO_TTFT_S and TPOT <= SLO_TPOT_S (measured window)
+    window_s: float = 1.0
 
 
 def hbm_budget(system, sc: Scenario, t: float, horizon: float) -> float:
@@ -275,6 +277,10 @@ def run(sc: Scenario, system, pol: Policy, seed: int, rate_rps: float) -> RunRes
             ok_t.append(float("inf"))
             ok_p.append(float("inf"))
     res.ttft, res.tpot = ok_t, ok_p
+    for r in reqs:
+        if r["a"] >= warm and "t_done" in r and r["O"] > 1 and (r["t_first"] - r["a"]) <= SLO_TTFT_S and (r["t_done"] - r["t_first"]) / (r["O"] - 1) <= SLO_TPOT_S:
+            res.good_tokens += r["O"]
+    res.window_s = max(1e-9, H - warm)
     res.done = len(ok_t) - res.unfinished
     res.hbm_gib = mem_integral / max(1e-9, (H - warm)) / GIB
     return res
@@ -290,7 +296,7 @@ def pct(xs, q):
 
 def summarize(res: RunResult) -> dict:
     return dict(ttft_p50=pct(res.ttft, .5), ttft_p99=pct(res.ttft, .99), tpot_p50=pct(res.tpot, .5), tpot_p99=pct(res.tpot, .99),
-                hbm_gib=res.hbm_gib, n=res.arrived, unfinished=res.unfinished)
+                hbm_gib=res.hbm_gib, n=res.arrived, unfinished=res.unfinished, goodput_tps=res.good_tokens / res.window_s)
 
 
 def load_system(sys_id: str):
