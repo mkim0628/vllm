@@ -47,6 +47,7 @@ U_useful = Σ_iteration ( iteration 시간 × [SLO 충족 요청 토큰 비중] 
 | **QA Name** | Scalability (DP2 전용) |
 | **1. Motivation** | DP2 후보 공간은 `\|N_p\|×\|N_d\|×Tier 수`로 커진다. C1은 결정이 scheduler critical path에 있고 C2는 planning을 독립 worker로 확장할 수 있다는 것이 두 후보의 핵심 trade-off이므로 이를 정량으로 검증한다 |
 | **2. Metric** | M1 **scaling efficiency** η(N) = Max SLO Goodput(N 노드) ÷ ( N/2 × Max SLO Goodput(1P+1D) ), N = 32 노드. M2 **결정 지연** P99 (ms)를 후보 수 K에 따라 보고. M3 scheduler step 시간 증가율 (%) |
+| **2-b. 증가 축별 metric (2026-10-17 확장)** | 확장성은 노드 수뿐 아니라 5개 증가 축으로 본다(정의 원천 [`../qa-star-criteria-unified.md`](../qa-star-criteria-unified.md) §3.6). S1 Concurrent requests ↑: Goodput / TTFT P99. S2 GPU/Node 수 ↑: Scheduler throughput, decision latency (M1 η, M2가 이 축). S3 Memory tier 수 ↑: Planning latency. S4 KV block/object 수 ↑: Registry lookup/update latency. S5 Candidate execution location ↑: Cost model evaluation time (후보 수 K 증가). 아래 별 경계는 M1(S2 축)에만 있고 나머지 축은 값만 보고한다. 기존 격자의 Tier 수 1~4, planner worker, top-k는 S3·S5 sweep으로 재사용한다 |
 | **3. Unit** | η: 무차원, M2: ms, M3: % |
 | **4. Threshold (제안값)** | ★ η < 0.70 / ★★ 0.70 ~ 0.90 / ★★★ ≥ 0.90. 별은 M1로 매기고 M2, M3는 병기한다. **제안값이며 소유자 확정과 사전 등록이 필요하다** |
 | **5. Measurement** | `benchmark.md` §6의 격자(노드 수 2~64, Tier 수 1~4, planner worker 1~16, top-k on/off). 노드당 offered load 동일. Baseline(고정 규칙)의 η도 보고해 배수를 병기 |
