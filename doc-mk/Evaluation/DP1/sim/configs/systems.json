@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "_note": "Evaluation system profiles. A profile = one cluster (clusters.json) + a subset of memories (memories_default.json). Values are NOT redefined here; they come from the two config files, so provenance tags (SPEC/PUBLIC/ASSUMED) live there. Human-readable spec: doc-mk/Evaluation/system-specs.md | 2026-10-03: primary set = generation profiles (SYS-A100/H100/B200/VR): all six memory kinds present, differing by GENERATION (GPU/HBM, host link, DRAM, SSD). SYS-1..5 are legacy memory-subset ablations (kept unchanged).",
+  "default": "SYS-B200",
+  "profiles": {
+    "SYS-A100": {
+      "name": "A100x8 (Ampere-class): HBM2e + PCIe4 + DDR4 + six memory kinds",
+      "cluster": "a100_8gpu",
+      "memories": [
+        "hbm",
+        "custom_hbm",
+        "cxl_pnm",
+        "dram",
+        "hbf",
+        "ssd_pim"
+      ],
+      "legacy": false,
+      "primary": true,
+      "purpose": "Previous-generation platform with all six memory kinds. Emerging memories are attached via PCIe 4.0 (hypothetical: CXL needs PCIe 5.0+).",
+      "generation": {
+        "gpu_hbm": "HBM2e (A100 80GB)",
+        "host_link": "PCIe 4.0",
+        "cxl": "n/a on platform (ASSUMED behind PCIe4-rate link)",
+        "dram": "DDR4-3200",
+        "ssd": "NVMe PCIe 4.0 x4"
+      },
+      "link": {
+        "name": "PCIe 4.0 x16 (31.5 GB/s)",
+        "ext_bw_scale": 0.5,
+        "applies_to": [
+          "custom_hbm",
+          "cxl_pnm",
+          "dram",
+          "ssd_pim"
+        ],
+        "provenance": "SPEC: PCIe 4.0 = 16 GT/s, 128b/130b, x16 ~ 31.5 GB/s per direction (half of PCIe 5.0). ext_bw_scale is relative to the PCIe 5.0 x16 baseline (63.0 GB/s) in memories_default.json; ASSUMED: applied uniformly to every host-link-bound tier (cHBM, CXL-PNM, DRAM ext, SSD-PIM ext). HBF (GPU-reachable, UCIe) is not link-scaled."
+      },
+      "overrides": {
+        "dram": {
+          "int_bw_bytes_per_s": 200000000000.0,
+          "provenance": "DDR4-3200 25.6 GB/s/ch x8ch = 204.8 GB/s, rounded to 200 GB/s with the same convention as the 400 GB/s DDR5 baseline (SPEC math, host config ASSUMED). Ext follows PCIe 4.0."
+        },
+        "cxl_pnm": {
+          "provenance_append": "A100 platform has no CXL (PCIe 4.0 host). ASSUMED hypothetical: the CXL-PNM device sits behind a PCIe 4.0 x16-rate link (x0.5). Internal BW unchanged (LPDDR5X media)."
+        }
+      },
+      "emerging_scaling_note": "ASSUMED: emerging devices (custom_hbm, cxl_pnm, hbf, ssd_pim) have no past generations; the same device is used on every platform and only its host-link-bound external BW is scaled (link-bound scaling). Internal BW/compute/latency fixed (cHBM follows the paired-GPU rule)."
+    },
+    "SYS-H100": {
+      "name": "H100x8 (Hopper-class): HBM3 + PCIe5 + DDR5-4800 + six memory kinds",
+      "cluster": "h100_8gpu",
+      "memories": [
+        "hbm",
+        "custom_hbm",
+        "cxl_pnm",
+        "dram",
+        "hbf",
+        "ssd_pim"
+      ],
+      "legacy": false,
+      "primary": true,
+      "purpose": "Hopper platform: HBM3 (not HBM3e), PCIe 5.0, CXL 2.0-capable host.",
+      "generation": {
+        "gpu_hbm": "HBM3 (H100 SXM5 80GB)",
+        "host_link": "PCIe 5.0",
+        "cxl": "CXL 2.0 (PCIe 5.0 PHY)",
+        "dram": "DDR5-4800",
+        "ssd": "NVMe PCIe 5.0 x4"
+      },
+      "link": {
+        "name": "PCIe 5.0 x16 (63.0 GB/s)",
+        "ext_bw_scale": 1.0,
+        "applies_to": [
+          "custom_hbm",
+          "cxl_pnm",
+          "dram",
+          "ssd_pim"
+        ],
+        "provenance": "SPEC: PCIe 5.0 = 32 GT/s, 128b/130b, x16 ~ 63.0 GB/s (same as the memories_default.json baseline); CXL 2.0 runs on the PCIe 5.0 PHY. ext_bw_scale is relative to the PCIe 5.0 x16 baseline (63.0 GB/s) in memories_default.json; ASSUMED: applied uniformly to every host-link-bound tier (cHBM, CXL-PNM, DRAM ext, SSD-PIM ext). HBF (GPU-reachable, UCIe) is not link-scaled."
+      },
+      "overrides": {
+        "dram": {
+          "int_bw_bytes_per_s": 300000000000.0,
+          "provenance": "DDR5-4800 38.4 GB/s/ch x8ch = 307 GB/s, rounded to 300 GB/s (SPEC math, host config ASSUMED). Ext follows PCIe 5.0."
+        }
+      },
+      "emerging_scaling_note": "ASSUMED: emerging devices (custom_hbm, cxl_pnm, hbf, ssd_pim) have no past generations; the same device is used on every platform and only its host-link-bound external BW is scaled (link-bound scaling). Internal BW/compute/latency fixed (cHBM follows the paired-GPU rule)."
+    },
+    "SYS-B200": {
+      "name": "B200x8 (Blackwell-class): HBM3e + PCIe5 + DDR5-6400 + six memory kinds",
+      "cluster": "b200_8gpu",
+      "memories": [
+        "hbm",
+        "custom_hbm",
+        "cxl_pnm",
+        "dram",
+        "hbf",
+        "ssd_pim"
+      ],
+      "legacy": false,
+      "primary": true,
+      "purpose": "Blackwell platform, all six memory kinds. Numerically identical to legacy SYS-4 (verified field by field in tests).",
+      "generation": {
+        "gpu_hbm": "HBM3e (B200)",
+        "host_link": "PCIe 5.0",
+        "cxl": "CXL 2.0 (PCIe 5.0 PHY)",
+        "dram": "DDR5-6400",
+        "ssd": "NVMe PCIe 5.0 x4"
+      },
+      "link": {
+        "name": "PCIe 5.0 x16 (63.0 GB/s)",
+        "ext_bw_scale": 1.0,
+        "applies_to": [
+          "custom_hbm",
+          "cxl_pnm",
+          "dram",
+          "ssd_pim"
+        ],
+        "provenance": "SPEC: PCIe 5.0 x16 ~ 63.0 GB/s; CXL 2.0 on PCIe 5.0 PHY. ext_bw_scale is relative to the PCIe 5.0 x16 baseline (63.0 GB/s) in memories_default.json; ASSUMED: applied uniformly to every host-link-bound tier (cHBM, CXL-PNM, DRAM ext, SSD-PIM ext). HBF (GPU-reachable, UCIe) is not link-scaled."
+      },
+      "overrides": {},
+      "emerging_scaling_note": "ASSUMED: emerging devices (custom_hbm, cxl_pnm, hbf, ssd_pim) have no past generations; the same device is used on every platform and only its host-link-bound external BW is scaled (link-bound scaling). Internal BW/compute/latency fixed (cHBM follows the paired-GPU rule)."
+    },
+    "SYS-VR": {
+      "name": "Vera Rubin x8 (Rubin-class): HBM4 + PCIe6 + DDR5-6400 + six memory kinds",
+      "cluster": "vera_rubin_8gpu",
+      "memories": [
+        "hbm",
+        "custom_hbm",
+        "cxl_pnm",
+        "dram",
+        "hbf",
+        "ssd_pim"
+      ],
+      "legacy": false,
+      "primary": true,
+      "purpose": "Next-generation platform: HBM4 (384 GB, 28 TB/s), PCIe 6.0 / CXL 3.x. Same as legacy SYS-5 except host-link BW x2 (PCIe 6.0) on link-bound tiers.",
+      "generation": {
+        "gpu_hbm": "HBM4 (Vera Rubin)",
+        "host_link": "PCIe 6.0",
+        "cxl": "CXL 3.x (PCIe 6.0 PHY)",
+        "dram": "DDR5-6400",
+        "ssd": "NVMe PCIe 6.0 x4"
+      },
+      "link": {
+        "name": "PCIe 6.0 x16 (126 GB/s)",
+        "ext_bw_scale": 2.0,
+        "applies_to": [
+          "custom_hbm",
+          "cxl_pnm",
+          "dram",
+          "ssd_pim"
+        ],
+        "provenance": "SPEC: PCIe 6.0 = 64 GT/s PAM4, x16 ~ 126 GB/s raw (flit/FEC overhead not deducted, ASSUMED); CXL 3.x on PCIe 6.0 PHY. ext_bw_scale is relative to the PCIe 5.0 x16 baseline (63.0 GB/s) in memories_default.json; ASSUMED: applied uniformly to every host-link-bound tier (cHBM, CXL-PNM, DRAM ext, SSD-PIM ext). HBF (GPU-reachable, UCIe) is not link-scaled."
+      },
+      "overrides": {},
+      "emerging_scaling_note": "ASSUMED: emerging devices (custom_hbm, cxl_pnm, hbf, ssd_pim) have no past generations; the same device is used on every platform and only its host-link-bound external BW is scaled (link-bound scaling). Internal BW/compute/latency fixed (cHBM follows the paired-GPU rule)."
+    },
+    "SYS-1": {
+      "name": "B200x8 + host DRAM (As-Is class)",
+      "cluster": "b200_8gpu",
+      "memories": [
+        "hbm",
+        "dram"
+      ],
+      "purpose": "Today's vLLM-class hierarchy (HBM + CPU DRAM). Lower bound for heterogeneity benefit.",
+      "legacy": true
+    },
+    "SYS-2": {
+      "name": "B200x8 + DRAM + CXL-PNM",
+      "cluster": "b200_8gpu",
+      "memories": [
+        "hbm",
+        "dram",
+        "cxl_pnm"
+      ],
+      "purpose": "Adds a capacity tier with near-memory attention (host-staged).",
+      "legacy": true
+    },
+    "SYS-3": {
+      "name": "B200x8 + DRAM + HBF",
+      "cluster": "b200_8gpu",
+      "memories": [
+        "hbm",
+        "dram",
+        "hbf"
+      ],
+      "purpose": "Adds a GPU-reachable high-BW / high-latency / write-limited tier.",
+      "legacy": true
+    },
+    "SYS-4": {
+      "name": "B200x8 + all six memories",
+      "cluster": "b200_8gpu",
+      "memories": [
+        "hbm",
+        "custom_hbm",
+        "cxl_pnm",
+        "dram",
+        "hbf",
+        "ssd_pim"
+      ],
+      "purpose": "Full heterogeneous hierarchy (primary DP1 target).",
+      "legacy": true
+    },
+    "SYS-5": {
+      "name": "Vera Rubin x8 + all six memories",
+      "cluster": "vera_rubin_8gpu",
+      "memories": [
+        "hbm",
+        "custom_hbm",
+        "cxl_pnm",
+        "dram",
+        "hbf",
+        "ssd_pim"
+      ],
+      "purpose": "Next-gen GPU (HBM4, 384 GB, 28 TB/s) with the same memory set; cHBM scales with the paired GPU.",
+      "legacy": true
+    }
+  }
+}

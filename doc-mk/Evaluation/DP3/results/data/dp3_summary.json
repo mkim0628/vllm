@@ -1,0 +1,1527 @@
+{
+ "schema": "dp3_summary v1",
+ "pairs": {
+  "SYS-H100/CB-1": {
+   "family": "common",
+   "ctx": 8192,
+   "lam0": 5.907062434222308,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.016680615178571757,
+     "ttft_p99": 0.5453884984914226,
+     "tpot_p99": 0.008699064891908177,
+     "hbm_gib": 41.67500232652116,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.02905718432294435,
+     "ttft_p99": 0.0601699013289128,
+     "tpot_p99": 0.008330332018039325,
+     "hbm_gib": 12.260818239677818,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.030429425820727475,
+     "ttft_p99": 0.10136638935451288,
+     "tpot_p99": 0.008481590895222525,
+     "hbm_gib": 33.6257868674495,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/CB-2": {
+   "family": "common",
+   "ctx": 8192,
+   "lam0": 7.345555461373728,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.01687441318016667,
+     "ttft_p99": 0.5507599147042214,
+     "tpot_p99": 0.00982523161718728,
+     "hbm_gib": 44.444599232621954,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.029063658915403322,
+     "ttft_p99": 0.06285948871822988,
+     "tpot_p99": 0.00915782858025906,
+     "hbm_gib": 12.990562640705635,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.03042008176086739,
+     "ttft_p99": 0.10583947863139258,
+     "tpot_p99": 0.009350243967442707,
+     "hbm_gib": 34.42625552309771,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/CB-3": {
+   "family": "common",
+   "ctx": 8192,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.028349543442814706,
+     "ttft_p99": 0.055650365499505486,
+     "tpot_p99": 0.006128331404744005,
+     "hbm_gib": 33.99531731631458,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.029241065021169278,
+     "ttft_p99": 0.03933717381205213,
+     "tpot_p99": 0.006044714185323211,
+     "hbm_gib": 10.194828499609695,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.041842843322022816,
+     "ttft_p99": 0.07049492007433003,
+     "tpot_p99": 0.006052396151426607,
+     "hbm_gib": 33.80204879261678,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-01": {
+   "family": "stress",
+   "ctx": 32768,
+   "lam0": 4.656045201922913,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.18790730619450075,
+     "ttft_p99": 0.6640591924575296,
+     "tpot_p99": 0.021237177873481162,
+     "hbm_gib": 161.6721612040472,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.12698272828910148,
+     "ttft_p99": 0.28974335908000165,
+     "tpot_p99": 0.01842630396033648,
+     "hbm_gib": 40.52889377251955,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.24972204184155053,
+     "ttft_p99": 0.7452404414612935,
+     "tpot_p99": 0.01984075982779001,
+     "hbm_gib": 78.41344590393285,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-02": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.35579923817771186,
+     "ttft_p99": 0.4668667404115851,
+     "tpot_p99": 0.007838107438509913,
+     "hbm_gib": 65.61946552675796,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.2568120604165799,
+     "ttft_p99": 0.2955380913488227,
+     "tpot_p99": 0.007529243771191309,
+     "hbm_gib": 19.445406206695782,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.5028104921797343,
+     "ttft_p99": 0.6154757095997244,
+     "tpot_p99": 0.007347227006575476,
+     "hbm_gib": 62.47116130014741,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-03": {
+   "family": "stress",
+   "ctx": 131072,
+   "lam0": 0.6564483964886332,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.7034307078581576,
+     "ttft_p99": 1.4523560303726792,
+     "tpot_p99": 0.01496878985493717,
+     "hbm_gib": 146.78655628763087,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.5833562332047098,
+     "ttft_p99": 1.083899928133801,
+     "tpot_p99": 0.018981460820653693,
+     "hbm_gib": 42.679083466869386,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 1.0745288262505723,
+     "ttft_p99": 1.8313629738002437,
+     "tpot_p99": 0.01987646106506824,
+     "hbm_gib": 117.13377317109043,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-04": {
+   "family": "stress",
+   "ctx": 262144,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 1.4092318168608955,
+     "ttft_p99": 1.8537122068954446,
+     "tpot_p99": 0.01717917083710815,
+     "hbm_gib": 128.3987766573986,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 1.4651493655644423,
+     "ttft_p99": 2.556866912313552,
+     "tpot_p99": 0.02454868090453172,
+     "hbm_gib": 38.25040221082133,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 2.457934036856554,
+     "ttft_p99": 3.8222357344223723,
+     "tpot_p99": 0.02538597762230898,
+     "hbm_gib": 115.66998031370915,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-05": {
+   "family": "stress",
+   "ctx": 131072,
+   "lam0": 0.020808646862283394,
+   "valid": false,
+   "reason": "Baseline가 요청을 끝내지 못함(infeasible)",
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 38.56013949679448,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 11.145695086478595,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 38.1698387591841,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-06": {
+   "family": "stress",
+   "ctx": 131072,
+   "lam0": 0.9526147260424949,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.07740169113976592,
+     "ttft_p99": 0.0933279954988194,
+     "tpot_p99": 0.01929571409537052,
+     "hbm_gib": 176.04074767535073,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.3977270111822378,
+     "ttft_p99": 1.1759055487678118,
+     "tpot_p99": 0.026136776317494993,
+     "hbm_gib": 56.6594733578133,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.4496141380063108,
+     "ttft_p99": 1.2814908142485812,
+     "tpot_p99": 0.029493397856143272,
+     "hbm_gib": 123.9555484027805,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-07": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": 2.3160360797115613,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.027837134690049226,
+     "ttft_p99": 0.48583424624783333,
+     "tpot_p99": 0.020366474107321893,
+     "hbm_gib": 230.49679472163282,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.16332926971115355,
+     "ttft_p99": 0.4994061017613312,
+     "tpot_p99": 0.02009386644961675,
+     "hbm_gib": 67.90622880130216,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.18139383544860338,
+     "ttft_p99": 0.7651196023451068,
+     "tpot_p99": 0.022218369954202132,
+     "hbm_gib": 211.81607228160814,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-08": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": 2.223978116692517,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.50101490935041,
+     "ttft_p99": 1.947961388728545,
+     "tpot_p99": 0.019069383693805595,
+     "hbm_gib": 249.87010391148036,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.26199435784619707,
+     "ttft_p99": 0.562823613078281,
+     "tpot_p99": 0.020339097146684977,
+     "hbm_gib": 65.94063133936145,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.6511077031220356,
+     "ttft_p99": 2.0881611869673065,
+     "tpot_p99": 0.02061590025798031,
+     "hbm_gib": 152.0279949393143,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-09": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": 1.3300503606557452,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.5003616260160169,
+     "ttft_p99": 1.0548684930565961,
+     "tpot_p99": 0.0256772552586583,
+     "hbm_gib": 141.404379196048,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.3472578621552415,
+     "ttft_p99": 0.7887379226104685,
+     "tpot_p99": 0.021904655510159205,
+     "hbm_gib": 36.31663695498029,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.6714810344943729,
+     "ttft_p99": 1.5817665321612437,
+     "tpot_p99": 0.03465875638479304,
+     "hbm_gib": 94.92813126841209,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-10": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": 2.272314719391376,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.34638285217311165,
+     "ttft_p99": 1.1857204638622398,
+     "tpot_p99": 0.018738053142444786,
+     "hbm_gib": 181.47942959141884,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.25128560123328825,
+     "ttft_p99": 0.5252932019952624,
+     "tpot_p99": 0.020296409619903488,
+     "hbm_gib": 49.722202183638395,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.4885965278135288,
+     "ttft_p99": 1.3255568841627408,
+     "tpot_p99": 0.02029572757033862,
+     "hbm_gib": 108.3187068589429,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/ST-11": {
+   "family": "stress",
+   "ctx": 131072,
+   "lam0": 0.01617883034233082,
+   "valid": false,
+   "reason": "Baseline가 요청을 끝내지 못함(infeasible)",
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 23.709655485353135,
+     "unfinished": 3
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.42026652380570295,
+     "ttft_p99": 0.4605318822057036,
+     "tpot_p99": 0.006388262930679181,
+     "hbm_gib": 7.5113171071691145,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 23.741071726592143,
+     "unfinished": 3
+    }
+   }
+  },
+  "SYS-H100/ST-12": {
+   "family": "stress",
+   "ctx": 32768,
+   "lam0": 4.884446966075003,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.1879169201383178,
+     "ttft_p99": 0.5766527334673099,
+     "tpot_p99": 0.022121308565732984,
+     "hbm_gib": 174.63786081696998,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.1270818032047817,
+     "ttft_p99": 0.27539564635223357,
+     "tpot_p99": 0.0186402901607032,
+     "hbm_gib": 42.56647990059137,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.2497145275653768,
+     "ttft_p99": 0.6538195163459022,
+     "tpot_p99": 0.02017635309711855,
+     "hbm_gib": 80.61729887426829,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/DY-01": {
+   "family": "dynamic",
+   "ctx": 65536,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.28908291795136665,
+     "ttft_p99": 0.5161275773622804,
+     "tpot_p99": 0.007893448040027813,
+     "hbm_gib": 203.6145433826491,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.23703327762374293,
+     "ttft_p99": 0.2899141764673274,
+     "tpot_p99": 0.00765150374331744,
+     "hbm_gib": 60.61227041826591,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.43583052094974273,
+     "ttft_p99": 0.6630872468045809,
+     "tpot_p99": 0.007724663257485977,
+     "hbm_gib": 199.5909350929409,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/DY-02": {
+   "family": "dynamic",
+   "ctx": 65536,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.3557992381777112,
+     "ttft_p99": 0.5223799888212014,
+     "tpot_p99": 0.008715870081030865,
+     "hbm_gib": 67.28366350391241,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.2568120604165813,
+     "ttft_p99": 0.3218767454007548,
+     "tpot_p99": 0.008361765242615265,
+     "hbm_gib": 19.91024805038763,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.5028104921797336,
+     "ttft_p99": 0.6801428248085614,
+     "tpot_p99": 0.008537935357889891,
+     "hbm_gib": 63.33584114762105,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-H100/DY-03": {
+   "family": "dynamic",
+   "ctx": 131072,
+   "lam0": null,
+   "valid": false,
+   "reason": "Baseline가 요청을 끝내지 못함(infeasible)",
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 73.4183034129332,
+     "unfinished": 82
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.5813279574057031,
+     "ttft_p99": 0.6785976428792001,
+     "tpot_p99": 0.010993341181585018,
+     "hbm_gib": 26.12969074716444,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 72.61357140600191,
+     "unfinished": 82
+    }
+   }
+  },
+  "SYS-B200/CB-1": {
+   "family": "common",
+   "ctx": 8192,
+   "lam0": 32.847270801450456,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.008614296853491864,
+     "ttft_p99": 0.1526451540185171,
+     "tpot_p99": 0.006887409319174384,
+     "hbm_gib": 74.71646684714037,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.017041766606020303,
+     "ttft_p99": 0.04229828163282932,
+     "tpot_p99": 0.005869027170543701,
+     "hbm_gib": 19.828830038544833,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.018297063440667217,
+     "ttft_p99": 0.16138323520137376,
+     "tpot_p99": 0.006168403560829349,
+     "hbm_gib": 43.261789611217736,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/CB-2": {
+   "family": "common",
+   "ctx": 8192,
+   "lam0": 33.00817835853799,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.008568981429123212,
+     "ttft_p99": 0.15822674310318946,
+     "tpot_p99": 0.007257007557724163,
+     "hbm_gib": 74.53688201694278,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.016877139636265782,
+     "ttft_p99": 0.043038257174843865,
+     "tpot_p99": 0.006107967291415055,
+     "hbm_gib": 19.78181070553507,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.018172303317806636,
+     "ttft_p99": 0.1648372310789604,
+     "tpot_p99": 0.0064525933975193165,
+     "hbm_gib": 43.207387115386936,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/CB-3": {
+   "family": "common",
+   "ctx": 8192,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.021856965632374426,
+     "ttft_p99": 0.047450702949936384,
+     "tpot_p99": 0.0025430401590512855,
+     "hbm_gib": 33.52538606065223,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.015477712956378297,
+     "ttft_p99": 0.023597495323355134,
+     "tpot_p99": 0.0025134956659679753,
+     "hbm_gib": 10.05485138197686,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.028003116498441828,
+     "ttft_p99": 0.053634595071352466,
+     "tpot_p99": 0.0025160555986472343,
+     "hbm_gib": 33.44499915966015,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-01": {
+   "family": "stress",
+   "ctx": 32768,
+   "lam0": 6.276068345825318,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.17622053990299805,
+     "ttft_p99": 1.053235237021023,
+     "tpot_p99": 0.005190065978972506,
+     "hbm_gib": 93.71033954852982,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.08312620012961318,
+     "ttft_p99": 0.15318073479212443,
+     "tpot_p99": 0.005191729620427005,
+     "hbm_gib": 23.9447372780567,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.2041638771856203,
+     "ttft_p99": 1.0832664928989062,
+     "tpot_p99": 0.004977398253048526,
+     "hbm_gib": 66.39813886007248,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-02": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.34444759390122287,
+     "ttft_p99": 0.4525997125734634,
+     "tpot_p99": 0.003065608869407366,
+     "hbm_gib": 62.1977851578643,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.16929946498133433,
+     "ttft_p99": 0.18347214811715845,
+     "tpot_p99": 0.0028509378300084786,
+     "hbm_gib": 18.44195429393345,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.40906720732699925,
+     "ttft_p99": 0.517375207382927,
+     "tpot_p99": 0.0028631983709099217,
+     "hbm_gib": 60.93981830421449,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-03": {
+   "family": "stress",
+   "ctx": 131072,
+   "lam0": 0.676310946490663,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.684878632246896,
+     "ttft_p99": 1.4464699877021119,
+     "tpot_p99": 0.004522807359219153,
+     "hbm_gib": 111.371856721391,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.36835841537166336,
+     "ttft_p99": 0.47950793904882544,
+     "tpot_p99": 0.0054281665491969,
+     "hbm_gib": 30.586145643699126,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.8478939000630039,
+     "ttft_p99": 1.6088069608157465,
+     "tpot_p99": 0.0050614101515524665,
+     "hbm_gib": 102.22528900638679,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-04": {
+   "family": "stress",
+   "ctx": 262144,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 1.3785234097001422,
+     "ttft_p99": 1.8173948051822788,
+     "tpot_p99": 0.006052286936252419,
+     "hbm_gib": 102.9841439041764,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.871639067578332,
+     "ttft_p99": 1.0842813456008968,
+     "tpot_p99": 0.007012311253796759,
+     "hbm_gib": 28.00217771992129,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 1.8396578854943488,
+     "ttft_p99": 2.4878601703914147,
+     "tpot_p99": 0.00712548324637483,
+     "hbm_gib": 98.52533035640059,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-05": {
+   "family": "stress",
+   "ctx": 131072,
+   "lam0": 0.020808646862283394,
+   "valid": false,
+   "reason": "Baseline가 요청을 끝내지 못함(infeasible)",
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 37.19211486289983,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 10.733311126197673,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": null,
+     "ttft_p99": null,
+     "tpot_p99": null,
+     "hbm_gib": 37.03892784933081,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-06": {
+   "family": "stress",
+   "ctx": 131072,
+   "lam0": 3.1850561230026107,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.05875746714516339,
+     "ttft_p99": 0.09700943280588206,
+     "tpot_p99": 0.014580142090502873,
+     "hbm_gib": 279.4735719602549,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.1873801795461066,
+     "ttft_p99": 0.698510763219008,
+     "tpot_p99": 0.0260683217515286,
+     "hbm_gib": 110.21525245436807,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.23106045817653822,
+     "ttft_p99": 0.7972477892693209,
+     "tpot_p99": 0.030049657961138756,
+     "hbm_gib": 196.9947395982867,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-07": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": 6.356317130674402,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.012822614031449575,
+     "ttft_p99": 0.690730838076749,
+     "tpot_p99": 0.011571477584661951,
+     "hbm_gib": 245.13453608321973,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.07408714271012969,
+     "ttft_p99": 0.29067536745681083,
+     "tpot_p99": 0.011795481466185793,
+     "hbm_gib": 71.16130302719985,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.08383445641348537,
+     "ttft_p99": 0.7867292714442918,
+     "tpot_p99": 0.013496357589638384,
+     "hbm_gib": 220.24088798727865,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-08": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": 2.223978116692517,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.4871305957346038,
+     "ttft_p99": 1.9284872141106426,
+     "tpot_p99": 0.004259847942886431,
+     "hbm_gib": 140.48168983315747,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.1703818009151828,
+     "ttft_p99": 0.324988931605272,
+     "tpot_p99": 0.005063066020283024,
+     "hbm_gib": 36.14832462691726,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.5524227402153727,
+     "ttft_p99": 1.9923197558341523,
+     "tpot_p99": 0.004228990328946362,
+     "hbm_gib": 118.177536129129,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-09": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": 2.1282866069542674,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.40823924985809157,
+     "ttft_p99": 1.336519825191195,
+     "tpot_p99": 0.007940773298805034,
+     "hbm_gib": 111.93279772873967,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.2081234326604431,
+     "ttft_p99": 0.39032715448720195,
+     "tpot_p99": 0.00734418377810519,
+     "hbm_gib": 28.900179253761785,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.48268660022039783,
+     "ttft_p99": 1.4104311397119254,
+     "tpot_p99": 0.009850684556148,
+     "hbm_gib": 89.40013543152459,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-10": {
+   "family": "stress",
+   "ctx": 65536,
+   "lam0": 2.5105143960297265,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.3390064641950229,
+     "ttft_p99": 1.264158367707823,
+     "tpot_p99": 0.004958596329506956,
+     "hbm_gib": 107.89579860208455,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.16552121226428157,
+     "ttft_p99": 0.2738442431855894,
+     "tpot_p99": 0.00506320432094662,
+     "hbm_gib": 28.463462733844988,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.40229957524538235,
+     "ttft_p99": 1.326804971289721,
+     "tpot_p99": 0.004946654357918542,
+     "hbm_gib": 88.08130620877775,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-11": {
+   "family": "stress",
+   "ctx": 131072,
+   "lam0": 0.4922651618854182,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.684878632246896,
+     "ttft_p99": 1.4896249213131783,
+     "tpot_p99": 0.004052621773780646,
+     "hbm_gib": 98.28742351878678,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.368358415371662,
+     "ttft_p99": 0.49554355144922935,
+     "tpot_p99": 0.0044898465073121945,
+     "hbm_gib": 27.760643504199813,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.8478939000630028,
+     "ttft_p99": 1.5035493066716015,
+     "tpot_p99": 0.004149448753804953,
+     "hbm_gib": 92.59783318603228,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/ST-12": {
+   "family": "stress",
+   "ctx": 32768,
+   "lam0": 5.452132382200534,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.17559513808122773,
+     "ttft_p99": 0.6345288349671663,
+     "tpot_p99": 0.004854349323450397,
+     "hbm_gib": 79.51744246418878,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.08306449131213682,
+     "ttft_p99": 0.14415213156433068,
+     "tpot_p99": 0.004651648060187681,
+     "hbm_gib": 21.36517982220896,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.20342633374669816,
+     "ttft_p99": 0.6628874127433206,
+     "tpot_p99": 0.004663093364123654,
+     "hbm_gib": 58.233440120032114,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/DY-01": {
+   "family": "dynamic",
+   "ctx": 65536,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.2773386899012248,
+     "ttft_p99": 0.5023172368017669,
+     "tpot_p99": 0.0030980667513430724,
+     "hbm_gib": 197.83089179103632,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.1491667657813352,
+     "ttft_p99": 0.1837816147391557,
+     "tpot_p99": 0.002961409263245361,
+     "hbm_gib": 58.95237254770744,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.34195830332700156,
+     "ttft_p99": 0.5671797527779617,
+     "tpot_p99": 0.0029662467157886463,
+     "hbm_gib": 196.273715204073,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/DY-02": {
+   "family": "dynamic",
+   "ctx": 65536,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.34444759390122287,
+     "ttft_p99": 0.5092423563541175,
+     "tpot_p99": 0.0032868604238576976,
+     "hbm_gib": 63.19027804797878,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.16929946498133502,
+     "ttft_p99": 0.1924374152435476,
+     "tpot_p99": 0.003069279383000174,
+     "hbm_gib": 18.68955309472814,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.40906720732699925,
+     "ttft_p99": 0.5741660578776774,
+     "tpot_p99": 0.003104179033378957,
+     "hbm_gib": 61.64940215492687,
+     "unfinished": 0
+    }
+   }
+  },
+  "SYS-B200/DY-03": {
+   "family": "dynamic",
+   "ctx": 131072,
+   "lam0": null,
+   "valid": true,
+   "reason": null,
+   "pol": {
+    "Baseline-As-Is": {
+     "ttft_p50": 0.6848786322468939,
+     "ttft_p99": 0.887412741324988,
+     "tpot_p99": 0.0036473444109188864,
+     "hbm_gib": 81.58860455916218,
+     "unfinished": 0
+    },
+    "C1-Offline": {
+     "ttft_p50": 0.36835841537166053,
+     "ttft_p99": 0.376928661356623,
+     "tpot_p99": 0.0037566916996391955,
+     "hbm_gib": 23.672188208558694,
+     "unfinished": 0
+    },
+    "C2-Online": {
+     "ttft_p50": 0.8478939000630007,
+     "ttft_p99": 1.0500064903903215,
+     "tpot_p99": 0.0033750385962553133,
+     "hbm_gib": 78.94976784465335,
+     "unfinished": 0
+    }
+   }
+  }
+ },
+ "aggregate": {
+  "C1-Offline": {
+   "ttft": {
+    "ratio_gm": 2.13714589854928,
+    "n": 32,
+    "wins": 28
+   },
+   "tpot": {
+    "ratio_gm": 0.9757138838979258,
+    "n": 32,
+    "wins": 18
+   },
+   "hbm": {
+    "ratio_gm": 3.5315239757865395,
+    "n": 32,
+    "wins": 32
+   },
+   "by_family": {
+    "ttft/common": 3.795205350126664,
+    "tpot/common": 1.0818086777690017,
+    "hbm/common": 3.4990800566027676,
+    "ttft/stress": 1.8048534443914646,
+    "tpot/stress": 0.9339760965812829,
+    "hbm/stress": 3.576955451168052,
+    "ttft/dynamic": 2.1817259818837917,
+    "tpot/dynamic": 1.0357934299933589,
+    "hbm/dynamic": 3.384202420213116
+   },
+   "qa2_r": 1.4440370234623627
+  },
+  "C2-Online": {
+   "ttft": {
+    "ratio_gm": 0.8237530871789629,
+    "n": 32,
+    "wins": 2
+   },
+   "tpot": {
+    "ratio_gm": 0.9429618705245939,
+    "n": 32,
+    "wins": 19
+   },
+   "hbm": {
+    "ratio_gm": 1.2577052907820327,
+    "n": 32,
+    "wins": 32
+   },
+   "by_family": {
+    "ttft/common": 1.6079147913961223,
+    "tpot/common": 1.055933747117407,
+    "hbm/common": 1.298988494135471,
+    "ttft/stress": 0.6801449568897483,
+    "tpot/stress": 0.8904260097063244,
+    "hbm/stress": 1.3069703368304548,
+    "ttft/dynamic": 0.825390168614053,
+    "tpot/dynamic": 1.0473395981813547,
+    "hbm/dynamic": 1.0295855706914048
+   },
+   "qa2_r": 0.8813442868349938
+  },
+  "abs": {
+   "Baseline-As-Is": {
+    "ttft": 0.5707983786295528,
+    "tpot": 0.008145105767300213,
+    "hbm": 107.13110729417515
+   },
+   "C1-Offline": {
+    "ttft": 0.26836480893001496,
+    "tpot": 0.008383024456463486,
+    "hbm": 30.33578035647871
+   },
+   "C2-Online": {
+    "ttft": 0.692545744186428,
+    "tpot": 0.008698681275452709,
+    "hbm": 85.11457050300979
+   }
+  }
+ },
+ "losses": [
+  {
+   "pair": "SYS-H100/CB-3",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.79,
+   "ci95": 0.036
+  },
+  {
+   "pair": "SYS-H100/ST-01",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.888,
+   "ci95": 0.061
+  },
+  {
+   "pair": "SYS-H100/ST-02",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.748,
+   "ci95": 0.068
+  },
+  {
+   "pair": "SYS-H100/ST-03",
+   "policy": "C1-Offline",
+   "metric": "tpot_p99",
+   "ratio": 0.797,
+   "ci95": 0.08
+  },
+  {
+   "pair": "SYS-H100/ST-03",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.791,
+   "ci95": 0.031
+  },
+  {
+   "pair": "SYS-H100/ST-03",
+   "policy": "C2-Online",
+   "metric": "tpot_p99",
+   "ratio": 0.766,
+   "ci95": 0.092
+  },
+  {
+   "pair": "SYS-H100/ST-04",
+   "policy": "C1-Offline",
+   "metric": "tpot_p99",
+   "ratio": 0.709,
+   "ci95": 0.124
+  },
+  {
+   "pair": "SYS-H100/ST-04",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.487,
+   "ci95": 0.177
+  },
+  {
+   "pair": "SYS-H100/ST-04",
+   "policy": "C2-Online",
+   "metric": "tpot_p99",
+   "ratio": 0.687,
+   "ci95": 0.128
+  },
+  {
+   "pair": "SYS-H100/ST-06",
+   "policy": "C1-Offline",
+   "metric": "ttft_p99",
+   "ratio": 0.085,
+   "ci95": 0.03
+  },
+  {
+   "pair": "SYS-H100/ST-06",
+   "policy": "C1-Offline",
+   "metric": "tpot_p99",
+   "ratio": 0.747,
+   "ci95": 0.076
+  },
+  {
+   "pair": "SYS-H100/ST-06",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.078,
+   "ci95": 0.028
+  },
+  {
+   "pair": "SYS-H100/ST-06",
+   "policy": "C2-Online",
+   "metric": "tpot_p99",
+   "ratio": 0.665,
+   "ci95": 0.094
+  },
+  {
+   "pair": "SYS-H100/ST-07",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.628,
+   "ci95": 0.17
+  },
+  {
+   "pair": "SYS-H100/ST-08",
+   "policy": "C1-Offline",
+   "metric": "tpot_p99",
+   "ratio": 0.938,
+   "ci95": 0.045
+  },
+  {
+   "pair": "SYS-H100/ST-08",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.932,
+   "ci95": 0.011
+  },
+  {
+   "pair": "SYS-H100/ST-08",
+   "policy": "C2-Online",
+   "metric": "tpot_p99",
+   "ratio": 0.926,
+   "ci95": 0.032
+  },
+  {
+   "pair": "SYS-H100/ST-09",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.679,
+   "ci95": 0.15
+  },
+  {
+   "pair": "SYS-H100/ST-09",
+   "policy": "C2-Online",
+   "metric": "tpot_p99",
+   "ratio": 0.756,
+   "ci95": 0.109
+  },
+  {
+   "pair": "SYS-H100/ST-10",
+   "policy": "C1-Offline",
+   "metric": "tpot_p99",
+   "ratio": 0.923,
+   "ci95": 0.048
+  },
+  {
+   "pair": "SYS-H100/ST-10",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.888,
+   "ci95": 0.042
+  },
+  {
+   "pair": "SYS-H100/ST-10",
+   "policy": "C2-Online",
+   "metric": "tpot_p99",
+   "ratio": 0.924,
+   "ci95": 0.043
+  },
+  {
+   "pair": "SYS-H100/ST-12",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.883,
+   "ci95": 0.037
+  },
+  {
+   "pair": "SYS-H100/DY-01",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.773,
+   "ci95": 0.051
+  },
+  {
+   "pair": "SYS-H100/DY-02",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.76,
+   "ci95": 0.087
+  },
+  {
+   "pair": "SYS-B200/CB-1",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.946,
+   "ci95": 0.013
+  },
+  {
+   "pair": "SYS-B200/CB-2",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.96,
+   "ci95": 0.011
+  },
+  {
+   "pair": "SYS-B200/CB-3",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.885,
+   "ci95": 0.018
+  },
+  {
+   "pair": "SYS-B200/ST-01",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.971,
+   "ci95": 0.013
+  },
+  {
+   "pair": "SYS-B200/ST-02",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.867,
+   "ci95": 0.041
+  },
+  {
+   "pair": "SYS-B200/ST-03",
+   "policy": "C1-Offline",
+   "metric": "tpot_p99",
+   "ratio": 0.843,
+   "ci95": 0.121
+  },
+  {
+   "pair": "SYS-B200/ST-03",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.897,
+   "ci95": 0.02
+  },
+  {
+   "pair": "SYS-B200/ST-04",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.723,
+   "ci95": 0.155
+  },
+  {
+   "pair": "SYS-B200/ST-06",
+   "policy": "C1-Offline",
+   "metric": "ttft_p99",
+   "ratio": 0.142,
+   "ci95": 0.026
+  },
+  {
+   "pair": "SYS-B200/ST-06",
+   "policy": "C1-Offline",
+   "metric": "tpot_p99",
+   "ratio": 0.566,
+   "ci95": 0.041
+  },
+  {
+   "pair": "SYS-B200/ST-06",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.124,
+   "ci95": 0.022
+  },
+  {
+   "pair": "SYS-B200/ST-06",
+   "policy": "C2-Online",
+   "metric": "tpot_p99",
+   "ratio": 0.498,
+   "ci95": 0.061
+  },
+  {
+   "pair": "SYS-B200/ST-07",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.874,
+   "ci95": 0.047
+  },
+  {
+   "pair": "SYS-B200/ST-07",
+   "policy": "C2-Online",
+   "metric": "tpot_p99",
+   "ratio": 0.864,
+   "ci95": 0.083
+  },
+  {
+   "pair": "SYS-B200/ST-08",
+   "policy": "C1-Offline",
+   "metric": "tpot_p99",
+   "ratio": 0.843,
+   "ci95": 0.055
+  },
+  {
+   "pair": "SYS-B200/ST-08",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.967,
+   "ci95": 0.006
+  },
+  {
+   "pair": "SYS-B200/ST-09",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.947,
+   "ci95": 0.011
+  },
+  {
+   "pair": "SYS-B200/ST-09",
+   "policy": "C2-Online",
+   "metric": "tpot_p99",
+   "ratio": 0.815,
+   "ci95": 0.092
+  },
+  {
+   "pair": "SYS-B200/ST-10",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.951,
+   "ci95": 0.014
+  },
+  {
+   "pair": "SYS-B200/ST-11",
+   "policy": "C1-Offline",
+   "metric": "tpot_p99",
+   "ratio": 0.906,
+   "ci95": 0.069
+  },
+  {
+   "pair": "SYS-B200/ST-12",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.957,
+   "ci95": 0.004
+  },
+  {
+   "pair": "SYS-B200/DY-01",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.882,
+   "ci95": 0.031
+  },
+  {
+   "pair": "SYS-B200/DY-02",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.882,
+   "ci95": 0.032
+  },
+  {
+   "pair": "SYS-B200/DY-03",
+   "policy": "C2-Online",
+   "metric": "ttft_p99",
+   "ratio": 0.838,
+   "ci95": 0.045
+  }
+ ],
+ "excluded": [
+  [
+   "SYS-H100/ST-05",
+   "Baseline가 요청을 끝내지 못함(infeasible)"
+  ],
+  [
+   "SYS-H100/ST-11",
+   "Baseline가 요청을 끝내지 못함(infeasible)"
+  ],
+  [
+   "SYS-H100/DY-03",
+   "Baseline가 요청을 끝내지 못함(infeasible)"
+  ],
+  [
+   "SYS-B200/ST-05",
+   "Baseline가 요청을 끝내지 못함(infeasible)"
+  ]
+ ],
+ "git_rev_SYS-H100": "4776de4+dirty",
+ "git_rev_SYS-B200": "4776de4+dirty"
+}

@@ -1,0 +1,38 @@
+| variant | set | C1 QA1 ratio (w/t/l) | C2 QA1 ratio (w/t/l) |
+|---|---|---|---|
+| registered | common_benchmark | x1.000±0.000 (0/3/0) | x1.000±0.000 (0/3/0) |
+| registered | dp1_stress_benchmark | x1.000±0.000 (0/9/0) | x1.037±0.066 (0/9/0) |
+| registered | dp1_dynamic_benchmark | x1.643±0.285 (3/3/0) | x2.211±0.078 (6/0/0) |
+| registered | combined | x1.180±0.066 (3/15/0) | x1.327±0.042 (6/12/0) |
+| LINK_SHARE=0.10 | common_benchmark | x1.000±0.000 (0/3/0) | x1.000±0.000 (0/3/0) |
+| LINK_SHARE=0.10 | dp1_stress_benchmark | x1.000±0.000 (0/9/0) | x1.037±0.066 (0/9/0) |
+| LINK_SHARE=0.10 | dp1_dynamic_benchmark | x1.257±0.054 (1/5/0) | x1.293±0.062 (2/4/0) |
+| LINK_SHARE=0.10 | combined | x1.079±0.015 (1/17/0) | x1.109±0.028 (2/16/0) |
+| LINK_SHARE=0.50 | common_benchmark | x1.000±0.000 (0/3/0) | x1.000±0.000 (0/3/0) |
+| LINK_SHARE=0.50 | dp1_stress_benchmark | x1.000±0.000 (0/9/0) | x1.037±0.066 (0/9/0) |
+| LINK_SHARE=0.50 | dp1_dynamic_benchmark | x2.647±0.118 (6/0/0) | x2.642±0.126 (6/0/0) |
+| LINK_SHARE=0.50 | combined | x1.383±0.021 (6/12/0) | x1.408±0.044 (6/12/0) |
+| COOLDOWN_S=4 (bucket window 4 s) | common_benchmark | x1.000±0.000 (0/3/0) | x1.000±0.000 (0/3/0) |
+| COOLDOWN_S=4 (bucket window 4 s) | dp1_stress_benchmark | x1.000±0.000 (0/9/0) | x1.037±0.066 (0/9/0) |
+| COOLDOWN_S=4 (bucket window 4 s) | dp1_dynamic_benchmark | x1.308±0.078 (2/4/0) | x1.317±0.051 (2/4/0) |
+| COOLDOWN_S=4 (bucket window 4 s) | combined | x1.094±0.022 (2/16/0) | x1.116±0.032 (2/16/0) |
+| COOLDOWN_S=16 (bucket window 16 s) | common_benchmark | x1.000±0.000 (0/3/0) | x1.000±0.000 (0/3/0) |
+| COOLDOWN_S=16 (bucket window 16 s) | dp1_stress_benchmark | x1.000±0.000 (0/9/0) | x1.037±0.066 (0/9/0) |
+| COOLDOWN_S=16 (bucket window 16 s) | dp1_dynamic_benchmark | x2.628±0.116 (6/0/0) | x2.592±0.105 (6/0/0) |
+| COOLDOWN_S=16 (bucket window 16 s) | combined | x1.380±0.020 (6/12/0) | x1.399±0.041 (6/12/0) |
+| BENEFIT_HORIZON_S=10 | common_benchmark | x1.000±0.000 (0/3/0) | x1.000±0.000 (0/3/0) |
+| BENEFIT_HORIZON_S=10 | dp1_stress_benchmark | x1.000±0.000 (0/9/0) | x1.037±0.066 (0/9/0) |
+| BENEFIT_HORIZON_S=10 | dp1_dynamic_benchmark | x1.643±0.285 (3/3/0) | x2.219±0.087 (6/0/0) |
+| BENEFIT_HORIZON_S=10 | combined | x1.180±0.066 (3/15/0) | x1.328±0.043 (6/12/0) |
+| BENEFIT_HORIZON_S=60 | common_benchmark | x1.000±0.000 (0/3/0) | x1.000±0.000 (0/3/0) |
+| BENEFIT_HORIZON_S=60 | dp1_stress_benchmark | x1.000±0.000 (0/9/0) | x1.037±0.066 (0/9/0) |
+| BENEFIT_HORIZON_S=60 | dp1_dynamic_benchmark | x1.643±0.285 (3/3/0) | x2.211±0.078 (6/0/0) |
+| BENEFIT_HORIZON_S=60 | combined | x1.180±0.066 (3/15/0) | x1.327±0.042 (6/12/0) |
+| AFFINITY_MARGIN=1.0 | common_benchmark | x1.000±0.000 (0/3/0) | x1.000±0.000 (0/3/0) |
+| AFFINITY_MARGIN=1.0 | dp1_stress_benchmark | x1.000±0.000 (0/9/0) | x1.037±0.066 (0/9/0) |
+| AFFINITY_MARGIN=1.0 | dp1_dynamic_benchmark | x1.643±0.285 (3/3/0) | x2.211±0.078 (6/0/0) |
+| AFFINITY_MARGIN=1.0 | combined | x1.180±0.066 (3/15/0) | x1.327±0.042 (6/12/0) |
+| AFFINITY_MARGIN=4.0 | common_benchmark | x1.000±0.000 (0/3/0) | x1.000±0.000 (0/3/0) |
+| AFFINITY_MARGIN=4.0 | dp1_stress_benchmark | x1.000±0.000 (0/9/0) | x1.037±0.066 (0/9/0) |
+| AFFINITY_MARGIN=4.0 | dp1_dynamic_benchmark | x1.643±0.285 (3/3/0) | x2.211±0.078 (6/0/0) |
+| AFFINITY_MARGIN=4.0 | combined | x1.180±0.066 (3/15/0) | x1.327±0.042 (6/12/0) |

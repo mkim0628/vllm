@@ -1,0 +1,59 @@
+diff -ru -x __pycache__ -x DP1 base/DP2/sim/dp2sim/engine.py s4c/DP2/sim/dp2sim/engine.py
+--- base/DP2/sim/dp2sim/engine.py	2026-10-04 16:51:13.760596921 +0000
++++ s4c/DP2/sim/dp2sim/engine.py	2026-10-04 16:53:11.556112656 +0000
+@@ -176,7 +176,9 @@
+         free = {t: self.kv.free(i, t) for t in ("hbm", "custom_hbm", "cxl_pnm", "hbf", "dram")}
+         ev = ev_by_node.get(i, 0.0)
+         groups = nd.groups()
+-        return NodeView(i, nd.role, len(nd.dec), groups, nd.outstanding_prefill_tokens() + self.pending_tokens[i], len(nd.pf), free, ev)
++        nv = NodeView(i, nd.role, len(nd.dec), groups, nd.outstanding_prefill_tokens() + self.pending_tokens[i], len(nd.pf), free, ev)
++        nv.degraded = nd.degraded
++        return nv
+ 
+     def make_view(self):
+         flows = defaultdict(int)
+@@ -201,6 +203,7 @@
+         for nv in v.nodes:
+             c = NodeView(nv.idx, nv.role, nv.ndec, nv.groups, nv.pf_tokens + self.planned[nv.idx], nv.njobs + self.planned_cnt[nv.idx],
+                          dict(nv.free), nv.evictable)
++            c.degraded = nv.degraded
+             for t in c.free:
+                 c.free[t] -= self.planned_free.get((nv.idx, t), 0.0)
+             nodes.append(c)
+@@ -361,7 +364,7 @@
+     def plan_with(self, view, req, now, cap_mult=1.0, rng=None, gate=True):
+         sess = req.sess
+         v, keep_p = self.restrict(view, sess, req.hist)
+-        cn = [nv.idx for nv in v.nodes if (not gate or nv.pf_tokens < self.o["qcap"] * cap_mult) and (keep_p is None or nv.idx in keep_p)]
++        cn = [nv.idx for nv in v.nodes if not nv.degraded and (not gate or nv.pf_tokens < self.o["qcap"] * cap_mult) and (keep_p is None or nv.idx in keep_p)]
+         if not cn:
+             return None
+         plan, ranked = self.est.evaluate(v, req, sess, cn, rng or random.Random(self.seed * 31 + req.rid), now)
+diff -ru -x __pycache__ -x DP1 base/DP2/sim/dp2sim/node.py s4c/DP2/sim/dp2sim/node.py
+--- base/DP2/sim/dp2sim/node.py	2026-10-04 16:51:13.760695811 +0000
++++ s4c/DP2/sim/dp2sim/node.py	2026-10-04 16:53:11.552557811 +0000
+@@ -33,6 +33,7 @@
+         self.t = 0.0
+         self.ver = 0
+         self.speed = 1.0
++        self.degraded = False            # health signal (Resource State)
+         self.busy_all = 0.0
+         self.busy_win = 0.0
+         self.win = (0.0, float("inf"))
+diff -ru -x __pycache__ -x DP1 base/DP2/sim/dp2sim/policies.py s4c/DP2/sim/dp2sim/policies.py
+--- base/DP2/sim/dp2sim/policies.py	2026-10-04 16:51:13.760730124 +0000
++++ s4c/DP2/sim/dp2sim/policies.py	2026-10-04 16:53:11.552628001 +0000
+@@ -17,11 +17,11 @@
+ 
+ 
+ class NodeView:
+-    __slots__ = ("idx", "role", "ndec", "groups", "pf_tokens", "njobs", "free", "evictable", "alive")
++    __slots__ = ("idx", "role", "ndec", "groups", "pf_tokens", "njobs", "free", "evictable", "alive", "degraded")
+ 
+     def __init__(self, idx, role, ndec, groups, pf_tokens, njobs, free, evictable):
+         self.idx, self.role, self.ndec, self.groups, self.pf_tokens, self.njobs = idx, role, ndec, groups, pf_tokens, njobs
+-        self.free, self.evictable, self.alive = free, evictable, True
++        self.free, self.evictable, self.alive, self.degraded = free, evictable, True, False
+ 
+ 
+ class View:

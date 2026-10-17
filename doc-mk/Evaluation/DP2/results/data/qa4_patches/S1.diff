@@ -1,0 +1,41 @@
+diff -ru -x __pycache__ -x DP1 base/DP2/sim/dp2sim/engine.py s1/DP2/sim/dp2sim/engine.py
+--- base/DP2/sim/dp2sim/engine.py	2026-10-04 16:51:13.760596921 +0000
++++ s1/DP2/sim/dp2sim/engine.py	2026-10-04 16:54:03.228178072 +0000
+@@ -173,7 +173,7 @@
+     # ------------------------------------------------------------------------------------------------- views
+     def _nodeview(self, nd, ev_by_node):
+         i = nd.idx
+-        free = {t: self.kv.free(i, t) for t in ("hbm", "custom_hbm", "cxl_pnm", "hbf", "dram")}
++        free = {t: self.kv.free(i, t) for t in ("hbm", "custom_hbm", "cxl_pnm", "cxl_pnm2", "hbf", "dram")}
+         ev = ev_by_node.get(i, 0.0)
+         groups = nd.groups()
+         return NodeView(i, nd.role, len(nd.dec), groups, nd.outstanding_prefill_tokens() + self.pending_tokens[i], len(nd.pf), free, ev)
+diff -ru -x __pycache__ -x DP1 base/DP2/sim/dp2sim/physics.py s1/DP2/sim/dp2sim/physics.py
+--- base/DP2/sim/dp2sim/physics.py	2026-10-04 16:51:13.760712293 +0000
++++ s1/DP2/sim/dp2sim/physics.py	2026-10-04 16:54:03.228016522 +0000
+@@ -1,6 +1,7 @@
+ """Physical model (M0 spec 4.2-4.5). Wraps DP1 SystemSpec (read-only) and adds the DP2 iteration/transfer rules."""
+ from __future__ import annotations
+ 
++import dataclasses
+ import json
+ import math
+ import sys
+@@ -17,7 +18,7 @@
+ LINKS = json.loads((SIM / "configs" / "internode_links.json").read_text())
+ 
+ TIERS = ("hbm", "custom_hbm", "cxl_pnm", "dram", "hbf", "ssd_pim")
+-DECODE_TIERS = ("hbm", "custom_hbm", "cxl_pnm", "hbf")
++DECODE_TIERS = ("hbm", "custom_hbm", "cxl_pnm", "cxl_pnm2", "hbf")
+ OFFLOAD = ("custom_hbm", "cxl_pnm")
+ ALLOC_ORDER = ("hbm", "dram", "cxl_pnm", "hbf", "ssd_pim", "custom_hbm")  # DP1 external allocator (A09)
+ TARGET = {"hbm": 0.80}  # others 0.90
+@@ -37,6 +38,8 @@
+ def system(sys_id):
+     if sys_id not in _SYS:
+         _SYS[sys_id] = load_profile(DP1_SIM / "configs", sys_id)[0]
++        pn = _SYS[sys_id].memories["cxl_pnm"]
++        _SYS[sys_id].memories["cxl_pnm2"] = dataclasses.replace(pn, name="cxl_pnm2", capacity_bytes=512 * 2**30, int_bw=2 * pn.int_bw)
+     return _SYS[sys_id]
+ 
+ 
