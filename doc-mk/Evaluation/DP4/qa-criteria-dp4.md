@@ -35,7 +35,8 @@
 |---|---|
 | 이름 | Scalability (제안) |
 | Motivation | 서버가 늘 때 control plane(중앙 서버, 락 매니저)이 처리량을 제한하는가 |
-| Metric | **Scaling Efficiency** = Goodput(N) / ((N/2) × Goodput(2)), 노드당 부하 고정, N = 2, 4, 8, 16 (단위 %) |
+| Metric | 증가 축 5개별 metric(아래 표, 정의 원천 [`../qa-star-criteria-unified.md`](../qa-star-criteria-unified.md) §3.6)을 값으로 보고한다. 노드 축(S2)의 처리 효율은 **Scaling Efficiency** = Goodput(N) / ((N/2) × Goodput(2)), 노드당 부하 고정, N = 2, 4, 8, 16 (단위 %) |
+| 증가 축별 metric | S1 Concurrent requests ↑: Goodput / TTFT P99. S2 GPU/Node 수 ↑: Scheduler throughput, decision latency (+ Scaling Efficiency). S3 Memory tier 수 ↑: Planning latency. S4 KV block/object 수 ↑: Registry lookup/update latency (DP4: control plane의 lookup/publish 지연). S5 Candidate execution location ↑: Cost model evaluation time. 축 하나만 키우고 나머지는 고정한다 |
 | 제안 경계 (사용자 확정 전) | ★ < 70%, ★★ 70~90%, ★★★ ≥ 90% |
 | 적용 DP | DP2, DP4 (사용자 QA 목록 기준) |
 | Evidence | N=2는 사용자 환경과 같은 규모이고 N ≥ 4는 외삽이므로 [B+C] |
@@ -53,7 +54,7 @@
 |---|---|
 | control plane op latency | 연산 종류별(lookup / publish / pin / unpin) P50, P99 비율 (C2 ÷ C1) |
 | 포화 offered load | control plane이 SLO를 깨기 시작하는 request rate (CB 기준 base rate 배수) |
-| scaling | Scaling Efficiency 비교 |
+| scaling | 증가 축별 metric 비교(S1~S5, 위 표). 현재 benchmark의 `d4_node_scale_*`는 S2(노드 수)만 덮고, S1(부하 sweep은 CB의 load sweep 재사용 가능), S3·S5(DP4 control plane에서는 해당이 약함, 해당 없음이면 그렇게 표기), S4(block 수 sweep, 락 stripe sweep과 연계)는 시나리오 추가가 필요하다 |
 | 장애 | 가용성 창 길이, 영향 범위, SLO 위반 request 수 (as-published / 보완안 분리) |
 | 정확성 | model check 결과(불변식 통과/반례) |
 
