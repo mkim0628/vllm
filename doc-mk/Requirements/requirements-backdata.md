@@ -144,7 +144,7 @@ DP별 시나리오를 없애고 QA당 1개로 통합했다. DP 차이는 평가 
 | QA-01 | Performance (Throughput) | 요청 처리량 | 다수의 agent 세션이 동시에 요청하는 상황에서, 지정한 SLO(TTFT, TPOT)를 만족하며 처리할 수 있는 최대 요청량이 Baseline보다 커야 한다. [측정: SLO 만족 Max Goodput ≥ Baseline 대비 [   ] ] | H | M |
 | QA-02 | Performance (Latency) | 응답 지연 | 정해진 부하에서 TTFT와 TPOT가 Baseline보다 크게 늘지 않아야 한다. [측정: TTFT, TPOT(P50, P99) < Baseline 대비 [   ] ] | H | H |
 | QA-03 | Performance (Resource utilization) | HBM 점유율 | 동일한 부하와 SLO 조건에서 KV·adapter·expert가 차지하는 HBM 점유율이 Baseline보다 낮아야 한다. [측정: HBM 점유율(평균, 피크) < Baseline 대비 [   ] ] | H | M |
-| QA-04 | Modifiability | 변경 용이성 | 새로운 메모리 tier, 이동·배치 정책, 데이터 객체 유형을 추가할 때 서빙 경로를 수정하지 않고 반영할 수 있어야 한다. [측정: 기준 작업 3종(tier, 정책, 객체 유형 추가)의 가중 변경 비용(토큰 비용 50%, 공수 30%, 변경 모듈 수 20%) < Baseline 대비 [   ] ] | H | M |
+| QA-04 | Modifiability | 변경 용이성 | 새로운 메모리 tier, 이동·배치 정책, 데이터 객체 유형을 추가할 때 서빙 경로를 수정하지 않고 반영하고, vLLM upstream 갱신에도 최소 수정으로 따라갈 수 있어야 한다. [측정: 기준 작업 4종(tier, 정책, 객체 유형 추가, upstream 갱신 대응)의 가중 변경 비용(토큰 비용 50%, 공수 30%, 변경 모듈 수 20%) < Baseline 대비 [   ] ] | H | M |
 | QA-05 | Scalability | 노드·메모리 type 확장 | 실장 환경을 넘는 규모로 노드 또는 메모리 type이 늘어나도 결정이 병목이 되지 않고 성능이 늘어난 자원에 비례해 증가해야 한다 (시뮬레이션 평가). [측정: Scaling Efficiency > [   ] ] | M | H |
 | QA-06 | Correctness | 출력 정확성 | 데이터 이동·복원·재사용을 거친 요청의 출력이 거치지 않은 경우와 같아야 한다. 손실형 KV 압축·제거는 허용 정확도 한도 안이어야 한다. [측정: 출력 불일치 < 1 건 / F1 하락 상대 < 1% ] | H | H |
 | QA-07 | Co-existence | 이동 트래픽 공존 | 이동·복원 트래픽과 서빙 요청이 같은 자원을 동시에 쓰는 상황에서도 서빙 성능이 유지되어야 한다. [측정: 서빙 TTFT·TPOT 증가율 < 10% ] | M | M |
