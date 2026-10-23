@@ -560,6 +560,70 @@ def q5_page(slide):
     return 0
 
 
+
+# ============================================================ SLO 페이지 (슬라이드 9)
+def budget_bar(slide, x, y, w, label, segs, slo, unit, scale_max, note, stacked=True):
+    """segs=[(값, 색, 라벨)]. stacked면 누적 막대 1줄, 아니면 항목별 막대. SLO 기준선은 붉은 세로선."""
+    tbox(slide, x, y, w, 0.2, [[(label, {"bold": True, "color": NAVY})]], size=9, margins=(0.02, 0, 0, 0))
+    tx, tw, th = x + 0.02, w - 0.04, 0.24
+    n = 1 if stacked else len(segs)
+    top = y + 0.28
+    for i in range(n):
+        rect(slide, tx, top + i * (th + 0.05), tw, th, fill="F2F2F2", line="BFBFBF", line_w=0.5)
+    cur = 0.0
+    for i, (val, col, lab) in enumerate(segs):
+        row = 0 if stacked else i
+        sx = tx + (cur if stacked else 0) / scale_max * tw
+        sw = val / scale_max * tw
+        ty = top + row * (th + 0.05)
+        rect(slide, sx, ty, sw, th, fill=col, line="FFFFFF", line_w=0.75)
+        tbox(slide, sx, ty, sw, th, lab, size=7.5, color="FFFFFF" if col in ("2F5597", "7F7F7F") else "000000",
+             align="c", anchor="m", margins=(0, 0, 0, 0), wrap=False)
+        if stacked:
+            cur += val
+    bottom = top + n * (th + 0.05)
+    lx = tx + slo / scale_max * tw
+    hline(slide, lx, top - 0.04, lx, bottom, color="C00000", w=1.75)
+    tbox(slide, lx - 1.4, y, 1.38, 0.2, "SLO %g %s" % (slo, unit), size=8, color="C00000", align="r",
+         margins=(0, 0, 0, 0), wrap=False)
+    tbox(slide, tx, bottom + 0.02, tw, 0.34, note, size=7.5, color="404040", margins=(0, 0, 0, 0))
+
+
+def slo_page(slide):
+    page_chrome(slide, "SLO 기준", "TTFT·TPOT의 측정 정의, 절대 기준, 근거 계산과 적용 규칙 (모든 DP·후보·Baseline에 동일 적용)",
+                "출처: 공통 SLO 기준 · MLPerf Inference(2차) · Brysbaert 2019. 계산: 가중치 141 GB, H100×8 3.35 TB/s·989 TFLOPS, B200×8 8 TB/s, MFU 0.45. 하한은 attention 2차 항·통신·커널 제외")
+    for sh in [s for s in slide.shapes if s.name == "tbl"]:
+        remove(sh)
+    rows = [["Metric", "측정 정의", "절대 SLO", "근거 (계산)"],
+            ["TTFT\n(첫 토큰까지의 시간)",
+             "요청 도착 → 첫 출력 토큰 수신. 큐잉 + prefill + (필요 시) KV 복원 시간 포함. 요청별 값의 P99로 판정",
+             [[("TTFT P99 ≤ 2 s", {"bold": True})]],
+             ["8K prefill 이론 0.32 s = (2 × 70.6B × 8,192 = 1.16 PFLOP) ÷ (H100×8 989 TFLOPS×8 × MFU 0.45 = 3.56 PFLOP/s). 2 s는 이의 약 6배(큐잉 여유).",
+              "Agent KV Fleet의 16K 컨텍스트 재prefill은 0.65 s라 약 3배 여유. MLPerf Llama-2-70B 표준 시나리오와 같은 자릿수(2차 자료)"]],
+            ["TPOT\n(출력 토큰당 시간)",
+             "(요청 E2E − TTFT) ÷ (출력 토큰 수 − 1). 토큰 간 지연의 요청별 평균에 대한 P99로 판정",
+             [[("TPOT P99 ≤ 50 ms", {"bold": True})]],
+             ["50 ms = 20 tok/s = 성인 묵독(5~6 tok/s)의 약 3.5배. MLPerf interactive 40 ms와 표준 200 ms 사이(2차 자료).",
+              "이론 하한: 가중치 141 GB를 step마다 읽으면 H100×8 5.3 ms, B200×8 2.2 ms. 16K KV(5 GiB/세션) batch 64를 더하면 H100 약 18 ms. 50 ms는 이의 약 2.8배 여유"]]]
+    add_table(slide, 0.4, 1.25, [1.5, 3.3, 1.5, 6.23], rows, [0.26, 0.82, 0.82], fills=[None, None], size=8.3,
+              aligns=["l", "l", "c", "l"])
+    # 예산 막대 (좌: TTFT, 우: TPOT)
+    tbox(slide, 0.4, 3.3, 12.5, 0.24, [[("SLO 대비 이론 예산 (대역폭·연산 한계 기준 하한이며 실측이 아니다)", {"bold": True, "color": NAVY})]],
+         size=10, margins=(0.02, 0, 0, 0))
+    budget_bar(slide, 0.4, 3.62, 6.0, "TTFT 예산 (s)", [(0.32, "2F5597", "8K 0.32 s"), (0.65, "7F7F7F", "16K 0.65 s")],
+               2.0, "s", 2.4, "8K·16K 입력의 재계산 prefill 시간. 남는 시간이 큐잉·KV 복원·결정 지연의 예산이다(16K에서 1.35 s).", stacked=False)
+    budget_bar(slide, 6.9, 3.62, 6.0, "TPOT 예산 (ms, H100×8)", [(5.3, "2F5597", "가중치 5.3"), (12.8, "7F7F7F", "KV 12.8 (batch 64, 16K)")],
+               50, "ms", 60, "B200×8은 가중치 하한이 2.2 ms. 오타였던 TPOT 2 ms는 이 모델에서 가중치 읽기 하한보다 낮아 달성 불가.", stacked=True)
+    # 적용 규칙
+    tbox(slide, 0.4, 4.95, 12.5, 2.2,
+         [[("적용 규칙", {"bold": True, "color": NAVY, "size": 10})],
+          [("• Q1 SLO goodput: 요청별로 TTFT ≤ 2 s 그리고 TPOT ≤ 50 ms를 함께 만족한 요청의 출력 토큰만 합산한다. 부하 sweep의 최댓값이 Max SLO goodput이다.", {"size": 9})],
+          [("• Q3 고부하 지연: 부하는 Baseline Max SLO goodput의 90%로 고정하고 TTFT·TPOT P99로 r을 계산한다. 후보가 SLO(P99)를 넘으면 개선 폭과 무관하게 ☆로 본다.", {"size": 9})],
+          [("• 같은 값을 모든 DP 후보와 Baseline에 적용하고, 결과를 본 뒤 바꾸지 않는다. 바꾸면 새 버전으로 취급해 이전 결과와 비교하지 않는다.", {"size": 9})],
+          [("• Baseline이 SLO를 만족하지 못하는 시나리오는 조용히 제외하지 않고 infeasible로 표시한다. P99 판정에는 구간당 요청 수 ≥ 1,000(seed별)을 확보한다 [가정].", {"size": 9})],
+          [("• 이전 요구에 적힌 TPOT 2 ms는 50 ms의 오타로 확정해 이 덱의 모든 페이지에 50 ms를 쓴다 (소유자 확인 필요).", {"size": 9, "color": "C00000"})]],
+         size=9, line_spacing=1.15)
+
 # ============================================================ 페이지 6~11 구성
 def build_criteria_slides(prs):
     sl = prs.slides
@@ -594,6 +658,7 @@ def build_criteria_slides(prs):
           [("  예) KV 120 GiB 중 HBM 64 GiB → 53% (이전 60 GiB / 80 GiB → 66%)", {"size": 8.5, "color": "404040"})],
           [("• 압축이 아니므로 정확도(출력)는 변하지 않는다.", {"size": 8.5})]],
          size=8.5, line_spacing=1.1)
+    slo_page(sl[8])
     # Q4(확장성) 그래프는 기본 위치. Q5
     q5_page(sl[10])
     # Q5 그래프 2개 (module, MM)
