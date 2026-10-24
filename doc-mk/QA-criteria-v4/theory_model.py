@@ -40,11 +40,12 @@ def tau(b=B_DEC):
 G0 = T_NEW + OUT * tau() / B_DEC    # 턴당 GPU 시간 (miss 없음) ≈ 0.113 s
 
 
-def hit_rates(lam, theta=1.0, fprime=1.0):
+def hit_rates(lam, theta=1.0, fprime=1.0, n_hbm=None):
     """LRU stack distance: idle T~Exp(Z), 그 사이 서로 다른 세션 λT개 접근. 반환 세션이 각 tier에서 발견될 확률.
     theta = 배치 효율(효과 용량 배수), fprime = 세션당 이동·보관 크기 비율(dedup 등)."""
-    cap_h = theta * N_HBM / fprime
-    cap_hd = theta * (N_HBM + N_DRAM) / fprime
+    nh = N_HBM if n_hbm is None else n_hbm
+    cap_h = theta * nh / fprime
+    cap_hd = theta * (nh + N_DRAM) / fprime
     f_h = 1 - math.exp(-cap_h / (lam * Z_MEAN))
     f_hd = 1 - math.exp(-cap_hd / (lam * Z_MEAN))
     return f_h, f_hd - f_h, 1 - f_hd          # hbm, dram, ssd(+없음)
@@ -59,9 +60,9 @@ class Cfg:
         self.tail_gpu_chain = tail_gpu_chain
 
 
-def caps(c, lam):
+def caps(c, lam, n_hbm=None):
     """λ에서의 용량(turn/s): (GPU, DRAM link, 하위 tier link)"""
-    h_h, h_d, h_s = hit_rates(lam, c.theta, c.fprime)
+    h_h, h_d, h_s = hit_rates(lam, c.theta, c.fprime, n_hbm)
     miss = 1 - h_h
     if not c.tiers:                                         # B0: HBM만, 나머지는 재계산
         g = G0 + miss * T_REC
@@ -76,11 +77,11 @@ def caps(c, lam):
     return 1 / g, cap_d, cap_s
 
 
-def max_lambda(c):
+def max_lambda(c, n_hbm=None):
     lo, hi = 0.05, 40.0
     for _ in range(80):
         mid = (lo + hi) / 2
-        g, d, s = caps(c, mid)
+        g, d, s = caps(c, mid, n_hbm)
         if mid <= min(g, d, s):
             lo = mid
         else:
@@ -92,10 +93,10 @@ def goodput(lam):
     return UTIL_CAP * OUT * lam
 
 
-def latencies(c, lam_test, lam_cap):
+def latencies(c, lam_test, lam_cap, n_hbm=None):
     """P99 TTFT(s), TPOT(ms). 링크 이용률 ρ에 대해 복원 시간이 1/(1−ρ)로 늘어난다(processor sharing 근사)."""
     rho = min(lam_test / lam_cap, 0.95)
-    h_h, h_d, h_s = hit_rates(lam_test, c.theta, c.fprime)
+    h_h, h_d, h_s = hit_rates(lam_test, c.theta, c.fprime, n_hbm)
     kv = KV_S * c.fprime
     if not c.tiers:                                         # B0: 재계산이 critical path
         ttft = T_NEW + (1 - h_h) * T_REC / max(1 - rho, 0.05) if (1 - h_h) > 0.01 else T_NEW
@@ -117,25 +118,27 @@ def latencies(c, lam_test, lam_cap):
 
 # ---- 설정 ---------------------------------------------------------------
 B0 = Cfg("B0 GPU-only", tiers=False)
-B1 = Cfg("B1 정적 offload")                                  # θ=1, w=1(전체 write-back), π=0
+# B1: 단순 offload = 턴 종료 시 증분(≈1.25K/16K)만 하위 tier에 기록하는 write-through, 축출은 복사 없이 삭제,
+#     요청 시 동기 복원, prefetch·예측·배치 정책 없음 (θ=1, π=0)
+B1 = Cfg("B1 정적 offload", w=0.1)
 CFG = {
-    ("DP1", 1): Cfg("DP1 1안", theta=1.1, w=0.5, pi=0.0, omega=0.0, d_crit=0.003, wm=0.80),
-    ("DP1", 2): Cfg("DP1 2안", theta=1.3, w=0.3, pi=0.6, omega=0.3, d_crit=0.0, wm=0.95),
+    ("DP1", 1): Cfg("DP1 1안", theta=1.1, w=0.1, pi=0.0, omega=0.0, d_crit=0.003, wm=0.80),
+    ("DP1", 2): Cfg("DP1 2안", theta=1.3, w=0.1, pi=0.6, omega=0.3, d_crit=0.0, wm=0.95),
     # DP3: 공유 문서 30%를 1회만 보관(dedup) → 세션당 이동·보관 크기 0.70, 선택 재계산 비용 amortized 2 ms
-    ("DP3", 1): Cfg("DP3 1안", fprime=0.70, extra_gpu=0.025 + 0.002, tail_gpu_chain=0.025, wm=0.60),
-    ("DP3", 2): Cfg("DP3 2안", fprime=0.70, extra_gpu=0.001 + 0.002, wm=0.75),
+    ("DP3", 1): Cfg("DP3 1안", w=0.1, fprime=0.70, extra_gpu=0.025 + 0.002, tail_gpu_chain=0.025, wm=0.60),
+    ("DP3", 2): Cfg("DP3 2안", w=0.1, fprime=0.70, extra_gpu=0.001 + 0.002, wm=0.75),
 }
 
 
 def single_node():
     out = {}
-    lam0, lam1 = max_lambda(B0), max_lambda(B1)
-    lam_test = 0.9 * UTIL_CAP * lam1                         # Baseline(B1) Max SLO goodput의 90%
+    lam0 = max_lambda(B0)
+    lam_test = 0.9 * lam0                                    # 고부하 = B0(GPU-only) 포화 부하의 90%
     for key, c in [("B0", B0), ("B1", B1)] + [(k, v) for k, v in CFG.items()]:
         lam = max_lambda(c)
         ttft, tpot, rho = latencies(c, lam_test, lam)
-        out[key] = dict(lam=lam, tps=goodput(lam), ttft=ttft, tpot=tpot, rho=rho,
-                        hbm=HBM_POOL / GiB * (1.0 if key in ("B0", "B1") else c.wm), cfg=c)
+        hbm = HBM_POOL / GiB * (1.0 if key in ("B0", "B1") else c.wm)   # 정적 LRU offload는 HBM을 캐시로 채운다
+        out[key] = dict(lam=lam, tps=goodput(lam), ttft=ttft, tpot=tpot, rho=rho, hbm=hbm, cfg=c)
     return out, lam_test
 
 
@@ -171,7 +174,7 @@ def cluster_dp2(single):
     return res
 
 
-def cluster_dp4(single):
+def cluster_dp4(single, lam_test_node):
     """DP4: CXL 공유 풀이 SSD를 대체하는 하위 tier(노드 유효 63 GB/s ×0.8)가 되고 노드 간 hit를 허용한다.
     B1은 노드 독립이라 반환 세션이 다른 노드로 라우팅되면(25%) 재계산한다."""
     x_cross = 0.25
@@ -182,9 +185,18 @@ def cluster_dp4(single):
     pool_bw = 63e9 * 0.8
     ctl = {1: 0.00003, 2: 0.0032}                            # 4 op/turn: 중앙 RPC ≈7 µs, 분산 락 P99 ≈804 µs
     res = {}
-    res["B0"] = dict(tps=N4 * single["B0"]["tps"])
+    # B0도 교차 라우팅(25%)이면 자기 노드 HBM에 KV가 없어 항상 재계산한다
+    lo, hi = 0.05, 20.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        m = 1 - (1 - x_cross) * hit_rates(mid)[0]
+        if mid * (G0 + m * T_REC) <= 1:
+            lo = mid
+        else:
+            hi = mid
+    res["B0"] = dict(tps=N4 * goodput(lo))
     res["B1"] = dict(tps=goodput(lam_b1_cluster) , lam=lam_b1_cluster)
-    lam_test = 0.9 * UTIL_CAP * lam_b1_cluster / N4          # 노드당 시험 부하
+    lam_test = lam_test_node                                  # 노드당 시험 부하 = B0 포화 부하의 90%
     # B1 latency (노드당)
     c_pool = {}
     for k in (1, 2):
@@ -210,7 +222,7 @@ def r_reduction(b_ttft, b_tpot, ttft, tpot):
 def all_results():
     single, lam_test = single_node()
     c2 = cluster_dp2(single)
-    c4 = cluster_dp4(single)
+    c4 = cluster_dp4(single, lam_test)
     R = {"single": single, "dp2": c2, "dp4": c4, "lam_test": lam_test}
     return R
 
