@@ -1,0 +1,27 @@
+{
+ "group": "eta_rdma",
+ "label": "eta_rdma0.6",
+ "overrides": {
+  "eta_rdma": 0.6
+ },
+ "sets": [
+  "common_benchmark"
+ ],
+ "systems": [
+  "SYS-H100",
+  "SYS-B200"
+ ],
+ "git": {
+  "revision": "852ca10",
+  "dirty": true
+ },
+ "seeds": [
+  11,
+  23,
+  37,
+  53,
+  71
+ ],
+ "main_bg": 0.85,
+ "command": "python sensitivity.py run --group eta_rdma"
+}

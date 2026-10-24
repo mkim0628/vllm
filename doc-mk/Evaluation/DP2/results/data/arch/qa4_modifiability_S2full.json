@@ -1,0 +1,842 @@
+{
+ "schema": "qa4_modifiability v2",
+ "date": "2026-10-10",
+ "evidence": "[B+C] proxy implementation in the DP2 simulator, not vLLM",
+ "inputs": "DP2/results/data/qa4_measured_counts.json",
+ "constants_mid": {
+  "c_mod": 3.0,
+  "k_real": 5.0,
+  "P": 40.0,
+  "f_ovh": 2.0,
+  "tpl": 12.0,
+  "C0": 25000.0,
+  "a_read": 1.5,
+  "n0": 10.0,
+  "n_m": 5.0,
+  "n_iter": 2.0,
+  "o_turn": 300.0
+ },
+ "constants_low": {
+  "c_mod": 2.0,
+  "k_real": 3.0,
+  "P": 80.0,
+  "f_ovh": 1.5,
+  "tpl": 8.0
+ },
+ "constants_high": {
+  "c_mod": 5.0,
+  "k_real": 10.0,
+  "P": 25.0,
+  "f_ovh": 3.0,
+  "tpl": 16.0
+ },
+ "prices_assumed_2026-10-03": {
+  "T1_frontier": {
+   "p_in": 15.0,
+   "p_cache": 1.5,
+   "p_out": 75.0,
+   "mult": 0.6
+  },
+  "T2_mid": {
+   "p_in": 3.0,
+   "p_cache": 0.3,
+   "p_out": 15.0,
+   "mult": 1.0
+  }
+ },
+ "thresholds": {
+  "M1_modules": "<=2 ★★★, 3-5 ★★, >=6 ★",
+  "M2_man_months": "<=0.5 ★★★, <=1.0 ★★, else ★",
+  "M3_usd_T1": "<=3 ★★★, <=10 ★★, else ★",
+  "qa4": "median of M1, M2, M3 stars",
+  "aggregation": "mean metric over the 4 scenarios, then star (v2); worst-case v1 kept as *_worst_case"
+ },
+ "scenarios": {
+  "S1": {
+   "title": "new Tier (cxl_pnm2, CXL-PNM-class device with 2x internal BW)",
+   "C1": {
+    "modules": 2,
+    "shared_modules": 1,
+    "files": [
+     "engine.py",
+     "physics.py"
+    ],
+    "loc_added": 5,
+    "module_size_loc": 91,
+    "engineer_days": 7.25,
+    "man_months": 0.345,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 422154,
+      "usd": 1.19
+     },
+     "T2_mid": {
+      "tokens": 703590,
+      "usd": 0.4
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.204,
+     0.762
+    ],
+    "usd_T1_range": [
+     1.04,
+     1.61
+    ]
+   },
+   "C2": {
+    "modules": 2,
+    "shared_modules": 1,
+    "files": [
+     "engine.py",
+     "physics.py"
+    ],
+    "loc_added": 5,
+    "module_size_loc": 68,
+    "engineer_days": 7.25,
+    "man_months": 0.345,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 396072,
+      "usd": 1.14
+     },
+     "T2_mid": {
+      "tokens": 660120,
+      "usd": 0.38
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.204,
+     0.762
+    ],
+    "usd_T1_range": [
+     1.02,
+     1.46
+    ]
+   }
+  },
+  "S2": {
+   "title": "new objective term (relative energy per decoded token, weight w_E)",
+   "C1": {
+    "modules": 1,
+    "shared_modules": 0,
+    "files": [
+     "policies.py"
+    ],
+    "loc_added": 3,
+    "module_size_loc": 169,
+    "engineer_days": 3.75,
+    "man_months": 0.179,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 388932,
+      "usd": 1.12
+     },
+     "T2_mid": {
+      "tokens": 648220,
+      "usd": 0.37
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.103,
+     0.41
+    ],
+    "usd_T1_range": [
+     0.91,
+     1.72
+    ]
+   },
+   "C2": {
+    "modules": 3,
+    "shared_modules": 0,
+    "files": [
+     "arch_blackboard.py"
+    ],
+    "loc_added": 5,
+    "module_size_loc": 127,
+    "engineer_days": 10.25,
+    "man_months": 0.488,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 573168,
+      "usd": 1.51
+     },
+     "T2_mid": {
+      "tokens": 955280,
+      "usd": 0.5
+     }
+    },
+    "stars": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.299,
+     1.0
+    ],
+    "usd_T1_range": [
+     1.28,
+     2.16
+    ]
+   }
+  },
+  "S3": {
+   "title": "policy swap (A: Selector argmin Cost -> min TTFT among TPOT-feasible; B: Task Board arbitration first claimant -> least-loaded claimant; constructor-injected)",
+   "C1": {
+    "modules": 1,
+    "shared_modules": 0,
+    "files": [
+     "engine.py",
+     "policies.py"
+    ],
+    "loc_added": 4,
+    "module_size_loc": 22,
+    "engineer_days": 4.0,
+    "man_months": 0.19,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 261996,
+      "usd": 0.83
+     },
+     "T2_mid": {
+      "tokens": 436660,
+      "usd": 0.28
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.106,
+     0.467
+    ],
+    "usd_T1_range": [
+     0.79,
+     0.94
+    ]
+   },
+   "C2": {
+    "modules": 1,
+    "shared_modules": 0,
+    "files": [
+     "arch_blackboard.py",
+     "nodeint.py"
+    ],
+    "loc_added": 4,
+    "module_size_loc": 74,
+    "engineer_days": 4.0,
+    "man_months": 0.19,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 306924,
+      "usd": 0.94
+     },
+     "T2_mid": {
+      "tokens": 511540,
+      "usd": 0.31
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.106,
+     0.467
+    ],
+    "usd_T1_range": [
+     0.83,
+     1.22
+    ]
+   }
+  },
+  "S4": {
+   "title": "new telemetry signal (Tier degraded flag as hard constraint on the Decode attention tier)",
+   "C1": {
+    "modules": 3,
+    "shared_modules": 1,
+    "files": [
+     "arch_dispatcher.py",
+     "engine.py",
+     "policies.py"
+    ],
+    "loc_added": 9,
+    "module_size_loc": 131,
+    "engineer_days": 11.25,
+    "man_months": 0.536,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 579072,
+      "usd": 1.54
+     },
+     "T2_mid": {
+      "tokens": 965120,
+      "usd": 0.51
+     }
+    },
+    "stars": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.31,
+     1.229
+    ],
+    "usd_T1_range": [
+     1.29,
+     2.24
+    ]
+   },
+   "C2": {
+    "modules": 1,
+    "shared_modules": 0,
+    "files": [
+     "arch_blackboard.py"
+    ],
+    "loc_added": 2,
+    "module_size_loc": 31,
+    "engineer_days": 3.5,
+    "man_months": 0.167,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 269628,
+      "usd": 0.84
+     },
+     "T2_mid": {
+      "tokens": 449380,
+      "usd": 0.28
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.101,
+     0.352
+    ],
+    "usd_T1_range": [
+     0.79,
+     0.96
+    ]
+   }
+  }
+ },
+ "sub_stars_worst_case": {
+  "C1": {
+   "M1": "★★",
+   "M2": "★★",
+   "M3": "★★★"
+  },
+  "C2": {
+   "M1": "★★",
+   "M2": "★★★",
+   "M3": "★★★"
+  }
+ },
+ "qa4_stars_worst_case": {
+  "C1": "★★",
+  "C2": "★★★"
+ },
+ "sub_stars": {
+  "C1": {
+   "M1": "★★★",
+   "M2": "★★★",
+   "M3": "★★★"
+  },
+  "C2": {
+   "M1": "★★★",
+   "M2": "★★★",
+   "M3": "★★★"
+  }
+ },
+ "qa4_stars": {
+  "C1": "★★★",
+  "C2": "★★★"
+ },
+ "mean_over_scenarios": {
+  "C1": {
+   "modules": 1.75,
+   "man_months": 0.312,
+   "usd_T1": 1.17,
+   "usd_T2": 0.39,
+   "tokens_T1": 413038,
+   "tokens_T2": 688398
+  },
+  "C2": {
+   "modules": 1.75,
+   "man_months": 0.297,
+   "usd_T1": 1.11,
+   "usd_T2": 0.37,
+   "tokens_T1": 386448,
+   "tokens_T2": 644080
+  }
+ },
+ "sensitivity_constants": {
+  "optimistic": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "mid": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "pessimistic": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  }
+ },
+ "sensitivity_constants_cross": {
+  "mm_low_tokens_low": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "mm_low_tokens_high": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "mm_high_tokens_low": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "mm_high_tokens_high": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  }
+ },
+ "sensitivity_one_at_a_time": {
+  "c_mod=2.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "c_mod=5.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "k_real=3.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "k_real=10.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "P=80.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "P=25.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "f_ovh=1.5": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "f_ovh=3.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "tpl=8.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "tpl=16.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  }
+ },
+ "sensitivity_structure_alternatives": {
+  "S1_coherent_region_counted_as_shared_module": {
+   "note": "analytic: +1 shared module, +4 LOC (config 2 + Params 2) for both candidates; size 36 = Sim.on_xfer+on_move_done+on_pinned",
+   "mean_man_months": {
+    "C1": 0.36,
+    "C2": 0.345
+   },
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "S3_C2_entry_layout_extended": {
+   "note": "analytic: C2 +1 module, +2 LOC (two per-entry fields); C1 unchanged",
+   "mean_man_months": {
+    "C1": 0.312,
+    "C2": 0.339
+   },
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "S1_C2_flagged_major_interface_change": {
+   "note": "preregistration rule: M1 = one star for C2 (module count irrelevant)",
+   "mean_man_months": {
+    "C1": 0.312,
+    "C2": 0.298
+   },
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "all_analytic_alternatives_together": {
+   "note": "(a)+(b)+(c)",
+   "mean_man_months": {
+    "C1": 0.36,
+    "C2": 0.387
+   },
+   "C1": {
+    "sub": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  }
+ },
+ "T1_break_even_token_multiplier": {
+  "S1_C1": 0.202,
+  "S1_C2": 0.2,
+  "S2_C1": 0.198,
+  "S2_C2": 0.199,
+  "S3_C1": 0.202,
+  "S3_C2": 0.198,
+  "S4_C1": 0.199,
+  "S4_C2": 0.2
+ },
+ "mean_over_scenarios_unrounded": {
+  "C1": {
+   "modules": 1.75,
+   "man_months": 0.3125,
+   "usd_T1": 1.1731725
+  },
+  "C2": {
+   "modules": 1.75,
+   "man_months": 0.2976190476190476,
+   "usd_T1": 1.1060775
+  }
+ },
+ "major_interface_change_flags": {
+  "S1": {
+   "C1": false,
+   "C2": false
+  },
+  "S2": {
+   "C1": false,
+   "C2": false
+  },
+  "S3": {
+   "C1": false,
+   "C2": false
+  },
+  "S4": {
+   "C1": false,
+   "C2": false
+  }
+ }
+}

@@ -1,0 +1,751 @@
+{
+ "schema": "qa4_modifiability v2",
+ "date": "2026-10-04",
+ "evidence": "[B+C] proxy implementation in the DP2 simulator, not vLLM",
+ "inputs": "DP2/results/data/qa4_measured_counts.json",
+ "constants_mid": {
+  "c_mod": 3.0,
+  "k_real": 5.0,
+  "P": 40.0,
+  "f_ovh": 2.0,
+  "tpl": 12.0,
+  "C0": 25000.0,
+  "a_read": 1.5,
+  "n0": 10.0,
+  "n_m": 5.0,
+  "n_iter": 2.0,
+  "o_turn": 300.0
+ },
+ "constants_low": {
+  "c_mod": 2.0,
+  "k_real": 3.0,
+  "P": 80.0,
+  "f_ovh": 1.5,
+  "tpl": 8.0
+ },
+ "constants_high": {
+  "c_mod": 5.0,
+  "k_real": 10.0,
+  "P": 25.0,
+  "f_ovh": 3.0,
+  "tpl": 16.0
+ },
+ "prices_assumed_2026-10-03": {
+  "T1_frontier": {
+   "p_in": 15.0,
+   "p_cache": 1.5,
+   "p_out": 75.0,
+   "mult": 0.6
+  },
+  "T2_mid": {
+   "p_in": 3.0,
+   "p_cache": 0.3,
+   "p_out": 15.0,
+   "mult": 1.0
+  }
+ },
+ "thresholds": {
+  "M1_modules": "<=2 \u2605\u2605\u2605, 3-5 \u2605\u2605, >=6 \u2605",
+  "M2_man_months": "<=0.5 \u2605\u2605\u2605, <=1.0 \u2605\u2605, else \u2605",
+  "M3_usd_T1": "<=3 \u2605\u2605\u2605, <=10 \u2605\u2605, else \u2605",
+  "qa4": "median of M1, M2, M3 stars",
+  "aggregation": "mean metric over the 4 scenarios, then star (v2); worst-case v1 kept as *_worst_case"
+ },
+ "scenarios": {
+  "S1": {
+   "title": "new Tier (cxl_pnm2, CXL-PNM-class device with 2x internal BW)",
+   "C1": {
+    "modules": 2,
+    "shared_modules": 2,
+    "files": [
+     "engine.py",
+     "physics.py"
+    ],
+    "loc_added": 5,
+    "module_size_loc": 49,
+    "engineer_days": 7.25,
+    "man_months": 0.345,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 374526,
+      "usd": 1.09
+     },
+     "T2_mid": {
+      "tokens": 624210,
+      "usd": 0.36
+     }
+    },
+    "stars": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "man_months_range": [
+     0.204,
+     0.762
+    ],
+    "usd_T1_range": [
+     1.0,
+     1.33
+    ]
+   },
+   "C2": {
+    "modules": 2,
+    "shared_modules": 2,
+    "files": [
+     "engine.py",
+     "physics.py"
+    ],
+    "loc_added": 5,
+    "module_size_loc": 49,
+    "engineer_days": 7.25,
+    "man_months": 0.345,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 374526,
+      "usd": 1.09
+     },
+     "T2_mid": {
+      "tokens": 624210,
+      "usd": 0.36
+     }
+    },
+    "stars": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "man_months_range": [
+     0.204,
+     0.762
+    ],
+    "usd_T1_range": [
+     1.0,
+     1.33
+    ]
+   }
+  },
+  "S2": {
+   "title": "new Cost term (relative energy per decoded token, weight w_E)",
+   "C1": {
+    "modules": 1,
+    "shared_modules": 1,
+    "files": [
+     "policies.py"
+    ],
+    "loc_added": 3,
+    "module_size_loc": 153,
+    "engineer_days": 3.75,
+    "man_months": 0.179,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 375108,
+      "usd": 1.09
+     },
+     "T2_mid": {
+      "tokens": 625180,
+      "usd": 0.36
+     }
+    },
+    "stars": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "man_months_range": [
+     0.103,
+     0.41
+    ],
+    "usd_T1_range": [
+     0.9,
+     1.63
+    ]
+   },
+   "C2": {
+    "modules": 1,
+    "shared_modules": 1,
+    "files": [
+     "policies.py"
+    ],
+    "loc_added": 3,
+    "module_size_loc": 153,
+    "engineer_days": 3.75,
+    "man_months": 0.179,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 375108,
+      "usd": 1.09
+     },
+     "T2_mid": {
+      "tokens": 625180,
+      "usd": 0.36
+     }
+    },
+    "stars": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "man_months_range": [
+     0.103,
+     0.41
+    ],
+    "usd_T1_range": [
+     0.9,
+     1.63
+    ]
+   }
+  },
+  "S3": {
+   "title": "policy swap (Selector: argmin Cost -> min TTFT among TPOT-feasible, constructor-injected)",
+   "C1": {
+    "modules": 1,
+    "shared_modules": 1,
+    "files": [
+     "engine.py",
+     "policies.py"
+    ],
+    "loc_added": 4,
+    "module_size_loc": 21,
+    "engineer_days": 4.0,
+    "man_months": 0.19,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 261132,
+      "usd": 0.83
+     },
+     "T2_mid": {
+      "tokens": 435220,
+      "usd": 0.28
+     }
+    },
+    "stars": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "man_months_range": [
+     0.106,
+     0.467
+    ],
+    "usd_T1_range": [
+     0.79,
+     0.94
+    ]
+   },
+   "C2": {
+    "modules": 1,
+    "shared_modules": 1,
+    "files": [
+     "engine.py",
+     "policies.py"
+    ],
+    "loc_added": 4,
+    "module_size_loc": 21,
+    "engineer_days": 4.0,
+    "man_months": 0.19,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 261132,
+      "usd": 0.83
+     },
+     "T2_mid": {
+      "tokens": 435220,
+      "usd": 0.28
+     }
+    },
+    "stars": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "man_months_range": [
+     0.106,
+     0.467
+    ],
+    "usd_T1_range": [
+     0.79,
+     0.94
+    ]
+   }
+  },
+  "S4": {
+   "title": "new telemetry signal (node health/degraded flag as hard constraint on n_p)",
+   "C1": {
+    "modules": 2,
+    "shared_modules": 2,
+    "files": [
+     "engine.py",
+     "node.py",
+     "policies.py"
+    ],
+    "loc_added": 7,
+    "module_size_loc": 49,
+    "engineer_days": 7.75,
+    "man_months": 0.369,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 374670,
+      "usd": 1.1
+     },
+     "T2_mid": {
+      "tokens": 624450,
+      "usd": 0.37
+     }
+    },
+    "stars": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "man_months_range": [
+     0.209,
+     0.876
+    ],
+    "usd_T1_range": [
+     1.01,
+     1.36
+    ]
+   },
+   "C2": {
+    "modules": 3,
+    "shared_modules": 2,
+    "files": [
+     "engine.py",
+     "node.py",
+     "policies.py"
+    ],
+    "loc_added": 8,
+    "module_size_loc": 76,
+    "engineer_days": 11.0,
+    "man_months": 0.524,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 501780,
+      "usd": 1.38
+     },
+     "T2_mid": {
+      "tokens": 836300,
+      "usd": 0.46
+     }
+    },
+    "stars": {
+     "M1": "\u2605\u2605",
+     "M2": "\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "man_months_range": [
+     0.307,
+     1.171
+    ],
+    "usd_T1_range": [
+     1.23,
+     1.81
+    ]
+   }
+  }
+ },
+ "sub_stars_worst_case": {
+  "C1": {
+   "M1": "\u2605\u2605\u2605",
+   "M2": "\u2605\u2605\u2605",
+   "M3": "\u2605\u2605\u2605"
+  },
+  "C2": {
+   "M1": "\u2605\u2605",
+   "M2": "\u2605\u2605",
+   "M3": "\u2605\u2605\u2605"
+  }
+ },
+ "qa4_stars_worst_case": {
+  "C1": "\u2605\u2605\u2605",
+  "C2": "\u2605\u2605"
+ },
+ "sub_stars": {
+  "C1": {
+   "M1": "\u2605\u2605\u2605",
+   "M2": "\u2605\u2605\u2605",
+   "M3": "\u2605\u2605\u2605"
+  },
+  "C2": {
+   "M1": "\u2605\u2605\u2605",
+   "M2": "\u2605\u2605\u2605",
+   "M3": "\u2605\u2605\u2605"
+  }
+ },
+ "qa4_stars": {
+  "C1": "\u2605\u2605\u2605",
+  "C2": "\u2605\u2605\u2605"
+ },
+ "mean_over_scenarios": {
+  "C1": {
+   "modules": 1.5,
+   "man_months": 0.271,
+   "usd_T1": 1.03,
+   "usd_T2": 0.34,
+   "tokens_T1": 346359,
+   "tokens_T2": 577265
+  },
+  "C2": {
+   "modules": 1.75,
+   "man_months": 0.309,
+   "usd_T1": 1.1,
+   "usd_T2": 0.36,
+   "tokens_T1": 378136,
+   "tokens_T2": 630228
+  }
+ },
+ "sensitivity_constants": {
+  "optimistic": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "mid": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "pessimistic": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  }
+ },
+ "sensitivity_constants_cross": {
+  "mm_low_tokens_low": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "mm_low_tokens_high": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "mm_high_tokens_low": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "mm_high_tokens_high": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  }
+ },
+ "sensitivity_one_at_a_time": {
+  "c_mod=2.0": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "c_mod=5.0": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "k_real=3.0": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "k_real=10.0": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "P=80.0": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "P=25.0": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "f_ovh=1.5": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "f_ovh=3.0": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "tpl=8.0": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  },
+  "tpl=16.0": {
+   "C1": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   },
+   "C2": {
+    "sub": {
+     "M1": "\u2605\u2605\u2605",
+     "M2": "\u2605\u2605\u2605",
+     "M3": "\u2605\u2605\u2605"
+    },
+    "qa4": "\u2605\u2605\u2605"
+   }
+  }
+ },
+ "T1_break_even_token_multiplier": {
+  "S1_C1": 0.198,
+  "S1_C2": 0.198,
+  "S2_C1": 0.198,
+  "S2_C2": 0.198,
+  "S3_C1": 0.202,
+  "S3_C2": 0.202,
+  "S4_C1": 0.202,
+  "S4_C2": 0.2
+ },
+ "mean_over_scenarios_unrounded": {
+  "C1": {
+   "modules": 1.5,
+   "man_months": 0.2708333333333333,
+   "usd_T1": 1.0282725
+  },
+  "C2": {
+   "modules": 1.75,
+   "man_months": 0.30952380952380953,
+   "usd_T1": 1.09872
+  }
+ },
+ "major_interface_change_flags": {
+  "S1": {
+   "C1": false,
+   "C2": false
+  },
+  "S2": {
+   "C1": false,
+   "C2": false
+  },
+  "S3": {
+   "C1": false,
+   "C2": false
+  },
+  "S4": {
+   "C1": false,
+   "C2": false
+  }
+ },
+ "_note": "sensitivity_structure_alternatives (DP1/DP4 coherent-region analytic alternatives) removed: not applicable to DP2."
+}
