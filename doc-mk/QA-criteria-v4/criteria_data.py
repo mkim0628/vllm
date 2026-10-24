@@ -1,45 +1,50 @@
-"""QA 평가 기준(5구간), 문헌 근거 점, DP 후보별 owner 별과 기존 중립 벤치마크 실측값.
+"""QA 평가 기준(B1 기준 5구간), DP 후보별 소유자 별, 이론 계산 기반 절대 예상값.
 
-이 파일이 덱(build_deck.py)과 요약 문서(qa-criteria-v4.md)의 단일 소스다.
-- 별 구간: ☆(미충족) / ★1 / ★1.5 / ★2 / ★2.5 / ★3. ★1 = 품질 시나리오 요구값(변경 용이성은 근거로 정한 값).
-- 문헌 수치는 모두 보고값("up to")이고 논문 버전·baseline·workload가 서로 달라 직접 비교가 아니다.
-  confirmed = 이번 세션에서 검색 요약으로 확인, user = 사용자 슬라이드의 인용(원문 대조 필요).
+- 판정 Baseline = B1(정적 DRAM→SSD offload). B0(GPU-only)는 참고로 병기한다.
+- 별: ☆(미충족) / ★1 / ★1.5 / ★2 / ★2.5 / ★3. ★1 = 시나리오 요구값(변경 용이성은 근거로 정한 값).
+- 절대 예상값은 theory_model.py의 분석 모델 결과다(시뮬레이션 아님, 후보 파라미터는 [가정]).
 """
 import math
+
+import theory_model as tm
 
 STAR_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0]
 
 
 def _stars(value, edges, higher_is_better=True):
-    """edges: ★1, ★1.5, ★2, ★2.5, ★3 경계(오름차순 = 좋아지는 방향의 임계값)."""
     s = 0.0
     for star, e in zip(STAR_STEPS, edges):
-        ok = value >= e if higher_is_better else value <= e
+        ok = value >= e - 1e-9 if higher_is_better else value <= e + 1e-9
         if ok:
             s = star
     return s
 
 
-# ---- 구간 경계 ------------------------------------------------------------
+# ---- 구간 경계 (B1 대비) -----------------------------------------------------
 EDGES = {
-    "Q1": [2.0, 2.8, 4.0, 5.7, 8.0],            # R (배), log 등간격(★ 1단계 = 2배)
-    "Q2": [20, 30, 40, 50, 60],                  # HBM 감소율 %
-    "Q3": [30, 40, 50, 62.5, 75],                # P99 개선 r 환산 감소율 % (r = 1.43, 1.67, 2.0, 2.67, 4.0)
-    "Q4": [80, 85, 90, 92.5, 95],                # SE(N=16) %
-    "Q5_module": [5, 4, 3, 2.5, 2],              # 시나리오 평균 변경 module 수 (작을수록 좋음)
-    "Q5_mm": [1.0, 0.875, 0.75, 0.625, 0.5],     # 시나리오 평균 개발 공수 M/M (작을수록 좋음)
+    "Q1": [1.2, 1.35, 1.5, 1.65, 1.8],           # R = 후보 ÷ B1
+    "Q2": [20, 30, 40, 50, 60],                   # HBM 감소율 % (B1 대비)
+    "Q3": [1.2, 1.35, 1.5, 1.65, 1.8],            # r = √(TTFT 개선 × TPOT 개선, P99)
+    "Q4": [80, 85, 90, 92.5, 95],                 # SE(N=16) %
+    "Q5_module": [5, 4, 3, 2.5, 2],
+    "Q5_mm": [1.0, 0.875, 0.75, 0.625, 0.5],
 }
 
+
+def red_of_r(r):
+    return (1 - 1 / r) * 100
+
+
 BAND_TEXT = {
-    "Q1": {1: "2 ≤ R < 2.8", 1.5: "2.8 ≤ R < 4", 2: "4 ≤ R < 5.7", 2.5: "5.7 ≤ R < 8", 3: "R ≥ 8", 0: "R < 2"},
+    "Q1": {1: "1.2 ≤ R < 1.35", 1.5: "1.35 ≤ R < 1.5", 2: "1.5 ≤ R < 1.65", 2.5: "1.65 ≤ R < 1.8", 3: "R ≥ 1.8", 0: "R < 1.2"},
     "Q2": {1: "20 ≤ 감소율 < 30%", 1.5: "30 ≤ 감소율 < 40%", 2: "40 ≤ 감소율 < 50%", 2.5: "50 ≤ 감소율 < 60%", 3: "감소율 ≥ 60%", 0: "감소율 < 20%"},
-    "Q3": {1: "30 ≤ 감소율 < 40%", 1.5: "40 ≤ 감소율 < 50%", 2: "50 ≤ 감소율 < 62.5%", 2.5: "62.5 ≤ 감소율 < 75%", 3: "감소율 ≥ 75%", 0: "감소율 < 30%"},
+    "Q3": {1: "1.2 ≤ r < 1.35", 1.5: "1.35 ≤ r < 1.5", 2: "1.5 ≤ r < 1.65", 2.5: "1.65 ≤ r < 1.8", 3: "r ≥ 1.8", 0: "r < 1.2"},
     "Q4": {1: "80 ≤ SE < 85%", 1.5: "85 ≤ SE < 90%", 2: "90 ≤ SE < 92.5%", 2.5: "92.5 ≤ SE < 95%", 3: "SE ≥ 95%", 0: "SE < 80%"},
 }
 BAND_SHORT = {
-    "Q1": {1: "2~2.8x", 1.5: "2.8~4x", 2: "4~5.7x", 2.5: "5.7~8x", 3: "≥8x"},
+    "Q1": {1: "1.2~1.35x", 1.5: "1.35~1.5x", 2: "1.5~1.65x", 2.5: "1.65~1.8x", 3: "≥1.8x"},
     "Q2": {1: "20~30%", 1.5: "30~40%", 2: "40~50%", 2.5: "50~60%", 3: "≥60%"},
-    "Q3": {1: "30~40%", 1.5: "40~50%", 2: "50~62.5%", 2.5: "62.5~75%", 3: "≥75%"},
+    "Q3": {1: "r 1.2~1.35", 1.5: "r 1.35~1.5", 2: "r 1.5~1.65", 2.5: "r 1.65~1.8", 3: "r ≥1.8"},
     "Q4": {1: "80~85%", 1.5: "85~90%", 2: "90~92.5%", 2.5: "92.5~95%", 3: "≥95%"},
     "Q5": {1: "≤5모듈·≤1.0MM", 1.5: "≤4·≤0.875", 2: "≤3·≤0.75", 2.5: "≤2.5·≤0.625", 3: "≤2·≤0.5"},
 }
@@ -53,8 +58,8 @@ def star_q2(pct):
     return _stars(pct, EDGES["Q2"])
 
 
-def star_q3(pct):
-    return _stars(pct, EDGES["Q3"])
+def star_q3(r):
+    return _stars(r, EDGES["Q3"])
 
 
 def star_q4(se_pct):
@@ -66,13 +71,9 @@ def star_q5(modules, mm):
 
 
 def fmt_star(s):
-    if s == 0:
-        return "☆"
-    return "★" + ("%g" % s)
+    return "☆" if s == 0 else "★" + ("%g" % s)
 
 
-# ---- DP 후보별 owner 별(첨부 덱 trade-off 표)과 실측 --------------------------
-# owner: 첨부 덱의 ●◐○ → 1 / 1.5 / 2 / 2.5 / 3
 OWNER = {
     ("DP1", 1): {"Q1": 1.5, "Q2": 2, "Q3": 1, "Q5": 2},
     ("DP1", 2): {"Q1": 2, "Q2": 1, "Q3": 2, "Q5": 2},
@@ -84,95 +85,109 @@ OWNER = {
     ("DP4", 2): {"Q1": 2, "Q3": 1.5, "Q4": 3},
 }
 
+# ---- 이론 예상값 ---------------------------------------------------------------
+_R = tm.all_results()
+_S, _C2, _C4 = _R["single"], _R["dp2"], _R["dp4"]
 
-def _sg(t):
-    return t.replace("-", "−")
-
-
-def _r_reduction(base_ttft, base_tpot, ttft, tpot):
-    r = math.sqrt((base_ttft / ttft) * (base_tpot / tpot))
-    return (1 - 1 / r) * 100, r
+# 변경 용이성(Q5): DP1만 덱에 Q5가 있다. module·MM은 기존 구현 측정(qa4)을 쓴다.
+Q5_VALUES = {("DP1", 1): (1.75, 0.38), ("DP1", 2): (2.5, 0.51)}
 
 
-# 출처: DP1 = Evaluation/DP1 결과(21쌍, H100+B200), DP2 = Evaluation/DP2 결과 §0.1(38쌍)과
-#       tools/unified_inputs의 HBM, DP4 = Evaluation/DP4 결과 §0.1(CXL 공유 풀, Common 6쌍 / 공통 부하).
-# 모두 시뮬레이션 [B+C]이고 이번 새 시나리오가 아니라 기존 중립 벤치마크의 값이다.
-def _dp1():
-    base = dict(tps=336, ttft=1084, tpot=17.1, hbm=146.6)
-    c = {1: dict(tps=436, ttft=1128, tpot=18.3, hbm=142.7, module=1.75, mm=0.38),
-         2: dict(tps=478, ttft=785, tpot=16.0, hbm=178.0, module=2.50, mm=0.51)}
+def _q(scope, b0, b1, c):
+    """b0/b1/c = dict(tps, ttft, tpot, hbm). 지표별 값과 개선율."""
     out = {}
-    for k, v in c.items():
-        red, r = _r_reduction(base["ttft"], base["tpot"], v["ttft"], v["tpot"])
-        out[("DP1", k)] = {
-            "Q1": dict(value=v["tps"] / base["tps"], disp="×%.2f" % (v["tps"] / base["tps"])),
-            "Q2": dict(value=(base["hbm"] - v["hbm"]) / base["hbm"] * 100,
-                       disp=_sg("%+.0f%%" % ((base["hbm"] - v["hbm"]) / base["hbm"] * 100))),
-            "Q3": dict(value=red, disp=_sg("%+.0f%%" % red), r=r),
-            "Q5": dict(value=(v["module"], v["mm"]), disp="%gm/%.2fMM" % (v["module"], v["mm"])),
-        }
+    out["Q1"] = dict(b0=b0["tps"], b1=b1["tps"], c=c["tps"], r1=c["tps"] / b1["tps"], r0=c["tps"] / b0["tps"])
+    if b1["hbm"]:
+        out["Q2"] = dict(b0=b0["hbm"], b1=b1["hbm"], c=c["hbm"], red=(1 - c["hbm"] / b1["hbm"]) * 100)
+    r, red = tm.r_reduction(b1["ttft"], b1["tpot"], c["ttft"], c["tpot"])
+    out["Q3"] = dict(b1_ttft=b1["ttft"], b1_tpot=b1["tpot"], c_ttft=c["ttft"], c_tpot=c["tpot"], r=r, red=red,
+                     ttft_red=(1 - c["ttft"] / b1["ttft"]) * 100)
     return out
 
 
-def _dp2():
-    base = dict(tps=575, ttft=2461, tpot=8.9)
-    c = {1: dict(tps=954, ttft=984, tpot=12.0, hbm_red=6.0, eta=0.00),
-         2: dict(tps=956, ttft=1015, tpot=12.0, hbm_red=-5.0, eta=0.56)}
-    out = {}
-    for k, v in c.items():
-        red, r = _r_reduction(base["ttft"], base["tpot"], v["ttft"], v["tpot"])
-        out[("DP2", k)] = {
-            "Q1": dict(value=v["tps"] / base["tps"], disp="×%.2f" % (v["tps"] / base["tps"])),
-            "Q2": dict(value=v["hbm_red"], disp=_sg("%+.0f%%" % v["hbm_red"])),
-            "Q3": dict(value=red, disp=_sg("%+.0f%%" % red), r=r),
-            "Q4": dict(value=v["eta"] * 100, disp="η%.2f" % v["eta"]),
-        }
-    return out
-
-
-def _dp4():
-    base = dict(tps=589, ttft=6283, tpot=4.07)
-    cand = dict(tps=415, ttft=4205, tpot=4.04)
-    red, r = _r_reduction(base["ttft"], base["tpot"], cand["ttft"], cand["tpot"])
-    red_common, r_common = _r_reduction(6283, 4.07, 31271, 4.04)  # 공통(Baseline peak) 부하
-    out = {}
+def _build():
+    th = {}
+    b0, b1 = _S["B0"], _S["B1"]
+    for dp in ("DP1", "DP3"):
+        for k in (1, 2):
+            c = _S[(dp, k)]
+            th[(dp, k)] = _q("single", b0, b1, c)
+    # DP2 클러스터(P2+D2 고정 역할 Baseline)
+    cb0, cb1 = _C2["B0"], dict(_C2["B1"])
+    cb0 = dict(cb0, hbm=_C2["B1"]["hbm"], ttft=float("inf"), tpot=float("inf"))
     for k in (1, 2):
-        out[("DP4", k)] = {
-            "Q1": dict(value=cand["tps"] / base["tps"], disp="×%.2f" % (cand["tps"] / base["tps"])),
-            "Q3": dict(value=red, disp=_sg("%+.0f%%" % red), r=r, common=red_common),
-            "Q4": dict(value=126.1, disp="SE%.2f" % 1.261),
-        }
-    return out
+        th[("DP2", k)] = _q("cluster", cb0, cb1, _C2[("DP2", k)])
+        se = _C2["SE16"]
+        th[("DP2", k)]["Q4"] = dict(b1=se["B1"] * 100, c=se[("DP2", k)] * 100)
+    # DP4 클러스터(노드 독립 B1, 교차 라우팅 25% 재계산)
+    db0, db1 = dict(_C4["B0"], hbm=0.0, ttft=float("inf"), tpot=float("inf")), _C4["B1"]
+    for k in (1, 2):
+        c = _C4[("DP4", k)]
+        t = _q("cluster", db0, dict(db1, hbm=0.0), dict(c, hbm=0.0))
+        t["Q4"] = dict(b1=_C4["SE16"]["B1"] * 100, c=_C4["SE16"][("DP4", k)] * 100)
+        th[("DP4", k)] = t
+    for key, (m, mm) in Q5_VALUES.items():
+        th[key]["Q5"] = dict(module=m, mm=mm)
+    return th
 
 
-ACTUAL = {}
-ACTUAL.update(_dp1())
-ACTUAL.update(_dp2())
-ACTUAL.update(_dp4())
-# DP3: 기존 시뮬은 압축 기반 오프라인/온라인 후보라 새 Pipe-and-Filter / Shared Repository와 대응하지 않는다 → 실측 없음.
+THEORY = _build()
 
 
-def actual_star(dp, cand, q):
-    a = ACTUAL.get((dp, cand), {}).get(q)
-    if a is None:
+def theory_star(dp, k, q):
+    t = THEORY.get((dp, k), {}).get(q)
+    if t is None:
         return None
-    v = a["value"]
     if q == "Q1":
-        return star_q1(v)
+        return star_q1(t["r1"])
     if q == "Q2":
-        return star_q2(v)
+        return star_q2(t["red"])
     if q == "Q3":
-        return star_q3(v)
+        return star_q3(t["r"])
     if q == "Q4":
-        return star_q4(v)
+        return star_q4(t["c"])
     if q == "Q5":
-        return star_q5(*v)
-    return None
+        return star_q5(t["module"], t["mm"])
 
+
+def _sg(x, fmt="%.0f"):
+    s = fmt % abs(x)
+    return ("+" if x >= 0 else "−") + s + "%"
+
+
+def cell_text(dp, k, q):
+    """DP 페이지 별 오른쪽에 쓰는 한 줄: B1 → 후보 (개선율)."""
+    t = THEORY.get((dp, k), {}).get(q)
+    if t is None:
+        return "—"
+    if q == "Q1":
+        return "%s→%s tok/s (%s)" % (format(round(t["b1"]), ","), format(round(t["c"]), ","), _sg((t["r1"] - 1) * 100))
+    if q == "Q2":
+        return "%s→%s GiB (%s)" % (format(round(t["b1"]), ","), format(round(t["c"]), ","), _sg(-t["red"]))
+    if q == "Q3":
+        return "TTFT %.1f→%.1f s (%s)" % (t["b1_ttft"], t["c_ttft"], _sg(-t["ttft_red"]))
+    if q == "Q4":
+        return "SE %.0f→%.0f%%" % (t["b1"], t["c"])
+    if q == "Q5":
+        return "%gm·%.2fMM" % (t["module"], t["mm"])
+
+
+def band_for_owner(q, o):
+    return BAND_SHORT[q][o]
+
+
+# ---- 기존 중립 벤치마크 시뮬레이션 값(참고, 새 시나리오 아님) ----------------------
+OLD_SIM = {
+    ("DP1", 1): "R ×1.30 · HBM +3% · P99 r 0.95 · 1.75m/0.38MM",
+    ("DP1", 2): "R ×1.42 · HBM −21% · P99 r 1.22 · 2.5m/0.51MM",
+    ("DP2", 1): "R ×1.66 · HBM +6% · TTFT 984 ms · η(32) 0.00",
+    ("DP2", 2): "R ×1.66 · HBM −5% · TTFT 1,015 ms · η(32) 0.56",
+    ("DP4", 1): "R ×0.70(RDMA 대비) · TTFT 4,205 ms(own-peak) · SE(16) 1.26",
+    ("DP4", 2): "R ×0.70 · TTFT 4,205 ms · SE(16) 1.26",
+}
 
 if __name__ == "__main__":
     for key in sorted(OWNER):
         for q, o in OWNER[key].items():
-            a = ACTUAL.get(key, {}).get(q)
-            s = actual_star(*key, q)
-            print(key, q, "owner", o, "actual", a and a["disp"], "->", None if s is None else fmt_star(s))
+            s = theory_star(*key, q)
+            print(key, q, "owner", o, "| theory:", cell_text(*key, q), "->", None if s is None else fmt_star(s))
