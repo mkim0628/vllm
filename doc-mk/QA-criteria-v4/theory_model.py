@@ -1,0 +1,225 @@
+"""Agent KV Fleet 시나리오의 이론 계산 기반 예상값 (분석 모델, 시뮬레이션이 아니다).
+
+구조
+  1) 물리 상수(H100×8 노드)와 시나리오 파라미터로 B0(GPU-only), B1(정적 offload)의 절대값을 계산한다.
+  2) 후보는 B1과 같은 식을 쓰되 설계 파라미터(θ, w, π, ω, 오버헤드, watermark)만 다르다.
+     파라미터는 첨부 덱의 장단점에서 방향만 가져온 [가정]이며 시뮬레이션으로 교체될 값이다.
+  3) 출력: Q1 goodput(tok/s), Q2 HBM 사용(GiB), Q3 TTFT·TPOT P99와 개선 r, Q4 SE(N=16).
+
+요청 모델: open-loop. 세션 idle 시간은 지수분포(평균 Z). LRU stack distance 근사로 반환 세션이
+HBM/DRAM/SSD에서 발견될 확률을 계산한다. 가용 부하율 0.8(=SLO 유지용 이용률 상한)을 Max SLO goodput에 적용한다.
+"""
+import math
+
+GiB = 1024 ** 3
+# ---- 물리·시스템 상수 (SYS-H100, system-specs.md) ----
+KV_TOK = 327_680                    # B/token (80 layer × 8 KV head × 128 dim × K,V × BF16)
+CTX = 16_384
+KV_S = KV_TOK * CTX                 # 5.0 GiB / 세션
+HBM_POOL = 425 * GiB                # 640×0.9 − 가중치 131 − 활성값 20
+DRAM_POOL = 922 * GiB               # 1 TiB × 0.9
+BW_D = 64e9 * 0.8                   # DRAM→HBM 호스트 링크(노드), 사용 가능 0.8
+BW_S = 16e9 * 0.8                   # NVMe PCIe5 x4, 사용 가능 0.8
+PREFILL_TPS = 25_200                # 70B, H100×8, MFU 0.45
+T_NEW = 1_024 / PREFILL_TPS         # 턴당 새 입력 1K token prefill (s)
+T_REC = CTX / PREFILL_TPS           # 16K 재계산 (s) = 0.65
+W_TIME = 5.3e-3                     # decode step 가중치 읽기 하한 (s)
+KV_STEP = 0.2e-3                    # 세션당 KV 읽기 (s/step, 16K)
+B_DEC = 64                          # 대표 decode batch
+OUT = 256
+UTIL_CAP = 0.8                      # Max SLO goodput 용 이용률 상한 [가정]
+Z_MEAN = 60.0                       # idle(tool 대기+사용자) 평균 s [가정]
+N_HBM = HBM_POOL / KV_S             # 85 세션분
+N_DRAM = DRAM_POOL / KV_S           # 184 세션분
+
+
+def tau(b=B_DEC):
+    return W_TIME + b * KV_STEP
+
+
+G0 = T_NEW + OUT * tau() / B_DEC    # 턴당 GPU 시간 (miss 없음) ≈ 0.113 s
+
+
+def hit_rates(lam, theta=1.0, fprime=1.0):
+    """LRU stack distance: idle T~Exp(Z), 그 사이 서로 다른 세션 λT개 접근. 반환 세션이 각 tier에서 발견될 확률.
+    theta = 배치 효율(효과 용량 배수), fprime = 세션당 이동·보관 크기 비율(dedup 등)."""
+    cap_h = theta * N_HBM / fprime
+    cap_hd = theta * (N_HBM + N_DRAM) / fprime
+    f_h = 1 - math.exp(-cap_h / (lam * Z_MEAN))
+    f_hd = 1 - math.exp(-cap_hd / (lam * Z_MEAN))
+    return f_h, f_hd - f_h, 1 - f_hd          # hbm, dram, ssd(+없음)
+
+
+class Cfg:
+    def __init__(self, name, tiers=True, theta=1.0, w=1.0, pi=0.0, omega=0.0, extra_gpu=0.0, d_crit=0.0,
+                 fprime=1.0, wm=1.0, pool=False, pool_bw=None, tail_gpu_chain=0.0):
+        self.name, self.tiers, self.theta, self.w, self.pi, self.omega = name, tiers, theta, w, pi, omega
+        self.extra_gpu, self.d_crit, self.fprime, self.wm = extra_gpu, d_crit, fprime, wm
+        self.pool, self.pool_bw = pool, pool_bw
+        self.tail_gpu_chain = tail_gpu_chain
+
+
+def caps(c, lam):
+    """λ에서의 용량(turn/s): (GPU, DRAM link, 하위 tier link)"""
+    h_h, h_d, h_s = hit_rates(lam, c.theta, c.fprime)
+    miss = 1 - h_h
+    if not c.tiers:                                         # B0: HBM만, 나머지는 재계산
+        g = G0 + miss * T_REC
+        return 1 / g, math.inf, math.inf
+    g = G0 + c.extra_gpu
+    kv = KV_S * c.fprime
+    units_d = miss * (1 - c.pi) + miss * c.pi * (1 + c.omega) + c.w * miss
+    cap_d = BW_D / (units_d * kv)
+    low_bw = c.pool_bw if c.pool else BW_S
+    units_s = h_s * (1 + c.omega * c.pi) + c.w * h_s
+    cap_s = low_bw / (units_s * kv) if units_s > 0 else math.inf
+    return 1 / g, cap_d, cap_s
+
+
+def max_lambda(c):
+    lo, hi = 0.05, 40.0
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        g, d, s = caps(c, mid)
+        if mid <= min(g, d, s):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def goodput(lam):
+    return UTIL_CAP * OUT * lam
+
+
+def latencies(c, lam_test, lam_cap):
+    """P99 TTFT(s), TPOT(ms). 링크 이용률 ρ에 대해 복원 시간이 1/(1−ρ)로 늘어난다(processor sharing 근사)."""
+    rho = min(lam_test / lam_cap, 0.95)
+    h_h, h_d, h_s = hit_rates(lam_test, c.theta, c.fprime)
+    kv = KV_S * c.fprime
+    if not c.tiers:                                         # B0: 재계산이 critical path
+        ttft = T_NEW + (1 - h_h) * T_REC / max(1 - rho, 0.05) if (1 - h_h) > 0.01 else T_NEW
+        return ttft, tau() * 1e3 * (1 + 0.5 * rho), rho
+    t_d = kv / BW_D
+    t_s = kv / (c.pool_bw if c.pool else BW_S) + t_d
+    crit_s = h_s * (1 - c.pi)
+    crit_d = (h_d + h_s) * (1 - c.pi)
+    if crit_s > 0.01:
+        rest = t_s
+    elif crit_d > 0.01:
+        rest = t_d
+    else:
+        rest = 0.0
+    rho_gpu = min(lam_test * (G0 + c.extra_gpu), 0.95)
+    ttft = T_NEW + c.d_crit + rest / (1 - rho) + c.tail_gpu_chain / (1 - rho_gpu)
+    return ttft, tau() * 1e3 * (1 + 0.5 * rho), rho
+
+
+# ---- 설정 ---------------------------------------------------------------
+B0 = Cfg("B0 GPU-only", tiers=False)
+B1 = Cfg("B1 정적 offload")                                  # θ=1, w=1(전체 write-back), π=0
+CFG = {
+    ("DP1", 1): Cfg("DP1 1안", theta=1.1, w=0.5, pi=0.0, omega=0.0, d_crit=0.003, wm=0.80),
+    ("DP1", 2): Cfg("DP1 2안", theta=1.3, w=0.3, pi=0.6, omega=0.3, d_crit=0.0, wm=0.95),
+    # DP3: 공유 문서 30%를 1회만 보관(dedup) → 세션당 이동·보관 크기 0.70, 선택 재계산 비용 amortized 2 ms
+    ("DP3", 1): Cfg("DP3 1안", fprime=0.70, extra_gpu=0.025 + 0.002, tail_gpu_chain=0.025, wm=0.60),
+    ("DP3", 2): Cfg("DP3 2안", fprime=0.70, extra_gpu=0.001 + 0.002, wm=0.75),
+}
+
+
+def single_node():
+    out = {}
+    lam0, lam1 = max_lambda(B0), max_lambda(B1)
+    lam_test = 0.9 * UTIL_CAP * lam1                         # Baseline(B1) Max SLO goodput의 90%
+    for key, c in [("B0", B0), ("B1", B1)] + [(k, v) for k, v in CFG.items()]:
+        lam = max_lambda(c)
+        ttft, tpot, rho = latencies(c, lam_test, lam)
+        out[key] = dict(lam=lam, tps=goodput(lam), ttft=ttft, tpot=tpot, rho=rho,
+                        hbm=HBM_POOL / GiB * (1.0 if key in ("B0", "B1") else c.wm), cfg=c)
+    return out, lam_test
+
+
+# ---- 클러스터(DP2, DP4) ---------------------------------------------------
+N4 = 4
+D_NODES = 2                                                 # B1-PD: P 2대 + D 2대 고정 역할
+
+
+def cluster_dp2(single):
+    """DP2: 고정 역할(B1-PD)에서는 KV tier를 가진 D 노드 2대만 복원·decode를 수행하고 P 노드 2대의 tier·링크는 놀고 있다.
+    동적 배치는 유휴 P 노드의 tier·링크를 u_P 만큼 쓴다. 결정 지연·Re-plan은 TTFT에 반영한다."""
+    base = single["B1"]
+    b0 = single["B0"]
+    res = {}
+    res["B0"] = dict(tps=D_NODES * b0["tps"], note="P/D 고정 + GPU-only")
+    res["B1"] = dict(tps=D_NODES * base["tps"], ttft=base["ttft"], tpot=base["tpot"], hbm=D_NODES * 425.0)
+    params = {1: dict(u_p=0.20, d=0.008, replan=0.0, a=0.10, wm=0.85),   # 스케줄링 시점 결정: N=4에서 결정 8 ms(2 ms×N), 실시간 상태
+              2: dict(u_p=0.50, d=0.0, replan=0.040, a=0.05, wm=0.92)}    # 사전 계획: 결정 0, Re-plan(31%) P99 +40 ms, plan 예약으로 HBM 여유 필요
+    for k, p in params.items():
+        n_eff = D_NODES + p["u_p"] * (N4 - D_NODES)
+        tps = n_eff * base["tps"] * (1 + p["a"] * 0.5)
+        # tail: 복원 stall을 피하는 배치 a, 링크 이용률은 n_eff 증가만큼 낮아짐
+        rho = min(base["rho"] * D_NODES / n_eff, 0.95)
+        ttft = T_NEW + p["d"] + p["replan"] + (1 - p["a"]) * (base["ttft"] - T_NEW) * (1 - base["rho"]) / (1 - rho)
+        tpot = tau() * 1e3 * (1 + 0.5 * rho)
+        res[("DP2", k)] = dict(tps=tps, ttft=ttft, tpot=tpot, hbm=D_NODES * 425.0 * p["wm"])
+    # SE(N=16): 단일 scheduler 결정 용량 vs 요구 (결정 비용 2 ms × N, 후보 수 선형 [repo ASSUMED])
+    lam_node = single["B1"]["lam"]
+    demand = 16 * lam_node
+    cap_c1 = 1 / (0.002 * 16)
+    cap_c2 = 4 / (0.002 * 16)                                # worker 4
+    res["SE16"] = {"B1": 0.98, ("DP2", 1): min(1.0, cap_c1 / demand), ("DP2", 2): min(1.0, cap_c2 / demand) * 0.97}
+    return res
+
+
+def cluster_dp4(single):
+    """DP4: CXL 공유 풀이 SSD를 대체하는 하위 tier(노드 유효 63 GB/s ×0.8)가 되고 노드 간 hit를 허용한다.
+    B1은 노드 독립이라 반환 세션이 다른 노드로 라우팅되면(25%) 재계산한다."""
+    x_cross = 0.25
+    b1 = single["B1"]
+    c_b1 = B1
+    g, d, s = caps(c_b1, b1["lam"])
+    lam_b1_cluster = N4 * min(1 / (G0 + x_cross * T_REC), d, s)
+    pool_bw = 63e9 * 0.8
+    ctl = {1: 0.00003, 2: 0.0032}                            # 4 op/turn: 중앙 RPC ≈7 µs, 분산 락 P99 ≈804 µs
+    res = {}
+    res["B0"] = dict(tps=N4 * single["B0"]["tps"])
+    res["B1"] = dict(tps=goodput(lam_b1_cluster) , lam=lam_b1_cluster)
+    lam_test = 0.9 * UTIL_CAP * lam_b1_cluster / N4          # 노드당 시험 부하
+    # B1 latency (노드당)
+    c_pool = {}
+    for k in (1, 2):
+        c = Cfg("DP4 %d안" % k, pool=True, pool_bw=pool_bw, extra_gpu=0.0, d_crit=ctl[k])
+        lam = max_lambda(c)
+        ttft, tpot, rho = latencies(c, lam_test, lam)
+        res[("DP4", k)] = dict(tps=N4 * goodput(lam) * (1 - ctl[k] / G0 * 0.0), ttft=ttft, tpot=tpot, rho=rho)
+    cb1 = Cfg("B1 cross", w=1.0)
+    ttft_b1, tpot_b1, _ = latencies(cb1, lam_test, lam_b1_cluster / N4)
+    ttft_b1 += x_cross * T_REC                               # P99는 교차 라우팅 재계산 경로
+    res["B1"].update(ttft=ttft_b1, tpot=tpot_b1)
+    lam_node = res[("DP4", 1)]["tps"] / N4 / (UTIL_CAP * OUT)
+    demand = 16 * lam_node * 4                               # 16노드 × 4 op/turn
+    res["SE16"] = {"B1": 0.98, ("DP4", 1): min(1.0, 204_800 / demand) * 0.99, ("DP4", 2): min(1.0, 102_400 / demand) * 0.99}
+    return res
+
+
+def r_reduction(b_ttft, b_tpot, ttft, tpot):
+    r = math.sqrt((b_ttft / ttft) * (b_tpot / tpot))
+    return r, (1 - 1 / r) * 100
+
+
+def all_results():
+    single, lam_test = single_node()
+    c2 = cluster_dp2(single)
+    c4 = cluster_dp4(single)
+    R = {"single": single, "dp2": c2, "dp4": c4, "lam_test": lam_test}
+    return R
+
+
+if __name__ == "__main__":
+    R = all_results()
+    s = R["single"]
+    print("G0 %.3f s  ceiling %.2f turn/s  λ_test %.2f" % (G0, 1 / G0, R["lam_test"]))
+    for k, v in s.items():
+        print(k, "λ=%.2f tps=%.0f TTFT=%.2fs TPOT=%.1fms HBM=%.0f ρ=%.2f" % (v["lam"], v["tps"], v["ttft"], v["tpot"], v["hbm"], v["rho"]))
+    print("DP2", {k: {a: round(b, 3) for a, b in v.items() if isinstance(b, float)} for k, v in R["dp2"].items()})
+    print("DP4", {k: {a: round(b, 3) for a, b in v.items() if isinstance(b, float)} for k, v in R["dp4"].items() if k != "SE16"}, R["dp4"]["SE16"])
