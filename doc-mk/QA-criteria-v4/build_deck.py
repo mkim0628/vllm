@@ -59,7 +59,7 @@ def q5_rows():
     return [
         (3, "≤ 2", "≤ %.1f" % mm(2), "일상 변경 규모: SWE-bench 평균 패치 1.7 file(2개 이하). 0.4 MM ≈ 1인 2주 미만", "SWE-bench (arXiv 2310.06770), 사전 등록 가정"),
         (2.5, "≤ 2.5", "≤ %.1f" % mm(2.5), "★2와 ★3의 중점", "—"),
-        (2, "≤ 3", "≤ %.1f" % mm(3), "변경이 한 Plane/Layer 안에 머무는 규모(설계 component 12~14개의 약 1/4), 약 3주", "—"),
+        (2, "≤ 3", "≤ %.1f" % mm(3), "설계 component 12~14개 중 약 1/4(3개)까지만 바뀌면, 변경이 설계의 한 묶음(한 Plane 또는 한 Layer. 예: 정책 계층만, 데이터 경로만) 안에서 끝난다고 본다. 3개 ≈ 0.6 MM = 1인 약 2.5주", "—"),
         (1.5, "≤ 4", "≤ %.1f" % mm(4), "★1과 ★2의 중점", "—"),
         (1, "≤ 5", "≤ %.1f" % mm(5),
          "최소 충족선. 설계 component 12~14개 중 약 1/3(5개)까지만 바뀌면 '변경이 설계 일부에 국한된다'고 본다. 6개 이상이면 변경이 설계 전반으로 퍼져 확장 지점이 없는 구조로 판단. 5개 ≈ 1.0 MM = 1인 1개월(한 사람이 한 달 안에 끝낼 수 있는 상한)",
@@ -368,7 +368,7 @@ def build_criteria_slides(prs):
     ax_m = dict(min=0, max=7, log=False, ticks=[0, 1, 2, 3, 4, 5, 6, 7], unit="", reverse=True)   # 왼쪽 = 미충족, 오른쪽 = 높은 별
     bands_m = [(0, 2, 3), (2, 2.5, 2.5), (2.5, 3, 2), (3, 4, 1.5), (4, 5, 1), (5, 7, 0)]
     mk_m = [dict(kind="point", v=1.7, style="lit", label="SWE-bench 평균 패치 1.7 file (★3 경계 2 module ≈ 0.4 MM)"),
-            dict(kind="point", v=3.0, style="calc", label="★2 경계 3 module ≈ 0.6 MM · component 12~14개의 1/4"),
+            dict(kind="point", v=3.0, style="calc", label="★2 경계 3 module ≈ 0.6 MM(약 2.5주) · 설계 component의 약 1/4, 한 계층 안"),
             dict(kind="point", v=5, style="req", label="★1 경계 5 module ≈ 1.0 MM(1인 1개월) · 설계 component 12~14개의 약 1/3")]
     band_chart(s, 0.4, 5.15, 12.5, ax_m, bands_m, mk_m, title="변경 module 수 (시나리오 평균) — 오른쪽일수록 별이 높다", row_h=0.2, label_size=7.2, legend=True)
 
