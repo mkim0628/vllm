@@ -259,40 +259,20 @@ tbox(s, 0.72, 3.45, 5.8, 0.34, ["어느 type이 커질지 알 수 없으므로, 
 # ---------------- 우상: Offloading / Scheduling 효과
 panel(RX, 1.0, 2.78, "런타임 역할의 한계: Offloading · Scheduling 효과 (공개 사례)")
 head(RX + 0.15, 1.40, "Agent의 자원 수요가 동적으로 변하는 상황에서 런타임 역할이 결정적")
-BX, BMAX = RX + 2.75, 2.45
-
-
-def row(y, label, val, text, maxv, color, low=None, lbl_w=2.6):
-    tbox(s, RX + 0.15, y - 0.02, lbl_w, 0.22, [label], size=8, anchor=MSO_ANCHOR.MIDDLE)
-    u = BMAX / maxv
-    if low is not None:
-        shape(s, MSO_SHAPE.RECTANGLE, BX, y, low * u, 0.17, C("9DC3E6"))
-        shape(s, MSO_SHAPE.RECTANGLE, BX + low * u, y, (val - low) * u, 0.17, color)
-    else:
-        shape(s, MSO_SHAPE.RECTANGLE, BX, y, val * u, 0.17, color)
-    tbox(s, BX + val * u + 0.03, y - 0.03, 1.1, 0.22, [text], size=8.5, bold=True, anchor=MSO_ANCHOR.MIDDLE)
-
-
-tbox(s, RX + 0.15, 1.72, 6.0, 0.22, [("(a) KV Offloading 유무 — 개선 배수(×), baseline = 1.0", {"bold": True})], size=8.5, color=G59)
-row(1.95, "Baseline: GPU 메모리만 사용 (vLLM)", 1.0, "1.0×", 14, GRAY := G7F)
-row(2.15, "LMCache 처리율 @동일 TTFT ①", 14, "2.3–14×", 14, BLUE, low=2.3)
-row(2.35, "LMCache TTFT 단축 (QPS=1) ①", 8.1, "1.9–8.1×", 14, BLUE, low=1.9)
-row(2.55, "Mooncake KV pool 요청 용량 (SLO 내) ②", 5.98, "1.59–5.98×", 14, BLUE, low=1.59)
-tbox(s, RX + 0.15, 2.78, 6.0, 0.22, [("(b) Scheduling 유무 — 처리량(steps/min), SWE-agent ③", {"bold": True})], size=8.5, color=G59)
-row(3.01, "Baseline: 요청 단위 스케줄링 (vLLM)", 375, "375", 672, G7F)
-row(3.21, "+ 프로그램 인지 스케줄링 (로컬)", 602, "602 (1.61×)", 672, ORG)
-row(3.41, "+ 글로벌 대기열 (ThunderAgent)", 672, "672 (1.79×)", 672, ORG)
-tbox(s, RX + 4.4, 2.80, 1.9, 0.2, [("벤치마크 전반 1.48–3.58×", {"align": PP_ALIGN.RIGHT, "bold": True, "color": ORG})], size=8)
+tbox(s, RX + 0.3, 2.05, PW - 0.6, 1.4, [
+    ("", {"segs": [("Offloading 하는 경우 vs 안하는 경우 ", {}), ("성능 차이", {"bold": True})], "align": PP_ALIGN.CENTER, "space": 14}),
+    ("", {"segs": [("스케줄링 하는 경우 vs 안하는 경우 성능 차이", {"bold": True})], "align": PP_ALIGN.CENTER}),
+], size=18, anchor=MSO_ANCHOR.MIDDLE)
 
 # ---------------- 좌하: HBM 외 제품 Biz Impact
 panel(LX, 3.95, 2.30, "HBM 외 제품의 Biz Impact: HBM과 상호 보완")
 head(LX + 0.15, 4.30, "HBM의 수요를 뺏지 않고, HBM이 담지 못하는 영역을 채움")
 hdrs = ["제품", "담당 데이터", "시장 전망 (2030, 공개 전망)", "HBM 수요 영향"]
 rows = [hdrs,
-        ["HBM", "활성 KV·가중치", [("> $100B (Micron 전망) ④", {})], [("기준선, 수요 유지", {"bold": True, "color": BLUE})]],
-        ["Custom HBM", "HBM 변형 (base die 맞춤)", "수십 B$ (SK hynix 전망) ⑤", [("HBM 시장 내 성장", {"color": BLUE})]],
-        ["CXL Memory", "유휴·재사용 KV", "약 $4–7B (범위 정의별 차이) ⑥", [("HBM 비대체, DRAM 확장", {"color": BLUE})]],
-        ["HBF", "대용량·저비용 계층", "$40–150B (Goldman, 2차 인용) ⑦", [("HBM 비대체, 신규 Tier", {"color": BLUE})]]]
+        ["HBM", "활성 KV·가중치", [("> $100B (Micron 전망) ①", {})], [("기준선, 수요 유지", {"bold": True, "color": BLUE})]],
+        ["Custom HBM", "HBM 변형 (base die 맞춤)", "수십 B$ (SK hynix 전망) ②", [("HBM 시장 내 성장", {"color": BLUE})]],
+        ["CXL Memory", "유휴·재사용 KV", "약 $4–7B (범위 정의별 차이) ③", [("HBM 비대체, DRAM 확장", {"color": BLUE})]],
+        ["HBF", "대용량·저비용 계층", "$40–150B (Goldman, 2차 인용) ④", [("HBM 비대체, 신규 Tier", {"color": BLUE})]]]
 table(s, LX + 0.1, 4.62, [0.95, 1.55, 2.2, 1.3], rows, [0.22, 0.3, 0.3, 0.3, 0.3], size=8, first_color=G40)
 
 # ---------------- 우하: 이기종 메모리 인지 SW 부재
@@ -316,9 +296,8 @@ write(ban, ["LLM 추론 처리량 향상을 위한 이기종 메모리 인지형
 
 # ---------------- 출처
 src = [
-    "※ 효과 배수는 각 연구의 모델·워크로드·baseline 조건에서 측정한 값으로, 연구 간 직접 비교는 불가. 시장 전망은 출처·범위 정의별 편차가 큼(검증 전 공개 전망).",
-    "① LMCache, arXiv:2510.09665 (단일 노드 CPU offload, 10K-token 멀티라운드 QA, baseline = GPU-only vLLM)  ② Mooncake, USENIX FAST'25 (Qin et al.), baseline 대비 유효 요청 용량 +59–498%  ③ ThunderAgent, arXiv:2602.13692 (v2) — 1.48–3.58× vs vLLM; 하단 막대는 부록 ablation(GLM-4.5-fp8, mini-SWEAgent, 2×H100, 144 programs)",
-    "④ Micron FQ1'25 실적발표(2024 $16B → 2030 > $100B, 회사 전망)  ⑤ SK hynix 전망, Tom's Hardware  ⑥ Mordor Intelligence·Business Research Co. 등(2030 약 $4–7B, 보수적 정의 기준)  ⑦ Goldman Sachs 추정의 2차 인용(404k Research Substack), 원문 미확인; 샘플 2026 하반기·소규모 상용 2027–28 (OSCOO)",
+    "※ 시장 전망은 출처·범위 정의별 편차가 큼(검증 전 공개 전망).",
+    "① Micron FQ1'25 실적발표(2024 $16B → 2030 > $100B, 회사 전망)  ② SK hynix 전망, Tom's Hardware  ③ Mordor Intelligence·Business Research Co. 등(2030 약 $4–7B, 보수적 정의 기준)  ④ Goldman Sachs 추정의 2차 인용(404k Research Substack), 원문 미확인; 샘플 2026 하반기·소규모 상용 2027–28 (OSCOO)",
 ]
 tbox(s, 0.26, 6.70, 12.85, 0.7, src, size=6.5, color=G59, space=0)
 
