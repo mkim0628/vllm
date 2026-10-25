@@ -641,6 +641,39 @@ def method_slide(prs):
     return s
 
 
+
+def sim_env_slide(prs):
+    s = clone_chrome(prs, 5, "평가 환경과 시뮬레이션 정의",
+                     "무엇이 실장 장비이고 무엇이 시뮬레이션인지, DP4 시뮬레이터가 무엇을 모델링하는지, 이번 수치가 어디서 나왔는지",
+                     "출처: doc-mk/Evaluation/DP4/sim (DESIGN_NOTES.md, simulation-plan.md), system-specs.md, project-context GC-1·GC-9. 이 덱의 수치는 theory_model.py 이론 예상값이며 시뮬레이터 실행 결과가 아니다")
+    rows = [["DP", "평가 환경", "실장 / 시뮬레이션", "수치 산출 (이 덱)"],
+            ["DP1", "H100×8 1노드, HBM 640 GiB · DRAM 1 TiB · NVMe 16 GB/s", "모두 실장 장비 구성", "이론 예상값(분석 모델)"],
+            ["DP2", "H100×8 4노드(P 2 + D 2 고정 역할이 Baseline), 노드 간 링크 RDMA 50 GB/s [ASSUMED]", "노드·메모리는 실장 구성, 노드 간 링크는 가정", "이론 예상값(분석 모델)"],
+            ["DP3", "H100×8 1노드(DP1과 같은 구성)", "모두 실장 장비 구성", "이론 예상값(분석 모델)"],
+            ["DP4", "H100×8 4노드 + CXL 공유 메모리 풀 8 TiB", "노드는 실장, CXL 풀은 장비가 없어 시뮬레이션", "이론 예상값(DP4 시뮬레이터와 같은 구조·파라미터). 시뮬레이터 실행은 다음 단계"]]
+    add_table(s, 0.4, 1.2, [0.7, 5.0, 3.4, 3.43], rows, [0.26] + [0.42] * 4, fills=[None] * 4, size=8.3, aligns=["c", "l", "l", "l"])
+    tbox(s, 0.4, 3.35, 6.2, 3.7,
+         [[("DP4 시뮬레이터(레포 doc-mk/Evaluation/DP4/sim)", {"bold": True, "color": NAVY, "size": 10})],
+          [("• 방식: 이산 사건 시뮬레이터(DES). P/D 분리 클러스터에서 세 가지 구성(Baseline-RDMA, 중앙 직렬화 C1, 분산 락 C2)을 같은 요청 흐름으로 비교", {"size": 8.6})],
+          [("• 링크: 선입선출 유체 서버(FIFO fluid server). 노드 egress/ingress, CXL 풀 집계 대역폭을 공유 자원으로 모델링, 활성 전송은 공정 분할", {"size": 8.6})],
+          [("• decode: processor sharing. prefill·decode 단계 시간은 DP1 모델(`dp1_bridge`)을 그대로 가져와 DP 간 물리가 같다", {"size": 8.6})],
+          [("• 제어 평면: lookup · publish · pin · unpin 연산별 지연. 중앙 RPC 약 2~7 µs, 분산 락 2.6~804 µs(P99)", {"size": 8.6})],
+          [("• 파라미터: 전부 값·범위·출처(PAPER / SPEC / ASSUMED)를 기록. 결과를 본 뒤 바꾸지 않는다", {"size": 8.6})],
+          [("• 반복: seed 5개(11, 23, 37, 53, 71), 부하 격자 ×0.5~×8, 95% 신뢰구간, 요청별 SLO로 goodput 계산", {"size": 8.6})]],
+         size=8.6, line_spacing=1.1)
+    tbox(s, 6.8, 3.35, 6.1, 3.7,
+         [[("CXL 풀 모델과 가정", {"bold": True, "color": NAVY, "size": 10})],
+          [("• 풀 8 TiB, 노드당 어댑터 2개(PCIe 5.0 x16, 각 63 GB/s), 풀 집계 1 TB/s, 유효 효율 0.5 [ASSUMED] → 노드 유효 약 63 GB/s", {"size": 8.6})],
+          [("• 접근 지연은 제어 평면 비용과 데이터 이동 시간으로 반영. 풀 용량 한계와 HBM OOM은 미반영", {"size": 8.6})],
+          [("• 미반영: CXL 스위치 혼잡, 메모리 뱅크 경합, 락 매니저 스레드의 CPU 스케줄링 간섭, 풀 장치 장애, 전력", {"size": 8.6})],
+          [("이번 수치의 위치", {"bold": True, "color": "C00000", "size": 10})],
+          [("• 이 덱의 값은 시뮬레이터 실행 결과가 아니라 theory_model.py의 이론 예상값이다. 같은 물리 상수와 풀·제어 평면 파라미터를 쓰지만 이산 사건 시뮬은 하지 않았다", {"size": 8.6})],
+          [("• 다음 단계: Agent KV Fleet(16K 컨텍스트, idle 평균 60 s, 교차 라우팅 25%, 2→16 노드)을 DP4 시뮬레이터 scenarios.py에 추가해 실행하고, 이론값과 비교한 뒤 결과를 교체한다", {"size": 8.6})],
+          [("• 노드·HBM·DRAM·SSD는 실장 장비라 DP1·DP3와 B0·B1 값은 실측으로 검증해 모델 파라미터를 보정할 수 있다", {"size": 8.6})]],
+         size=8.6, line_spacing=1.1)
+    return s
+
+
 QLAB = {"Q1": ("Q1 처리량", "SLO(TTFT ≤ 2 s, TPOT ≤ 50 ms) 만족 Max goodput"),
         "Q2": ("Q2 HBM 효율", "HBM 상주 KV 시간 평균(GiB), 같은 부하·SLO"),
         "Q3": ("Q3 고부하 지연", "B0 포화 부하의 90%에서 TTFT·TPOT P99"),
@@ -655,7 +688,7 @@ DPINFO = {
                       "동시 세션 ≈ 250~450 → KV 1.3~2.2 TiB(HBM 풀 425 GiB의 3~5배, HBM+DRAM도 초과)"]),
     "DP2": dict(title="DP2. 연산(Prefill/Decode) 실행 위치 결정 구조 — Trade-off 평가 결과", names=("1안 스케줄링 시점 결정", "2안 사전 계획 결정"),
                 qs=["Q1", "Q2", "Q3", "Q4"], scope="cluster",
-                env=["4 노드 클러스터: B0 = P 2대 + D 2대 고정 역할 GPU-only, B1 = 같은 구성 + 노드별 단순 offloading", "노드 간 RDMA 50 GB/s [ASSUMED], 결정 비용은 후보 수에 선형(2 ms × N)"],
+                env=["H100×8 4노드 클러스터(실장 구성 기준): B0 = P 2대 + D 2대 고정 역할 GPU-only, B1 = 같은 구성 + 노드별 단순 offloading", "노드 간 링크 RDMA 50 GB/s [ASSUMED], 결정 비용은 후보 수에 선형(2 ms × N). 수치는 이론 예상값"],
                 scen=["Agent KV Fleet P2 burst: 신규 세션 3배 폭주 + decode 중첩. 동적 배치가 유휴 P 노드의 tier·링크를 쓰는 정도 평가",
                       "확장성은 N=16 sweep(scheduler 결정 용량 대 요구 결정률)"]),
     "DP3": dict(title="DP3. KV 캐시 재사용 구조 — Trade-off 평가 결과", names=("1안 Pipe-and-Filter", "2안 Shared Repository"),
@@ -665,7 +698,7 @@ DPINFO = {
                       "B0·B1은 세션마다 복제 저장, DP3는 1회 보관 + 선택 재계산(15% 토큰) [가정]"]),
     "DP4": dict(title="DP4. 서버 간 KV 캐시 공유 구조 — Trade-off 평가 결과", names=("1안 중앙 서버 중재", "2안 락 기반 직접 접근"),
                 qs=["Q1", "Q3", "Q4"], scope="cluster",
-                env=["4 노드 + CXL 공유 풀 8 TiB(노드당 유효 63 GB/s). B0·B1은 노드 독립(SSD 16 GB/s)", "교차 라우팅 25%는 B0·B1에서 재계산, 후보는 풀에서 공유"],
+                env=["H100×8 4노드(실장) + CXL 공유 풀 8 TiB(풀 장비가 없어 시뮬레이션 대상, 노드당 유효 63 GB/s). B0·B1은 노드 독립(SSD 16 GB/s)", "교차 라우팅 25%는 B0·B1에서 재계산, 후보는 풀에서 공유. 풀·제어 평면은 DP4 시뮬레이터 구조와 파라미터를 따르는 이론 모델"],
                 scen=["Agent KV Fleet P4 노드 확장: 2→16 노드(세션 ∝ 노드), 노드 간 KV 블록 조회·소유권 이동",
                       "제어 평면: 중앙 RPC ≈ 7 µs vs 분산 락 P99 ≈ 804 µs (요청당 4 op)"]),
 }
@@ -809,9 +842,10 @@ def main():
     sc1, sc2 = scenario_slides(prs)
     base_s = baseline_slide(prs)
     meth_s = method_slide(prs)
+    sim_s = sim_env_slide(prs)
     res = {dp: dp_result_slide(prs, dp) for dp in ("DP1", "DP2", "DP3", "DP4")}
     map_s = mapping_slide(prs)
-    order = [S[0], S[1], res["DP1"], S[2], res["DP2"], S[3], res["DP3"], S[4], res["DP4"], base_s, meth_s,
+    order = [S[0], S[1], res["DP1"], S[2], res["DP2"], S[3], res["DP3"], S[4], res["DP4"], base_s, meth_s, sim_s,
              S[5], S[6], S[7], S[8], S[9], S[10], sc1, sc2, map_s]
     lst = prs.slides._sldIdLst
     ids = [sl.slide_id for sl in order]
