@@ -259,10 +259,29 @@ tbox(s, 0.72, 3.45, 5.8, 0.34, ["어느 type이 커질지 알 수 없으므로, 
 # ---------------- 우상: Offloading / Scheduling 효과
 panel(RX, 1.0, 2.78, "런타임 역할의 한계: Offloading · Scheduling 효과 (공개 사례)")
 head(RX + 0.15, 1.40, "Agent의 자원 수요가 동적으로 변하는 상황에서 런타임 역할이 결정적")
-tbox(s, RX + 0.3, 2.05, PW - 0.6, 1.4, [
-    ("", {"segs": [("Offloading 하는 경우 vs 안하는 경우 ", {}), ("성능 차이", {"bold": True})], "align": PP_ALIGN.CENTER, "space": 14}),
-    ("", {"segs": [("스케줄링 하는 경우 vs 안하는 경우 성능 차이", {"bold": True})], "align": PP_ALIGN.CENTER}),
-], size=18, anchor=MSO_ANCHOR.MIDDLE)
+def cmp_chart(x0, title, base, val, base_lbl, val_lbl, color, env):
+    tbox(s, x0, 1.74, 3.0, 0.36, [title], size=9.5, bold=True, color=G40)
+    ybase, hmax = 3.0, 0.72
+    hb, hv = hmax * base / val, hmax
+    shape(s, MSO_SHAPE.RECTANGLE, x0 + 0.3, ybase - hb, 0.7, hb, G7F)
+    shape(s, MSO_SHAPE.RECTANGLE, x0 + 1.5, ybase - hv, 0.7, hv, color)
+    shape(s, MSO_SHAPE.RECTANGLE, x0 + 0.1, ybase, 2.5, 0.01, G7F)
+    tbox(s, x0 + 0.1, ybase - hb - 0.22, 1.1, 0.2, [(f"{base:,}", {"align": PP_ALIGN.CENTER})], size=9, bold=True)
+    tbox(s, x0 + 1.3, ybase - hv - 0.22, 1.1, 0.2, [(f"{val:,}", {"align": PP_ALIGN.CENTER})], size=9, bold=True)
+    b2 = shape(s, MSO_SHAPE.ROUNDED_RECTANGLE, x0 + 2.3, ybase - hv - 0.05, 0.62, 0.28, WHITE, RED, 1.2)
+    write(b2, [f"{val / base:.2f}×" if val / base < 2 else f"{val / base:.1f}×"], size=10, bold=True, color=RED, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, margin=0)
+    tbox(s, x0 + 0.1, ybase + 0.02, 1.3, 0.34, [(base_lbl, {"align": PP_ALIGN.CENTER})], size=7.5, color=G40)
+    tbox(s, x0 + 1.3, ybase + 0.02, 1.3, 0.34, [(val_lbl, {"align": PP_ALIGN.CENTER, "bold": True})], size=7.5, color=G40)
+    tbox(s, x0, 3.36, 3.0, 0.4, env, size=7, color=G59, space=0)
+
+
+cmp_chart(RX + 0.1, "① KV Offloading 유무: 처리량 (tok/s) ⑤", 1850, 16650,
+          "Baseline\n(offloading 없음)", "CPU DRAM Offloading", BLUE,
+          ["환경: H100 80GB, Llama-3.1-8B-Instruct, CPU DRAM 128GB offload, vLLM native connector (동시성 높은 부하)"])
+cmp_chart(RX + 3.22, "② 스케줄링 유무: 처리량 (steps/min) ⑥", 375, 672,
+          "Baseline\n(vLLM 요청 단위)", "ThunderAgent\n(프로그램 인지)", ORG,
+          ["환경: H100 2노드, GLM-4.5-fp8, mini-SWE-agent, 동시 144 programs (벤치마크 전반 1.48–3.58×)"])
+shape(s, MSO_SHAPE.RECTANGLE, RX + 3.17, 1.8, 0.01, 1.92, GBF)
 
 # ---------------- 좌하: HBM 외 제품 Biz Impact
 panel(LX, 3.95, 2.30, "HBM 외 제품의 Biz Impact: HBM과 상호 보완")
@@ -296,6 +315,7 @@ write(ban, ["LLM 추론 처리량 향상을 위한 이기종 메모리 인지형
 
 # ---------------- 출처
 src = [
+    "⑤ vLLM Blog, Inside vLLM's New KV Offloading Connector (2026-01-08): 처리량 최대 9×, 수치·환경은 3rd-party 요약(barrahome.org) 기준  ⑥ ThunderAgent, arXiv:2602.13692 부록 ablation(1.79×), 환경은 검색 요약 기준. ⑤⑥ 모두 원문 대조 전",
     "※ 시장 전망은 출처·범위 정의별 편차가 큼(검증 전 공개 전망).",
     "① Micron FQ1'25 실적발표(2024 $16B → 2030 > $100B, 회사 전망)  ② SK hynix 전망, Tom's Hardware  ③ Mordor Intelligence·Business Research Co. 등(2030 약 $4–7B, 보수적 정의 기준)  ④ Goldman Sachs 추정의 2차 인용(404k Research Substack), 원문 미확인; 샘플 2026 하반기·소규모 상용 2027–28 (OSCOO)",
 ]
