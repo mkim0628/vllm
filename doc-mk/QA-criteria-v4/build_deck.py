@@ -62,9 +62,9 @@ def q5_rows():
         (2, "≤ 3", "≤ %.1f" % mm(3), "변경이 한 Plane/Layer 안에 머무는 규모(설계 component 12~14개의 약 1/4), 약 3주", "—"),
         (1.5, "≤ 4", "≤ %.1f" % mm(4), "★1과 ★2의 중점", "—"),
         (1, "≤ 5", "≤ %.1f" % mm(5),
-         "최소 충족. 설계 component 12~14개 중 5개(36~42%) 초과 시 확장 지점이 없다고 본다. 1.0 MM = 1인 1개월 (vLLM connector 1개 신규 구현 ≈ 1 MM과 같은 규모)",
+         "최소 충족선. 설계 component 12~14개 중 약 1/3(5개)까지만 바뀌면 '변경이 설계 일부에 국한된다'고 본다. 6개 이상이면 변경이 설계 전반으로 퍼져 확장 지점이 없는 구조로 판단. 5개 ≈ 1.0 MM = 1인 1개월(한 사람이 한 달 안에 끝낼 수 있는 상한)",
          "DP1 사전 등록 component 목록, vLLM 저장소 LOC 계수"),
-        (0, "≥ 6 또는 major interface 변경", "> 1.0", "module 수가 ★1 기준을 넘으면 미충족. 기존 필드 의미 변경(Backend I/F, Event schema)은 module 수와 무관하게 미충족", "—"),
+        (0, "≥ 6 또는 major interface 변경", "> 1.0", "6개 이상이면 미충족(변경이 설계 전반으로 번짐). 기존 필드 의미 변경(Backend I/F, Event schema)은 module 수와 무관하게 미충족", "—"),
     ]
 
 
@@ -369,7 +369,7 @@ def build_criteria_slides(prs):
     bands_m = [(0, 2, 3), (2, 2.5, 2.5), (2.5, 3, 2), (3, 4, 1.5), (4, 5, 1), (5, 7, 0)]
     mk_m = [dict(kind="point", v=1.7, style="lit", label="SWE-bench 평균 패치 1.7 file (★3 경계 2 module ≈ 0.4 MM)"),
             dict(kind="point", v=3.0, style="calc", label="★2 경계 3 module ≈ 0.6 MM · component 12~14개의 1/4"),
-            dict(kind="point", v=5, style="req", label="★1 경계 5 module ≈ 1.0 MM(1인 1개월) · component 12~14개 중 36~42%")]
+            dict(kind="point", v=5, style="req", label="★1 경계 5 module ≈ 1.0 MM(1인 1개월) · 설계 component 12~14개의 약 1/3")]
     band_chart(s, 0.4, 5.15, 12.5, ax_m, bands_m, mk_m, title="변경 module 수 (시나리오 평균) — 오른쪽일수록 별이 높다", row_h=0.2, label_size=7.2, legend=True)
 
 
