@@ -57,14 +57,14 @@ def q4_spec():
 def q5_rows():
     mm = cd.mm_of_modules
     return [
-        (3, "≤ 2", "≤ %.1f" % mm(2), "설계 component 12~14개 중 2개 이하(약 1/7)만 바뀜 = 변경이 설계의 한두 곳에서 끝나는 가장 좋은 경우. 2개 ≈ 0.4 MM = 1인 2주 미만. 참고: SWE-bench 평균 패치도 1.7 file이지만 단위가 file이라 module(component)과 같지 않다 — 비슷한 규모감을 보는 참고치", "설계 정책값 + SWE-bench (arXiv 2310.06770, file 수 참고용)"),
+        (3, "≤ 2", "≤ %.1f" % mm(2), "component 12~14개 중 2개 이하(약 1/7)만 바뀜: 변경이 한두 곳에서 끝나는 최선의 경우. 2개 ≈ 0.4 MM(1인 2주 미만). 참고: SWE-bench 평균 패치 1.7 file(단위가 file이라 module과 다름)", "설계 정책값 · SWE-bench (arXiv 2310.06770, 참고용)"),
         (2.5, "≤ 2.5", "≤ %.1f" % mm(2.5), "★2와 ★3의 중점", "—"),
-        (2, "≤ 3", "≤ %.1f" % mm(3), "설계 component 12~14개 중 약 1/4(3개)까지만 바뀌면, 변경이 설계의 한 묶음(한 Plane 또는 한 Layer. 예: 정책 계층만, 데이터 경로만) 안에서 끝난다고 본다. 3개 ≈ 0.6 MM = 1인 약 2.5주", "—"),
+        (2, "≤ 3", "≤ %.1f" % mm(3), "component 약 1/4(3개)까지: 변경이 한 Plane 또는 한 Layer 안(예: 정책 계층만)에서 끝남. 3개 ≈ 0.6 MM(1인 약 2.5주)", "설계 정책값"),
         (1.5, "≤ 4", "≤ %.1f" % mm(4), "★1과 ★2의 중점", "—"),
         (1, "≤ 5", "≤ %.1f" % mm(5),
-         "최소 충족선. 설계 component 12~14개 중 약 1/3(5개)까지만 바뀌면 '변경이 설계 일부에 국한된다'고 본다. 6개 이상이면 변경이 설계 전반으로 퍼져 확장 지점이 없는 구조로 판단. 5개 ≈ 1.0 MM = 1인 1개월(한 사람이 한 달 안에 끝낼 수 있는 상한)",
-         "DP1 사전 등록 component 목록, vLLM 저장소 LOC 계수"),
-        (0, "≥ 6 또는 major interface 변경", "> 1.0", "6개 이상이면 미충족(변경이 설계 전반으로 번짐). 기존 필드 의미 변경(Backend I/F, Event schema)은 module 수와 무관하게 미충족", "—"),
+         "최소 충족선. component 약 1/3(5개)까지만 바뀌면 변경이 설계 일부에 국한. 6개 이상이면 설계 전반으로 퍼져 확장 지점이 없다고 판단. 5개 ≈ 1.0 MM(1인 1개월 상한)",
+         "설계 정책값 (DP1 component 목록)"),
+        (0, "≥ 6 또는 major interface 변경", "> 1.0", "6개 이상이면 미충족(설계 전반으로 번짐). 기존 필드 의미 변경(Backend I/F, Event schema)은 module 수와 무관하게 미충족", "—"),
     ]
 
 
@@ -85,18 +85,20 @@ def q5_page(slide):
     for st, m, mm, ev, src in q5_rows():
         rows.append([[[(star_label(st), {"bold": True})]], m, mm, ev, src])
         stars.append(BAND_FILL[st])
-    colw = [0.75, 1.6, 1.6, 6.05, 2.53]
-    rowh = [0.26] + [0.34] * 6
+    colw = [0.7, 1.5, 1.5, 6.9, 1.93]
+    rowh = [0.3] + [0.32] * 6
     add_table(slide, 0.4, 1.7, colw, rows, rowh, fills=stars, size=8.3, aligns=["c", "c", "c", "l", "l"])
     # 환산 박스
-    rect(slide, 0.4, 4.1, 12.53, 0.62, fill="F2F6FC", line="2F5597", line_w=1.0, shape=MSO_SHAPE.ROUNDED_RECTANGLE, name="formula")
-    tbox(slide, 0.5, 4.12, 12.3, 0.6,
+    rect(slide, 0.4, 4.12, 12.53, 0.86, fill="F2F6FC", line="2F5597", line_w=1.0, shape=MSO_SHAPE.ROUNDED_RECTANGLE, name="formula")
+    tbox(slide, 0.5, 4.14, 12.3, 0.84,
          [[("module 1개 = 고정 3일 + 24 LOC ÷ 40 LOC/일 × 테스트·리뷰 overhead 2.0 = 4.2일 = 0.2 MM  →  M/M = 0.2 × module 수  (21일/MM)", {"bold": True, "color": NAVY, "size": 9.5})],
           [("24 LOC/module: SWE-bench 평균 패치 32.8 line ÷ 1.7 file ≈ 19 LOC/file을 올림. 실측 대조: DP1 후보 구현 측정 1.75 module → 0.38 MM(환산 0.35), 2.5 module → 0.51 MM(환산 0.50). "
-            "LOC는 실제 vLLM 통합 기준(시뮬레이터 proxy LOC는 ×5 환산).", {"size": 8.5, "color": "404040"})]],
+            "LOC는 실제 vLLM 통합 기준(시뮬레이터 proxy LOC는 ×5 환산).", {"size": 8.5, "color": "404040"})],
+          [("출처: 고정 3일(interface 파악·설계 리뷰·통합 테스트)과 40 LOC/일(순 생산성)은 문헌값이 아니라 DP1 사전 등록 가정(ASSUMED, 범위 2~5일 · 25~80 LOC/일 · overhead 1.5~3.0). "
+            "범위 양 끝이면 module 1개 = 0.12~0.38 MM, 5개 = 0.6~1.9 MM이라 M/M 환산은 약 ±50% 불확실하다(module 수 판정은 영향 없음).", {"size": 8.3, "color": "C00000"})]],
          size=9, line_spacing=1.1, name="formula_text")
     # 왜 하나만 보는가
-    tbox(slide, 0.4, 4.76, 12.5, 0.3,
+    tbox(slide, 0.4, 5.02, 12.5, 0.3,
          [[("왜 module 수만 판정하나: ", {"bold": True, "color": NAVY, "size": 9}),
            ("M/M이 module 수에서 계산되므로 둘은 독립이 아니다. 둘을 AND로 걸면 같은 정보를 두 번 세는 것이다. 판정은 module 수 하나로 하고, 각 경계가 몇 M/M인지는 환산해 보인다. "
             "토큰 비용은 별점이 아니라 별도 참고 페이지(다음 장)에 둔다.", {"size": 8.5})]],
@@ -370,7 +372,7 @@ def build_criteria_slides(prs):
     mk_m = [dict(kind="point", v=1.7, style="lit", label="참고: SWE-bench 평균 패치 1.7 file(단위 file ≠ module) · ★3 경계 2 module ≈ 0.4 MM"),
             dict(kind="point", v=3.0, style="calc", label="★2 경계 3 module ≈ 0.6 MM(약 2.5주) · 설계 component의 약 1/4, 한 계층 안"),
             dict(kind="point", v=5, style="req", label="★1 경계 5 module ≈ 1.0 MM(1인 1개월) · 설계 component 12~14개의 약 1/3")]
-    band_chart(s, 0.4, 5.15, 12.5, ax_m, bands_m, mk_m, title="변경 module 수 (시나리오 평균) — 오른쪽일수록 별이 높다", row_h=0.2, label_size=7.2, legend=True)
+    band_chart(s, 0.4, 5.5, 12.5, ax_m, bands_m, mk_m, title="변경 module 수 (시나리오 평균) — 오른쪽일수록 별이 높다", row_h=0.2, label_size=7.2, legend=True)
 
 
 # ============================================================ DP 페이지(2~5): 절대값·개선율 병기
