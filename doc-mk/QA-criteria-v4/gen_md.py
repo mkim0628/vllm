@@ -87,7 +87,7 @@ KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 겨냥한 통
 | 요청 모델 | open-loop, idle 지수분포 평균 60 s, 컨텍스트 평균 16K, 턴당 +1K·출력 256 | 16K KV = 5.0 GiB. 동시 세션 ≈ 250~450 |
 | 메모리 압박 | HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분) | 넘으면 SSD 사용 |
 | 재사용 | 공유 문서 30%, 그중 50% non-prefix, 선택 재계산 15% 토큰 [가정] | DP3 조건 |
-| 부하·SLO | Q1 Max SLO goodput(이용률 0.8), Q3 B0 포화 부하의 90% 고정, TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms | |
+| 부하 구간·SLO | Q1 Max SLO goodput(이용률 0.8). Q3 일반 부하 = B0 포화 부하의 50%, 고부하 = 90% 두 점에서 측정(별점은 고부하의 B0 대비 r, 일반 부하는 열화 확인용). TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms | 이론값 TTFT P99 일반→고부하: B0 0.40→3.22 s(×8), B1 0.71→0.89 s |
 
 Phase: P1 정상 multi-turn(DP1) · P2 burst(DP2) · P3 공유 문서 wave(DP3) · P4 노드 확장 2→16(DP4) · 변경 시나리오(Q5). 별은 이 regime에서의 조건부 별이다.
 
