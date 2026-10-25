@@ -524,7 +524,7 @@ def scenario_slides(prs):
              "기존 평가 환경과 동일(비교 가능성). 노드 간 링크는 RDMA 50 GB/s [ASSUMED]"],
             ["요청 모델", "open-loop. 세션 idle 시간 지수분포 평균 60 s(tool·사용자 대기, 0.2 s~수 분), 컨텍스트 평균 16K, 턴당 +1K 입력·출력 256, 세션당 10~20턴",
              "16K 세션 KV = 327,680 B × 16,384 ≈ 5.0 GiB. 동시 세션 수 = λ × (idle + 응답) ≈ 250~450"],
-            ["메모리 압박", "HBM KV 풀 ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분). 동시 세션 KV가 HBM+DRAM(1.35 TiB)을 넘으면 SSD가 쓰인다",
+            ["메모리 압박", "HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분). 동시 세션 KV가 HBM+DRAM(1.35 TiB)을 넘으면 SSD가 쓰인다",
              "반환 세션이 HBM/DRAM/SSD에서 발견될 확률은 LRU stack distance로 계산(idle ~ Exp(60 s))"],
             ["재사용", "세션 간 공유 문서 청크 30%, 그중 50%는 non-prefix 위치. 선택 재계산 15% 토큰 [가정]",
              "DP3 재사용·선택 재계산이 겨냥하는 조건. B0·경쟁 기술은 세션마다 복제 저장"],
@@ -645,12 +645,12 @@ def method_slide(prs):
 def sim_env_slide(prs):
     s = clone_chrome(prs, 5, "평가 환경과 시뮬레이션 정의",
                      "무엇이 실장 장비이고 무엇이 시뮬레이션인지, DP4 시뮬레이터가 무엇을 모델링하는지, 이번 수치가 어디서 나왔는지",
-                     "출처: doc-mk/Evaluation/DP4/sim (DESIGN_NOTES.md, simulation-plan.md), system-specs.md, project-context GC-1·GC-9. 이 덱의 수치는 theory_model.py 이론 예상값이며 시뮬레이터 실행 결과가 아니다")
+                     "출처: doc-mk/Evaluation/DP4/sim (DESIGN_NOTES.md, simulation-plan.md), system-specs.md, project-context GC-1·GC-9. 별점·표 수치는 theory_model.py 이론 예상값, 시뮬레이터 실행 결과는 DP4/results/2026-10-25_dp4-agent-kv-fleet.md")
     rows = [["DP", "평가 환경", "실장 / 시뮬레이션", "수치 산출 (이 덱)"],
             ["DP1", "H100×8 1노드, HBM 640 GiB · DRAM 1 TiB · NVMe 16 GB/s", "모두 실장 장비 구성", "이론 예상값(분석 모델)"],
             ["DP2", "H100×8 4노드(P 2 + D 2 고정 역할이 Baseline), 노드 간 링크 RDMA 50 GB/s [ASSUMED]", "노드·메모리는 실장 구성, 노드 간 링크는 가정", "이론 예상값(분석 모델)"],
             ["DP3", "H100×8 1노드(DP1과 같은 구성)", "모두 실장 장비 구성", "이론 예상값(분석 모델)"],
-            ["DP4", "H100×8 4노드 + CXL 공유 메모리 풀 8 TiB", "노드는 실장, CXL 풀은 장비가 없어 시뮬레이션", "이론 예상값(DP4 시뮬레이터와 같은 구조·파라미터). 시뮬레이터 실행은 다음 단계"]]
+            ["DP4", "H100×8 4노드 + CXL 공유 메모리 풀 8 TiB", "노드는 실장, CXL 풀은 장비가 없어 시뮬레이션", "덱 수치는 이론 예상값. DP4 시뮬레이터로 Agent KV Fleet 실행 완료(별도 결과 문서, Baseline-RDMA 대비)"]]
     add_table(s, 0.4, 1.2, [0.7, 5.0, 3.4, 3.43], rows, [0.26] + [0.42] * 4, fills=[None] * 4, size=8.3, aligns=["c", "l", "l", "l"])
     tbox(s, 0.4, 3.35, 6.2, 3.7,
          [[("DP4 시뮬레이터(레포 doc-mk/Evaluation/DP4/sim)", {"bold": True, "color": NAVY, "size": 10})],
@@ -667,8 +667,8 @@ def sim_env_slide(prs):
           [("• 접근 지연은 제어 평면 비용과 데이터 이동 시간으로 반영. 풀 용량 한계와 HBM OOM은 미반영", {"size": 8.6})],
           [("• 미반영: CXL 스위치 혼잡, 메모리 뱅크 경합, 락 매니저 스레드의 CPU 스케줄링 간섭, 풀 장치 장애, 전력", {"size": 8.6})],
           [("이번 수치의 위치", {"bold": True, "color": "C00000", "size": 10})],
-          [("• 이 덱의 값은 시뮬레이터 실행 결과가 아니라 theory_model.py의 이론 예상값이다. 같은 물리 상수와 풀·제어 평면 파라미터를 쓰지만 이산 사건 시뮬은 하지 않았다", {"size": 8.6})],
-          [("• 다음 단계: Agent KV Fleet(16K 컨텍스트, idle 평균 60 s, 교차 라우팅 25%, 2→16 노드)을 DP4 시뮬레이터 scenarios.py에 추가해 실행하고, 이론값과 비교한 뒤 결과를 교체한다", {"size": 8.6})],
+          [("• 이 덱의 별점·표 값은 theory_model.py 이론 예상값이다(GPU-only B0 기준). 시뮬레이터 Baseline-RDMA는 B0도 B1도 아니라(HBM 용량 압박·DRAM/SSD tier 미모델링) 직접 대체하지 않는다", {"size": 8.6})],
+          [("• %s. 이론 모델과는 기준·유휴 모델(sim 8 s vs 60 s)이 달라 대조 불가" % "시뮬레이터 실행(2026-10-25, Agent KV Fleet 16K/10턴/노드 2~16, seeds 5): Baseline-RDMA 대비 goodput H100 x1.00(N=4)·x1.2(N=8)·x1.4(N=16), B200 x0.51(CXL ingress 포화). 상세 DP4/results/2026-10-25_dp4-agent-kv-fleet.md", {"size": 8.6})],
           [("• 노드·HBM·DRAM·SSD는 실장 장비라 DP1·DP3와 B0·B1 값은 실측으로 검증해 모델 파라미터를 보정할 수 있다", {"size": 8.6})]],
          size=8.6, line_spacing=1.1)
     return s
@@ -685,7 +685,7 @@ DPINFO = {
                 qs=["Q1", "Q2", "Q3", "Q5"], scope="single",
                 env=["1 노드: H100×8(HBM 640 GiB), DRAM 1 TiB(호스트 링크 64 GB/s), NVMe 16 GB/s", "Llama-3.1-70B BF16, SYS-H100. Baseline B0 = GPU-only, 경쟁 기술 B1 = 단순 offloading"],
                 scen=["Agent KV Fleet P1 정상 multi-turn: 컨텍스트 16K, 턴당 +1K·출력 256, idle 평균 60 s(open-loop)",
-                      "동시 세션 ≈ 250~450 → KV 1.3~2.2 TiB(HBM 풀 425 GiB의 3~5배, HBM+DRAM도 초과)"]),
+                      "동시 세션 ≈ 250~450 → KV 1.3~2.2 TiB(HBM 전체 640 GiB 중 KV 풀 425 GiB의 3~5배, HBM+DRAM도 초과)"]),
     "DP2": dict(title="DP2. 연산(Prefill/Decode) 실행 위치 결정 구조 — Trade-off 평가 결과", names=("1안 스케줄링 시점 결정", "2안 사전 계획 결정"),
                 qs=["Q1", "Q2", "Q3", "Q4"], scope="cluster",
                 env=["H100×8 4노드 클러스터(실장 구성 기준): B0 = P 2대 + D 2대 고정 역할 GPU-only, B1 = 같은 구성 + 노드별 단순 offloading", "노드 간 링크 RDMA 50 GB/s [ASSUMED], 결정 비용은 후보 수에 선형(2 ms × N). 수치는 이론 예상값"],

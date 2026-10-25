@@ -32,7 +32,7 @@ from pathlib import Path
 import dp1_bridge
 import params as params_mod
 from arms import ABLATION_NAMES, BASE, C1, C2
-from scenarios import common_benchmark, dp4_benchmark
+from scenarios import agent_fleet_benchmark, common_benchmark, dp4_benchmark
 from simulator import NEVER_MS, run_sim
 
 HERE = Path(__file__).resolve().parent
@@ -43,7 +43,7 @@ MAX_LOAD = 8.0
 MIN_LOAD = 0.0625  # downward extension floor (peak at the lowest grid point, see DESIGN_NOTES 7)
 T95 = 2.776
 MATERIAL_REL = 0.01
-SETS = (("common_benchmark", common_benchmark), ("dp4_benchmark", dp4_benchmark))
+SETS = (("common_benchmark", common_benchmark), ("dp4_benchmark", dp4_benchmark), ("agent_fleet_benchmark", agent_fleet_benchmark))
 SET_FUNCS = dict(SETS)
 COMMON_STAR_LOAD_NOTE = "QA3 and the common-load QA2 columns use the offered load at which the Baseline peaks"
 
@@ -381,16 +381,16 @@ def tally(labels, cand):
 
 
 # --------------------------------------------------------------------------- DP4 extras
-def scaling(ps, cands=CANDS):
+def scaling(ps, cands=CANDS, pre="d4_node_scale_n"):
     """Scaling Efficiency = Goodput(N) / ((N/2) * Goodput(2)); node load fixed. Values only, no stars (proposal)."""
-    need = ["d4_node_scale_n2", "d4_node_scale_n4", "d4_node_scale_n8", "d4_node_scale_n16"]
+    need = [f"{pre}{n}" for n in (2, 4, 8, 16)]
     if not all(n in ps for n in need):
         return {}
     out = {}
     for a in cands:
-        g2 = ps["d4_node_scale_n2"][a]["max_goodput_tps"]
-        out[a] = {str(n): (ps[f"d4_node_scale_n{n}"][a]["max_goodput_tps"] / ((n / 2) * g2) if g2 > 0 else None) for n in (4, 8, 16)}
-        out[a]["goodput_tps"] = {str(n): ps[f"d4_node_scale_n{n}"][a]["max_goodput_tps"] for n in (2, 4, 8, 16)}
+        g2 = ps[f"{pre}2"][a]["max_goodput_tps"]
+        out[a] = {str(n): (ps[f"{pre}{n}"][a]["max_goodput_tps"] / ((n / 2) * g2) if g2 > 0 else None) for n in (4, 8, 16)}
+        out[a]["goodput_tps"] = {str(n): ps[f"{pre}{n}"][a]["max_goodput_tps"] for n in (2, 4, 8, 16)}
         out[a]["note"] = "proposal metric, not an official QA; no stars (H11)"
     return out
 
@@ -527,6 +527,8 @@ def evaluate(sys_id, labels_to_run, jobs=1, csv_dir=None, cfg=None, overrides=No
         )
         if C1 in cands and C2 in cands:
             result[label]["c1_vs_c2"] = c1_vs_c2(ps)
+        if label == "agent_fleet_benchmark":
+            result[label]["scaling_efficiency"] = scaling(ps, cands, "af_n")
         if label == "dp4_benchmark":
             result[label]["scaling_efficiency"] = scaling(ps, cands)
             result[label]["failure"] = failure_table(sys_id, label, ps, jobs, cfg, overrides, cands)

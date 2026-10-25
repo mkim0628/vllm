@@ -36,7 +36,7 @@ STAR_SCALES = (0.9, 1.0, 1.1)
 
 def configs(group):
     """[(group, label, overrides, sets)]"""
-    both = [s for s, _ in q.SETS]
+    both = ["common_benchmark", "dp4_benchmark"]  # fixed: the agent-fleet set is not part of the sensitivity grids
     cb = ["common_benchmark"]
     out = []
     if group in ("grid", "all"):

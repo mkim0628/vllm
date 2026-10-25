@@ -58,6 +58,17 @@
 
 DP4-specific 행은 background 0(control plane 분리)이며 별점 산출에 쓰지 않는다(diagnostic, QA4 근거). 변종(`[restart]`, `[node_loss]`, `[as_published]`, `[lease]`)은 각각 별도 결과 행이다.
 
+# 4b. Agent KV Fleet (별도 set `agent_fleet_benchmark`, QA-criteria-v4 시나리오의 시뮬레이터 실현)
+
+긴 컨텍스트(16K in / 256 out) 에이전트가 10턴 동안 History KV를 재사용하고 노드 수를 키우는 시나리오. 기존 common/dp4 set과 별도 set이며 별점 산출에 쓰지 않는다. **Baseline-RDMA는 GPU-only B0도 단순 offloading B1도 아니다**(History KV를 D HBM에 용량 제한 없이 유지, DRAM/SSD tier·유휴 퇴출 없음). turn_gap_s는 기본 파라미터(8 s)이고 60 s 유휴는 모델링하지 않는다.
+
+| 시나리오 | 무엇인가 | 드러내는 As-Is 약점 | 핵심 파라미터 |
+|---|---|---|---|
+| `af_n2` | Agent KV Fleet 기준 행: 노드 2개 (P1 + D1) | 긴 컨텍스트 에이전트 History KV 재사용 + 노드 확장 (Baseline은 D→P 왕복) | P1+D1, in 16384/out 256, bg 0, turns 10 reuse on, reference row |
+| `af_n4` | Agent KV Fleet, 노드 4개 (P 2 + D 2), 16K/256, 10턴 | 긴 컨텍스트 에이전트 History KV 재사용 + 노드 확장 (Baseline은 D→P 왕복) | P2+D2, in 16384/out 256, bg 0, turns 10 reuse on |
+| `af_n8` | Agent KV Fleet, 노드 8개 (P 4 + D 4) | 긴 컨텍스트 에이전트 History KV 재사용 + 노드 확장 (Baseline은 D→P 왕복) | P4+D4, in 16384/out 256, bg 0, turns 10 reuse on |
+| `af_n16` | Agent KV Fleet, 노드 16개 (P 8 + D 8) | 긴 컨텍스트 에이전트 History KV 재사용 + 노드 확장 (Baseline은 D→P 왕복) | P8+D8, in 16384/out 256, bg 0, turns 10 reuse on |
+
 # 5. fit 분류 규칙
 
 comparison-valid / infeasible / saturated (SKILL §4, 공통 문서 §4). saturated는 이득 근거가 아니다. 분류는 결과를 보기 전 SLO 기준으로 하며 `qa_eval.py`가 자동 부여한다(`label_scenarios`).

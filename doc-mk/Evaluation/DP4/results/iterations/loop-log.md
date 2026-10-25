@@ -48,3 +48,11 @@ Baseline = Baseline-RDMA (T_ref, 점대점 RDMA 전송 + 중앙 인덱스). 규�
 - fit label 변화는 기계적: DP4 행에서 read가 TTFT에 노출되어 goodput 동률 행도 TTFT가 Baseline과 유의하게 달라짐(comparison-valid 6→37, saturated 32→1). 구조적 새 발견 아님.
 - 생략: control-plane 민감도(S, probe, cs, threads, batch, metadata cost)는 move path 수정과 무관하여 재실행하지 않음(Iteration 1에서 CB 결과를 움직이지 않음).
 - **판정 (사전 등록 규칙).** 후보는 tested 조건에서 Baseline 미만 → SKILL §5 중단 조건 (ii)의 문장을 쓴다: *under the tested conditions the architecture shows no benefit over the baseline* (CXL 공유 풀 data plane 기준; η_cxl ≥ 0.70 이상이면 QA1 parity 가능하나 이는 ASSUMED 범위의 민감도이며 main 아님). 추가 iteration으로 파라미터를 조정하지 않는다. 시도한 변경: Iteration 1 (진단 sweep, 변경 없음), Iteration 2 (M: serial read).
+
+## Iteration 3 — Agent KV Fleet set (2026-10-25, pre-registered before the run)
+
+**진단 (a).** 새 set `agent_fleet_benchmark`(16K/256, 10턴, reuse, 노드 2/4/8/16)를 기존 sim에 **변경 없이** 실행한다. 목적은 QA-criteria-v4 시나리오의 시뮬레이터 실현이며 기존 common/dp4 set과 결과는 건드리지 않는다(`results/data/agent_fleet/`에 새로 저장).
+**가설 (b, 실행 전).** (1) Baseline-RDMA는 History KV를 D HBM에 용량 제한 없이 유지하므로 후보의 이득은 D→P 왕복 제거뿐이다. (2) 후보는 매 턴 History 전체를 풀→D로 복원하므로 D ingress CXL 링크(2×63 GB/s×η_cxl)가 병목이 될 수 있고, 계산이 빠른 SYS-B200에서 더 먼저 포화한다. (3) 따라서 H100에서는 이득 또는 동률, B200에서는 Baseline 미만이 가능하다.
+**변경 (c).** 없음(시나리오 추가만 — class B 허용 범위, 기존 시나리오 유지). 파라미터/SLO/threshold 불변.
+**결과 (d, e).** 가설 (1)(2)(3) 모두 확인됨. SYS-H100: 후보 goodput 대비 Baseline x1.10(n2), x1.00(n4), x1.21~1.23(n8), x1.40~1.42(n16). SYS-B200: 4개 시나리오 모두 x0.51~0.52 (후보는 load 1.0에서 D ingress CXL 링크 점유율 1.00으로 포화, TTFT P99 29 s; Baseline은 같은 load에서 점유 0.07). 상세는 `../2026-10-25_dp4-agent-kv-fleet.md`.
+**판정 (f).** B200의 열세는 노이즈(N)가 아니다(CI 밖). root cause는 sim의 Baseline이 HBM 용량 압박을 받지 않는다는 점(M/B)과 후보의 매 턴 전체 History 복원 설계(P)가 겹친 것이다. 추가 iteration(예: sim에 HBM 용량·eviction 추가 = M class)은 모델 변경이므로 **소유자 결정 대기**. 파라미터 조정은 하지 않는다.
