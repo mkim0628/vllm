@@ -110,5 +110,19 @@ def dp4_benchmark():
     ]
 
 
+def agent_fleet_benchmark():
+    """Agent KV Fleet (QA-criteria-v4 scenario): long-context multi-turn agents, History KV reused across turns.
+    Added as its own set so the existing common/dp4 sets (and their results) are unchanged."""
+    def af(name, n, brief, **kw):
+        return Scenario(name, brief, dict(n_p=n // 2, n_d=n // 2, in_tokens=16384, out_tokens=256, turns=10, reuse=True, **kw),
+                        "긴 컨텍스트 에이전트 History KV 재사용 + 노드 확장 (Baseline은 D→P 왕복)")
+    return [
+        af("af_n2", 2, "Agent KV Fleet 기준 행: 노드 2개 (P1 + D1)", reference=True),
+        af("af_n4", 4, "Agent KV Fleet, 노드 4개 (P 2 + D 2), 16K/256, 10턴"),
+        af("af_n8", 8, "Agent KV Fleet, 노드 8개 (P 4 + D 4)"),
+        af("af_n16", 16, "Agent KV Fleet, 노드 16개 (P 8 + D 8)"),
+    ]
+
+
 def all_sets():
-    return {"common_benchmark": common_benchmark, "dp4_benchmark": dp4_benchmark}
+    return {"common_benchmark": common_benchmark, "dp4_benchmark": dp4_benchmark, "agent_fleet_benchmark": agent_fleet_benchmark}

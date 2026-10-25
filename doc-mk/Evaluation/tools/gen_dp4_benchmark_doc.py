@@ -63,7 +63,7 @@ def knob_params(sc, defaults):
 def render():
     sys.path.insert(0, str(SIM))
     mod = importlib.import_module("scenarios")
-    cb, dp = mod.common_benchmark(), mod.dp4_benchmark()
+    cb, dp, af = mod.common_benchmark(), mod.dp4_benchmark(), mod.agent_fleet_benchmark()
     defaults = mod.DEFAULT_KNOBS
     rows_cb = sum(len(s.rows()) for s in cb)
     rows_dp = sum(len(s.rows()) for s in dp)
@@ -99,6 +99,13 @@ def render():
     for sc in dp:
         L.append("| " + " | ".join(esc(x) for x in [f"`{sc.name}`", sc.brief, sc.exposes, knob_params(sc, defaults)]) + " |")
     L += ["", "DP4-specific 행은 background 0(control plane 분리)이며 별점 산출에 쓰지 않는다(diagnostic, QA4 근거). 변종(`[restart]`, `[node_loss]`, `[as_published]`, `[lease]`)은 각각 별도 결과 행이다.", "",
+          "# 4b. Agent KV Fleet (별도 set `agent_fleet_benchmark`, QA-criteria-v4 시나리오의 시뮬레이터 실현)", "",
+          "긴 컨텍스트(16K in / 256 out) 에이전트가 10턴 동안 History KV를 재사용하고 노드 수를 키우는 시나리오. 기존 common/dp4 set과 별도 set이며 별점 산출에 쓰지 않는다. "
+          "**Baseline-RDMA는 GPU-only B0도 단순 offloading B1도 아니다**(History KV를 D HBM에 용량 제한 없이 유지, DRAM/SSD tier·유휴 퇴출 없음). turn_gap_s는 기본 파라미터(8 s)이고 60 s 유휴는 모델링하지 않는다.", "",
+          "| 시나리오 | 무엇인가 | 드러내는 As-Is 약점 | 핵심 파라미터 |", "|---|---|---|---|"]
+    for sc in af:
+        L.append("| " + " | ".join(esc(x) for x in [f"`{sc.name}`", sc.brief, sc.exposes, knob_params(sc, defaults)]) + " |")
+    L += ["",
           "# 5. fit 분류 규칙", "",
           "comparison-valid / infeasible / saturated (SKILL §4, 공통 문서 §4). saturated는 이득 근거가 아니다. 분류는 결과를 보기 전 SLO 기준으로 하며 `qa_eval.py`가 자동 부여한다(`label_scenarios`).", "",
           "# 6. 모델링하지 않는 시나리오", "",

@@ -64,7 +64,7 @@ KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 겨냥한 통
 |---|---|---|
 | 모델·HW | Llama-3.1-70B BF16, 8-GPU 노드(SYS-H100): HBM 640 GiB, DRAM 1 TiB(호스트 링크 64 GB/s), NVMe 16 GB/s. DP2·DP4는 4~16 노드 | system-specs |
 | 요청 모델 | open-loop, idle 지수분포 평균 60 s, 컨텍스트 평균 16K, 턴당 +1K·출력 256 | 16K KV = 5.0 GiB. 동시 세션 ≈ 250~450 |
-| 메모리 압박 | HBM KV 풀 ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분) | 넘으면 SSD 사용 |
+| 메모리 압박 | HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분) | 넘으면 SSD 사용 |
 | 재사용 | 공유 문서 30%, 그중 50% non-prefix, 선택 재계산 15% 토큰 [가정] | DP3 조건 |
 | 부하·SLO | Q1 Max SLO goodput(이용률 0.8), Q3 B0 포화 부하의 90% 고정, TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms | |
 
@@ -92,13 +92,13 @@ Phase: P1 정상 multi-turn(DP1) · P2 burst(DP2) · P3 공유 문서 wave(DP3) 
 | DP1 | H100×8 1노드, HBM 640 GiB · DRAM 1 TiB · NVMe 16 GB/s | 모두 실장 장비 구성 | 이론 예상값(분석 모델) |
 | DP2 | H100×8 4노드(P 2 + D 2 고정 역할이 Baseline), 노드 간 링크 RDMA 50 GB/s [ASSUMED] | 노드·메모리는 실장 구성, 링크는 가정 | 이론 예상값(분석 모델) |
 | DP3 | H100×8 1노드 | 모두 실장 장비 구성 | 이론 예상값(분석 모델) |
-| DP4 | H100×8 4노드 + CXL 공유 메모리 풀 8 TiB | 노드는 실장, CXL 풀은 장비가 없어 시뮬레이션 | 이론 예상값(DP4 시뮬레이터와 같은 구조·파라미터). 시뮬레이터 실행은 다음 단계 |
+| DP4 | H100×8 4노드 + CXL 공유 메모리 풀 8 TiB | 노드는 실장, CXL 풀은 장비가 없어 시뮬레이션 | 덱 수치는 이론 예상값. DP4 시뮬레이터로 Agent KV Fleet 실행 완료(별도 결과 문서, Baseline-RDMA 대비) |
 
 DP4 시뮬레이터(`doc-mk/Evaluation/DP4/sim`): 이산 사건 시뮬레이터. P/D 분리 클러스터에서 Baseline-RDMA, 중앙 직렬화(C1), 분산 락(C2)을 같은 요청 흐름으로 비교한다. 링크는 선입선출 유체 서버(FIFO fluid server), decode는 processor sharing이고 prefill·decode 단계 시간은 DP1 모델을 그대로 가져온다. 제어 평면은 lookup · publish · pin · unpin 연산별 지연(중앙 RPC 약 2~7 µs, 분산 락 2.6~804 µs P99)을 둔다. 모든 파라미터는 값·범위·출처(PAPER / SPEC / ASSUMED)를 기록하고 결과를 본 뒤 바꾸지 않는다. seed 5개(11, 23, 37, 53, 71), 부하 격자 ×0.5~×8, 95% 신뢰구간, 요청별 SLO로 goodput을 계산한다.
 
 CXL 풀 모델: 8 TiB, 노드당 어댑터 2개(PCIe 5.0 x16, 각 63 GB/s), 풀 집계 1 TB/s, 유효 효율 0.5 [ASSUMED] → 노드 유효 약 63 GB/s. 미반영: CXL 스위치 혼잡, 메모리 뱅크 경합, 락 매니저 스레드의 CPU 스케줄링 간섭, 풀 장치 장애, 전력, 풀 용량 한계와 HBM OOM.
 
-**이번 수치의 위치**: 이 문서의 값은 시뮬레이터 실행 결과가 아니라 `theory_model.py`의 이론 예상값이다. 같은 물리 상수와 풀·제어 평면 파라미터를 쓰지만 이산 사건 시뮬은 하지 않았다. 다음 단계로 Agent KV Fleet(16K 컨텍스트, idle 평균 60 s, 교차 라우팅 25%, 2→16 노드)을 DP4 시뮬레이터 `scenarios.py`에 추가해 실행하고 이론값과 비교한 뒤 교체한다. 노드·HBM·DRAM·SSD는 실장 장비라 DP1·DP3와 B0·B1 값은 실측으로 검증해 모델 파라미터를 보정할 수 있다.
+**이번 수치의 위치**: 이 문서의 별점·표 값은 `theory_model.py` 이론 예상값(GPU-only B0 기준)이다. 별도로 DP4 시뮬레이터에 Agent KV Fleet(`agent_fleet_benchmark`)을 추가해 실제로 실행했다. 시뮬레이터 실행(2026-10-25, Agent KV Fleet 16K/10턴/노드 2~16, seeds 5): Baseline-RDMA 대비 goodput H100 x1.00(N=4)·x1.2(N=8)·x1.4(N=16), B200 x0.51(CXL ingress 포화). 상세 DP4/results/2026-10-25_dp4-agent-kv-fleet.md. 시뮬레이터 Baseline-RDMA는 B0도 B1도 아니고(HBM 용량 압박·DRAM/SSD tier 미모델링) 유휴 모델도 다르므로(8 s vs 60 s) 이론값과 직접 대조하지 않는다. 노드·HBM·DRAM·SSD는 실장 장비라 DP1·DP3와 B0·B1 값은 실측으로 검증해 모델 파라미터를 보정할 수 있다.
 
 ## 5. DP별 결과 (B0 · 경쟁 기술 B1 · 후보, 이론 예상값)
 
