@@ -15,6 +15,12 @@ from deck_lib import *  # noqa: F401,F403  (헬퍼: tbox, rect, add_table, band_
 from deck_lib import _font, BAND_FILL, NAVY, BASE, OUT
 
 
+_l0 = tm.max_lambda(tm.B0)
+_n0, _h0 = [tm.latencies(tm.B0, f * _l0, tm.max_lambda(tm.B0))[0] for f in (0.5, 0.9)]
+_n1, _h1 = [tm.latencies(tm.B1, f * _l0, tm.max_lambda(tm.B1))[0] for f in (0.5, 0.9)]
+_LOADROW = (_n0, _h0, _h0 / _n0, _n1, _h1)
+
+
 def q4_spec():
     r = cd.BAND_TEXT["Q4"]
     return dict(
@@ -528,8 +534,8 @@ def scenario_slides(prs):
              "반환 세션이 HBM/DRAM/SSD에서 발견될 확률은 LRU stack distance로 계산(idle ~ Exp(60 s))"],
             ["재사용", "세션 간 공유 문서 청크 30%, 그중 50%는 non-prefix 위치. 선택 재계산 15% 토큰 [가정]",
              "DP3 재사용·선택 재계산이 겨냥하는 조건. B0·경쟁 기술은 세션마다 복제 저장"],
-            ["부하·SLO", "Q1: 부하 sweep의 Max SLO goodput(이용률 상한 0.8 [가정]). Q3: B0 포화 부하의 90% 고정 부하. TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms",
-             "Q4: 노드 2→16 sweep, SE(16)"],
+            ["부하 구간·SLO", "Q1: 부하 sweep의 Max SLO goodput(이용률 상한 0.8 [가정]). Q3: 일반 부하 = B0 포화 부하의 50%, 고부하 = 90% 두 점에서 TTFT·TPOT P99를 잰다(별점은 고부하의 B0 대비 r, 일반 부하는 열화 확인용). SLO: TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms",
+             "이론값 TTFT P99(일반→고부하): B0 %.2f→%.2f s(×%.0f, 고부하에서 SLO 초과), B1 %.2f→%.2f s. Q4: 노드 2→16 sweep, SE(16)" % _LOADROW],
             ["Baseline: B0 GPU-only", "vLLM 기본: HBM prefix cache + preemption recompute, DRAM·SSD 사용 없음. 모든 별 기준은 B0 대비 변화량",
              "HBM에 없으면 16K 재prefill ≈ 0.65 s. '스케줄링도 offload도 없는' 하한"],
             ["경쟁 기술: 단순 offloading (B1, 경쟁 기술의 이론 대리)", "HBM이 차면 LRU로 DRAM, DRAM이 차면 SSD로 이동(턴 종료 시 증분만 기록하는 write-through, 축출은 복사 없이 삭제). 요청 시 동기 복원, prefetch·예측·배치 정책 없음",
