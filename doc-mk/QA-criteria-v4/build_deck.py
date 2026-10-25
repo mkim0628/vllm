@@ -163,7 +163,7 @@ def slo_page(slide):
     # 적용 규칙
     tbox(slide, 0.4, 4.95, 12.5, 2.2,
          [[("적용 규칙", {"bold": True, "color": NAVY, "size": 10})],
-          [("• Q1 SLO goodput: 요청별로 TTFT ≤ 2 s 그리고 TPOT ≤ 50 ms를 함께 만족한 요청의 출력 토큰만 합산한다. 부하 sweep의 최댓값이 Max SLO goodput이다.", {"size": 9})],
+          [("• Q1 SLO goodput: 요청별로 TTFT ≤ 2 s 그리고 TPOT ≤ 50 ms를 함께 만족한 요청의 초당 처리 수(query/s)로 센다(1 query = 요청 1건 = 1 turn, 출력 256 token). 부하 sweep의 최댓값이 Max SLO goodput이다.", {"size": 9})],
           [("• Q3 고부하 지연: 부하는 Baseline Max SLO goodput의 90%로 고정하고 TTFT·TPOT P99로 r을 계산한다. 후보가 SLO(P99)를 넘으면 개선 폭과 무관하게 ☆로 본다.", {"size": 9})],
           [("• 같은 값을 모든 DP 후보와 Baseline에 적용하고, 결과를 본 뒤 바꾸지 않는다. 바꾸면 새 버전으로 취급해 이전 결과와 비교하지 않는다.", {"size": 9})],
           [("• Baseline이 SLO를 만족하지 못하는 시나리오는 조용히 제외하지 않고 infeasible로 표시한다. P99 판정에는 구간당 요청 수 ≥ 1,000(seed별)을 확보한다 [가정].", {"size": 9})],
@@ -175,7 +175,7 @@ def slo_page(slide):
 # ============================================================ 이론 값 가져오기
 _R = tm.all_results()
 SGL = _R["single"]                    # 단일 노드(B0, B1, DP1, DP3)
-B0_TPS, B1_TPS = SGL["B0"]["tps"], SGL["B1"]["tps"]
+B0_QPS, B1_QPS = SGL["B0"]["qps"], SGL["B1"]["qps"]
 B0_TTFT, B0_TPOT = SGL["B0"]["ttft"], SGL["B0"]["tpot"]
 B1_TTFT, B1_TPOT = SGL["B1"]["ttft"], SGL["B1"]["tpot"]
 HBM_B0 = SGL["B0"]["hbm"]
@@ -190,23 +190,23 @@ def n0(x):
 
 def q1_spec():
     e = cd.EDGES["Q1"]
-    ab = [n0(x * B0_TPS) for x in e]
+    ab = [cd.fmt_q(x * B0_QPS) for x in e]
     r = cd.BAND_TEXT["Q1"]
     vals = sorted(v for _, v in cd.Q1_LIT)
     import statistics as _st
     med = _st.median(vals)
 
     def rng(star, i):
-        return [[(r[star], {})], [("(≥ %s tok/s)" % ab[i], {"size": 7.5, "color": "595959"})]]
-    ceil_r0 = B1_TPS / B0_TPS * CEIL_RATIO
+        return [[(r[star], {})], [("(≥ %s query/s)" % ab[i], {"size": 7.5, "color": "595959"})]]
+    ceil_r0 = B1_QPS / B0_QPS * CEIL_RATIO
     return dict(
         title="처리량 - 평가 기준",
         subtitle="Baseline(GPU-only) 대비, SLO를 만족하는 조건에서의 처리량(Max값) 증가율 — ★2는 경쟁 기술(KV offload·재사용) 문헌 대표값",
         src="출처: LMCache 2510.09665 · Mooncake 2407.00079 · InferCept 2402.01869 · Pensieve 2312.05516 · AttentionStore 2403.19708 · DistServe 2401.09670 · Sarathi-Serve 2403.02310. 'up to' 보고값이며 지표·baseline이 달라 직접 비교 아님",
         metric=["[Metric] R = Max SLO goodput(후보) ÷ Max SLO goodput(B0 GPU-only)",
                 "B0 = vLLM 기본(HBM만, 부족하면 recompute). 경쟁 기술 = KV offload·재사용·상태 보존 시스템(LMCache, Pensieve, InferCept, Mooncake, AttentionStore 등). 이론 대리 B1 = 단순 offloading(증분 write-through, 동기 복원, prefetch 없음)",
-                "Baseline 절대값(이론, 1노드): B0 %s tok/s → ★1 ≥ %s · ★2 ≥ %s · ★3 ≥ %s tok/s. 이 시나리오의 이론값: B1 ×%.2f(%s tok/s), 이론 상한 ×%.1f" % (
-                    n0(B0_TPS), ab[0], ab[2], ab[4], B1_TPS / B0_TPS, n0(B1_TPS), ceil_r0),
+                "Baseline 절대값(이론, 1노드): B0 %s query/s → ★1 ≥ %s · ★2 ≥ %s · ★3 ≥ %s query/s. 이 시나리오의 이론값: B1 ×%.2f(%s query/s), 이론 상한 ×%.1f" % (
+                    cd.fmt_q(B0_QPS), ab[0], ab[2], ab[4], B1_QPS / B0_QPS, cd.fmt_q(B1_QPS), ceil_r0),
                 "구간 규칙: ★1 = Stakeholder 2x · ★2 = 문헌 8건 headline 개선의 중앙값 %.1fx · ★3 = 문헌 상위권 8x(★2의 2배) · ★ 1단계 = 2배(log 등간격), 반 단계는 기하 중점" % med],
         metric_h=1.05,
         table_y=2.2,
@@ -237,7 +237,7 @@ def q1_spec():
                 dict(kind="range", v=(7.8, 8.2), style="lit", label="AttentionStore prefill 처리량 7.8~8.2x (TTFT −87~88%)"),
                 dict(kind="point", v=6.25, style="excl", label="Mooncake 시뮬 +525% (6.25x, 시뮬)"),
                 dict(kind="point", v=14, style="excl", label="LMCache 최대 14x (극단 조건)"),
-                dict(kind="range", v=(B1_TPS / B0_TPS, ceil_r0), style="calc", label="이 시나리오 이론: 단순 offload ×%.2f ~ 상한 ×%.1f" % (B1_TPS / B0_TPS, ceil_r0)),
+                dict(kind="range", v=(B1_QPS / B0_QPS, ceil_r0), style="calc", label="이 시나리오 이론: 단순 offload ×%.2f ~ 상한 ×%.1f" % (B1_QPS / B0_QPS, ceil_r0)),
             ]),
         row_h_chart=0.158,
     )
@@ -574,15 +574,15 @@ def baseline_slide(prs):
                      "분석 모델: theory_model.py (GPU 한계 · DRAM 링크 51 GB/s · SSD 링크 12.8 GB/s 중 최솟값 × 이용률 0.8). 시뮬레이션이 아니며 후보 파라미터는 [가정]")
     c2, c4 = _R["dp2"], _R["dp4"]
     e1, e3 = cd.EDGES["Q1"], cd.EDGES["Q3"]
-    t = lambda base, i: n0(base * e1[i])
-    bs = lambda v: "%s (%s)" % (n0(v), "×%.2f" % (v / B0_TPS))
+    t = lambda base, i: cd.fmt_q(base * e1[i])
+    bs = lambda v: "%s (%s)" % (cd.fmt_q(v), "×%.2f" % (v / B0_QPS))
     rows = [["QA", "범위", "지표", "B0 GPU-only (Baseline)", "경쟁 기술 B1 (이론)", "★1", "★2", "★3"],
-            ["Q1 처리량", "1 노드", "Max SLO goodput (tok/s)", n0(B0_TPS), "%s (×%.2f, %s)" % (n0(B1_TPS), B1_TPS / B0_TPS, cd.fmt_star(COMP["Q1"][1])),
-             "≥ " + t(B0_TPS, 0), "≥ " + t(B0_TPS, 2), "≥ " + t(B0_TPS, 4)],
-            ["", "DP2 4노드 (P2+D2 고정)", "Max SLO goodput (tok/s)", n0(c2["B0"]["tps"]), "%s (×%.2f)" % (n0(c2["B1"]["tps"]), c2["B1"]["tps"] / c2["B0"]["tps"]),
-             "≥ " + t(c2["B0"]["tps"], 0), "≥ " + t(c2["B0"]["tps"], 2), "≥ " + t(c2["B0"]["tps"], 4)],
-            ["", "DP4 4노드 (노드 독립)", "Max SLO goodput (tok/s)", n0(c4["B0"]["tps"]), "%s (×%.2f)" % (n0(c4["B1"]["tps"]), c4["B1"]["tps"] / c4["B0"]["tps"]),
-             "≥ " + t(c4["B0"]["tps"], 0), "≥ " + t(c4["B0"]["tps"], 2), "≥ " + t(c4["B0"]["tps"], 4)],
+            ["Q1 처리량", "1 노드", "Max SLO goodput (query/s)", cd.fmt_q(B0_QPS), "%s (×%.2f, %s)" % (cd.fmt_q(B1_QPS), B1_QPS / B0_QPS, cd.fmt_star(COMP["Q1"][1])),
+             "≥ " + t(B0_QPS, 0), "≥ " + t(B0_QPS, 2), "≥ " + t(B0_QPS, 4)],
+            ["", "DP2 4노드 (P2+D2 고정)", "Max SLO goodput (query/s)", cd.fmt_q(c2["B0"]["qps"]), "%s (×%.2f)" % (cd.fmt_q(c2["B1"]["qps"]), c2["B1"]["qps"] / c2["B0"]["qps"]),
+             "≥ " + t(c2["B0"]["qps"], 0), "≥ " + t(c2["B0"]["qps"], 2), "≥ " + t(c2["B0"]["qps"], 4)],
+            ["", "DP4 4노드 (노드 독립)", "Max SLO goodput (query/s)", cd.fmt_q(c4["B0"]["qps"]), "%s (×%.2f)" % (cd.fmt_q(c4["B1"]["qps"]), c4["B1"]["qps"] / c4["B0"]["qps"]),
+             "≥ " + t(c4["B0"]["qps"], 0), "≥ " + t(c4["B0"]["qps"], 2), "≥ " + t(c4["B0"]["qps"], 4)],
             ["Q2 HBM 효율", "1 노드", "HBM 상주 KV (GiB, 낮을수록 좋음)", n0(HBM_B0), "%s (0%%, ☆: LRU가 HBM을 채움)" % n0(COMP_B1_HBM),
              "≤ %s" % n0(HBM_B0 * 0.8), "≤ %s" % n0(HBM_B0 * 0.6), "≤ %s" % n0(HBM_B0 * 0.4)],
             ["", "DP2 4노드", "HBM 상주 KV (GiB)", n0(c2["B1"]["hbm"]), n0(c2["B1"]["hbm"]),
@@ -603,9 +603,9 @@ def baseline_slide(prs):
     tbox(s, 6.7, 4.7, 6.2, 2.4,
          [[("읽는 법", {"bold": True, "color": NAVY, "size": 10})],
           [("• ★1 = Stakeholder 요구(B0 대비), ★2 = 경쟁 기술 문헌 대표값, ★3 = 경쟁 기술 위 목표(Q1은 문헌 상위권 8x, Q2·Q3는 ★2 × 1.5). 수치는 모두 B0 대비", {"size": 8.8})],
-          [("• 경쟁 기술(B1) 이론값: Q1 ×%.2f(%s, 문헌 중앙값 4x에는 못 미침), Q3 r %.2f(%s). Q1은 이 시나리오의 이론 상한(×%.1f)이 ★3(8x)보다 낮아 ★3에 도달할 수 없다" % (B1_TPS / B0_TPS, cd.fmt_star(COMP["Q1"][1]), COMP["Q3"][0], cd.fmt_star(COMP["Q3"][1]), CEIL_RATIO * B1_TPS / B0_TPS), {"size": 8.8})],
+          [("• 경쟁 기술(B1) 이론값: Q1 ×%.2f(%s, 문헌 중앙값 4x에는 못 미침), Q3 r %.2f(%s). Q1은 이 시나리오의 이론 상한(×%.1f)이 ★3(8x)보다 낮아 ★3에 도달할 수 없다" % (B1_QPS / B0_QPS, cd.fmt_star(COMP["Q1"][1]), COMP["Q3"][0], cd.fmt_star(COMP["Q3"][1]), CEIL_RATIO * B1_QPS / B0_QPS), {"size": 8.8})],
           [("• Q2는 예외: 정적 LRU offload는 HBM을 캐시로 채워 감소 0%다. ★2의 40%는 HBM 절감을 목적으로 한 offload 문헌(DirectKV 등)의 값이다", {"size": 8.8})],
-          [("• 이론 상한: 처리량은 GPU 한계로 B1의 %.1fx(= B0의 ×%.1f), HBM은 ≈88%% 절감, TTFT는 prefill(≈41 ms)까지" % (CEIL_RATIO, CEIL_RATIO * B1_TPS / B0_TPS), {"size": 8.8})]],
+          [("• 이론 상한: 처리량은 GPU 한계로 B1의 %.1fx(= B0의 ×%.1f), HBM은 ≈88%% 절감, TTFT는 prefill(≈41 ms)까지" % (CEIL_RATIO, CEIL_RATIO * B1_QPS / B0_QPS), {"size": 8.8})]],
          size=8.8, line_spacing=1.12)
     return s
 
@@ -746,8 +746,8 @@ def dp_result_slide(prs, dp):
         lab, how = QLAB[q]
         t1, t2 = cd.THEORY[(dp, 1)].get(q), cd.THEORY[(dp, 2)].get(q)
         if q == "Q1":
-            b0c = n0(t1["b0"]) + " tok/s"
-            b1c = "%s tok/s (×%.2f, %s)" % (n0(t1["b1"]), t1["b1"] / t1["b0"], cd.fmt_star(cd.star_q1(t1["b1"] / t1["b0"])))
+            b0c = cd.fmt_q(t1["b0"]) + " query/s"
+            b1c = "%s query/s (×%.2f, %s)" % (cd.fmt_q(t1["b1"]), t1["b1"] / t1["b0"], cd.fmt_star(cd.star_q1(t1["b1"] / t1["b0"])))
         elif q == "Q2":
             b0c = n0(t1["b0"]) + " GiB"
             b1c = "%s GiB (0%%, ☆)" % n0(t1["b1"])
@@ -764,7 +764,7 @@ def dp_result_slide(prs, dp):
             st = cd.theory_star(dp, k, q)
             own = cd.OWNER[(dp, k)][q]
             if q == "Q1":
-                l1 = "%s tok/s" % n0(t["c"])
+                l1 = "%s query/s" % cd.fmt_q(t["c"])
                 l2 = "B0 대비 ×%.2f · 경쟁 기술 대비 %+.0f%%" % (t["r0"], (t["r1"] - 1) * 100)
             elif q == "Q2":
                 l1 = "%s GiB" % n0(t["c"])

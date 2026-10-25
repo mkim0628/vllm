@@ -8,7 +8,7 @@ b0, b1 = S["B0"], S["B1"]
 c2, c4 = R["dp2"], R["dp4"]
 n0 = lambda x: format(round(x), ",")
 comp = cd.competitor_stars()
-CEIL_R0 = (1 / tm.G0) / b1["lam"] * b1["tps"] / b0["tps"]            # B0 대비 이론 상한
+CEIL_R0 = (1 / tm.G0) / b1["lam"] * b1["qps"] / b0["qps"]            # B0 대비 이론 상한
 e = cd.EDGES
 out = []
 w = out.append
@@ -70,24 +70,24 @@ Q5 판정은 module 수 하나다. M/M이 module 수에서 계산되는 값이�
 | 5 | 1.0 | 2.07 M | $0.65 | $1.94 |
 
 토큰 비용을 별점 조건으로 쓰지 않는 이유: (1) 비용은 돈이고 변경 용이성은 사람의 시간을 묻는다. 에이전트가 써도 사람이 리뷰·통합 테스트·승인을 해야 하므로 공수는 0이 되지 않는다. (2) 5개 module도 약 $0.65라 후보를 가르지 못한다(사람 공수 1.0 MM과 비교). (3) 가격표가 바뀌면 설계가 같아도 별이 바뀐다. 그래서 module 수가 판정, 토큰 비용은 보조 근거다.
-""" % (b1["tps"] / b0["tps"], CEIL_R0, 8.0, 8.0 / CEIL_R0 * 100, comp["Q3"][0]))
+""" % (b1["qps"] / b0["qps"], CEIL_R0, 8.0, 8.0 / CEIL_R0 * 100, comp["Q3"][0]))
 
 w("## 2. Baseline 절대값과 경쟁 기술 이론값 (Agent KV Fleet, 이론 계산)\n")
 w("| QA | 범위 | B0 GPU-only | 경쟁 기술 B1 | ★1 / ★2 / ★3 (B0 환산) |")
 w("|---|---|---|---|---|")
-w("| Q1 goodput (tok/s) | 1 노드 | %s | %s (×%.2f, %s) | ≥ %s / %s / %s |" % (n0(b0["tps"]), n0(b1["tps"]), b1["tps"] / b0["tps"], cd.fmt_star(comp["Q1"][1]),
-                                                                   n0(b0["tps"] * e["Q1"][0]), n0(b0["tps"] * e["Q1"][2]), n0(b0["tps"] * e["Q1"][4])))
-w("| | DP2 4노드(P2+D2 고정) | %s | %s (×%.2f) | ≥ %s / %s / %s |" % (n0(c2["B0"]["tps"]), n0(c2["B1"]["tps"]), c2["B1"]["tps"] / c2["B0"]["tps"],
-                                                                  n0(c2["B0"]["tps"] * e["Q1"][0]), n0(c2["B0"]["tps"] * e["Q1"][2]), n0(c2["B0"]["tps"] * e["Q1"][4])))
-w("| | DP4 4노드(노드 독립) | %s | %s (×%.2f) | ≥ %s / %s / %s |" % (n0(c4["B0"]["tps"]), n0(c4["B1"]["tps"]), c4["B1"]["tps"] / c4["B0"]["tps"],
-                                                                  n0(c4["B0"]["tps"] * e["Q1"][0]), n0(c4["B0"]["tps"] * e["Q1"][2]), n0(c4["B0"]["tps"] * e["Q1"][4])))
+w("| Q1 goodput (query/s) | 1 노드 | %s | %s (×%.2f, %s) | ≥ %s / %s / %s |" % (cd.fmt_q(b0["qps"]), cd.fmt_q(b1["qps"]), b1["qps"] / b0["qps"], cd.fmt_star(comp["Q1"][1]),
+                                                                   cd.fmt_q(b0["qps"] * e["Q1"][0]), cd.fmt_q(b0["qps"] * e["Q1"][2]), cd.fmt_q(b0["qps"] * e["Q1"][4])))
+w("| | DP2 4노드(P2+D2 고정) | %s | %s (×%.2f) | ≥ %s / %s / %s |" % (cd.fmt_q(c2["B0"]["qps"]), cd.fmt_q(c2["B1"]["qps"]), c2["B1"]["qps"] / c2["B0"]["qps"],
+                                                                  cd.fmt_q(c2["B0"]["qps"] * e["Q1"][0]), cd.fmt_q(c2["B0"]["qps"] * e["Q1"][2]), cd.fmt_q(c2["B0"]["qps"] * e["Q1"][4])))
+w("| | DP4 4노드(노드 독립) | %s | %s (×%.2f) | ≥ %s / %s / %s |" % (cd.fmt_q(c4["B0"]["qps"]), cd.fmt_q(c4["B1"]["qps"]), c4["B1"]["qps"] / c4["B0"]["qps"],
+                                                                  cd.fmt_q(c4["B0"]["qps"] * e["Q1"][0]), cd.fmt_q(c4["B0"]["qps"] * e["Q1"][2]), cd.fmt_q(c4["B0"]["qps"] * e["Q1"][4])))
 w("| Q2 HBM (GiB) | 1 노드 / DP2 4노드 | %s / %s | %s / %s (0%%, ☆) | ≤ %s / %s / %s (1 노드) |" % (n0(b0["hbm"]), n0(c2["B1"]["hbm"]), n0(b1["hbm"]), n0(c2["B1"]["hbm"]),
                                                                                               n0(b0["hbm"] * .8), n0(b0["hbm"] * .6), n0(b0["hbm"] * .4)))
 w("| Q3 TTFT/TPOT P99 | B0 포화 부하 90%% | %.2f s / %.1f ms (SLO 초과) | %.2f s / %.1f ms (r %.2f, %s) | TTFT ≤ %.2f / %.2f / %.2f s (TPOT 동일 시) |" % (
     b0["ttft"], b0["tpot"], b1["ttft"], b1["tpot"], comp["Q3"][0], cd.fmt_star(comp["Q3"][1]),
     b0["ttft"] / e["Q3"][0] ** 2, b0["ttft"] / e["Q3"][2] ** 2, b0["ttft"] / e["Q3"][4] ** 2))
 w("| Q4 SE(16) | N=16 | 98%% | 98%% (★3) | ≥ 80 / 90 / 95%% |")
-w("\n경쟁 기술(B1) 이론값은 Q1 ×%.2f(%s, 문헌 중앙값 4x 미만), Q3 r %.2f(%s)다. Q2는 정적 LRU offload가 HBM을 캐시로 채워 0%%(☆), Q4는 노드 독립이라 98%%(★3)다. 이론 상한: 처리량은 GPU 한계로 B1의 %.1f배(= B0의 ×%.1f).\n" % (b1["tps"] / b0["tps"], cd.fmt_star(comp["Q1"][1]), comp["Q3"][0], cd.fmt_star(comp["Q3"][1]), (1 / tm.G0) / b1["lam"], CEIL_R0))
+w("\n경쟁 기술(B1) 이론값은 Q1 ×%.2f(%s, 문헌 중앙값 4x 미만), Q3 r %.2f(%s)다. Q2는 정적 LRU offload가 HBM을 캐시로 채워 0%%(☆), Q4는 노드 독립이라 98%%(★3)다. 이론 상한: 처리량은 GPU 한계로 B1의 %.1f배(= B0의 ×%.1f).\n" % (b1["qps"] / b0["qps"], cd.fmt_star(comp["Q1"][1]), comp["Q3"][0], cd.fmt_star(comp["Q3"][1]), (1 / tm.G0) / b1["lam"], CEIL_R0))
 
 w(("""## 3. 평가 시나리오: Agent KV Fleet
 
@@ -145,7 +145,7 @@ for dp in ("DP1", "DP2", "DP3", "DP4"):
     for q in qs[dp]:
         t1, t2 = cd.THEORY[(dp, 1)][q], cd.THEORY[(dp, 2)][q]
         if q == "Q1":
-            b0c, b1c = n0(t1["b0"]) + " tok/s", "%s tok/s (×%.2f)" % (n0(t1["b1"]), t1["b1"] / t1["b0"])
+            b0c, b1c = cd.fmt_q(t1["b0"]) + " query/s", "%s query/s (×%.2f)" % (cd.fmt_q(t1["b1"]), t1["b1"] / t1["b0"])
         elif q == "Q2":
             b0c, b1c = n0(t1["b0"]) + " GiB", n0(t1["b1"]) + " GiB (0%)"
         elif q == "Q3":
