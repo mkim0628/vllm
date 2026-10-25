@@ -55,20 +55,21 @@ def q4_spec():
 
 
 def q5_rows():
+    mm = cd.mm_of_modules
     return [
-        (3, "≤ 2", "≤ 0.5", "일상 변경 규모: SWE-bench 평균 패치 1.7 file·32.8 line ≈ 0.32 MM(아래 공식 환산). 0.5 MM = 1인 2주 sprint", "SWE-bench (arXiv 2310.06770), 사전 등록 가정"),
-        (2.5, "≤ 2.5", "≤ 0.625", "★2와 ★3의 중점", "—"),
-        (2, "≤ 3", "≤ 0.75", "변경이 한 Plane/Layer 안에 머무는 규모(설계 component 12~14개의 약 1/4), 3주", "—"),
-        (1.5, "≤ 4", "≤ 0.875", "★1과 ★2의 중점", "—"),
-        (1, "≤ 5", "≤ 1.0",
-         "최소 충족. module: 설계 component 12~14개 중 5개(36~42%) 초과 시 확장 지점이 없다고 본다. M/M: vLLM 최상위 KV connector 중앙값 356 LOC를 1개 신규 구현하는 비용 ≈ 1.0 MM(공식 환산) = 1인 1개월",
+        (3, "≤ 2", "≤ %.1f" % mm(2), "일상 변경 규모: SWE-bench 평균 패치 1.7 file(2개 이하). 0.4 MM ≈ 1인 2주 미만", "SWE-bench (arXiv 2310.06770), 사전 등록 가정"),
+        (2.5, "≤ 2.5", "≤ %.1f" % mm(2.5), "★2와 ★3의 중점", "—"),
+        (2, "≤ 3", "≤ %.1f" % mm(3), "변경이 한 Plane/Layer 안에 머무는 규모(설계 component 12~14개의 약 1/4), 약 3주", "—"),
+        (1.5, "≤ 4", "≤ %.1f" % mm(4), "★1과 ★2의 중점", "—"),
+        (1, "≤ 5", "≤ %.1f" % mm(5),
+         "최소 충족. 설계 component 12~14개 중 5개(36~42%) 초과 시 확장 지점이 없다고 본다. 1.0 MM = 1인 1개월 (vLLM connector 1개 신규 구현 ≈ 1 MM과 같은 규모)",
          "DP1 사전 등록 component 목록, vLLM 저장소 LOC 계수"),
-        (0, "≥ 6 또는 major interface 변경", "> 1.0", "한 항목이라도 ★1 기준을 넘으면 미충족. 기존 필드 의미 변경(Backend I/F, Event schema)은 module 수와 무관하게 미충족", "—"),
+        (0, "≥ 6 또는 major interface 변경", "> 1.0", "module 수가 ★1 기준을 넘으면 미충족. 기존 필드 의미 변경(Backend I/F, Event schema)은 module 수와 무관하게 미충족", "—"),
     ]
 
 
 def q5_page(slide):
-    page_chrome(slide, "변경 용이성 - 평가 기준", "변경 module 수 AND M/M(개발 공수) — 시나리오 평균, 두 지표 중 낮은 별",
+    page_chrome(slide, "변경 용이성 - 평가 기준", "별 조건 = 변경 module 수 하나 (시나리오 평균) — 개발 공수 M/M은 module 수에서 환산한 값으로 병기",
                 "출처: SWE-bench (arXiv 2310.06770) · vLLM 저장소 kv_connector/v1 직접 계수(최상위 파일 192~1,190 LOC, 중앙값 356) · DP1 qa4-preregistration(공식·상수 ASSUMED)")
     for nm in ("tbl", "formula", "l"):
         for sh in [s for s in slide.shapes if s.name == nm]:
@@ -79,7 +80,7 @@ def q5_page(slide):
            ("S1 새 메모리 tier 추가 · S2 이동·배치·재사용 정책 교체 · S3 vLLM upstream 갱신 대응(block pool, kv_offload, CUDA graph, async scheduling 접점 수정). "
             "시나리오 단순 평균으로 판정. module = 설계 문서의 component 단위(한 줄이라도 바꾸면 1개).", {"size": 9.5})]],
          size=9.5, line_spacing=1.1, name="metric")
-    rows = [["별", "① 변경 module 수 (평균)", "② 개발 공수 (M/M, 평균)", "근거", "출처"]]
+    rows = [["별", "변경 module 수 (평균) = 판정 기준", "환산 개발 공수 (M/M, 참고)", "근거", "출처"]]
     stars = []
     for st, m, mm, ev, src in q5_rows():
         rows.append([[[(star_label(st), {"bold": True})]], m, mm, ev, src])
@@ -87,17 +88,18 @@ def q5_page(slide):
     colw = [0.75, 1.6, 1.6, 6.05, 2.53]
     rowh = [0.26] + [0.34] * 6
     add_table(slide, 0.4, 1.7, colw, rows, rowh, fills=stars, size=8.3, aligns=["c", "c", "c", "l", "l"])
-    # 공식 박스
+    # 환산 박스
     rect(slide, 0.4, 4.1, 12.53, 0.62, fill="F2F6FC", line="2F5597", line_w=1.0, shape=MSO_SHAPE.ROUNDED_RECTANGLE, name="formula")
     tbox(slide, 0.5, 4.12, 12.3, 0.6,
-         [[("M/M = [ module 수 n × module당 고정 공수 3일 + 추가 LOC L ÷ 하루 생산성 40 LOC × 테스트·리뷰 overhead 2.0 ] ÷ 21일/MM", {"bold": True, "color": NAVY, "size": 9.5})],
-          [("환산 예: SWE-bench 평균 패치 n=1.7, L=32.8 → 6.7일 = 0.32 MM · vLLM connector 중앙값 n=1, L=356 → 20.8일 = 0.99 MM. "
-            "(LOC는 실제 vLLM 통합 기준. 시뮬레이터 proxy LOC는 ×5 배율로 환산한다.) 토큰 비용은 기준에서 제외했다.", {"size": 8.5, "color": "404040"})]],
+         [[("module 1개 = 고정 3일 + 24 LOC ÷ 40 LOC/일 × 테스트·리뷰 overhead 2.0 = 4.2일 = 0.2 MM  →  M/M = 0.2 × module 수  (21일/MM)", {"bold": True, "color": NAVY, "size": 9.5})],
+          [("24 LOC/module: SWE-bench 평균 패치 32.8 line ÷ 1.7 file ≈ 19 LOC/file을 올림. 실측 대조: DP1 후보 구현 측정 1.75 module → 0.38 MM(환산 0.35), 2.5 module → 0.51 MM(환산 0.50). "
+            "LOC는 실제 vLLM 통합 기준(시뮬레이터 proxy LOC는 ×5 환산).", {"size": 8.5, "color": "404040"})]],
          size=9, line_spacing=1.1, name="formula_text")
-    # 두 지표의 관계
+    # 왜 하나만 보는가
     tbox(slide, 0.4, 4.76, 12.5, 0.3,
-         [[("두 지표의 관계: ", {"bold": True, "color": NAVY, "size": 9}),
-           ("module 수 n이 M/M 안에 3일×n으로 들어 있어 독립이 아니다(n=2면 0.29 MM, n=5면 0.71 MM 선점). module 수가 M/M의 하한을 정하고, AND 판정은 'LOC까지 큰 변경'을 추가로 걸러 낸다.", {"size": 8.5})]],
+         [[("왜 module 수만 판정하나: ", {"bold": True, "color": NAVY, "size": 9}),
+           ("M/M이 module 수에서 계산되므로 둘은 독립이 아니다. 둘을 AND로 걸면 같은 정보를 두 번 세는 것이다. 판정은 module 수 하나로 하고, 각 경계가 몇 M/M인지는 환산해 보인다. "
+            "토큰 비용은 별점이 아니라 별도 참고 페이지(다음 장)에 둔다.", {"size": 8.5})]],
          size=8.5, line_spacing=1.05)
     return 0
 
@@ -363,19 +365,12 @@ def build_criteria_slides(prs):
     slo_page(sl[8])
     q5_page(sl[10])
     s = sl[10]
-    ax_m = dict(min=0, max=7, log=False, ticks=[0, 1, 2, 3, 4, 5, 6, 7], unit="")
+    ax_m = dict(min=0, max=7, log=False, ticks=[0, 1, 2, 3, 4, 5, 6, 7], unit="", reverse=True)   # 왼쪽 = 미충족, 오른쪽 = 높은 별
     bands_m = [(0, 2, 3), (2, 2.5, 2.5), (2.5, 3, 2), (3, 4, 1.5), (4, 5, 1), (5, 7, 0)]
-    mk_m = [dict(kind="point", v=1.7, style="lit", label="SWE-bench 평균 패치 1.7 file (★3 경계 2)"),
-            dict(kind="point", v=3.0, style="calc", label="★2 경계 3 ≈ component 12~14개의 1/4"),
-            dict(kind="point", v=5, style="req", label="★1 경계: component 12~14개 중 5개(36~42%)")]
-    ax_mm = dict(min=0, max=1.5, log=False, ticks=[0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5], unit="")
-    bands_mm = [(0, 0.5, 3), (0.5, 0.625, 2.5), (0.625, 0.75, 2), (0.75, 0.875, 1.5), (0.875, 1.0, 1), (1.0, 1.5, 0)]
-    mk_mm = [dict(kind="point", v=0.32, style="calc", label="SWE-bench 평균 패치 환산 0.32 MM"),
-             dict(kind="point", v=0.5, style="req", label="1인 2주 sprint (★3 경계)"),
-             dict(kind="point", v=1.0, style="req", label="1인 1개월 (★1 경계)"),
-             dict(kind="range", v=(0.60, 1.5), style="calc", label="vLLM connector 신규 구현 0.60(192 LOC)~2.98(1,190 LOC) MM")]
-    band_chart(s, 0.4, 5.15, 6.0, ax_m, bands_m, mk_m, title="① module 수 (시나리오 평균)", row_h=0.18, label_size=6.8, legend=False)
-    band_chart(s, 6.7, 5.15, 6.2, ax_mm, bands_mm, mk_mm, title="② 개발 공수 M/M", row_h=0.18, label_size=6.8, legend=True)
+    mk_m = [dict(kind="point", v=1.7, style="lit", label="SWE-bench 평균 패치 1.7 file (★3 경계 2 module ≈ 0.4 MM)"),
+            dict(kind="point", v=3.0, style="calc", label="★2 경계 3 module ≈ 0.6 MM · component 12~14개의 1/4"),
+            dict(kind="point", v=5, style="req", label="★1 경계 5 module ≈ 1.0 MM(1인 1개월) · component 12~14개 중 36~42%")]
+    band_chart(s, 0.4, 5.15, 12.5, ax_m, bands_m, mk_m, title="변경 module 수 (시나리오 평균) — 오른쪽일수록 별이 높다", row_h=0.2, label_size=7.2, legend=True)
 
 
 # ============================================================ DP 페이지(2~5): 절대값·개선율 병기
@@ -496,7 +491,7 @@ def edit_requirements(slide):
                 p0._p.remove(run._r)
             add_runs(p0, "새로운 메모리 tier 추가, 이동·배치·재사용 정책 교체, vLLM upstream 갱신 시 서빙 경로를 수정하지 않고 반영할 수 있어야 한다.", sz)
             p1 = c.text_frame.add_paragraph()
-            add_runs(p1, [("[측정: 변경 모듈 수 ≤ 5개, 개발 공수 ≤ 1.0 M/M (변경 시나리오 3종 평균, 두 조건 모두 만족)]", {"color": "000000", "bold": True})], sz)
+            add_runs(p1, [("[측정: 변경 모듈 수 ≤ 5개 (변경 시나리오 3종 평균, 환산 개발 공수 ≈ 1.0 M/M 이하)]", {"color": "000000", "bold": True})], sz)
 
 
 # ============================================================ 신규 페이지
@@ -560,12 +555,12 @@ def scenario_slides(prs):
              "DP3: 재사용·재계산 대상 선정. 1안 = Pipe-and-Filter(요청마다 체인), 2안 = Shared Repository(분석 1회 + 조회), 둘 다 선택 재계산", "Q1, Q2, Q3"],
             ["P4 노드 확장\n(별도 run)", "노드 2→16, 세션 수 ∝ 노드 수. 노드 간 KV 블록 조회·소유권 이동 발생",
              "DP4: 서버 간 KV 공유. 1안 = 중앙 서버 중재, 2안 = 락 기반 직접 접근. CXL 공유 풀이 SSD를 대체", "Q1, Q3, Q4"],
-            ["변경 시나리오\n(구현 측정)", "S1 새 메모리 tier · S2 정책 교체 · S3 vLLM upstream 갱신", "모든 DP 후보의 module 수·M/M (시나리오 평균)", "Q5"]]
+            ["변경 시나리오\n(구현 측정)", "S1 새 메모리 tier · S2 정책 교체 · S3 vLLM upstream 갱신", "모든 DP 후보의 module 수 (시나리오 평균, M/M 환산 병기)", "Q5"]]
     add_table(s2, 0.4, 1.2, [1.6, 3.9, 5.5, 1.53], rows, [0.26] + [0.62] * 5, fills=[None] * 5, size=8.5, aligns=["l", "l", "l", "c"])
     tbox(s2, 0.4, 4.9, 12.5, 1.5,
          [[("측정 규칙", {"bold": True, "color": NAVY, "size": 10})],
           [("• Q1: 부하 sweep 최댓값끼리 R = 후보 ÷ B0 · Q2: HBM 상주 KV 시간 평균의 B0 대비 감소율 · Q3: B0 포화 부하의 90%에서 TTFT·TPOT P99로 r 계산(B0 대비)", {"size": 9})],
-          [("• Q4: 노드 2→16 sweep, SE(16) = goodput 배율 ÷ 노드 배율 · Q5: 변경 시나리오 3종을 각 후보에 구현해 module 수·M/M 평균", {"size": 9})],
+          [("• Q4: 노드 2→16 sweep, SE(16) = goodput 배율 ÷ 노드 배율 · Q5: 변경 시나리오 3종을 각 후보에 구현해 module 수 평균(M/M 환산 병기)", {"size": 9})],
           [("• 경쟁 기술(단순 offloading)은 판정 기준이 아니라 ★2 앵커와 비교용이다. 기준·시나리오 값은 결과를 보기 전에 고정한다. 기존 중립 벤치마크 시뮬 결과는 md의 참고 표에만 둔다.", {"size": 9})]],
          size=9, line_spacing=1.12)
     return s, s2
@@ -594,7 +589,7 @@ def baseline_slide(prs):
              "%.2f s / %.1f ms (r %.2f, ★2)" % (B1_TTFT, B1_TPOT, COMP["Q3"][0]),
              "TTFT ≤ %.2f s" % (B0_TTFT / e3[0] ** 2), "≤ %.2f s" % (B0_TTFT / e3[2] ** 2), "≤ %.2f s" % (B0_TTFT / e3[4] ** 2)],
             ["Q4 확장성", "N=16", "SE (%)", "98 (노드 독립)", "98 (노드 독립, ★3)", "≥ 80", "≥ 90", "≥ 95"],
-            ["Q5 변경 용이성", "후보 구현", "module 수 · M/M (절대 기준)", "—", "—", "≤5 · ≤1.0", "≤3 · ≤0.75", "≤2 · ≤0.5"]]
+            ["Q5 변경 용이성", "후보 구현", "module 수 (환산 M/M)", "—", "—", "≤5 (≈1.0)", "≤3 (≈0.6)", "≤2 (≈0.4)"]]
     add_table(s, 0.4, 1.2, [1.3, 1.75, 2.35, 1.9, 2.3, 1.0, 1.0, 0.93], rows, [0.28] + [0.38] * 8, fills=[None] * 8, size=8,
               aligns=["l", "l", "l", "c", "c", "c", "c", "c"])
     tbox(s, 0.4, 4.7, 6.1, 2.4,
@@ -684,7 +679,7 @@ QLAB = {"Q1": ("Q1 처리량", "SLO(TTFT ≤ 2 s, TPOT ≤ 50 ms) 만족 Max goo
         "Q2": ("Q2 HBM 효율", "HBM 상주 KV 시간 평균(GiB), 같은 부하·SLO"),
         "Q3": ("Q3 고부하 지연", "B0 포화 부하의 90%에서 TTFT·TPOT P99"),
         "Q4": ("Q4 확장성", "SE(N=16) = goodput 배율 ÷ 노드 배율"),
-        "Q5": ("Q5 변경 용이성", "변경 시나리오 평균 module 수·M/M (기존 구현 측정)")}
+        "Q5": ("Q5 변경 용이성", "변경 시나리오 평균 module 수 (기존 구현 측정, M/M은 환산 병기)")}
 
 DPINFO = {
     "DP1": dict(title="DP1. Data Migration 결정 구조 — Trade-off 평가 결과", names=("1안 상태 관측+이동 결정 통합", "2안 관측·결정 분리"),
@@ -795,6 +790,36 @@ def dp_result_slide(prs, dp):
     return s
 
 
+def token_slide(prs):
+    s = clone_chrome(prs, 5, "변경 용이성 - 에이전트 토큰 비용 (참고 지표, 별점 아님)",
+                     "Claude Sonnet 5.5로 module n개를 변경할 때 코드 에이전트 1세션의 토큰·비용 추정 — 별점 조건이 될 수 없는 이유 포함",
+                     "산식·상수: DP1 qa4-preregistration M3(상수는 ASSUMED, 가격만 현행 Sonnet 5.5로 교체) · 가격: Anthropic 공개 가격표 Sonnet 5.5 입력 $2 · 캐시 읽기 $0.20 · 출력 $10 / MTok. 실제 에이전트 실행 측정이 아니다")
+    rows = [["module 수", "환산 M/M", "총 토큰 (입력+캐시+출력)", "비용 (Sonnet 5.5)", "재시도·탐색 ×3일 때", "대응 별 경계"]]
+    marks = {2: "★3 경계", 3: "★2 경계", 5: "★1 경계"}
+    for n in (1, 2, 3, 4, 5):
+        tk, usd = cd.token_cost(n)
+        rows.append([str(n), "%.1f" % cd.mm_of_modules(n), "%.2f M" % (tk / 1e6), "$%.2f" % usd, "$%.2f" % (3 * usd), marks.get(n, "—")])
+    d1 = [(k, cd.Q5_VALUES[k]) for k in (("DP1", 1), ("DP1", 2))]
+    for (dp, k), (m, mm) in d1:
+        tk, usd = cd.token_cost(m)
+        rows.append(["%g (DP1 %d안 측정)" % (m, k), "%.2f (측정)" % mm, "%.2f M" % (tk / 1e6), "$%.2f" % usd, "$%.2f" % (3 * usd), "—"])
+    add_table(s, 0.4, 1.2, [2.1, 1.5, 2.9, 2.0, 2.2, 1.83], rows, [0.3] + [0.28] * 7, fills=[None] * 7, size=9, aligns=["c"] * 6)
+    tbox(s, 0.4, 3.65, 12.5, 1.2,
+         [[("추정 방법", {"bold": True, "color": NAVY, "size": 10})],
+          [("• 비용 = 입력 컨텍스트 × $2 + 턴 수 × 컨텍스트 × $0.20(캐시 읽기) + 출력 × $10 (MTok 단위). 컨텍스트 = 시스템·도구 25k + 읽는 코드(1.5 × 12 token/LOC × module당 356 LOC × n).", {"size": 8.8})],
+          [("• 턴 수 = 10 + 5n, 출력 = 작성(12 token/LOC × 24 LOC × n × 작성·수정 2회) + 턴당 300 token. 356 LOC = vLLM 최상위 KV connector 중앙값. 상수는 모두 가정(ASSUMED)이며 에이전트 실행으로 확인한 값이 아니다.", {"size": 8.8})]],
+         size=8.8, line_spacing=1.1)
+    rect(s, 0.4, 4.95, 12.53, 1.95, fill="FFF5F5", line="C00000", line_w=1.0, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
+    tbox(s, 0.55, 5.0, 12.25, 1.9,
+         [[("토큰 비용을 별점 조건으로 쓰지 않는 이유", {"bold": True, "color": "C00000", "size": 10})],
+          [("① 비용 ≠ 공수. 토큰 비용은 돈이고, 변경 용이성이 묻는 것은 사람이 들이는 시간이다. 에이전트가 코드를 써도 사람이 설계 적합성 리뷰·통합 테스트·승인을 해야 하므로 공수는 어떤 경우에도 0이 되지 않는다. 그 공수는 module 수에 따라 늘어난다(module 1개 = 0.2 MM).", {"size": 8.8})],
+          [("② 후보를 가르지 못한다. 5개 module을 바꿔도 $%.2f, 2개면 $%.2f로 사람 공수(1.0 MM vs 0.4 MM)에 비해 사실상 무시할 수준이고, DP1 두 안의 차이는 $%.2f에 불과하다." % (cd.token_cost(5)[1], cd.token_cost(2)[1], abs(cd.token_cost(2.5)[1] - cd.token_cost(1.75)[1])), {"size": 8.8})],
+          [("③ 가격에 종속된다. 모델·가격표가 바뀌면 같은 설계의 별이 바뀐다(후보 간 순위는 같은 모델 안에서는 그대로). 설계 품질이 아닌 시장 가격이 별을 정하게 된다.", {"size": 8.8})],
+          [("④ 그래서 참고 지표로 둔다: 'AI 에이전트로 변경해도 비용 부담이 크지 않다'는 보조 근거로만 쓰고, 판정은 module 수(사람 리뷰 범위의 대리 지표)로 한다.", {"size": 8.8, "bold": True})]],
+         size=8.8, line_spacing=1.1)
+    return s
+
+
 def mapping_slide(prs):
     s = clone_chrome(prs, 5, "Trade-off 별 ↔ 평가 기준 구간 ↔ 이론 예상값",
                      "DP 후보별 소유자 별이 새 기준(GPU-only 대비)의 어떤 수치 구간에 해당하는지, 이론 예상값은 어디에 놓이는지",
@@ -851,8 +876,9 @@ def main():
     sim_s = sim_env_slide(prs)
     res = {dp: dp_result_slide(prs, dp) for dp in ("DP1", "DP2", "DP3", "DP4")}
     map_s = mapping_slide(prs)
+    tok_s = token_slide(prs)
     order = [S[0], S[1], res["DP1"], S[2], res["DP2"], S[3], res["DP3"], S[4], res["DP4"], base_s, meth_s, sim_s,
-             S[5], S[6], S[7], S[8], S[9], S[10], sc1, sc2, map_s]
+             S[5], S[6], S[7], S[8], S[9], S[10], tok_s, sc1, sc2, map_s]
     lst = prs.slides._sldIdLst
     ids = [sl.slide_id for sl in order]
     els = {int(e.get("id")): e for e in lst}
