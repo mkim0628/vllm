@@ -41,7 +41,7 @@
 | Q4 | 80 / 90 / 95% | ★1 Stakeholder 80%(AthenaK 65,536 GPU 80%, 학습). ★2 90% = '효율적' 관례(경쟁 기술인 노드 독립 offload는 SE 98%지만 노드 간 공유 이득 없음). ★3 95% = 조율 계층을 두고도 손실 5% 이내(USL σ 0.35%) | 정책 선택. 90% 관례의 인용 논문(arXiv 1704.03329)은 부적합해 뺐다 |
 | Q5 | ★1 = 5 module(≈1.0 MM), ★3 = 2 module(≈0.4 MM) | module: 설계 component 12~14개 중 약 1/3(5개)까지만 바뀌면 변경이 설계 일부에 국한된다고 본 최소 충족선(6개 이상이면 설계 전반으로 퍼짐, 설계 정책값), ★3은 component 12~14개 중 2개 이하(약 1/7)로 본 정책값이며, SWE-bench 평균 패치 1.7 file은 단위가 file이라 module과 같지 않은 규모감 참고치다. M/M은 module 수에서 환산한 값이며 판정 조건이 아니다. 경쟁 기술 비교는 없는 절대 기준 | LOC는 저장소에서 직접 계수, 공식·상수는 DP1 사전 등록(ASSUMED) |
 
-Q5 판정은 module 수 하나다. M/M이 module 수에서 계산되는 값이라 둘을 AND로 걸면 같은 정보를 두 번 세기 때문이다. 환산: module 1개 = 고정 3일 + 24 LOC ÷ 40 LOC/일 × 2.0 = 4.2일 = 0.2 MM(21일/MM). 24 LOC은 SWE-bench 평균 패치 19 LOC/file을 올린 값이다. 변경 시나리오 3종: S1 새 tier, S2 정책 교체, S3 vLLM upstream 갱신.
+Q5 판정은 module 수 하나다. M/M이 module 수에서 계산되는 값이라 둘을 AND로 걸면 같은 정보를 두 번 세기 때문이다. 환산: module 1개 = 고정 3일 + 24 LOC ÷ 40 LOC/일 × 2.0 = 4.2일 = 0.2 MM(21일/MM). 24 LOC은 SWE-bench 평균 패치 19 LOC/file을 올린 값이다. 고정 3일(interface 파악·설계 리뷰·통합 테스트)과 40 LOC/일(순 생산성), overhead 2.0은 문헌값이 아니라 DP1 사전 등록 가정(ASSUMED; 범위 2~5일, 25~80 LOC/일, 1.5~3.0)이며, 범위 양 끝에서 module 1개 = 0.12~0.38 MM이라 M/M 환산은 약 ±50% 불확실하다(module 수 판정은 영향 없음). 변경 시나리오 3종: S1 새 tier, S2 정책 교체, S3 vLLM upstream 갱신.
 
 **참고: 에이전트 토큰 비용(Claude Sonnet 5.5, 별점 아님)** — 입력 $2 · 캐시 읽기 $0.20 · 출력 $10 per MTok. 산식·상수는 DP1 `qa4-preregistration.md` M3(ASSUMED)이며 실제 에이전트 실행 측정이 아니다.
 
