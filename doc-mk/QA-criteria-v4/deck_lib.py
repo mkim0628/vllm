@@ -199,6 +199,8 @@ def band_chart(slide, x, y, w, axis, bands, markers, title=None, row_h=0.205, la
     def X(v):
         v = min(max(v, amin), amax)
         t = (math.log(v) - math.log(amin)) / (math.log(amax) - math.log(amin)) if log else (v - amin) / (amax - amin)
+        if axis.get("reverse"):                      # 작을수록 좋은 지표: 왼쪽 = 미충족, 오른쪽 = 높은 별
+            t = 1 - t
         return px0 + t * pw
 
     cy = y
@@ -207,7 +209,7 @@ def band_chart(slide, x, y, w, axis, bands, markers, title=None, row_h=0.205, la
         cy += 0.26
     strip_h = 0.3
     for lo, hi, s in bands:
-        bx0, bx1 = X(lo), X(hi)
+        bx0, bx1 = sorted((X(lo), X(hi)))
         if bx1 - bx0 < 0.01:
             continue
         rect(slide, bx0, cy, bx1 - bx0, strip_h, fill=BAND_FILL[s], line="FFFFFF", line_w=0.75)

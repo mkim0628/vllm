@@ -34,9 +34,30 @@ EDGES = {
     "Q2": [20, 30, 40, 50, 60],                    # HBM 사용량 감소율 % (B0 대비, ★2 40% = 오프로딩 문헌, ★3 = 잔여 60%/1.5)
     "Q3": [1.43, 1.7, 2.0, 2.45, 3.0],             # r = √(TTFT 개선 × TPOT 개선, P99) vs B0 (★1 감소율 30%, ★2 50%, ★3 = 2.0×1.5)
     "Q4": [80, 85, 90, 92.5, 95],                  # SE(N=16) %
-    "Q5_module": [5, 4, 3, 2.5, 2],
-    "Q5_mm": [1.0, 0.875, 0.75, 0.625, 0.5],
+    "Q5_module": [5, 4, 3, 2.5, 2],                # 판정은 module 수만. M/M은 아래 상수로 환산한 값(별 조건 아님)
 }
+# module 수 → M/M 환산: module 1개 = 고정 3일 + 24 LOC ÷ 40 LOC/일 × 오버헤드 2.0 = 4.2일 = 0.2 MM (21일/MM)
+Q5_FIXED_DAYS, Q5_LOC_PER_MODULE, Q5_PROD, Q5_OVH, Q5_DAYS_PER_MM = 3.0, 24, 40.0, 2.0, 21.0
+MM_PER_MODULE = (Q5_FIXED_DAYS + Q5_LOC_PER_MODULE / Q5_PROD * Q5_OVH) / Q5_DAYS_PER_MM      # 0.2
+
+
+def mm_of_modules(n):
+    return n * MM_PER_MODULE
+
+
+# 에이전트(Claude Sonnet 5.5) 토큰 비용 — 참고 지표(별점 아님). 산식·상수는 DP1/qa4-preregistration.md M3를 실제 LOC 기준으로 옮긴 것
+SONNET55 = dict(p_in=2.0, p_cache=0.2, p_out=10.0)         # $/MTok (Anthropic 공개 가격표, 2026-10 확인)
+TOK = dict(tpl=12, S_mod=356, a_read=1.5, C0=25_000, n0=10, n_m=5, n_iter=2, o_turn=300)
+
+
+def token_cost(n, price=SONNET55):
+    """module n개 변경 시 에이전트 1세션 비용. 반환 (총 토큰, 달러)."""
+    t = TOK
+    c_bar = t["C0"] + t["a_read"] * t["tpl"] * t["S_mod"] * n
+    turns = t["n0"] + t["n_m"] * n
+    t_out = t["tpl"] * Q5_LOC_PER_MODULE * n * t["n_iter"] + t["o_turn"] * turns
+    usd = (c_bar * price["p_in"] + turns * c_bar * price["p_cache"] + t_out * price["p_out"]) / 1e6
+    return c_bar + turns * c_bar + t_out, usd
 
 
 def red_of_r(r):
@@ -54,7 +75,7 @@ BAND_SHORT = {
     "Q2": {1: "20~30%", 1.5: "30~40%", 2: "40~50%", 2.5: "50~60%", 3: "≥60%"},
     "Q3": {1: "r 1.43~1.7", 1.5: "r 1.7~2.0", 2: "r 2.0~2.45", 2.5: "r 2.45~3.0", 3: "r ≥3.0"},
     "Q4": {1: "80~85%", 1.5: "85~90%", 2: "90~92.5%", 2.5: "92.5~95%", 3: "≥95%"},
-    "Q5": {1: "≤5모듈·≤1.0MM", 1.5: "≤4·≤0.875", 2: "≤3·≤0.75", 2.5: "≤2.5·≤0.625", 3: "≤2·≤0.5"},
+    "Q5": {1: "≤5모듈(≈1.0MM)", 1.5: "≤4(≈0.8)", 2: "≤3(≈0.6)", 2.5: "≤2.5(≈0.5)", 3: "≤2(≈0.4)"},
 }
 
 
@@ -74,8 +95,8 @@ def star_q4(se_pct):
     return _stars(se_pct, EDGES["Q4"])
 
 
-def star_q5(modules, mm):
-    return min(_stars(modules, EDGES["Q5_module"], False), _stars(mm, EDGES["Q5_mm"], False))
+def star_q5(modules, mm=None):
+    return _stars(modules, EDGES["Q5_module"], False)
 
 
 def fmt_star(s):
