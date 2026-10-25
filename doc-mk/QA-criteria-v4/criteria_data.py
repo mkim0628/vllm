@@ -60,6 +60,11 @@ def token_cost(n, price=SONNET55):
     return c_bar + turns * c_bar + t_out, usd
 
 
+def fmt_q(x):
+    """query/s 표기: 10 미만은 소수 2자리, 이상은 소수 1자리."""
+    return format(x, ",.2f") if x < 10 else format(x, ",.1f")
+
+
 def red_of_r(r):
     return (1 - 1 / r) * 100
 
@@ -126,7 +131,7 @@ Q5_VALUES = {("DP1", 1): (1.75, 0.38), ("DP1", 2): (2.5, 0.51)}
 def _q(b0, b1, c, hbm=True):
     """b0/b1/c = dict(tps, ttft, tpot, hbm). 지표별 값. 주 지표는 B0 대비, B1(경쟁 기술) 대비는 참고."""
     out = {}
-    out["Q1"] = dict(b0=b0["tps"], b1=b1["tps"], c=c["tps"], r0=c["tps"] / b0["tps"], r1=c["tps"] / b1["tps"])
+    out["Q1"] = dict(b0=b0["qps"], b1=b1["qps"], c=c["qps"], r0=c["qps"] / b0["qps"], r1=c["qps"] / b1["qps"])
     if hbm:
         out["Q2"] = dict(b0=b0["hbm"], b1=b1["hbm"], c=c["hbm"], red0=(1 - c["hbm"] / b0["hbm"]) * 100,
                          red1=(1 - c["hbm"] / b1["hbm"]) * 100)
@@ -183,7 +188,7 @@ def theory_star(dp, k, q):
 def competitor_stars():
     b0, b1 = _S["B0"], _S["B1"]
     r3, _ = tm.r_reduction(b0["ttft"], b0["tpot"], b1["ttft"], b1["tpot"])
-    return {"Q1": (b1["tps"] / b0["tps"], star_q1(b1["tps"] / b0["tps"])),
+    return {"Q1": (b1["qps"] / b0["qps"], star_q1(b1["qps"] / b0["qps"])),
             "Q2": ((1 - b1["hbm"] / b0["hbm"]) * 100, star_q2((1 - b1["hbm"] / b0["hbm"]) * 100)),
             "Q3": (r3, star_q3(r3)),
             "Q4": (_C2["SE16"]["B1"] * 100, star_q4(_C2["SE16"]["B1"] * 100))}
@@ -200,7 +205,7 @@ def cell_text(dp, k, q):
     if t is None:
         return "—"
     if q == "Q1":
-        return "%s→%s tok/s (×%.2f)" % (format(round(t["b0"]), ","), format(round(t["c"]), ","), t["r0"])
+        return "%s→%s query/s (×%.2f)" % (fmt_q(t["b0"]), fmt_q(t["c"]), t["r0"])
     if q == "Q2":
         return "%s→%s GiB (%s)" % (format(round(t["b0"]), ","), format(round(t["c"]), ","), _sg(-t["red0"]))
     if q == "Q3":

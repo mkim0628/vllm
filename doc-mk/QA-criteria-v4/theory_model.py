@@ -4,7 +4,7 @@
   1) 물리 상수(H100×8 노드)와 시나리오 파라미터로 B0(GPU-only), B1(정적 offload)의 절대값을 계산한다.
   2) 후보는 B1과 같은 식을 쓰되 설계 파라미터(θ, w, π, ω, 오버헤드, watermark)만 다르다.
      파라미터는 첨부 덱의 장단점에서 방향만 가져온 [가정]이며 시뮬레이션으로 교체될 값이다.
-  3) 출력: Q1 goodput(tok/s), Q2 HBM 사용(GiB), Q3 TTFT·TPOT P99와 개선 r, Q4 SE(N=16).
+  3) 출력: Q1 goodput(query/s, query = 요청 1건 = 1 turn, 출력 256 token), Q2 HBM 사용(GiB), Q3 TTFT·TPOT P99와 개선 r, Q4 SE(N=16).
 
 요청 모델: open-loop. 세션 idle 시간은 지수분포(평균 Z). LRU stack distance 근사로 반환 세션이
 HBM/DRAM/SSD에서 발견될 확률을 계산한다. 가용 부하율 0.8(=SLO 유지용 이용률 상한)을 Max SLO goodput에 적용한다.
@@ -90,7 +90,7 @@ def max_lambda(c, n_hbm=None):
 
 
 def goodput(lam):
-    return UTIL_CAP * OUT * lam
+    return UTIL_CAP * lam                 # query/s: SLO를 만족하는 요청의 초당 처리 수 (1 query = 1 turn)
 
 
 def latencies(c, lam_test, lam_cap, n_hbm=None):
@@ -138,7 +138,7 @@ def single_node():
         lam = max_lambda(c)
         ttft, tpot, rho = latencies(c, lam_test, lam)
         hbm = HBM_POOL / GiB * (1.0 if key in ("B0", "B1") else c.wm)   # 정적 LRU offload는 HBM을 캐시로 채운다
-        out[key] = dict(lam=lam, tps=goodput(lam), ttft=ttft, tpot=tpot, rho=rho, hbm=hbm, cfg=c)
+        out[key] = dict(lam=lam, qps=goodput(lam), ttft=ttft, tpot=tpot, rho=rho, hbm=hbm, cfg=c)
     return out, lam_test
 
 
@@ -153,18 +153,18 @@ def cluster_dp2(single):
     base = single["B1"]
     b0 = single["B0"]
     res = {}
-    res["B0"] = dict(tps=D_NODES * b0["tps"], note="P/D 고정 + GPU-only")
-    res["B1"] = dict(tps=D_NODES * base["tps"], ttft=base["ttft"], tpot=base["tpot"], hbm=D_NODES * 425.0)
+    res["B0"] = dict(qps=D_NODES * b0["qps"], note="P/D 고정 + GPU-only")
+    res["B1"] = dict(qps=D_NODES * base["qps"], ttft=base["ttft"], tpot=base["tpot"], hbm=D_NODES * 425.0)
     params = {1: dict(u_p=0.20, d=0.008, replan=0.0, a=0.10, wm=0.85),   # 스케줄링 시점 결정: N=4에서 결정 8 ms(2 ms×N), 실시간 상태
               2: dict(u_p=0.50, d=0.0, replan=0.040, a=0.05, wm=0.92)}    # 사전 계획: 결정 0, Re-plan(31%) P99 +40 ms, plan 예약으로 HBM 여유 필요
     for k, p in params.items():
         n_eff = D_NODES + p["u_p"] * (N4 - D_NODES)
-        tps = n_eff * base["tps"] * (1 + p["a"] * 0.5)
+        qps = n_eff * base["qps"] * (1 + p["a"] * 0.5)
         # tail: 복원 stall을 피하는 배치 a, 링크 이용률은 n_eff 증가만큼 낮아짐
         rho = min(base["rho"] * D_NODES / n_eff, 0.95)
         ttft = T_NEW + p["d"] + p["replan"] + (1 - p["a"]) * (base["ttft"] - T_NEW) * (1 - base["rho"]) / (1 - rho)
         tpot = tau() * 1e3 * (1 + 0.5 * rho)
-        res[("DP2", k)] = dict(tps=tps, ttft=ttft, tpot=tpot, hbm=D_NODES * 425.0 * p["wm"])
+        res[("DP2", k)] = dict(qps=qps, ttft=ttft, tpot=tpot, hbm=D_NODES * 425.0 * p["wm"])
     # SE(N=16): 단일 scheduler 결정 용량 vs 요구 (결정 비용 2 ms × N, 후보 수 선형 [repo ASSUMED])
     lam_node = single["B1"]["lam"]
     demand = 16 * lam_node
@@ -194,8 +194,8 @@ def cluster_dp4(single, lam_test_node):
             lo = mid
         else:
             hi = mid
-    res["B0"] = dict(tps=N4 * goodput(lo))
-    res["B1"] = dict(tps=goodput(lam_b1_cluster) , lam=lam_b1_cluster)
+    res["B0"] = dict(qps=N4 * goodput(lo))
+    res["B1"] = dict(qps=goodput(lam_b1_cluster) , lam=lam_b1_cluster)
     lam_test = lam_test_node                                  # 노드당 시험 부하 = B0 포화 부하의 90%
     # B1 latency (노드당)
     c_pool = {}
@@ -203,12 +203,12 @@ def cluster_dp4(single, lam_test_node):
         c = Cfg("DP4 %d안" % k, pool=True, pool_bw=pool_bw, extra_gpu=0.0, d_crit=ctl[k])
         lam = max_lambda(c)
         ttft, tpot, rho = latencies(c, lam_test, lam)
-        res[("DP4", k)] = dict(tps=N4 * goodput(lam) * (1 - ctl[k] / G0 * 0.0), ttft=ttft, tpot=tpot, rho=rho)
+        res[("DP4", k)] = dict(qps=N4 * goodput(lam) * (1 - ctl[k] / G0 * 0.0), ttft=ttft, tpot=tpot, rho=rho)
     cb1 = Cfg("B1 cross", w=1.0)
     ttft_b1, tpot_b1, _ = latencies(cb1, lam_test, lam_b1_cluster / N4)
     ttft_b1 += x_cross * T_REC                               # P99는 교차 라우팅 재계산 경로
     res["B1"].update(ttft=ttft_b1, tpot=tpot_b1)
-    lam_node = res[("DP4", 1)]["tps"] / N4 / (UTIL_CAP * OUT)
+    lam_node = res[("DP4", 1)]["qps"] / N4 / UTIL_CAP
     demand = 16 * lam_node * 4                               # 16노드 × 4 op/turn
     res["SE16"] = {"B1": 0.98, ("DP4", 1): min(1.0, 204_800 / demand) * 0.99, ("DP4", 2): min(1.0, 102_400 / demand) * 0.99}
     return res
@@ -232,6 +232,6 @@ if __name__ == "__main__":
     s = R["single"]
     print("G0 %.3f s  ceiling %.2f turn/s  λ_test %.2f" % (G0, 1 / G0, R["lam_test"]))
     for k, v in s.items():
-        print(k, "λ=%.2f tps=%.0f TTFT=%.2fs TPOT=%.1fms HBM=%.0f ρ=%.2f" % (v["lam"], v["tps"], v["ttft"], v["tpot"], v["hbm"], v["rho"]))
+        print(k, "λ=%.2f qps=%.0f TTFT=%.2fs TPOT=%.1fms HBM=%.0f ρ=%.2f" % (v["lam"], v["qps"], v["ttft"], v["tpot"], v["hbm"], v["rho"]))
     print("DP2", {k: {a: round(b, 3) for a, b in v.items() if isinstance(b, float)} for k, v in R["dp2"].items()})
     print("DP4", {k: {a: round(b, 3) for a, b in v.items() if isinstance(b, float)} for k, v in R["dp4"].items() if k != "SE16"}, R["dp4"]["SE16"])
