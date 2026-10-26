@@ -424,6 +424,12 @@ def annotate_dp(slide, dp):
             m = re.match(r"\s*Q(\d)\.", p.text)
             if m:
                 labels["Q" + m.group(1)] = p
+        if "Q2" in labels:                       # 사용자 덱의 Q2 라벨을 Capacity로 교체
+            for r in labels["Q2"].runs:
+                if "Resource Efficiency" in r.text:
+                    r.text = r.text.replace("Resource Efficiency", "Capacity")
+                elif r.text.strip() in ("(HBM", "사용량", "GB)") or r.text in ("(HBM ", "사용량 ", "GB)"):
+                    r.text = ""
         q_order = list(labels.keys())
         star_pars = [p for p in star_cell.text_frame.paragraphs if p.text.strip()]
         star_cell._tc.get_or_add_tcPr().set("marR", "0")
@@ -433,11 +439,14 @@ def annotate_dp(slide, dp):
             while len(btf.paragraphs) < len(q_order):
                 btf.add_paragraph()
         for qi, q in enumerate(q_order):
-            txt = cd.cell_text(dp, k, q) if (dp, k) in cd.THEORY else "—"
+            qq = "QC" if q == "Q2" else q          # 이 덱의 Q2는 Capacity로 교체(기존 자원 효율은 평가 기준 페이지에만 유지)
+            txt = cd.cell_text(dp, k, qq) if (dp, k) in cd.THEORY else "—"
             r = star_pars[qi].add_run()
             r.text = " " + txt
             _font(r, 6.3, False, "404040")
             cm = _auto_comment(dp, k, q) if (dp, k) in cd.THEORY else None
+            if q == "Q2":
+                cm = "Capacity 별 재평가 필요"
             if blank_cell is not None:
                 bp = blank_cell.text_frame.paragraphs[qi]
                 sp0 = bp.add_run()
@@ -451,6 +460,12 @@ def annotate_dp(slide, dp):
                 rr = labels[q].add_run()
                 rr.text = "   ▸ " + cm
                 _font(rr, 7.5, False, "0000FF")
+    for sh in slide.shapes:                     # 상단 QA 태그
+        if sh.has_text_frame and sh.text_frame.text.strip() == "Q2 HBM 점유율":
+            rr = [r for p in sh.text_frame.paragraphs for r in p.runs]
+            rr[0].text = "Q2 Capacity"
+            for r in rr[1:]:
+                r.text = ""
     tbox(slide, 0.62, 7.2, 4.3, 0.28,
          [[("작은 수치 = B0(GPU-only) → 후보의 이론 예상값(분석 모델, 시뮬레이션 아님)과 B0 대비 개선. ", {"size": 6.3, "color": "595959"}),
            ("파란 글씨 = 소유자 별 대비 코멘트.", {"size": 6.3, "color": "0000FF"})]],
@@ -583,10 +598,11 @@ def baseline_slide(prs):
              "≥ " + t(c2["B0"]["qps"], 0), "≥ " + t(c2["B0"]["qps"], 2), "≥ " + t(c2["B0"]["qps"], 4)],
             ["", "DP4 4노드 (노드 독립)", "Max SLO goodput (query/s)", cd.fmt_q(c4["B0"]["qps"]), "%s (×%.2f)" % (cd.fmt_q(c4["B1"]["qps"]), c4["B1"]["qps"] / c4["B0"]["qps"]),
              "≥ " + t(c4["B0"]["qps"], 0), "≥ " + t(c4["B0"]["qps"], 2), "≥ " + t(c4["B0"]["qps"], 4)],
-            ["Q2 HBM 효율", "1 노드", "HBM 상주 KV (GiB, 낮을수록 좋음)", n0(HBM_B0), "%s (0%%, ☆: LRU가 HBM을 채움)" % n0(COMP_B1_HBM),
+            ["Q2 Capacity", "1 노드", "KV 보존 동시 세션 수 (HBM 가득 채움, 16K 기준)", "%d (HBM만)" % round(tm.capacity_sessions(tm.B0)),
+             "%d (×%.1f)" % (round(tm.capacity_sessions(tm.B1)), tm.capacity_sessions(tm.B1) / tm.capacity_sessions(tm.B0)),
+             "≥ %d (2x)" % round(2 * tm.capacity_sessions(tm.B0)), "미정", "미정"],
+            ["Q2' HBM 효율(참고)", "1 노드", "HBM 상주 KV (GiB, 낮을수록 좋음)", n0(HBM_B0), "%s (0%%, ☆: LRU가 HBM을 채움)" % n0(COMP_B1_HBM),
              "≤ %s" % n0(HBM_B0 * 0.8), "≤ %s" % n0(HBM_B0 * 0.6), "≤ %s" % n0(HBM_B0 * 0.4)],
-            ["", "DP2 4노드", "HBM 상주 KV (GiB)", n0(c2["B1"]["hbm"]), n0(c2["B1"]["hbm"]),
-             "≤ %s" % n0(c2["B1"]["hbm"] * 0.8), "≤ %s" % n0(c2["B1"]["hbm"] * 0.6), "≤ %s" % n0(c2["B1"]["hbm"] * 0.4)],
             ["Q3 고부하 지연", "B0 포화 부하 90%", "TTFT P99 (s) / TPOT P99 (ms)", "%.2f s / %.1f ms (SLO 초과)" % (B0_TTFT, B0_TPOT),
              "%.2f s / %.1f ms (r %.2f, ★2)" % (B1_TTFT, B1_TPOT, COMP["Q3"][0]),
              "TTFT ≤ %.2f s" % (B0_TTFT / e3[0] ** 2), "≤ %.2f s" % (B0_TTFT / e3[2] ** 2), "≤ %.2f s" % (B0_TTFT / e3[4] ** 2)],
@@ -620,6 +636,7 @@ def method_slide(prs):
           [("② 처리 한계 λ = min(GPU 1/0.113 s, DRAM 링크 51 GB/s ÷ 이동 바이트, SSD 링크 12.8 GB/s ÷ 이동 바이트). B0는 miss마다 0.65 s 재계산. Max SLO goodput = 0.8 × 256 tok × λ", {"size": 8.5})],
           [("③ 이동 바이트 = miss × (1−π) 동기 복원 + miss × π × (1+ω) prefetch + w × miss write-back (π 적시율, ω 낭비, w write-back 비율; B1은 w=0.1 증분 기록)", {"size": 8.5})],
           [("④ 고부하 = B0 포화 부하의 90%. TTFT P99 = 새 입력 prefill 41 ms + 결정 지연 + 99% 복원 경로 ÷ (1 − 링크 이용률). TPOT P99 = 18.1 ms × (1 + 0.5 × 이용률)", {"size": 8.5})],
+          [("⑥ Capacity = θ × (HBM 85 + DRAM 184 세션분) ÷ f′ (HBM 가득 채움, SSD 제외, 신규 메모리 미반영 [잠정]). B0는 HBM만 85세션", {"size": 8.5})],
           [("⑤ SE(16) = min(1, 결정 용량 ÷ 요구 결정률). 결정 비용은 후보 수에 선형(2 ms × N) [기존 평가의 ASSUMED]", {"size": 8.5})]],
          size=8.5, line_spacing=1.1)
     tbox(s, 6.8, 1.17, 6.1, 3.0,
@@ -679,23 +696,24 @@ def sim_env_slide(prs):
 
 QLAB = {"Q1": ("Q1 처리량", "SLO(TTFT ≤ 2 s, TPOT ≤ 50 ms) 만족 Max goodput"),
         "Q2": ("Q2 HBM 효율", "HBM 상주 KV 시간 평균(GiB), 같은 부하·SLO"),
+        "QC": ("Q2 Capacity", "같은 HBM에서 KV를 보존해 재개 가능한 최대 동시 세션 수(HBM 가득 채움, SSD 제외, 신규 메모리 미반영 [잠정])"),
         "Q3": ("Q3 고부하 지연", "B0 포화 부하의 90%에서 TTFT·TPOT P99"),
         "Q4": ("Q4 확장성", "SE(N=16) = goodput 배율 ÷ 노드 배율"),
         "Q5": ("Q5 변경 용이성", "변경 시나리오 평균 module 수 (기존 구현 측정, M/M은 환산 병기)")}
 
 DPINFO = {
     "DP1": dict(title="DP1. Data Migration 결정 구조 — Trade-off 평가 결과", names=("1안 상태 관측+이동 결정 통합", "2안 관측·결정 분리"),
-                qs=["Q1", "Q2", "Q3", "Q5"], scope="single",
-                env=["1 노드: H100×8(HBM 640 GiB), DRAM 1 TiB(호스트 링크 64 GB/s), NVMe 16 GB/s", "Llama-3.1-70B BF16, SYS-H100. Baseline B0 = GPU-only, 경쟁 기술 B1 = 단순 offloading"],
+                qs=["Q1", "QC", "Q3", "Q5"], scope="single",
+                env=["1 노드: H100×8(HBM 640 GiB), DRAM 1 TiB(호스트 링크 64 GB/s), SSD 16 TiB(NVMe 16 GB/s), 신규 메모리는 다음 페이지", "Llama-3.1-70B BF16, SYS-H100. Baseline B0 = GPU-only, 경쟁 기술 B1 = 단순 offloading"],
                 scen=["Agent KV Fleet P1 정상 multi-turn: 컨텍스트 16K, 턴당 +1K·출력 256, idle 평균 60 s(open-loop)",
                       "동시 세션 ≈ 250~450 → KV 1.3~2.2 TiB(HBM 전체 640 GiB 중 KV 풀 425 GiB의 3~5배, HBM+DRAM도 초과)"]),
     "DP2": dict(title="DP2. 연산(Prefill/Decode) 실행 위치 결정 구조 — Trade-off 평가 결과", names=("1안 스케줄링 시점 결정", "2안 사전 계획 결정"),
-                qs=["Q1", "Q2", "Q3", "Q4"], scope="cluster",
+                qs=["Q1", "QC", "Q3", "Q4"], scope="cluster",
                 env=["H100×8 4노드 클러스터(실장 구성 기준): B0 = P 2대 + D 2대 고정 역할 GPU-only, B1 = 같은 구성 + 노드별 단순 offloading", "노드 간 링크 RDMA 50 GB/s [ASSUMED], 결정 비용은 후보 수에 선형(2 ms × N). 수치는 이론 예상값"],
                 scen=["Agent KV Fleet P2 burst: 신규 세션 3배 폭주 + decode 중첩. 동적 배치가 유휴 P 노드의 tier·링크를 쓰는 정도 평가",
                       "확장성은 N=16 sweep(scheduler 결정 용량 대 요구 결정률)"]),
     "DP3": dict(title="DP3. KV 캐시 재사용 구조 — Trade-off 평가 결과", names=("1안 Pipe-and-Filter", "2안 Shared Repository"),
-                qs=["Q1", "Q2", "Q3"], scope="single",
+                qs=["Q1", "QC", "Q3"], scope="single",
                 env=["1 노드(DP1과 같은 HW). 압축은 범위 밖, 선택 재계산만 사용", "Llama-3.1-70B BF16, SYS-H100. B0 = GPU-only, B1 = 단순 offloading"],
                 scen=["Agent KV Fleet P3 공유 문서 wave: 컨텍스트의 30%가 세션 간 공유 문서(그중 50% non-prefix)",
                       "B0·B1은 세션마다 복제 저장, DP3는 1회 보관 + 선택 재계산(15% 토큰) [가정]"]),
@@ -714,16 +732,16 @@ def _conclusion(dp):
         return ["GPU-only(B0) 대비 처리량 ×%.2f(1안)·×%.2f(2안), TTFT P99 r %.2f·%.2f로 경쟁 기술(단순 offloading, ×%.2f·r %.2f)과 같은 수준이다(처리량 ★1, 지연 ★2). 경쟁 기술 대비 처리량 %+.0f%%·%+.0f%%, TTFT %+.0f%%·%+.0f%%." % (
             a["Q1"]["r0"], b["Q1"]["r0"], a["Q3"]["r0"], b["Q3"]["r0"], q1c, COMP["Q3"][0],
             (a["Q1"]["r1"] - 1) * 100, (b["Q1"]["r1"] - 1) * 100, -a["Q3"]["ttft_red1"], -b["Q3"]["ttft_red1"]),
-            "1안(자원 상태 기반)은 HBM %+.0f%%(★1)로 자원 효율에서, 2안(데이터 특성 기반)은 prefetch(적시 60%%)로 지연에서 앞선다. 링크 병목 구간에서는 prefetch가 바이트를 줄이지 못해 처리량 이득이 작다." % (-a["Q2"]["red0"])]
+            "Capacity는 2안(데이터 특성 기반)이 배치 효율 θ가 높아 ×%.1f로 1안(×%.1f)보다 많은 세션을 보존한다. 지연은 prefetch(적시 60%%)를 쓰는 2안이 앞서지만 링크 병목 구간에서는 prefetch가 바이트를 줄이지 못해 처리량 이득이 작다." % (b["QC"]["r0"], a["QC"]["r0"])]
     if dp == "DP2":
         return ["GPU-only(P/D 고정, B0) 대비 처리량 ×%.2f(1안)·×%.2f(2안)로 경쟁 기술(×%.2f)을 넘지만 문헌 중앙값(4x)에는 못 미쳐 ★%g~★%g. 유휴 P 노드의 tier·링크를 더 쓰는 2안이 앞선다." % (
             a["Q1"]["r0"], b["Q1"]["r0"], b["Q1"]["b1"] / b["Q1"]["b0"], cd.theory_star(dp, 1, "Q1"), cd.theory_star(dp, 2, "Q1")),
-            "확장성은 1안이 단일 scheduler 결정 용량에 막혀 N=16에서 SE %.0f%%, 2안은 worker 분산으로 %.0f%%. HBM은 두 안 모두 %+.0f%%~%+.0f%%로 ★1(20%%) 미달." % (
-                a["Q4"]["c"], b["Q4"]["c"], -b["Q2"]["red0"], -a["Q2"]["red0"])]
+            "확장성은 1안이 단일 scheduler 결정 용량에 막혀 N=16에서 SE %.0f%%, 2안은 worker 분산으로 %.0f%%. Capacity는 P 노드 tier를 보존 용량에 합산할지 정해야 해서 산정 보류." % (
+                a["Q4"]["c"], b["Q4"]["c"])]
     if dp == "DP3":
         return ["두 안 모두 공유 문서를 1회만 보관(−30%%)해 GPU-only 대비 처리량 ×%.2f~×%.2f(★1.5), TTFT P99 r %.2f~%.2f(★2.5). 경쟁 기술(×%.2f) 대비 처리량 %+.0f%%~%+.0f%%." % (
             a["Q1"]["r0"], b["Q1"]["r0"], a["Q3"]["r0"], b["Q3"]["r0"], q1c, (a["Q1"]["r1"] - 1) * 100, (b["Q1"]["r1"] - 1) * 100),
-            "HBM은 1안 %+.0f%%(관련 KV만 보유, ★2), 2안 %+.0f%%(사전 보유, ★1). 안 간 처리량 차이는 링크 병목 구간이라 거의 없고, 1안의 고부하 tail 발산은 B0 포화 90%% 부하에서는 나타나지 않는다." % (-a["Q2"]["red0"], -b["Q2"]["red0"])]
+            "Capacity는 두 안 모두 공유 문서 1회 보관(dedup 0.70)으로 ×%.1f(HBM 가득 채움 기준이라 두 안 차이가 사라진다). 안 간 처리량 차이는 링크 병목 구간이라 거의 없고, 1안의 고부하 tail 발산은 B0 포화 90%% 부하에서는 나타나지 않는다." % a["QC"]["r0"]]
     return ["CXL 공유 풀이 SSD(16 GB/s)를 대체하고 교차 라우팅 재계산을 없애 GPU-only 대비 처리량 ×%.2f(★1.5), TTFT P99 r %.2f(★3). 경쟁 기술 대비 처리량 %+.0f%%." % (
         a["Q1"]["r0"], a["Q3"]["r0"], (a["Q1"]["r1"] - 1) * 100),
         "두 안의 제어 평면 차이(중앙 RPC 7 µs vs 락 P99 804 µs)는 요청당 수 ms 이하라 성능이 거의 같고, N=16에서 SE %.0f%%로 동일하다. 소유자가 예상한 락 기반의 확장 우위는 이 규모에서는 드러나지 않는다." % a["Q4"]["c"]]
@@ -745,9 +763,16 @@ def dp_result_slide(prs, dp):
     for q in info["qs"]:
         lab, how = QLAB[q]
         t1, t2 = cd.THEORY[(dp, 1)].get(q), cd.THEORY[(dp, 2)].get(q)
+        if t1 is None:
+            hold = [[("산정 보류", {"bold": True, "size": 8.5})], [("보존 tier 정의(P 노드 합산 / CXL 풀 몫)가 정해져야 계산 가능", {"size": 7.6, "color": "404040"})]]
+            rows.append([[[(lab, {"bold": True})]], how, "—", "—", hold, hold])
+            continue
         if q == "Q1":
             b0c = cd.fmt_q(t1["b0"]) + " query/s"
             b1c = "%s query/s (×%.2f, %s)" % (cd.fmt_q(t1["b1"]), t1["b1"] / t1["b0"], cd.fmt_star(cd.star_q1(t1["b1"] / t1["b0"])))
+        elif q == "QC":
+            b0c = "%d 세션 (HBM만)" % round(t1["b0"])
+            b1c = "%d 세션 (×%.1f)" % (round(t1["b1"]), t1["b1"] / t1["b0"])
         elif q == "Q2":
             b0c = n0(t1["b0"]) + " GiB"
             b1c = "%s GiB (0%%, ☆)" % n0(t1["b1"])
@@ -762,10 +787,13 @@ def dp_result_slide(prs, dp):
         cells = []
         for k, t in ((1, t1), (2, t2)):
             st = cd.theory_star(dp, k, q)
-            own = cd.OWNER[(dp, k)][q]
+            own = cd.OWNER[(dp, k)].get(q)
             if q == "Q1":
                 l1 = "%s query/s" % cd.fmt_q(t["c"])
                 l2 = "B0 대비 ×%.2f · 경쟁 기술 대비 %+.0f%%" % (t["r0"], (t["r1"] - 1) * 100)
+            elif q == "QC":
+                l1 = "%d 세션" % round(t["c"])
+                l2 = "B0 대비 ×%.1f · 경쟁 기술 대비 ×%.2f" % (t["r0"], t["r1"])
             elif q == "Q2":
                 l1 = "%s GiB" % n0(t["c"])
                 l2 = "B0 대비 %+.0f%% · 경쟁 기술 대비 %+.0f%%" % (-t["red0"], -t["red1"])
@@ -778,7 +806,10 @@ def dp_result_slide(prs, dp):
             else:
                 l1 = "%g module · %.2f MM" % (t["module"], t["mm"])
                 l2 = "절대 기준(경쟁 기술 비교 없음)"
-            l3 = "%s (소유자 %s)" % (cd.fmt_star(st), cd.fmt_star(own))
+            if q == "QC":
+                l3 = "★1 이상 (★2·★3 경계 미정, 소유자 별 미정)" if st >= 1 else "☆ (소유자 별 미정)"
+            else:
+                l3 = "%s (소유자 %s)" % (cd.fmt_star(st), cd.fmt_star(own))
             cells.append([[(l1, {"bold": True, "size": 8.5})], [(l2, {"size": 7.6, "color": "404040"})], [(l3, {"size": 8, "bold": True, "color": NAVY})]])
         rows.append([[[(lab, {"bold": True})]], how, b0c, b1c, cells[0], cells[1]])
     add_table(s, 0.4, 2.4, [1.2, 2.2, 1.7, 1.95, 2.74, 2.74], rows, [0.3] + [0.72] * nrow, fills=[None] * nrow, size=8.2,
@@ -822,11 +853,69 @@ def token_slide(prs):
     return s
 
 
+def capacity_slide(prs):
+    s = clone_chrome(prs, 5, "Capacity (동시 세션 수용량) - 평가 기준",
+                     "같은 HBM 용량에서 KV를 보존한 채 재개 가능한 최대 동시 세션 수 — HBM 사용량을 줄이는 것이 아니라 같은 HBM에서 더 많이 수용하는 것이 목표",
+                     "★1 = Stakeholder(요구 문구: SLO 만족 최대 동시 세션 ≥ Baseline 대비 2x). ★1.5~★3은 문헌 근거 수집 후 확정(미정). 값은 theory_model.py 이론 계산(HBM·DRAM만, 신규 메모리 미반영) [잠정]")
+    tbox(s, 0.4, 1.17, 12.5, 0.8,
+         [[("[QA] Capacity  [Refinement] 동일 메모리 하 최대 동시 세션 수  ", {"bold": True, "color": NAVY, "size": 10})],
+          [("[Scenario] 동일 HBM 용량에서 SLO를 만족하며 동시에 보존·처리 가능한 세션 수가 Baseline 대비 증가해야 한다.  [측정] SLO 만족 최대 동시 세션 수 ≥ Baseline 대비 2x", {"size": 9.5})],
+          [("세션 = 컨텍스트 KV를 보존 중인 요청. HBM뿐 아니라 offload(DRAM 등)된 세션도 포함한다. 재계산이 필요한 세션은 세지 않는다.", {"size": 9, "color": "404040"})]],
+         size=9.5, line_spacing=1.1)
+    cb0, cb1 = tm.capacity_sessions(tm.B0), tm.capacity_sessions(tm.B1)
+    rows = [["별", "기준 R_cap = 보존 세션(후보) ÷ 보존 세션(B0 GPU-only)", "근거 / 상태"],
+            [[[("★ 3", {"bold": True})]], "미정", "경쟁 기술 위 목표. 제안: ★2 × 1.5 ≈ ×%.1f (문헌 근거 수집 후 확정)" % (1.5 * cb1 / cb0)],
+            [[[("★ 2", {"bold": True})]], "미정", "경쟁 기술(KV offload) 수준. 이론 대리 B1 = ×%.1f (HBM+DRAM 단순 offloading). 문헌: 동시 batch·세션 증가 보고(FlexGen, InfiniGen, vLLM PagedAttention 등, 압축 제외)를 수집해 확정" % (cb1 / cb0)],
+            [[[("★ 1", {"bold": True})]], "R_cap ≥ 2.0", "Stakeholder 요구: 동일 HBM에서 동시 세션 2배 이상"],
+            [[[("미충족", {"bold": True})]], "R_cap < 2.0", "—"]]
+    add_table(s, 0.4, 2.05, [0.9, 3.6, 8.03], rows, [0.28, 0.4, 0.55, 0.3, 0.28], fills=[None, "E2F0D9", "FFF2CC", "FCE4D6", "EDEDED"], size=8.8, aligns=["c", "c", "l"])
+    tbox(s, 0.4, 3.95, 6.2, 3.0,
+         [[("측정 조건 (확정)", {"bold": True, "color": NAVY, "size": 10})],
+          [("• HBM을 가득 채웠을 때 측정한다. 설계의 watermark(HBM을 일부 비워 두는 정책)와 무관하다. 비운 자리를 다른 세션으로 채우면 HBM 사용량은 다시 100%가 되므로, 기존 HBM 사용량 평균(Q2')과는 다른 지표다", {"size": 8.6})],
+          [("• 반환 세션의 KV 보존율 ≥ 95%(재계산 필요 ≤ 5%)이면서 재개 TTFT P99 ≤ SLO(2 s)일 때만 세션으로 센다. B0는 HBM에서 밀린 세션의 KV가 사라지므로 85세션이 한계다", {"size": 8.6})],
+          [("• SSD는 보존 용량에 넣지 않는다(넘치는 KV의 backing store). 포함하면 세션 수가 SSD 링크 처리율로 정해져 Q1과 같아진다", {"size": 8.6})],
+          [("• 신규 메모리(ScHBM·CXL-PNM·HBF)를 보존 tier로 셀지는 미정(시스템 구성 페이지 참고). 아래 값은 HBM·DRAM만 센 잠정값이다", {"size": 8.6, "color": "C00000"})]],
+         size=8.6, line_spacing=1.1)
+    cap = lambda dp, k: cd.THEORY[(dp, k)]["QC"]
+    hdr = ["구성 (SYS-H100 1노드, 16K 세션 5 GiB)", "보존 세션", "B0 대비"]
+    r2 = [hdr, ["B0 GPU-only (HBM %.0f GiB)" % 425, "%d" % round(cb0), "×1.0"],
+          ["B1 단순 offloading (HBM+DRAM)", "%d" % round(cb1), "×%.1f" % (cb1 / cb0)]]
+    for dp, k, nm in (("DP1", 1, "DP1 1안 (θ 1.1)"), ("DP1", 2, "DP1 2안 (θ 1.3)"), ("DP3", 1, "DP3 1안 (dedup 0.70)"), ("DP3", 2, "DP3 2안 (dedup 0.70)")):
+        r2.append([nm, "%d" % round(cap(dp, k)["c"]), "×%.1f" % cap(dp, k)["r0"]])
+    r2.append(["DP2 / DP4", "산정 보류", "보존 tier 정의 필요"])
+    add_table(s, 6.8, 3.95, [3.4, 1.3, 1.43], r2, [0.28] + [0.3] * 7, fills=[None] * 7, size=8.6, aligns=["l", "c", "c"])
+    tbox(s, 6.8, 6.4, 6.1, 0.6,
+         [[("θ(배치 효율)·dedup은 가정 파라미터라 DP1 1안 대 2안 순서도 가정에 의존한다. 기존 Q2'(HBM 감소율) 평가 기준 페이지는 참고로 유지한다.", {"size": 8.2, "color": "595959"})]],
+         size=8.2, line_spacing=1.05)
+    return s
+
+
+def system_slide(prs):
+    s = clone_chrome(prs, 5, "평가 시나리오 - 시스템 구성 (노드 1대, SYS-H100, 메모리 6종 + SSD)",
+                     "기존 HBM·DRAM·SSD에 신규 target 메모리(ScHBM, CXL-PNM, HBF)까지 포함한 이기종 메모리 구성",
+                     "출처: doc-mk/Evaluation/DP1/sim/configs/memories_default.json · system-specs.md SYS-H100. 신규 메모리 4종(ScHBM, CXL-PNM, HBF, SSD-PIM)은 과거 세대가 없어 같은 장치를 쓰고 host link BW만 스케일(ASSUMED)")
+    rows = [["메모리", "용량", "외부 BW", "내부 BW", "지연", "GPU 직접 접근", "연산(FP16)", "특성 / 이 평가에서의 쓰임"],
+            ["HBM (HBM3)", "640 GiB (8×80)", "26.8 TB/s", "26.8 TB/s", "300 ns", "예", "—", "GPU 온패키지. 활성 KV 위치. KV 풀 ≈ 425 GiB (가중치 131·활성값 20 GiB 제외)"],
+            ["Samsung Custom HBM (ScHBM)", "160 GiB", "63 GB/s", "6.7 TB/s", "2 µs", "아니오 (host 2홉)", "197.8 TFLOPS", "내부 BW 대비 외부 BW 비대칭 100배 이상. Attention 연산 offload 가능(QK·Softmax·AV)"],
+            ["CXL-PNM (LPDDR5X)", "512 GiB", "63 GB/s", "400 GB/s", "300 ns", "아니오", "3.28 TFLOPS", "대용량 연산형 확장 메모리. Attention offload 가능(연산 낮음)"],
+            ["DRAM (DDR5-4800)", "1 TiB", "64 GB/s", "300 GB/s", "200 ns", "아니오", "—", "CPU 주 메모리. 기존 offloading의 1차 하위 tier"],
+            ["HBF (고대역 플래시)", "2 TiB", "1 TB/s", "1 TB/s", "5 µs", "예 (UCIe 직결)", "—", "HBM과 SSD 사이 용량 계층. 읽기는 빠르나 쓰기 50 GB/s·수명 100 PB → 왕복이 잦은 KV는 부적합"],
+            ["SSD (NVMe PCIe5 x4, SSD-PIM)", "16 TiB", "16 GB/s", "200 GB/s", "60 µs", "아니오", "2 TFLOPS (GEMV 한정)", "장기 보관. 쓰기 증폭 4배·수명 10 PB. 연산은 Vector DB 유사도에만 사용(KV Attention 불가)"]]
+    add_table(s, 0.4, 1.2, [2.0, 1.2, 0.95, 0.95, 0.7, 1.2, 1.3, 4.23], rows, [0.3] + [0.5] * 6, fills=[None] * 6, size=8, aligns=["l", "c", "c", "c", "c", "c", "c", "l"])
+    tbox(s, 0.4, 4.7, 12.5, 2.4,
+         [[("이 덱의 이론 값이 반영한 메모리와 반영하지 않은 메모리", {"bold": True, "color": "C00000", "size": 10})],
+          [("• 반영: HBM, DRAM, SSD(링크 16 GB/s×0.8). B0 = HBM만, 경쟁 기술 B1 = HBM→DRAM→SSD 단순 offloading", {"size": 9})],
+          [("• 미반영: ScHBM, CXL-PNM, HBF. 이 메모리를 후보 설계가 어떻게 쓰는지(보존 tier, Attention offload, GPU 직접 읽기)와 B1이 이 메모리를 어떻게 쓰는지 정해야 모델에 넣을 수 있다. 따라서 현재 후보 값은 기존 3 tier 기준의 잠정값이다", {"size": 9})],
+          [("• SSD는 이 시스템 구성에 포함한다(노드당 16 TiB, ASSUMED). 다만 Capacity는 SSD를 보존 용량에서 제외한다(Q1과 중복 방지)", {"size": 9})]],
+         size=9, line_spacing=1.12)
+    return s
+
+
 def mapping_slide(prs):
     s = clone_chrome(prs, 5, "Trade-off 별 ↔ 평가 기준 구간 ↔ 이론 예상값",
                      "DP 후보별 소유자 별이 새 기준(GPU-only 대비)의 어떤 수치 구간에 해당하는지, 이론 예상값은 어디에 놓이는지",
                      "예상값 = theory_model.py 분석 모델(시뮬레이션 아님). 붉은 글씨 = 예상값이 소유자 별 구간보다 낮음, 파란 글씨 = 같거나 높음. 기존 중립 벤치마크 시뮬 값은 qa-criteria-v4.md 참조")
-    hdr = ["DP / 안", "Q1 처리량", "Q2 HBM", "Q3 고부하 지연", "Q4 확장성", "Q5 변경 용이성"]
+    hdr = ["DP / 안", "Q1 처리량", "Q2 Capacity", "Q3 고부하 지연", "Q4 확장성", "Q5 변경 용이성"]
     names = {("DP1", 1): "DP1 1안 상태 관측+이동 결정 통합", ("DP1", 2): "DP1 2안 관측·결정 분리",
              ("DP2", 1): "DP2 1안 스케줄링 시점 결정", ("DP2", 2): "DP2 2안 사전 계획 결정",
              ("DP3", 1): "DP3 1안 Pipe-and-Filter", ("DP3", 2): "DP3 2안 Shared Repository",
@@ -834,8 +923,16 @@ def mapping_slide(prs):
     rows = [hdr]
     for key in sorted(cd.OWNER):
         row = [[[(names[key], {"bold": True, "size": 8})]]]
-        for q in ("Q1", "Q2", "Q3", "Q4", "Q5"):
+        for q in ("Q1", "QC", "Q3", "Q4", "Q5"):
             o = cd.OWNER[key].get(q)
+            if q == "QC":
+                if key in cd.THEORY and "QC" in cd.THEORY[key]:
+                    st = cd.theory_star(*key, "QC")
+                    row.append([[("소유자 별 미정", {"size": 8, "bold": True, "color": "7F7F7F"})],
+                                [(cd.cell_text(*key, "QC") + " → " + ("★1 이상(경계 미정)" if st >= 1 else "☆"), {"size": 7.2, "color": "2F5597"})]])
+                else:
+                    row.append([[("소유자 별 미정", {"size": 8, "bold": True, "color": "7F7F7F"})], [("산정 보류", {"size": 7.2, "color": "7F7F7F"})]])
+                continue
             if o is None:
                 row.append([[("—", {"color": "A6A6A6"})]])
                 continue
@@ -879,8 +976,10 @@ def main():
     res = {dp: dp_result_slide(prs, dp) for dp in ("DP1", "DP2", "DP3", "DP4")}
     map_s = mapping_slide(prs)
     tok_s = token_slide(prs)
+    cap_s = capacity_slide(prs)
+    sys_s = system_slide(prs)
     order = [S[0], S[1], res["DP1"], S[2], res["DP2"], S[3], res["DP3"], S[4], res["DP4"], base_s, meth_s, sim_s,
-             S[5], S[6], S[7], S[8], S[9], S[10], tok_s, sc1, sc2, map_s]
+             S[5], S[6], cap_s, S[7], S[8], S[9], S[10], tok_s, sc1, sys_s, sc2, map_s]
     lst = prs.slides._sldIdLst
     ids = [sl.slide_id for sl in order]
     els = {int(e.get("id")): e for e in lst}

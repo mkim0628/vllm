@@ -35,7 +35,8 @@ w("""# QA 평가 기준 v4 (GPU-only 대비 5구간), 경쟁 기술 기준 ★2,
 | QA | 지표 | ★1 (Stakeholder) | ★1.5 | ★2 (경쟁 기술) | ★2.5 | ★3 (목표) |
 |---|---|---|---|---|---|---|
 | Q1 처리량 | R = Max SLO goodput ÷ B0 | ≥ %g | ≥ %g | ≥ %g | ≥ %g | ≥ %g |
-| Q2 HBM | HBM 사용량 감소율 (B0 대비) | ≥ 20%% | ≥ 30%% | ≥ 40%% | ≥ 50%% | ≥ 60%% |
+| Q2 Capacity | 같은 HBM에서 KV를 보존해 재개 가능한 최대 동시 세션 수 (B0 대비 R_cap, HBM 가득 채움) | ≥ 2.0 | 미정 | 미정 | 미정 | 미정 |
+| Q2' HBM 효율 (참고) | HBM 사용량 감소율 (B0 대비) | ≥ 20%% | ≥ 30%% | ≥ 40%% | ≥ 50%% | ≥ 60%% |
 | Q3 고부하 지연 | r = √(TTFT 개선 × TPOT 개선, P99), B0 포화 부하의 90%% | ≥ %g (감소율 30%%) | ≥ %g | ≥ %g (50%%) | ≥ %g | ≥ %g (67%%) |
 | Q4 확장성 | SE(N=16) | ≥ 80%% | ≥ 85%% | ≥ 90%% | ≥ 92.5%% | ≥ 95%% |
 | Q5 변경 용이성 | 변경 module 수 (시나리오 평균). M/M은 환산 병기 | ≤5 (≈1.0 MM) | ≤4 (≈0.8) | ≤3 (≈0.6) | ≤2.5 (≈0.5) | ≤2 (≈0.4) |
@@ -97,6 +98,8 @@ KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 겨냥한 통
 |---|---|---|
 | 모델·HW | Llama-3.1-70B BF16, 8-GPU 노드(SYS-H100): HBM 640 GiB, DRAM 1 TiB(호스트 링크 64 GB/s), NVMe 16 GB/s. DP2·DP4는 4~16 노드 | system-specs |
 | 요청 모델 | open-loop, idle 지수분포 평균 60 s, 컨텍스트 평균 16K, 턴당 +1K·출력 256 | 16K KV = 5.0 GiB. 동시 세션 ≈ 250~450 |
+| 시스템 구성(메모리 6종 + SSD) | HBM 640 GiB · ScHBM 160 GiB(63 GB/s, 내부 6.7 TB/s, 연산 197.8 TFLOPS) · CXL-PNM 512 GiB(63 GB/s, 연산 3.28 TFLOPS) · DRAM 1 TiB(64 GB/s) · HBF 2 TiB(1 TB/s, 쓰기 50 GB/s, 수명 100 PB) · SSD 16 TiB(16 GB/s, SSD-PIM) | `DP1/sim/configs/memories_default.json`, system-specs SYS-H100. 이론 값은 HBM·DRAM·SSD만 반영, ScHBM·CXL-PNM·HBF는 미반영 [잠정] |
+| Capacity 측정 | HBM을 가득 채운 상태에서 KV 보존율 ≥ 95%, 재개 TTFT P99 ≤ 2 s인 최대 동시 세션 수. SSD는 보존 용량에서 제외. B0 = 85세션, B1 = 269세션(×3.2) | 설계 watermark와 무관. 포함 tier(신규 메모리) 미정 |
 | 메모리 압박 | HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분) | 넘으면 SSD 사용 |
 | 재사용 | 공유 문서 30%, 그중 50% non-prefix, 선택 재계산 15% 토큰 [가정] | DP3 조건 |
 | 부하 구간·SLO | Q1 Max SLO goodput(이용률 0.8). Q3 일반 부하 = B0 포화 부하의 50%, 고부하 = 90% 두 점에서 측정(별점은 고부하의 B0 대비 r, 일반 부하는 열화 확인용). TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms | 이론값 TTFT P99 일반→고부하: B0 0.40→3.22 s(×8), B1 0.71→0.89 s |
@@ -137,14 +140,19 @@ CXL 풀 모델: 8 TiB, 노드당 어댑터 2개(PCIe 5.0 x16, 각 63 GB/s), 풀 
 """).replace("@CEIL@", "%.1f" % CEIL_R0))
 names = {"DP1": ("상태 관측+이동 결정 통합", "관측·결정 분리"), "DP2": ("스케줄링 시점 결정", "사전 계획 결정"),
          "DP3": ("Pipe-and-Filter", "Shared Repository"), "DP4": ("중앙 서버 중재", "락 기반 직접 접근")}
-qs = {"DP1": ["Q1", "Q2", "Q3", "Q5"], "DP2": ["Q1", "Q2", "Q3", "Q4"], "DP3": ["Q1", "Q2", "Q3"], "DP4": ["Q1", "Q3", "Q4"]}
+qs = {"DP1": ["Q1", "QC", "Q3", "Q5"], "DP2": ["Q1", "QC", "Q3", "Q4"], "DP3": ["Q1", "QC", "Q3"], "DP4": ["Q1", "QC", "Q3", "Q4"]}
 for dp in ("DP1", "DP2", "DP3", "DP4"):
     w("### %s (1안 %s / 2안 %s)\n" % (dp, names[dp][0], names[dp][1]))
     w("| QA | B0 | 경쟁 기술 B1 | 1안 (B0 대비 → 별, 소유자) | 2안 (B0 대비 → 별, 소유자) |")
     w("|---|---|---|---|---|")
     for q in qs[dp]:
-        t1, t2 = cd.THEORY[(dp, 1)][q], cd.THEORY[(dp, 2)][q]
-        if q == "Q1":
+        t1, t2 = cd.THEORY[(dp, 1)].get(q), cd.THEORY[(dp, 2)].get(q)
+        if t1 is None:
+            w("| Q2 Capacity | — | — | 산정 보류(보존 tier 정의 필요) | 산정 보류 |")
+            continue
+        if q == "QC":
+            b0c, b1c = "%d 세션(HBM만)" % round(t1["b0"]), "%d 세션 (×%.1f)" % (round(t1["b1"]), t1["b1"] / t1["b0"])
+        elif q == "Q1":
             b0c, b1c = cd.fmt_q(t1["b0"]) + " query/s", "%s query/s (×%.2f)" % (cd.fmt_q(t1["b1"]), t1["b1"] / t1["b0"])
         elif q == "Q2":
             b0c, b1c = n0(t1["b0"]) + " GiB", n0(t1["b1"]) + " GiB (0%)"
@@ -159,12 +167,15 @@ for dp in ("DP1", "DP2", "DP3", "DP4"):
         for k in (1, 2):
             t = cd.THEORY[(dp, k)][q]
             extra = ""
+            if q == "QC":
+                cells.append("%s · 경쟁 기술 대비 ×%.2f → %s (소유자 별 미정)" % (cd.cell_text(dp, k, q), t["r1"], "★1 이상(★2·★3 경계 미정)" if cd.theory_star(dp, k, q) >= 1 else "☆"))
+                continue
             if q == "Q3":
                 extra = " · r %.2f" % t["r0"]
             elif q == "Q1":
                 extra = " · 경쟁 기술 대비 %+.0f%%" % ((t["r1"] - 1) * 100)
             cells.append("%s%s → %s (소유자 %s)" % (cd.cell_text(dp, k, q), extra, cd.fmt_star(cd.theory_star(dp, k, q)), cd.fmt_star(cd.OWNER[(dp, k)][q])))
-        w("| %s | %s | %s | %s | %s |" % (q, b0c, b1c, cells[0], cells[1]))
+        w("| %s | %s | %s | %s | %s |" % ("Q2 Capacity" if q == "QC" else q, b0c, b1c, cells[0], cells[1]))
     w("")
 w("""## 6. 참고: 기존 중립 벤치마크 시뮬레이션 값 (새 시나리오 아님)
 

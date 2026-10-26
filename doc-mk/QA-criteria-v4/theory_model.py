@@ -130,6 +130,14 @@ CFG = {
 }
 
 
+def capacity_sessions(c):
+    """Capacity: KV를 보존한 채(HBM·DRAM, SSD 제외) 재개 가능한 최대 동시 세션 수. HBM을 가득 채운 상태 기준(watermark 무관).
+    효과 용량 θ(배치 효율)와 세션당 크기 비 f′(dedup)만 반영. 신규 메모리(ScHBM·CXL-PNM·HBF)는 아직 미반영 [잠정]."""
+    if not c.tiers:
+        return float(N_HBM)
+    return c.theta * (N_HBM + N_DRAM) / c.fprime
+
+
 def single_node():
     out = {}
     lam0 = max_lambda(B0)
