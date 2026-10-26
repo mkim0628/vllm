@@ -586,10 +586,12 @@ def scenario_slides(prs):
                      "KV 캐시 관리만 대상(RAG·LoRA·MoE 제외). KV가 HBM·DRAM 용량을 넘고 재사용할 history가 있는 구간을 겨냥한 통합 시나리오",
                      "근거: Llama-3.1-70B KV 327,680 B/token · H100×8 HBM 640 GiB, 가중치 약 131 GiB · prefill ≈ 25k tok/s(MFU 0.45) · DRAM 1 TiB, NVMe 16 GB/s(system-specs). 부하·idle 분포는 설계값[가정]")
     rows = [["항목", "값", "근거 / 계산"],
-            ["모델·HW", "Llama-3.1-70B BF16, 8-GPU 노드(SYS-H100): HBM 640 GiB, DRAM 1 TiB(호스트 링크 64 GB/s), NVMe 16 GB/s. DP2·DP4는 4~16 노드",
+            ["모델·HW", "Llama-3.1-70B BF16, 8-GPU 노드(SYS-H100). 메모리 6종: HBM 640 GiB · ScHBM 160 GiB · CXL-PNM 512 GiB · DRAM 1 TiB · HBF 2 TiB · SSD 16 TiB(NVMe 16 GB/s). DP2·DP4는 4~16 노드",
              "기존 평가 환경과 동일(비교 가능성). 노드 간 링크는 RDMA 50 GB/s [ASSUMED]"],
             ["요청 모델", "open-loop. 세션 idle 시간 지수분포 평균 60 s(tool·사용자 대기, 0.2 s~수 분), 컨텍스트 평균 16K, 턴당 +1K 입력·출력 256, 세션당 10~20턴",
              "16K 세션 KV = 327,680 B × 16,384 ≈ 5.0 GiB. 동시 세션 수 = λ × (idle + 응답) ≈ 250~450"],
+            ["신규 메모리 운용 계획 (아직 미실행, 가정)", "ScHBM(내부 6.7 TB/s, 연산 198 TFLOPS, GPU 직접 접근 불가): 복원해 쓰는 warm tier와 Attention을 그 자리에서 수행(offload)하는 두 경로를 비교. CXL-PNM(512 GiB, 연산 3.3 TFLOPS): 유휴 KV 대용량 보관 tier. HBF(2 TiB, GPU 직접 1 TB/s, 쓰기 50 GB/s·수명 100 PB): 읽기 위주 KV(공유 문서 chunk, DP3)를 두고 쓰기량·수명 소모를 같이 측정",
+             "시나리오 구간별 적용: P1 유휴→복귀(DP1) tier 선택·복원 vs offload, P3 공유 문서 wave(DP3) HBF 배치. 측정: tier별 점유·복원 지연, HBF 쓰기량, offload 비율. B1(C안)은 같은 6종을 고정 순서 LRU(HBM→HBF→DRAM→CXL-PNM→ScHBM→SSD)의 용량 tier로만 사용 [순서는 제안]"],
             ["메모리 압박", "HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분). 동시 세션 KV가 HBM+DRAM(1.35 TiB)을 넘으면 SSD가 쓰인다",
              "반환 세션이 HBM/DRAM/SSD에서 발견될 확률은 LRU stack distance로 계산(idle ~ Exp(60 s))"],
             ["재사용", "세션 간 공유 문서 청크 30%, 그중 50%는 non-prefix 위치. 선택 재계산 15% 토큰 [가정]",
@@ -601,8 +603,8 @@ def scenario_slides(prs):
             ["경쟁 기술: 단순 offloading (B1, 경쟁 기술의 이론 대리)", "후보와 같은 메모리 6종(용량·대역폭 동일)을 쓰되 정책만 단순: 고정 순서 LRU로 하위 tier에 이동(턴 종료 시 증분만 기록하는 write-through, 축출은 복사 없이 삭제), 신규 메모리는 용량 tier로만 사용(Attention offload·직접 읽기 활용 없음). 요청 시 동기 복원, prefetch·예측·배치 정책 없음",
              "같은 하드웨어에서 정책만 다르게 하는 대등 비교(C안). 현재 이론값 B1 = B0의 ×2.35는 HBM·DRAM·SSD만 반영한 값으로 LMCache 단일 노드 하한(2.3x) 수준이며, 6종 확장 모델은 후보와 함께 반영해야 한다 [잠정]"],
             ["반복", "분석 모델은 결정적(deterministic). 시뮬레이션 전환 시 seed ≥ 5, median, 95% CI", "단일 seed로 별점을 매기지 않는다"]]
-    add_table(s, 0.4, 1.2, [1.9, 6.0, 4.63], rows, [0.26] + [0.55] * 8, fills=[None] * 8, size=8.2, aligns=["l", "l", "l"])
-    tbox(s, 0.4, 6.25, 12.5, 0.8,
+    add_table(s, 0.4, 1.1, [1.9, 6.0, 4.63], rows, [0.26] + [0.46] * 9, fills=[None] * 9, size=7.6, aligns=["l", "l", "l"])
+    tbox(s, 0.4, 6.62, 12.5, 0.6,
          [[("조건부 별: ", {"bold": True, "color": "C00000", "size": 9.5}),
            ("이 시나리오는 KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 의도적으로 겨냥한다(문헌이 이득을 보고한 조건과 같은 영역). "
             "시나리오 한계: 단순 offloading의 이론값은 지연(Q3)에서 문헌 수준(r 2.0)에 놓이지만 처리량(Q1)에서는 ×2.35로 문헌 하단이다. 이 시나리오는 세션별 히스토리 재사용만 있어 처리량 이론 상한이 ×4.0이라, ★3(8x)는 공유 캐시·고 적중 regime(문헌)에서만 가능하다. 값은 분석 모델의 예상값이며 시뮬레이션 전이다.", {"size": 9})]],
