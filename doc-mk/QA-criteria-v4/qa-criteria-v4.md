@@ -78,6 +78,7 @@ KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 겨냥한 통
 | 모델·HW | Llama-3.1-70B BF16, 8-GPU 노드(SYS-H100): HBM 640 GiB, DRAM 1 TiB(호스트 링크 64 GB/s), NVMe 16 GB/s. DP2·DP4는 4~16 노드 | system-specs |
 | 요청 모델 | open-loop, idle 지수분포 평균 60 s, 컨텍스트 평균 16K, 턴당 +1K·출력 256 | 16K KV = 5.0 GiB. 동시 세션 ≈ 250~450 |
 | 시스템 구성(메모리 6종 + SSD) | HBM 640 GiB · ScHBM 160 GiB(63 GB/s, 내부 6.7 TB/s, 연산 197.8 TFLOPS) · CXL-PNM 512 GiB(63 GB/s, 연산 3.28 TFLOPS) · DRAM 1 TiB(64 GB/s) · HBF 2 TiB(1 TB/s, 쓰기 50 GB/s, 수명 100 PB) · SSD 16 TiB(16 GB/s, SSD-PIM) | `DP1/sim/configs/memories_default.json`, system-specs SYS-H100. 이론 값은 HBM·DRAM·SSD만 반영, ScHBM·CXL-PNM·HBF는 미반영 [잠정] |
+| 신규 메모리 운용 계획(미실행, 가정) | ScHBM: 복원해 쓰는 warm tier와 그 자리에서 Attention을 수행(offload)하는 경로를 비교. CXL-PNM: 유휴 KV 대용량 보관 tier. HBF(2 TiB, GPU 직접 1 TB/s, 쓰기 50 GB/s·수명 100 PB): 읽기 위주 KV(공유 문서 chunk)를 두고 쓰기량·수명 소모를 같이 측정 | P1 유휴→복귀(DP1) tier 선택·복원 vs offload, P3 공유 문서 wave(DP3) HBF 배치. 측정: tier별 점유·복원 지연, HBF 쓰기량, offload 비율. B1(C안)은 같은 6종을 고정 순서 LRU(HBM→HBF→DRAM→CXL-PNM→ScHBM→SSD, 순서는 제안)의 용량 tier로만 사용 |
 | Capacity 측정 | HBM을 가득 채운 상태에서 KV 보존율 ≥ 95%, 재개 TTFT P99 ≤ 2 s인 최대 동시 세션 수. SSD는 보존 용량에서 제외. B0 = 85세션, B1 = 269세션(×3.2) | 설계 watermark와 무관. 포함 tier(신규 메모리) 미정 |
 | 메모리 압박 | HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분) | 넘으면 SSD 사용 |
 | 재사용 | 공유 문서 30%, 그중 50% non-prefix, 선택 재계산 15% 토큰 [가정] | DP3 조건 |
