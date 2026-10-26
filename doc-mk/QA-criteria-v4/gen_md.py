@@ -35,7 +35,7 @@ w("""# QA 평가 기준 v4 (GPU-only 대비 5구간), 경쟁 기술 기준 ★2,
 | QA | 지표 | ★1 (Stakeholder) | ★1.5 | ★2 (경쟁 기술) | ★2.5 | ★3 (목표) |
 |---|---|---|---|---|---|---|
 | Q1 처리량 | R = Max SLO goodput ÷ B0 | ≥ %g | ≥ %g | ≥ %g | ≥ %g | ≥ %g |
-| Q2 Capacity | 같은 HBM에서 KV를 보존해 재개 가능한 최대 동시 세션 수 (B0 대비 R_cap, HBM 가득 채움) | ≥ 2.0 | 미정 | 미정 | 미정 | 미정 |
+| Q2 Capacity | 같은 HBM에서 KV를 보존해 재개 가능한 최대 동시 세션 수 (B0 대비 R_cap, HBM 가득 채움) | ≥ 2.0 | ≥ 2.52 | ≥ 3.17 | ≥ 3.88 | ≥ 4.75 |
 | Q2' HBM 효율 (참고) | HBM 사용량 감소율 (B0 대비) | ≥ 20%% | ≥ 30%% | ≥ 40%% | ≥ 50%% | ≥ 60%% |
 | Q3 고부하 지연 | r = √(TTFT 개선 × TPOT 개선, P99), B0 포화 부하의 90%% | ≥ %g (감소율 30%%) | ≥ %g | ≥ %g (50%%) | ≥ %g | ≥ %g (67%%) |
 | Q4 확장성 | SE(N=16) | ≥ 80%% | ≥ 85%% | ≥ 90%% | ≥ 92.5%% | ≥ 95%% |
@@ -56,6 +56,7 @@ w("""### 근거와 확인 상태
 | Q3 | ★2 = r 2.0 | LMCache Context 벤치마크 E2E 지연 약 50~75%% 감소의 하한(r 2.0). 이론 B1 r %.2f가 이 구간 | 사용자 인용. 원문 대조 필요 |
 | Q3 | ★3 = r 3.0 | ★2 × 1.5. LMCache 고 QPS TTFT 4.4~6.6x·ITL 34~58%%를 r로 환산하면 2.6~4.0 | LMCache 검색 요약 |
 | Q4 | 80 / 90 / 95%% | ★1 Stakeholder 80%%(AthenaK 65,536 GPU 80%%, 학습). ★2 90%% = '효율적' 관례(경쟁 기술인 노드 독립 offload는 SE 98%%지만 노드 간 공유 이득 없음). ★3 95%% = 조율 계층을 두고도 손실 5%% 이내(USL σ 0.35%%) | 정책 선택. 90%% 관례의 인용 논문(arXiv 1704.03329)은 부적합해 뺐다 |
+| Q2 Capacity | ★1 = 2.0x, ★2 = ×3.17, ★3 = ×4.75 | ★1 Stakeholder 요구(QA-06). ★2: 경쟁 기술(KV offload) 구조에서 계산 — HBM 밖 KV를 호스트 DRAM에 보관하면 (HBM 풀 425 + DRAM 922 GiB) ÷ 425 = ×3.17. 문헌(LMCache, Ray Serve LLM, vLLM offloading connector)은 'CPU 메모리로 KV 용량을 확장'을 정성적으로만 밝히고, 같은 HBM에서 동시 세션 N배를 직접 보고한 수치는 확인하지 못했다(AttentionStore는 hit rate 86~90%%, FlexGen은 batch 256으로 단위가 다름). ★3: ★2 × 1.5(Q2·Q3와 같은 규칙), 경쟁 기술 고성능 구성인 호스트 DRAM 2 TiB급(×5.3)보다 약간 낮음. 반 단계는 기하 중점 | 계산 근거라 호스트 DRAM 용량 가정(1 TiB, 2 TiB)에 의존. 신규 메모리 미반영 [잠정] |
 | Q5 | ★1 = 5 module(≈1.0 MM), ★3 = 2 module(≈0.4 MM) | module: 설계 component 12~14개 중 약 1/3(5개)까지만 바뀌면 변경이 설계 일부에 국한된다고 본 최소 충족선(6개 이상이면 설계 전반으로 퍼짐, 설계 정책값), ★3은 component 12~14개 중 2개 이하(약 1/7)로 본 정책값이며, SWE-bench 평균 패치 1.7 file은 단위가 file이라 module과 같지 않은 규모감 참고치다. M/M은 module 수에서 환산한 값이며 판정 조건이 아니다. 경쟁 기술 비교는 없는 절대 기준 | LOC는 저장소에서 직접 계수, 공식·상수는 DP1 사전 등록(ASSUMED) |
 
 Q5 판정은 module 수 하나다. M/M이 module 수에서 계산되는 값이라 둘을 AND로 걸면 같은 정보를 두 번 세기 때문이다. 환산: module 1개 = 고정 3일 + 24 LOC ÷ 40 LOC/일 × 2.0 = 4.2일 = 0.2 MM(21일/MM). 24 LOC은 SWE-bench 평균 패치 19 LOC/file을 올린 값이다. 고정 3일(interface 파악·설계 리뷰·통합 테스트)과 40 LOC/일(순 생산성), overhead 2.0은 문헌값이 아니라 DP1 사전 등록 가정(ASSUMED; 범위 2~5일, 25~80 LOC/일, 1.5~3.0)이며, 범위 양 끝에서 module 1개 = 0.12~0.38 MM이라 M/M 환산은 약 ±50%% 불확실하다(module 수 판정은 영향 없음). 변경 시나리오 3종: S1 새 tier, S2 정책 교체, S3 vLLM upstream 갱신.
@@ -149,7 +150,7 @@ for dp in ("DP1", "DP2", "DP3", "DP4"):
     for q in qs[dp]:
         t1, t2 = cd.THEORY[(dp, 1)].get(q), cd.THEORY[(dp, 2)].get(q)
         if t1 is None:
-            w("| Q2 Capacity | — | — | 산정 보류(보존 tier 정의 필요) | 산정 보류 |")
+            w("| Q2 Capacity | — | — | 산정 보류(CXL 풀 보존 방식 필요) | 산정 보류 |")
             continue
         if q == "QC":
             b0c, b1c = "%d 세션(HBM만)" % round(t1["b0"]), "%d 세션 (×%.1f)" % (round(t1["b1"]), t1["b1"] / t1["b0"])
@@ -169,7 +170,7 @@ for dp in ("DP1", "DP2", "DP3", "DP4"):
             t = cd.THEORY[(dp, k)][q]
             extra = ""
             if q == "QC":
-                cells.append("%s · 경쟁 기술 대비 ×%.2f → %s (소유자 별 미정)" % (cd.cell_text(dp, k, q), t["r1"], "★1 이상(★2·★3 경계 미정)" if cd.theory_star(dp, k, q) >= 1 else "☆"))
+                cells.append("%s · 경쟁 기술 대비 ×%.2f → %s (소유자 별 미정)" % (cd.cell_text(dp, k, q), t["r1"], cd.fmt_star(cd.theory_star(dp, k, q))))
                 continue
             if q == "Q3":
                 extra = " · r %.2f" % t["r0"]

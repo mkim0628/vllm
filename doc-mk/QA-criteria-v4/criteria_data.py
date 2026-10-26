@@ -9,6 +9,7 @@
 - ★1.5, ★2.5는 인접 앵커의 중점(비율 지표는 기하 중점).
 B1(단순 offload)은 우리가 정의한 경쟁 기술 대리(theory_model.B1)이고, 그 이론값이 ★2 근처에 놓이는지 확인용으로 병기한다.
 """
+import math
 import theory_model as tm
 
 STAR_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0]
@@ -60,6 +61,16 @@ def token_cost(n, price=SONNET55):
     return c_bar + turns * c_bar + t_out, usd
 
 
+# Capacity 별 경계(R_cap = 보존 세션 후보 ÷ B0): ★1 = 2.0(Stakeholder), ★2 = 경쟁 기술(호스트 DRAM 1 TiB offloading) 구조에서 계산한 값,
+# ★3 = ★2 × 1.5(Q2·Q3와 같은 규칙, 경쟁 기술의 고성능 구성인 DRAM 2 TiB급 ×5.3보다 낮은 값), 반 단계는 기하 중점
+QC_B1 = tm.capacity_sessions(tm.B1) / tm.capacity_sessions(tm.B0)
+QC_HIGH_DRAM2 = (tm.N_HBM + 2 * tm.N_DRAM) / tm.N_HBM            # 호스트 DRAM 2 TiB급(DGX급) 경쟁 구성
+QC_EDGES = [2.0, math.sqrt(2.0 * QC_B1), QC_B1, math.sqrt(QC_B1 * QC_B1 * COMP_FACTOR), QC_B1 * COMP_FACTOR]
+EDGES["QC"] = QC_EDGES
+
+
+
+
 def fmt_q(x):
     """query/s 표기: 10 미만은 소수 2자리, 이상은 소수 1자리."""
     return format(x, ",.2f") if x < 10 else format(x, ",.1f")
@@ -75,11 +86,14 @@ BAND_TEXT = {
     "Q3": {1: "1.43 ≤ r < 1.7", 1.5: "1.7 ≤ r < 2.0", 2: "2.0 ≤ r < 2.45", 2.5: "2.45 ≤ r < 3.0", 3: "r ≥ 3.0", 0: "r < 1.43"},
     "Q4": {1: "80 ≤ SE < 85%", 1.5: "85 ≤ SE < 90%", 2: "90 ≤ SE < 92.5%", 2.5: "92.5 ≤ SE < 95%", 3: "SE ≥ 95%", 0: "SE < 80%"},
 }
+BAND_TEXT["QC"] = {1: "2.0 ≤ R < %.2f" % QC_EDGES[1], 1.5: "%.2f ≤ R < %.2f" % (QC_EDGES[1], QC_EDGES[2]), 2: "%.2f ≤ R < %.2f" % (QC_EDGES[2], QC_EDGES[3]),
+                   2.5: "%.2f ≤ R < %.2f" % (QC_EDGES[3], QC_EDGES[4]), 3: "R ≥ %.2f" % QC_EDGES[4], 0: "R < 2.0"}
 BAND_SHORT = {
     "Q1": {1: "2.0~2.8x", 1.5: "2.8~4.0x", 2: "4.0~5.7x", 2.5: "5.7~8.0x", 3: "≥8.0x"},
     "Q2": {1: "20~30%", 1.5: "30~40%", 2: "40~50%", 2.5: "50~60%", 3: "≥60%"},
     "Q3": {1: "r 1.43~1.7", 1.5: "r 1.7~2.0", 2: "r 2.0~2.45", 2.5: "r 2.45~3.0", 3: "r ≥3.0"},
     "Q4": {1: "80~85%", 1.5: "85~90%", 2: "90~92.5%", 2.5: "92.5~95%", 3: "≥95%"},
+    "QC": {1: "2.0~2.5x", 1.5: "2.5~3.2x", 2: "3.2~3.9x", 2.5: "3.9~4.7x", 3: "≥4.7x"},
     "Q5": {1: "≤5모듈(≈1.0MM)", 1.5: "≤4(≈0.8)", 2: "≤3(≈0.6)", 2.5: "≤2.5(≈0.5)", 3: "≤2(≈0.4)"},
 }
 
@@ -166,6 +180,10 @@ def _build():
 
 
 def _add_capacity(th):
+    b0, b1 = tm.capacity_dp2()
+    for k in (1, 2):
+        c = tm.capacity_dp2(k)
+        th[("DP2", k)]["QC"] = dict(b0=b0, b1=b1, c=c, r0=c / b0, r1=c / b1)
     cb0 = tm.capacity_sessions(tm.B0)
     cb1 = tm.capacity_sessions(tm.B1)
     for dp in ("DP1", "DP3"):
@@ -176,12 +194,8 @@ def _add_capacity(th):
 
 THEORY = _build()
 _add_capacity(THEORY)
-# Capacity 별 경계: ★1 = 2.0x(Stakeholder)만 확정. ★1.5~★3은 문헌 근거 수집 후 확정(미정)
-QC_STAR1 = 2.0
-
-
 def star_qc(r):
-    return 1 if r >= QC_STAR1 else 0
+    return _stars(r, QC_EDGES)
 
 
 def theory_star(dp, k, q):
