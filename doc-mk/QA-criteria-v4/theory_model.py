@@ -155,6 +155,18 @@ N4 = 4
 D_NODES = 2                                                 # B1-PD: P 2대 + D 2대 고정 역할
 
 
+DP2_UP = {1: 0.20, 2: 0.50}                                # 유휴 P 노드 tier 활용 비율 [가정]
+
+
+def capacity_dp2(k=None):
+    """DP2 4노드(P2+D2) Capacity: 고정 역할에서는 D 노드 2대만 세션 KV를 보존한다(P 노드 HBM은 prefill용).
+    B0 = D 2대 HBM만, B1 = D 2대 HBM+DRAM, 후보 = D 2대 + 유휴 P 노드 tier를 u_p만큼 추가 사용."""
+    per_b0, per_b1 = float(N_HBM), float(N_HBM + N_DRAM)
+    if k is None:
+        return D_NODES * per_b0, D_NODES * per_b1
+    return (D_NODES + DP2_UP[k] * (N4 - D_NODES)) * per_b1
+
+
 def cluster_dp2(single):
     """DP2: 고정 역할(B1-PD)에서는 KV tier를 가진 D 노드 2대만 복원·decode를 수행하고 P 노드 2대의 tier·링크는 놀고 있다.
     동적 배치는 유휴 P 노드의 tier·링크를 u_P 만큼 쓴다. 결정 지연·Re-plan은 TTFT에 반영한다."""
@@ -163,8 +175,8 @@ def cluster_dp2(single):
     res = {}
     res["B0"] = dict(qps=D_NODES * b0["qps"], note="P/D 고정 + GPU-only")
     res["B1"] = dict(qps=D_NODES * base["qps"], ttft=base["ttft"], tpot=base["tpot"], hbm=D_NODES * 425.0)
-    params = {1: dict(u_p=0.20, d=0.008, replan=0.0, a=0.10, wm=0.85),   # 스케줄링 시점 결정: N=4에서 결정 8 ms(2 ms×N), 실시간 상태
-              2: dict(u_p=0.50, d=0.0, replan=0.040, a=0.05, wm=0.92)}    # 사전 계획: 결정 0, Re-plan(31%) P99 +40 ms, plan 예약으로 HBM 여유 필요
+    params = {1: dict(u_p=DP2_UP[1], d=0.008, replan=0.0, a=0.10, wm=0.85),   # 스케줄링 시점 결정: N=4에서 결정 8 ms(2 ms×N), 실시간 상태
+              2: dict(u_p=DP2_UP[2], d=0.0, replan=0.040, a=0.05, wm=0.92)}    # 사전 계획: 결정 0, Re-plan(31%) P99 +40 ms, plan 예약으로 HBM 여유 필요
     for k, p in params.items():
         n_eff = D_NODES + p["u_p"] * (N4 - D_NODES)
         qps = n_eff * base["qps"] * (1 + p["a"] * 0.5)

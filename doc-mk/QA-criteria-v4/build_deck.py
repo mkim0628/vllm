@@ -650,7 +650,7 @@ def baseline_slide(prs):
              "≥ " + t(c4["B0"]["qps"], 0), "≥ " + t(c4["B0"]["qps"], 2), "≥ " + t(c4["B0"]["qps"], 4)],
             ["Q2 Capacity", "1 노드", "KV 보존 동시 세션 수 (HBM 가득 채움, 16K 기준)", "%d (HBM만)" % round(tm.capacity_sessions(tm.B0)),
              "%d (×%.1f)" % (round(tm.capacity_sessions(tm.B1)), tm.capacity_sessions(tm.B1) / tm.capacity_sessions(tm.B0)),
-             "≥ %d (2x)" % round(2 * tm.capacity_sessions(tm.B0)), "미정", "미정"],
+             "≥ %d (2x)" % round(cd.QC_EDGES[0] * tm.capacity_sessions(tm.B0)), "≥ %d" % round(cd.QC_EDGES[2] * tm.capacity_sessions(tm.B0)), "≥ %d" % round(cd.QC_EDGES[4] * tm.capacity_sessions(tm.B0))],
             ["Q2' HBM 효율(참고)", "1 노드", "HBM 상주 KV (GiB, 낮을수록 좋음)", n0(HBM_B0), "%s (0%%, ☆: LRU가 HBM을 채움)" % n0(COMP_B1_HBM),
              "≤ %s" % n0(HBM_B0 * 0.8), "≤ %s" % n0(HBM_B0 * 0.6), "≤ %s" % n0(HBM_B0 * 0.4)],
             ["Q3 고부하 지연", "B0 포화 부하 90%", "TTFT P99 (s) / TPOT P99 (ms)", "%.2f s / %.1f ms (SLO 초과)" % (B0_TTFT, B0_TPOT),
@@ -786,8 +786,8 @@ def _conclusion(dp):
     if dp == "DP2":
         return ["GPU-only(P/D 고정, B0) 대비 처리량 ×%.2f(1안)·×%.2f(2안)로 경쟁 기술(×%.2f)을 넘지만 문헌 중앙값(4x)에는 못 미쳐 ★%g~★%g. 유휴 P 노드의 tier·링크를 더 쓰는 2안이 앞선다." % (
             a["Q1"]["r0"], b["Q1"]["r0"], b["Q1"]["b1"] / b["Q1"]["b0"], cd.theory_star(dp, 1, "Q1"), cd.theory_star(dp, 2, "Q1")),
-            "확장성은 1안이 단일 scheduler 결정 용량에 막혀 N=16에서 SE %.0f%%, 2안은 worker 분산으로 %.0f%%. Capacity는 P 노드 tier를 보존 용량에 합산할지 정해야 해서 산정 보류." % (
-                a["Q4"]["c"], b["Q4"]["c"])]
+            "확장성은 1안이 단일 scheduler 결정 용량에 막혀 N=16에서 SE %.0f%%, 2안은 worker 분산으로 %.0f%%. Capacity는 유휴 P 노드 tier를 쓰는 2안이 ×%.1f로 1안(×%.1f)보다 많은 세션을 보존한다(활용 비율 u_P 0.5 대 0.2 [가정])." % (
+                a["Q4"]["c"], b["Q4"]["c"], b["QC"]["r0"], a["QC"]["r0"])]
     if dp == "DP3":
         return ["두 안 모두 공유 문서를 1회만 보관(−30%%)해 GPU-only 대비 처리량 ×%.2f~×%.2f(★1.5), TTFT P99 r %.2f~%.2f(★2.5). 경쟁 기술(×%.2f) 대비 처리량 %+.0f%%~%+.0f%%." % (
             a["Q1"]["r0"], b["Q1"]["r0"], a["Q3"]["r0"], b["Q3"]["r0"], q1c, (a["Q1"]["r1"] - 1) * 100, (b["Q1"]["r1"] - 1) * 100),
@@ -814,7 +814,7 @@ def dp_result_slide(prs, dp):
         lab, how = QLAB[q]
         t1, t2 = cd.THEORY[(dp, 1)].get(q), cd.THEORY[(dp, 2)].get(q)
         if t1 is None:
-            hold = [[("산정 보류", {"bold": True, "size": 8.5})], [("보존 tier 정의(P 노드 합산 / CXL 풀 몫)가 정해져야 계산 가능", {"size": 7.6, "color": "404040"})]]
+            hold = [[("산정 보류", {"bold": True, "size": 8.5})], [("CXL 풀을 보존 tier로 세는 방식이 정해져야 계산 가능", {"size": 7.6, "color": "404040"})]]
             rows.append([[[(lab, {"bold": True})]], how, "—", "—", hold, hold])
             continue
         if q == "Q1":
@@ -857,7 +857,7 @@ def dp_result_slide(prs, dp):
                 l1 = "%g module · %.2f MM" % (t["module"], t["mm"])
                 l2 = "절대 기준(경쟁 기술 비교 없음)"
             if q == "QC":
-                l3 = "★1 이상 (★2·★3 경계 미정, 소유자 별 미정)" if st >= 1 else "☆ (소유자 별 미정)"
+                l3 = "%s (소유자 별 미정)" % cd.fmt_star(st)
             else:
                 l3 = "%s (소유자 %s)" % (cd.fmt_star(st), cd.fmt_star(own))
             cells.append([[(l1, {"bold": True, "size": 8.5})], [(l2, {"size": 7.6, "color": "404040"})], [(l3, {"size": 8, "bold": True, "color": NAVY})]])
@@ -905,38 +905,36 @@ def token_slide(prs):
 
 def capacity_slide(prs):
     s = clone_chrome(prs, 5, "Capacity (동시 세션 수용량) - 평가 기준",
-                     "같은 HBM 용량에서 KV를 보존한 채 재개 가능한 최대 동시 세션 수 — HBM 사용량을 줄이는 것이 아니라 같은 HBM에서 더 많이 수용하는 것이 목표",
-                     "★1 = Stakeholder(요구 문구: SLO 만족 최대 동시 세션 ≥ Baseline 대비 2x). ★1.5~★3은 문헌 근거 수집 후 확정(미정). 값은 theory_model.py 이론 계산(HBM·DRAM만, 신규 메모리 미반영) [잠정]")
-    tbox(s, 0.4, 1.17, 12.5, 0.8,
-         [[("[QA] Capacity  [Refinement] 동일 메모리 하 최대 동시 세션 수  ", {"bold": True, "color": NAVY, "size": 10})],
-          [("[Scenario] 동일 HBM 용량에서 SLO를 만족하며 동시에 보존·처리 가능한 세션 수가 Baseline 대비 증가해야 한다.  [측정] SLO 만족 최대 동시 세션 수 ≥ Baseline 대비 2x", {"size": 9.5})],
-          [("세션 = 컨텍스트 KV를 보존 중인 요청. HBM뿐 아니라 offload(DRAM 등)된 세션도 포함한다. 재계산이 필요한 세션은 세지 않는다.", {"size": 9, "color": "404040"})]],
-         size=9.5, line_spacing=1.1)
-    cb0, cb1 = tm.capacity_sessions(tm.B0), tm.capacity_sessions(tm.B1)
-    rows = [["별", "기준 R_cap = 보존 세션(후보) ÷ 보존 세션(B0 GPU-only)", "근거 / 상태"],
-            [[[("★ 3", {"bold": True})]], "미정", "경쟁 기술 위 목표. 제안: ★2 × 1.5 ≈ ×%.1f (문헌 근거 수집 후 확정)" % (1.5 * cb1 / cb0)],
-            [[[("★ 2", {"bold": True})]], "미정", "경쟁 기술(KV offload) 수준. 이론 대리 B1 = ×%.1f (HBM+DRAM 단순 offloading). 문헌: 동시 batch·세션 증가 보고(FlexGen, InfiniGen, vLLM PagedAttention 등, 압축 제외)를 수집해 확정" % (cb1 / cb0)],
-            [[[("★ 1", {"bold": True})]], "R_cap ≥ 2.0", "Stakeholder 요구: 동일 HBM에서 동시 세션 2배 이상"],
-            [[[("미충족", {"bold": True})]], "R_cap < 2.0", "—"]]
-    add_table(s, 0.4, 2.05, [0.9, 3.6, 8.03], rows, [0.28, 0.4, 0.55, 0.3, 0.28], fills=[None, "E2F0D9", "FFF2CC", "FCE4D6", "EDEDED"], size=8.8, aligns=["c", "c", "l"])
-    tbox(s, 0.4, 3.95, 6.2, 3.0,
-         [[("측정 조건 (확정)", {"bold": True, "color": NAVY, "size": 10})],
-          [("• HBM을 가득 채웠을 때 측정한다. 설계의 watermark(HBM을 일부 비워 두는 정책)와 무관하다. 비운 자리를 다른 세션으로 채우면 HBM 사용량은 다시 100%가 되므로, 기존 HBM 사용량 평균(Q2')과는 다른 지표다", {"size": 8.6})],
-          [("• 반환 세션의 KV 보존율 ≥ 95%(재계산 필요 ≤ 5%)이면서 재개 TTFT P99 ≤ SLO(2 s)일 때만 세션으로 센다. B0는 HBM에서 밀린 세션의 KV가 사라지므로 85세션이 한계다", {"size": 8.6})],
-          [("• SSD는 보존 용량에 넣지 않는다(넘치는 KV의 backing store). 포함하면 세션 수가 SSD 링크 처리율로 정해져 Q1과 같아진다", {"size": 8.6})],
-          [("• 신규 메모리(ScHBM·CXL-PNM·HBF)를 보존 tier로 셀지는 미정(시스템 구성 페이지 참고). 아래 값은 HBM·DRAM만 센 잠정값이다", {"size": 8.6, "color": "C00000"})]],
-         size=8.6, line_spacing=1.1)
-    cap = lambda dp, k: cd.THEORY[(dp, k)]["QC"]
-    hdr = ["구성 (SYS-H100 1노드, 16K 세션 5 GiB)", "보존 세션", "B0 대비"]
-    r2 = [hdr, ["B0 GPU-only (HBM %.0f GiB)" % 425, "%d" % round(cb0), "×1.0"],
-          ["B1 단순 offloading (HBM+DRAM)", "%d" % round(cb1), "×%.1f" % (cb1 / cb0)]]
-    for dp, k, nm in (("DP1", 1, "DP1 1안 (θ 1.1)"), ("DP1", 2, "DP1 2안 (θ 1.3)"), ("DP3", 1, "DP3 1안 (dedup 0.70)"), ("DP3", 2, "DP3 2안 (dedup 0.70)")):
-        r2.append([nm, "%d" % round(cap(dp, k)["c"]), "×%.1f" % cap(dp, k)["r0"]])
-    r2.append(["DP2 / DP4", "산정 보류", "보존 tier 정의 필요"])
-    add_table(s, 6.8, 3.95, [3.4, 1.3, 1.43], r2, [0.28] + [0.3] * 7, fills=[None] * 7, size=8.6, aligns=["l", "c", "c"])
-    tbox(s, 6.8, 6.4, 6.1, 0.6,
-         [[("θ(배치 효율)·dedup은 가정 파라미터라 DP1 1안 대 2안 순서도 가정에 의존한다. 기존 Q2'(HBM 감소율) 평가 기준 페이지는 참고로 유지한다.", {"size": 8.2, "color": "595959"})]],
-         size=8.2, line_spacing=1.05)
+                     "Baseline(GPU-only) 대비, 같은 HBM에서 KV를 보존한 채 재개 가능한 최대 동시 세션 수의 증가율 — ★2는 경쟁 기술(호스트 DRAM offloading) 구조에서 계산한 값",
+                     "근거: 경쟁 기술의 구조(HBM 밖 KV를 호스트 DRAM에 보관)에서 용량을 계산. 문헌 중 '같은 HBM의 동시 세션 N배'를 직접 보고한 것은 확인하지 못했다(LMCache·Ray 문서는 정성, AttentionStore는 hit rate). 값은 theory_model.py 이론 계산 [잠정]")
+    tbox(s, 0.4, 1.12, 12.5, 0.72,
+         [[("[Metric] R_cap = 보존 세션 수(후보) ÷ 보존 세션 수(B0 GPU-only).  ", {"bold": True, "color": NAVY, "size": 9.5}),
+           ("[QA] Capacity / 동일 메모리 하 최대 동시 세션 수.  [측정] SLO 만족 최대 동시 세션 수 ≥ Baseline 대비 2x", {"size": 9.2})],
+          [("세션 = 컨텍스트 KV를 보존 중인 요청(HBM뿐 아니라 offload된 세션 포함, 재계산이 필요한 세션은 제외). 16K 세션 = 5.0 GiB, HBM KV 풀 425 GiB = 85세션, 호스트 DRAM 922 GiB = 184세션분(SYS-H100)", {"size": 8.6, "color": "404040"})]],
+         size=9, line_spacing=1.08)
+    e = cd.QC_EDGES
+    r = cd.BAND_TEXT["QC"]
+    rows = [["별", "기준 (R_cap)", "근거", "출처"],
+            [[[("★ 3", {"bold": True})]], r[3], "경쟁 기술의 고성능 구성: 호스트 DRAM을 2 TiB(DGX급)로 늘린 offloading은 ×%.1f. ★3 = ★2 × 1.5 = ×%.1f(Q2·Q3와 같은 규칙)로 이 고성능 구성보다 약간 낮게 잡았다. HBF·CXL-PNM 같은 신규 메모리를 보존 tier로 쓰면 초과 가능" % (cd.QC_HIGH_DRAM2, e[4]), "계산(system-specs DRAM 1 TiB → 2 TiB 가정) · 규칙"],
+            [[[("★ 2.5", {"bold": True})]], r[2.5], "★2와 ★3의 기하 중점 √(%.2f × %.2f) = %.2f" % (e[2], e[4], e[3]), "—"],
+            [[[("★ 2", {"bold": True})]], r[2], "경쟁 기술(KV offload) 수준: HBM 밖 KV를 호스트 DRAM(922 GiB)에 보관하면 (425+922)÷425 = ×%.2f. LMCache·vLLM offloading connector·Ray Serve 문서가 'CPU 메모리를 KV 용량 확장에 쓴다'고 밝힘(정성)" % e[2], "계산(HBM 풀 425 GiB, DRAM 922 GiB) · LMCache(2510.09665), Ray Serve LLM, vLLM offloading connector"],
+            [[[("★ 1.5", {"bold": True})]], r[1.5], "★1과 ★2의 기하 중점 √(2.0 × %.2f) = %.2f" % (e[2], e[1]), "—"],
+            [[[("★ 1", {"bold": True})]], r[1], "Stakeholder 요구: 동일 HBM에서 동시 세션 2배 이상", "요구사항 QA-06"],
+            [[[("미충족", {"bold": True})]], r[0], "—", "—"]]
+    add_table(s, 0.4, 1.9, [0.8, 1.9, 7.0, 2.83], rows, [0.28, 0.5, 0.28, 0.5, 0.28, 0.28, 0.26], fills=[None, "E2F0D9", "EEF5E0", "FFF2CC", "FDEFD5", "FCE4D6", "EDEDED"], size=8.2, aligns=["c", "c", "l", "l"])
+    ax = dict(min=1, max=6, log=True, ticks=[1, 2, 3, 4, 5, 6], unit="x")
+    bands = [(1.0, 2.0, 0), (2.0, e[1], 1), (e[1], e[2], 1.5), (e[2], e[3], 2), (e[3], e[4], 2.5), (e[4], 6.0, 3)]
+    mk = [dict(kind="point", v=2.0, style="req", label="Stakeholder 요구: 동시 세션 2배 (QA-06)"),
+          dict(kind="point", v=e[2], style="calc", label="호스트 DRAM 1 TiB offloading ×%.2f (HBM 425 + DRAM 922 GiB)" % e[2]),
+          dict(kind="point", v=cd.QC_HIGH_DRAM2, style="calc", label="호스트 DRAM 2 TiB급 offloading ×%.1f" % cd.QC_HIGH_DRAM2)]
+    band_chart(s, 0.4, 4.55, 6.3, ax, bands, mk, title="구간 대비 근거 위치 (R_cap, log 축)", row_h=0.2, label_size=7.0, legend=True)
+    tbox(s, 6.9, 4.5, 6.0, 2.6,
+         [[("측정 조건과 근거의 한계", {"bold": True, "color": NAVY, "size": 9.5})],
+          [("• HBM을 가득 채웠을 때 측정(설계 watermark 무관). 반환 세션 KV 보존율 ≥ 95%이고 재개 TTFT P99 ≤ 2 s인 최대 세션 수. SSD는 보존 용량에서 제외(포함하면 Q1과 중복)", {"size": 8.2})],
+          [("• 문헌이 '같은 HBM의 동시 세션 N배'를 직접 보고한 값은 찾지 못했다. AttentionStore는 hit rate(86~90%, DRAM+디스크), Pensieve는 GPU+CPU 다단 캐시, FlexGen은 batch 256(throughput 영역)이라 R_cap과 단위가 다르다", {"size": 8.2, "color": "C00000"})],
+          [("• 따라서 ★2는 문헌 수치가 아니라 경쟁 기술 구조에서의 계산값, ★3은 ★2 × 1.5 규칙과 DRAM 2 TiB급 구성이다. 호스트 DRAM 용량(1 TiB, 2 TiB)이 바뀌면 경계도 바뀐다", {"size": 8.2})],
+          [("• 신규 메모리(ScHBM·CXL-PNM·HBF)를 보존 tier로 셀지는 미정. 지금은 HBM·DRAM만 센 잠정 경계다", {"size": 8.2, "color": "C00000"})]],
+         size=8.2, line_spacing=1.08)
     return s
 
 
@@ -980,7 +978,7 @@ def mapping_slide(prs):
                 if key in cd.THEORY and "QC" in cd.THEORY[key]:
                     st = cd.theory_star(*key, "QC")
                     row.append([[("소유자 별 미정", {"size": 8, "bold": True, "color": "7F7F7F"})],
-                                [(cd.cell_text(*key, "QC") + " → " + ("★1 이상(경계 미정)" if st >= 1 else "☆"), {"size": 7.2, "color": "2F5597"})]])
+                                [(cd.cell_text(*key, "QC") + " → " + cd.fmt_star(st), {"size": 7.2, "color": "2F5597"})]])
                 else:
                     row.append([[("소유자 별 미정", {"size": 8, "bold": True, "color": "7F7F7F"})], [("산정 보류", {"size": 7.2, "color": "7F7F7F"})]])
                 continue
