@@ -509,6 +509,54 @@ def edit_requirements(slide):
             add_runs(p0, "새로운 메모리 tier 추가, 이동·배치·재사용 정책 교체, vLLM upstream 갱신 시 서빙 경로를 수정하지 않고 반영할 수 있어야 한다.", sz)
             p1 = c.text_frame.add_paragraph()
             add_runs(p1, [("[측정: 변경 모듈 수 ≤ 5개 (변경 시나리오 3종 평균, 환산 개발 공수 ≈ 1.0 M/M 이하)]", {"color": "000000", "bold": True})], sz)
+    add_capacity_row(slide)
+
+
+def _set_cell(cell, paras):
+    """cell의 첫 run 서식(sz=900)을 유지하며 문단별 텍스트로 교체. paras=[[(text, bold)...]] , 항목 사이는 줄바꿈이 아니라 문단 내 연속."""
+    tf = cell.text_frame
+    for p in list(tf.paragraphs)[1:]:
+        p._p.getparent().remove(p._p)
+    p0 = tf.paragraphs[0]
+    for r in list(p0.runs):
+        p0._p.remove(r._r)
+    for br in p0._p.findall("{http://schemas.openxmlformats.org/drawingml/2006/main}br"):
+        p0._p.remove(br)
+    first = True
+    for txt, bold in paras:
+        if not first:
+            p0.add_line_break()
+        first = False
+        r = p0.add_run()
+        r.text = txt
+        r.font.size = Pt(9)
+        if bold:
+            r.font.bold = True
+
+
+def add_capacity_row(slide):
+    """QA-02(자원 효율) 뒤에 Capacity(QA-06) 행을 추가한다. 표 아래 행의 이동 버튼도 같이 민다."""
+    shp = next(s for s in slide.shapes if s.has_table)
+    tbl = shp.table
+    src_idx = next(i for i, r in enumerate(tbl.rows) if r.cells[0].text.strip() == "QA-02")
+    src = tbl.rows[src_idx]._tr
+    new = copy.deepcopy(src)
+    src.addnext(new)
+    row = tbl.rows[src_idx + 1]
+    c = row.cells
+    _set_cell(c[0], [("QA-06", False)])
+    _set_cell(c[1], [("Capacity", False)])
+    _set_cell(c[2], [("동일 메모리 하 최대 동시 세션 수", False)])
+    _set_cell(c[3], [("동일 HBM 용량에서 SLO를 만족하며 동시에 보존·처리 가능한 세션(offload된 KV 보존 세션 포함) 수가 Baseline(GPU-only) 대비 증가해야 한다.", False),
+                     ("[측정: SLO 만족 최대 동시 세션 수 ≥ Baseline 대비 2x]", True)])
+    for i in (4, 5, 6):
+        _set_cell(c[i], [("—", False)])
+    dh = row.height
+    shp.height = shp.height + dh
+    cut = shp.top + sum(r.height for r in list(tbl.rows)[: src_idx + 1])
+    for sh in slide.shapes:
+        if sh is not shp and sh.name.startswith("실행 단추") and sh.top >= cut:
+            sh.top = sh.top + dh
 
 
 # ============================================================ 신규 페이지
@@ -550,8 +598,8 @@ def scenario_slides(prs):
              "이론값 TTFT P99(일반→고부하): B0 %.2f→%.2f s(×%.0f, 고부하에서 SLO 초과), B1 %.2f→%.2f s. Q4: 노드 2→16 sweep, SE(16)" % _LOADROW],
             ["Baseline: B0 GPU-only", "vLLM 기본: HBM prefix cache + preemption recompute, DRAM·SSD 사용 없음. 모든 별 기준은 B0 대비 변화량",
              "HBM에 없으면 16K 재prefill ≈ 0.65 s. '스케줄링도 offload도 없는' 하한"],
-            ["경쟁 기술: 단순 offloading (B1, 경쟁 기술의 이론 대리)", "HBM이 차면 LRU로 DRAM, DRAM이 차면 SSD로 이동(턴 종료 시 증분만 기록하는 write-through, 축출은 복사 없이 삭제). 요청 시 동기 복원, prefetch·예측·배치 정책 없음",
-             "LMCache류 CPU offload를 SSD 계층까지 확장한 정의. 이론값 B1 = B0의 ×2.35: LMCache 단일 노드 하한(2.3x)과 같은 수준이지만 문헌 8건 중앙값(4x)보다는 낮다"],
+            ["경쟁 기술: 단순 offloading (B1, 경쟁 기술의 이론 대리)", "후보와 같은 메모리 6종(용량·대역폭 동일)을 쓰되 정책만 단순: 고정 순서 LRU로 하위 tier에 이동(턴 종료 시 증분만 기록하는 write-through, 축출은 복사 없이 삭제), 신규 메모리는 용량 tier로만 사용(Attention offload·직접 읽기 활용 없음). 요청 시 동기 복원, prefetch·예측·배치 정책 없음",
+             "같은 하드웨어에서 정책만 다르게 하는 대등 비교(C안). 현재 이론값 B1 = B0의 ×2.35는 HBM·DRAM·SSD만 반영한 값으로 LMCache 단일 노드 하한(2.3x) 수준이며, 6종 확장 모델은 후보와 함께 반영해야 한다 [잠정]"],
             ["반복", "분석 모델은 결정적(deterministic). 시뮬레이션 전환 시 seed ≥ 5, median, 95% CI", "단일 seed로 별점을 매기지 않는다"]]
     add_table(s, 0.4, 1.2, [1.9, 6.0, 4.63], rows, [0.26] + [0.55] * 8, fills=[None] * 8, size=8.2, aligns=["l", "l", "l"])
     tbox(s, 0.4, 6.25, 12.5, 0.8,
@@ -613,7 +661,7 @@ def baseline_slide(prs):
     tbox(s, 0.4, 4.7, 6.1, 2.4,
          [[("Baseline과 경쟁 기술 정의", {"bold": True, "color": NAVY, "size": 10})],
           [("• B0 GPU-only(Baseline): vLLM 기본. KV가 HBM에 없으면 16K 재prefill(≈0.65 s). 스케줄링도 offload도 없음", {"size": 8.8})],
-          [("• 경쟁 기술 B1(단순 offloading): HBM이 차면 LRU로 DRAM, DRAM이 차면 SSD로 이동. 턴 종료 시 증분만 write-through, 요청 시 동기 복원, prefetch·예측 없음", {"size": 8.8})],
+          [("• 경쟁 기술 B1(단순 offloading): 후보와 같은 메모리 6종(용량·대역폭 동일), 정책만 단순 — 고정 순서 LRU 이동, 턴 종료 시 증분만 write-through, 요청 시 동기 복원, prefetch·예측 없음, 신규 메모리는 용량 tier로만 사용. (현재 이론값은 HBM·DRAM·SSD만 반영한 잠정값)", {"size": 8.8})],
           [("• DP2의 B0는 P/D 고정 역할, DP4의 B0·B1은 노드 독립(교차 라우팅 25%는 재계산)", {"size": 8.8})]],
          size=8.8, line_spacing=1.12)
     tbox(s, 6.7, 4.7, 6.2, 2.4,
@@ -906,6 +954,7 @@ def system_slide(prs):
          [[("이 덱의 이론 값이 반영한 메모리와 반영하지 않은 메모리", {"bold": True, "color": "C00000", "size": 10})],
           [("• 반영: HBM, DRAM, SSD(링크 16 GB/s×0.8). B0 = HBM만, 경쟁 기술 B1 = HBM→DRAM→SSD 단순 offloading", {"size": 9})],
           [("• 미반영: ScHBM, CXL-PNM, HBF. 이 메모리를 후보 설계가 어떻게 쓰는지(보존 tier, Attention offload, GPU 직접 읽기)와 B1이 이 메모리를 어떻게 쓰는지 정해야 모델에 넣을 수 있다. 따라서 현재 후보 값은 기존 3 tier 기준의 잠정값이다", {"size": 9})],
+          [("• 경쟁 기술 B1은 후보와 같은 메모리 6종(용량·대역폭 동일)을 갖고 정책만 단순하다(C안). 신규 메모리는 용량 tier로만 쓰고 Attention offload·GPU 직접 읽기는 쓰지 않는다. 후보와 B1 모두 같은 모델에서 확장해야 하므로 지금 값은 둘 다 3 tier 기준이다", {"size": 9})],
           [("• SSD는 이 시스템 구성에 포함한다(노드당 16 TiB, ASSUMED). 다만 Capacity는 SSD를 보존 용량에서 제외한다(Q1과 중복 방지)", {"size": 9})]],
          size=9, line_spacing=1.12)
     return s
