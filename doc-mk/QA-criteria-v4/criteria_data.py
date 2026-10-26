@@ -165,7 +165,23 @@ def _build():
     return th
 
 
+def _add_capacity(th):
+    cb0 = tm.capacity_sessions(tm.B0)
+    cb1 = tm.capacity_sessions(tm.B1)
+    for dp in ("DP1", "DP3"):
+        for k in (1, 2):
+            cc = tm.capacity_sessions(tm.CFG[(dp, k)])
+            th[(dp, k)]["QC"] = dict(b0=cb0, b1=cb1, c=cc, r0=cc / cb0, r1=cc / cb1)
+
+
 THEORY = _build()
+_add_capacity(THEORY)
+# Capacity 별 경계: ★1 = 2.0x(Stakeholder)만 확정. ★1.5~★3은 문헌 근거 수집 후 확정(미정)
+QC_STAR1 = 2.0
+
+
+def star_qc(r):
+    return 1 if r >= QC_STAR1 else 0
 
 
 def theory_star(dp, k, q):
@@ -176,6 +192,8 @@ def theory_star(dp, k, q):
         return star_q1(t["r0"])
     if q == "Q2":
         return star_q2(t["red0"])
+    if q == "QC":
+        return star_qc(t["r0"])
     if q == "Q3":
         return star_q3(t["r0"])
     if q == "Q4":
@@ -208,6 +226,8 @@ def cell_text(dp, k, q):
         return "%s→%s query/s (×%.2f)" % (fmt_q(t["b0"]), fmt_q(t["c"]), t["r0"])
     if q == "Q2":
         return "%s→%s GiB (%s)" % (format(round(t["b0"]), ","), format(round(t["c"]), ","), _sg(-t["red0"]))
+    if q == "QC":
+        return "%d→%d 세션 (×%.1f)" % (round(t["b0"]), round(t["c"]), t["r0"])
     if q == "Q3":
         return "TTFT %.1f→%.1f s (r %.2f)" % (t["b0_ttft"], t["c_ttft"], t["r0"])
     if q == "Q4":
