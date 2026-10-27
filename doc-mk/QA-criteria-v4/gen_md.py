@@ -8,7 +8,7 @@ b0, b1 = S["B0"], S["B1"]
 c2, c4 = R["dp2"], R["dp4"]
 n0 = lambda x: format(round(x), ",")
 comp = cd.competitor_stars()
-CEIL_R0 = (1 / tm.G0) / b1["lam"] * b1["qps"] / b0["qps"]            # B0 대비 이론 상한
+CEIL_R0 = (1 / tm.G0) / b0["qps"]            # B0 대비 이론 상한(GPU 한계 ÷ B0 Max SLO goodput)
 e = cd.EDGES
 out = []
 w = out.append
@@ -37,7 +37,7 @@ w("""# QA 평가 기준 v4 (GPU-only 대비 5구간), 경쟁 기술 기준 ★2,
 | Q1 처리량 | R = Max SLO goodput ÷ B0 | ≥ %g | ≥ %g | ≥ %g | ≥ %g | ≥ %g |
 | Q2 Capacity | 같은 HBM에서 KV를 보존해 재개 가능한 최대 동시 세션 수 (B0 대비 R_cap, HBM 가득 채움) | ≥ 2.0 | ≥ 2.52 | ≥ 3.17 | ≥ 3.88 | ≥ 4.75 |
 | Q2' HBM 효율 (참고) | HBM 사용량 감소율 (B0 대비) | ≥ 20%% | ≥ 30%% | ≥ 40%% | ≥ 50%% | ≥ 60%% |
-| Q3 고부하 지연 | r = √(TTFT 개선 × TPOT 개선, P99), B0 포화 부하의 90%% | ≥ %g (감소율 30%%) | ≥ %g | ≥ %g (50%%) | ≥ %g | ≥ %g (67%%) |
+| Q3 고부하 지연 | r = √(TTFT 개선 × TPOT 개선, P99), B0 Max SLO goodput의 90%% | ≥ %g (감소율 30%%) | ≥ %g | ≥ %g (50%%) | ≥ %g | ≥ %g (67%%) |
 | Q4 확장성 | SE(N=16) | ≥ 80%% | ≥ 85%% | ≥ 90%% | ≥ 92.5%% | ≥ 95%% |
 | Q5 변경 용이성 | 변경 module 수 (시나리오 평균). M/M은 환산 병기 | ≤5 (≈1.0 MM) | ≤4 (≈0.8) | ≤3 (≈0.6) | ≤2.5 (≈0.5) | ≤2 (≈0.4) |
 """ % (tuple(e["Q1"]) + (e["Q3"][0], e["Q3"][1], e["Q3"][2], e["Q3"][3], e["Q3"][4])))
@@ -85,7 +85,7 @@ w("| | DP4 4노드(노드 독립) | %s | %s (×%.2f) | ≥ %s / %s / %s |" % (cd
                                                                   cd.fmt_q(c4["B0"]["qps"] * e["Q1"][0]), cd.fmt_q(c4["B0"]["qps"] * e["Q1"][2]), cd.fmt_q(c4["B0"]["qps"] * e["Q1"][4])))
 w("| Q2 HBM (GiB) | 1 노드 / DP2 4노드 | %s / %s | %s / %s (0%%, ☆) | ≤ %s / %s / %s (1 노드) |" % (n0(b0["hbm"]), n0(c2["B1"]["hbm"]), n0(b1["hbm"]), n0(c2["B1"]["hbm"]),
                                                                                               n0(b0["hbm"] * .8), n0(b0["hbm"] * .6), n0(b0["hbm"] * .4)))
-w("| Q3 TTFT/TPOT P99 | B0 포화 부하 90%% | %.2f s / %.1f ms (SLO 초과) | %.2f s / %.1f ms (r %.2f, %s) | TTFT ≤ %.2f / %.2f / %.2f s (TPOT 동일 시) |" % (
+w("| Q3 TTFT/TPOT P99 | B0 Max SLO goodput 90%% | %.2f s / %.1f ms (SLO 만족) | %.2f s / %.1f ms (r %.2f, %s) | TTFT ≤ %.2f / %.2f / %.2f s (TPOT 동일 시) |" % (
     b0["ttft"], b0["tpot"], b1["ttft"], b1["tpot"], comp["Q3"][0], cd.fmt_star(comp["Q3"][1]),
     b0["ttft"] / e["Q3"][0] ** 2, b0["ttft"] / e["Q3"][2] ** 2, b0["ttft"] / e["Q3"][4] ** 2))
 w("| Q4 SE(16) | N=16 | 98%% | 98%% (★3) | ≥ 80 / 90 / 95%% |")
@@ -98,19 +98,19 @@ KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 겨냥한 통
 | 항목 | 값 | 계산·근거 |
 |---|---|---|
 | 모델·HW | Llama-3.1-70B BF16, 8-GPU 노드(SYS-H100): HBM 640 GiB, DRAM 1 TiB(호스트 링크 64 GB/s), NVMe 16 GB/s. DP2·DP4는 4~16 노드 | system-specs |
-| 요청 모델 | open-loop, idle 지수분포 평균 60 s, 컨텍스트 평균 16K, 턴당 +1K·출력 256 | 16K KV = 5.0 GiB. 동시 세션 ≈ 250~450 |
+| 요청 모델 | open-loop, idle 지수분포 평균 60 s, 세션은 8K 시작·턴당 +1.25K(입력 1K + 출력 256)·12턴(종료 약 22K, 평균 약 15K → 이론 모델은 대표 컨텍스트 16K로 계산) | 16K KV = 5.0 GiB. 동시 세션 = λ × (idle 60 s + 응답 4.7 s) ≈ 120(B0)~390(후보 최대) |
 | 시스템 구성(메모리 6종 + SSD) | HBM 640 GiB · ScHBM 160 GiB(63 GB/s, 내부 6.7 TB/s, 연산 197.8 TFLOPS) · CXL-PNM 512 GiB(63 GB/s, 연산 3.28 TFLOPS) · DRAM 1 TiB(64 GB/s) · HBF 2 TiB(1 TB/s, 쓰기 50 GB/s, 수명 100 PB) · SSD 16 TiB(16 GB/s, SSD-PIM) | `DP1/sim/configs/memories_default.json`, system-specs SYS-H100. 이론 값은 HBM·DRAM·SSD만 반영, ScHBM·CXL-PNM·HBF는 미반영 [잠정] |
 | 신규 메모리 운용 계획(미실행, 가정) | ScHBM: 복원해 쓰는 warm tier와 그 자리에서 Attention을 수행(offload)하는 경로를 비교. CXL-PNM: 유휴 KV 대용량 보관 tier. HBF(2 TiB, GPU 직접 1 TB/s, 쓰기 50 GB/s·수명 100 PB): 읽기 위주 KV(공유 문서 chunk)를 두고 쓰기량·수명 소모를 같이 측정 | P1 유휴→복귀(DP1) tier 선택·복원 vs offload, P3 공유 문서 wave(DP3) HBF 배치. 측정: tier별 점유·복원 지연, HBF 쓰기량, offload 비율. B1(C안)은 같은 6종을 고정 순서 LRU(HBM→HBF→DRAM→CXL-PNM→ScHBM→SSD, 순서는 제안)의 용량 tier로만 사용 |
 | Capacity 측정 | HBM을 가득 채운 상태에서 KV 보존율 ≥ 95%, 재개 TTFT P99 ≤ 2 s인 최대 동시 세션 수. SSD는 보존 용량에서 제외. B0 = 85세션, B1 = 269세션(×3.2) | 설계 watermark와 무관. 포함 tier(신규 메모리) 미정 |
 | 메모리 압박 | HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분) | 넘으면 SSD 사용 |
 | 재사용 | 공유 문서 30%, 그중 50% non-prefix, 선택 재계산 15% 토큰 [가정] | DP3 조건 |
-| 부하 구간·SLO | Q1 Max SLO goodput(이용률 0.8). Q3 일반 부하 = B0 포화 부하의 50%, 고부하 = 90% 두 점에서 측정(별점은 고부하의 B0 대비 r, 일반 부하는 열화 확인용). TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms | 이론값 TTFT P99 일반→고부하: B0 0.40→3.22 s(×8), B1 0.71→0.89 s |
+| 부하 구간·SLO | Q1 Max SLO goodput = TTFT P99 ≤ 2 s·TPOT P99 ≤ 50 ms를 모델의 대기열식으로 실제 만족하는 최대 처리율. Q3 일반 부하 = B0 Max SLO goodput의 50%, 고부하 = 90% 두 점에서 측정(별점은 고부하의 B0 대비 r, 일반 부하는 열화 확인용). TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms | 이론값 TTFT P99 일반→고부하: B0 0.29→1.21 s(×4.2), B1 0.17→0.82 s |
 
 Phase: P1 정상 multi-turn(DP1) · P2 burst(DP2) · P3 공유 문서 wave(DP3) · P4 노드 확장 2→16(DP4) · 변경 시나리오(Q5). 별은 이 regime에서의 조건부 별이다.
 
 ## 4. 이론 예상값 산출 방식과 후보 파라미터
 
-계산 구조(`theory_model.py`): ① 반환 세션 hit = LRU stack distance(idle ~ Exp(60 s)) ② 처리 한계 λ = min(GPU 1/0.113 s, DRAM 링크 51 GB/s ÷ 이동 바이트, SSD 링크 12.8 GB/s ÷ 이동 바이트), B0는 miss마다 0.65 s 재계산, goodput = 0.8 × 256 × λ ③ TTFT P99 = prefill 41 ms + 결정 지연 + 99% 복원 경로 ÷ (1 − 링크 이용률), TPOT P99 = 18.1 ms × (1 + 0.5 × 이용률) ④ SE = min(1, 결정 용량 ÷ 요구 결정률).
+계산 구조(`theory_model.py`): ① 반환 세션 hit = LRU stack distance(idle ~ Exp(60 s)) ② 처리 한계 λ = min(GPU 1/0.113 s, DRAM 링크 51 GB/s ÷ 이동 바이트, SSD 링크 12.8 GB/s ÷ 이동 바이트), B0는 miss마다 0.65 s 재계산, Max SLO goodput = TTFT P99 ≤ 2 s·TPOT P99 ≤ 50 ms를 만족하는 최대 λ(query/s) ③ TTFT P99 = prefill 41 ms + 결정 지연 + 99% 복원 경로 ÷ (1 − 링크 이용률), TPOT P99 = 18.1 ms × (1 + 0.5 × 이용률) ④ SE = min(1, 결정 용량 ÷ 요구 결정률).
 
 | 후보 | 파라미터(가정) | 근거 |
 |---|---|---|
@@ -121,7 +121,7 @@ Phase: P1 정상 multi-turn(DP1) · P2 burst(DP2) · P3 공유 문서 wave(DP3) 
 | DP3 1안 / 2안 | 공유 문서 dedup 0.70, GPU +27 ms·체인 tail 25 ms / GPU +3 ms, watermark 0.60 / 0.75 | 관련 KV만 보유·요청마다 체인 / 분석 1회+조회·사전 보유 |
 | DP4 1안 / 2안 | CXL 풀이 SSD 대체(노드 유효 63 GB/s), 교차 라우팅 25% 재계산 제거, 제어 평면 RPC 7 µs / 락 P99 804 µs | 제어 평면은 요청당 ms 이하 |
 
-한계: 후보 파라미터는 가정이라 값이 바뀌면 별이 바뀐다. 시나리오 보정(경쟁 기술 ×2.3) 자체가 설계 선택이다. 큐잉은 1/(1−ρ)로 근사했고 연속 배칭·chunked prefill 세부는 반영하지 않았다.
+한계: 후보 파라미터는 가정이라 값이 바뀌면 별이 바뀐다. 시나리오 보정(경쟁 기술 B1의 B0 대비 배율) 자체가 설계 선택이다. 큐잉은 1/(1−ρ)로 근사했고 연속 배칭·chunked prefill 세부는 반영하지 않았다.
 
 ## 4b. 평가 환경과 시뮬레이션 정의
 
@@ -192,10 +192,28 @@ w(("""
 
 1. DP2·DP4 페이지의 일부 장단점 문구가 확장성을 `(Q5)`로 적고 있다(표의 번호는 Q4). 수정하지 않았다.
 2. 슬라이드의 소유자 코멘트 박스(파란 글씨)는 그대로 두었다. LibreOffice 렌더링에서는 표가 PowerPoint보다 커서 위치가 어긋나 보일 수 있다.
-3. 이론 예상값에서 두 안이 사실상 같게 나온 곳(소유자는 차이를 예상): DP2 Q3, DP3 Q1·Q3, DP4 Q1·Q3·Q4. 덱 마지막 정합표 참조.
+3. (정정 전 기준 기록) 이론 예상값에서 두 안이 사실상 같게 나온 곳(소유자는 차이를 예상): DP2 Q3, DP3 Q1·Q3, DP4 Q1·Q3·Q4. 덱 마지막 정합표 참조.
 4. DP1 Q5의 module·M/M은 기존 구현 측정(시나리오 4종 기준)이라 새 시나리오 3종으로 다시 재야 한다.
 5. Q1 ★3(8x)는 이 시나리오의 이론 상한(×@CEIL@)보다 높아 어떤 후보도 도달할 수 없다. 문헌의 높은 값은 공유 캐시·고 적중 regime(여러 세션이 같은 문서·prefix를 재사용)에서 나온 것이라, 도달하려면 시나리오에 교차 세션 재사용 비중을 키우거나(P3 확장) 목표를 낮춰야 한다.
 6. Q2·Q3의 ★2 앵커(40%, r 2.0)는 LMCache·DirectKV 보고값 중 하나를 고른 것이다. 같은 문헌의 더 큰 값(TTFT 4.4~6.6x 등)을 고르면 ★2·★3가 함께 올라간다.
 """).replace("@CEIL@", "%.1f" % CEIL_R0))
+w(r'''
+## 8. 이론 모델 정정 기록 (2026-10-27)
+
+**정정 내용**: Max SLO goodput을 '처리 한계의 0.8배'로 계산했으나 이는 SLO(TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms) 만족을 확인한 값이 아니었다. 모델의 대기열식으로 두 SLO를 실제로 만족하는 최대 처리율(`slo_max`)로 바꿨다. B1·DP1은 이전 값이 TTFT 2.66 s로 SLO를 위반하고 있었다. Q3의 고부하는 정의(Baseline Max SLO goodput의 90%)대로 B0 SLO 처리율 기준으로 바꿨다(이전에는 B0 포화 부하 기준). 컨텍스트는 8K 시작·턴당 +1.25K·12턴(평균 약 15K)으로 정의하고 이론 모델은 대표 16K로 계산한다. SLO 값과 별 기준은 바꾸지 않았다.
+
+| 항목 | 이전 | 이후 |
+|---|---|---|
+| B0 Max SLO goodput (query/s) | 1.76 | 1.86 |
+| B1 Max SLO goodput (query/s) | 4.13 | 3.78 |
+| B1 ÷ B0 | 2.35 | 2.04 |
+| DP1 1안 ÷ B0 | 2.46 | 2.13 |
+| DP1 2안 ÷ B0 | 2.47 | 2.14 |
+| DP3 1안 ÷ B0 | 3.25 | 3.07 |
+| DP3 2안 ÷ B0 | 3.36 | 3.23 |
+| B0 TTFT P99 @고부하(90%) | 3.22 s | 1.21 s |
+
+별이 바뀐 칸: DP1 Q3 ★2→☆(두 안), DP2 Q1 1안 ★1.5→★1, DP2 Q3 ★2→★1(두 안), DP3 Q3 ★2.5→★1/★1.5, DP4 Q3 ★3→★2. 원인: B0가 90% 부하에서도 SLO 안(TTFT 1.21 s)이라 후보와의 지연 차이가 줄었다. 이론 상한은 GPU 한계 ÷ B0 Max SLO goodput(×4.8)으로 다시 정의했다. DP4 시뮬레이터 Agent KV Fleet은 16K 시작·10턴으로 실행한 이전 결과이며 새 컨텍스트 정의로 다시 돌리지 않았다.
+''')
 open("qa-criteria-v4.md", "w", encoding="utf8").write("\n".join(out))
 print("written", len(out), "blocks")
