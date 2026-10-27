@@ -12,7 +12,7 @@
   - **★2 = 경쟁 기술(KV offload·재사용 시스템) 문헌 대표 수준**. Q1은 문헌 8건 headline 개선의 중앙값 4x, Q2·Q3는 LMCache·DirectKV 등 보고값.
   - **★3 = 경쟁 기술 위에서 우리가 목표하는 수준**. Q1은 문헌 상위권 8x(★2의 2배, 비극단 최고 AttentionStore 7.8x), Q2·Q3는 ★2 × 1.5(offload baseline 대비 문헌 개선 DirectKV 1.2x ~ KVFlow 1.83x의 중간).
   - ★1.5, ★2.5는 인접 앵커의 중점(비율 지표는 기하 중점).
-- 경쟁 기술의 이론 대리 **B1(단순 offloading)**: 후보와 같은 메모리 6종(용량·대역폭 동일)을 쓰되 정책만 단순하다(C안, 대등 비교). 고정 순서 LRU로 하위 tier 이동, 턴 종료 시 증분만 write-through, 요청 시 동기 복원, prefetch·예측·배치 정책 없음, 신규 메모리는 용량 tier로만 사용(Attention offload·GPU 직접 읽기 미사용). 현재 이론값은 HBM·DRAM·SSD만 반영한 잠정값이고 후보도 같은 3 tier로 계산했다. 6종 확장은 둘 다 같은 모델에서 해야 한다. 판정 기준이 아니라 "시나리오가 문헌의 경쟁 기술 수준에 맞게 보정되었는가"를 확인하는 용도다.
+- 경쟁 기술의 이론 대리 **B1(단순 offloading)**: 일반 시스템(HBM은 B0와 동일 + DRAM 1 TiB + NVMe SSD 16 TiB [SSD 용량 ASSUMED])에서의 단순 offloading이다. 고정 순서 LRU로 하위 tier 이동, 턴 종료 시 증분만 write-through, 요청 시 동기 복원, prefetch·예측·배치 정책 없음, 신규 메모리 없음. 세 시스템: B0 = HBM only, B1 = HBM + DRAM + SSD, 타겟 = B1의 HBM·DRAM·SSD(같은 크기) + 신규 메모리 4종(ScHBM, CXL-PNM, HBF, SSD-PIM) + 우리 런타임. 후보 이론값은 아직 신규 메모리를 반영하지 않았다(B1 하드웨어 + 우리 정책의 효과). 판정 기준이 아니라 "시나리오가 문헌의 경쟁 기술 수준에 맞게 보정되었는가"를 확인하는 용도다.
 - 문헌 수치는 모두 "up to" 보고값이며 지표·baseline·workload·논문 버전이 달라 직접 비교가 아니다.
 
 ## 1. 기준 (B0 대비)
@@ -79,7 +79,7 @@ KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 겨냥한 통
 | 모델·HW | Llama-3.1-70B BF16, 8-GPU 노드(SYS-H100): HBM 640 GiB, DRAM 1 TiB(호스트 링크 64 GB/s), NVMe 16 GB/s. DP2·DP4는 4~16 노드 | system-specs |
 | 요청 모델 | open-loop, idle 지수분포 평균 60 s, 세션은 8K 시작·턴당 +1.25K(입력 1K + 출력 256)·12턴(종료 약 22K, 평균 약 15K → 이론 모델은 대표 컨텍스트 16K로 계산) | 16K KV = 5.0 GiB. 동시 세션 = λ × (idle 60 s + 응답 4.7 s) ≈ 120(B0)~390(후보 최대) |
 | 시스템 구성(메모리 6종 + SSD) | HBM 640 GiB · ScHBM 160 GiB(63 GB/s, 내부 6.7 TB/s, 연산 197.8 TFLOPS) · CXL-PNM 512 GiB(63 GB/s, 연산 3.28 TFLOPS) · DRAM 1 TiB(64 GB/s) · HBF 2 TiB(1 TB/s, 쓰기 50 GB/s, 수명 100 PB) · SSD 16 TiB(16 GB/s, SSD-PIM) | `DP1/sim/configs/memories_default.json`, system-specs SYS-H100. 이론 값은 HBM·DRAM·SSD만 반영, ScHBM·CXL-PNM·HBF는 미반영 [잠정] |
-| 신규 메모리 운용 계획(미실행, 가정) | ScHBM: 복원해 쓰는 warm tier와 그 자리에서 Attention을 수행(offload)하는 경로를 비교. CXL-PNM: 유휴 KV 대용량 보관 tier. HBF(2 TiB, GPU 직접 1 TB/s, 쓰기 50 GB/s·수명 100 PB): 읽기 위주 KV(공유 문서 chunk)를 두고 쓰기량·수명 소모를 같이 측정 | P1 유휴→복귀(DP1) tier 선택·복원 vs offload, P3 공유 문서 wave(DP3) HBF 배치. 측정: tier별 점유·복원 지연, HBF 쓰기량, offload 비율. B1(C안)은 같은 6종을 고정 순서 LRU(HBM→HBF→DRAM→CXL-PNM→ScHBM→SSD, 순서는 제안)의 용량 tier로만 사용 |
+| 신규 메모리 운용 계획(미실행, 가정) | ScHBM: 복원해 쓰는 warm tier와 그 자리에서 Attention을 수행(offload)하는 경로를 비교. CXL-PNM: 유휴 KV 대용량 보관 tier. HBF(2 TiB, GPU 직접 1 TB/s, 쓰기 50 GB/s·수명 100 PB): 읽기 위주 KV(공유 문서 chunk)를 두고 쓰기량·수명 소모를 같이 측정 | P1 유휴→복귀(DP1) tier 선택·복원 vs offload, P3 공유 문서 wave(DP3) HBF 배치. 측정: tier별 점유·복원 지연, HBF 쓰기량, offload 비율. 신규 메모리는 타겟 시스템에만 있고 B1은 HBM·DRAM·SSD만 갖는다 |
 | Capacity 측정 | HBM을 가득 채운 상태에서 KV 보존율 ≥ 95%, 재개 TTFT P99 ≤ 2 s인 최대 동시 세션 수. SSD는 보존 용량에서 제외. B0 = 85세션, B1 = 269세션(×3.2) | 설계 watermark와 무관. 포함 tier(신규 메모리) 미정 |
 | 메모리 압박 | HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분) | 넘으면 SSD 사용 |
 | 재사용 | 공유 문서 30%, 그중 50% non-prefix, 선택 재계산 15% 토큰 [가정] | DP3 조건 |
