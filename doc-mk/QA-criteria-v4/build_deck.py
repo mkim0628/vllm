@@ -599,7 +599,7 @@ def scenario_slides(prs):
             ["요청 모델", "open-loop. 세션 idle 시간 지수분포 평균 60 s(tool·사용자 대기, 0.2 s~수 분), 세션은 8K에서 시작해 턴당 +1.25K(입력 1K + 출력 256), 12턴(종료 약 22K, 평균 약 15K → 이론 모델은 대표 컨텍스트 16K로 계산)",
              "16K 세션 KV = 327,680 B × 16,384 ≈ 5.0 GiB. 동시 세션 수 = λ × (idle 60 s + 응답 4.7 s) ≈ 120(B0) ~ 390(후보 최대)"],
             ["신규 메모리 운용 계획 (아직 미실행, 가정)", "ScHBM(내부 6.7 TB/s, 연산 198 TFLOPS, GPU 직접 접근 불가): 복원해 쓰는 warm tier와 Attention을 그 자리에서 수행(offload)하는 두 경로를 비교. CXL-PNM(512 GiB, 연산 3.3 TFLOPS): 유휴 KV 대용량 보관 tier. HBF(2 TiB, GPU 직접 1 TB/s, 쓰기 50 GB/s·수명 100 PB): 읽기 위주 KV(공유 문서 chunk, DP3)를 두고 쓰기량·수명 소모를 같이 측정",
-             "시나리오 구간별 적용: P1 유휴→복귀(DP1) tier 선택·복원 vs offload, P3 공유 문서 wave(DP3) HBF 배치. 측정: tier별 점유·복원 지연, HBF 쓰기량, offload 비율. B1(C안)은 같은 6종을 고정 순서 LRU(HBM→HBF→DRAM→CXL-PNM→ScHBM→SSD)의 용량 tier로만 사용 [순서는 제안]"],
+             "시나리오 구간별 적용: P1 유휴→복귀(DP1) tier 선택·복원 vs offload, P3 공유 문서 wave(DP3) HBF 배치. 측정: tier별 점유·복원 지연, HBF 쓰기량, offload 비율. 신규 메모리는 타겟 시스템에만 있다(B1은 HBM·DRAM·SSD만, 시스템 비교 그림 참고)"],
             ["메모리 압박", "HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분). 동시 세션 KV가 HBM+DRAM(1.35 TiB)을 넘으면 SSD가 쓰인다",
              "반환 세션이 HBM/DRAM/SSD에서 발견될 확률은 LRU stack distance로 계산(idle ~ Exp(60 s))"],
             ["재사용", "세션 간 공유 문서 청크 30%, 그중 50%는 non-prefix 위치. 선택 재계산 15% 토큰 [가정]",
@@ -608,8 +608,8 @@ def scenario_slides(prs):
              "이론값 TTFT P99(일반→고부하): B0 %.2f→%.2f s(×%.1f), B1 %.2f→%.2f s. Q4: 노드 2→16 sweep, SE(16)" % _LOADROW],
             ["Baseline: B0 GPU-only", "vLLM 기본: HBM prefix cache + preemption recompute, DRAM·SSD 사용 없음. 모든 별 기준은 B0 대비 변화량",
              "HBM에 없으면 16K 재prefill ≈ 0.65 s. '스케줄링도 offload도 없는' 하한"],
-            ["경쟁 기술: 단순 offloading (B1, 경쟁 기술의 이론 대리)", "후보와 같은 메모리 6종(용량·대역폭 동일)을 쓰되 정책만 단순: 고정 순서 LRU로 하위 tier에 이동(턴 종료 시 증분만 기록하는 write-through, 축출은 복사 없이 삭제), 신규 메모리는 용량 tier로만 사용(Attention offload·직접 읽기 활용 없음). 요청 시 동기 복원, prefetch·예측·배치 정책 없음",
-             "같은 하드웨어에서 정책만 다르게 하는 대등 비교(C안). 현재 이론값 B1 = B0의 ×@B1R@는 HBM·DRAM·SSD만 반영한 값으로 LMCache 단일 노드 하한(2.3x)보다 약간 낮으며, 6종 확장 모델은 후보와 함께 반영해야 한다 [잠정]"],
+            ["경쟁 기술: 단순 offloading (B1, 경쟁 기술의 이론 대리)", "일반적인 시스템(HBM은 B0와 동일 + DRAM 1 TiB + NVMe SSD 16 TiB [SSD 용량 ASSUMED])에서 단순 offloading: HBM이 차면 LRU로 DRAM, DRAM이 차면 SSD로 이동(턴 종료 시 증분만 기록하는 write-through, 축출은 복사 없이 삭제). 요청 시 동기 복원, prefetch·예측·배치 정책 없음. 신규 메모리 없음",
+             "B0(HBM only) → B1(+DRAM·SSD, 일반 시스템) → 타겟(+신규 메모리 4종, 우리 런타임)으로 하드웨어와 정책이 모두 다르다. 이론값 B1 = B0의 ×@B1R@는 LMCache 단일 노드 하한(2.3x)보다 약간 낮다. 후보 이론값은 아직 신규 메모리를 반영하지 않았다(B1 하드웨어 + 우리 정책의 효과) [잠정]"],
             ["반복", "분석 모델은 결정적(deterministic). 시뮬레이션 전환 시 seed ≥ 5, median, 95% CI", "단일 seed로 별점을 매기지 않는다"]]
     rows = [[_ph(c) if isinstance(c, str) else c for c in r] for r in rows]
     add_table(s, 0.4, 1.1, [1.9, 6.0, 4.63], rows, [0.26] + [0.46] * 9, fills=[None] * 9, size=7.6, aligns=["l", "l", "l"])
@@ -672,7 +672,7 @@ def baseline_slide(prs):
     tbox(s, 0.4, 4.7, 6.1, 2.4,
          [[("Baseline과 경쟁 기술 정의", {"bold": True, "color": NAVY, "size": 10})],
           [("• B0 GPU-only(Baseline): vLLM 기본. KV가 HBM에 없으면 16K 재prefill(≈0.65 s). 스케줄링도 offload도 없음", {"size": 8.8})],
-          [("• 경쟁 기술 B1(단순 offloading): 후보와 같은 메모리 6종(용량·대역폭 동일), 정책만 단순 — 고정 순서 LRU 이동, 턴 종료 시 증분만 write-through, 요청 시 동기 복원, prefetch·예측 없음, 신규 메모리는 용량 tier로만 사용. (현재 이론값은 HBM·DRAM·SSD만 반영한 잠정값)", {"size": 8.8})],
+          [("• 경쟁 기술 B1(단순 offloading): 일반 시스템 = HBM(B0와 동일) + DRAM + SSD. 고정 순서 LRU 이동, 증분 write-through, 동기 복원, prefetch·예측 없음. 신규 메모리 없음(타겟 시스템에만 있음, 시스템 비교 그림 참고)", {"size": 8.8})],
           [("• DP2의 B0는 P/D 고정 역할, DP4의 B0·B1은 노드 독립(교차 라우팅 25%는 재계산)", {"size": 8.8})]],
          size=8.8, line_spacing=1.12)
     tbox(s, 6.7, 4.7, 6.2, 2.4,
@@ -948,6 +948,77 @@ def capacity_slide(prs):
     return s
 
 
+def topology_slide(prs):
+    s = clone_chrome(prs, 5, "평가 시스템 비교 - B0 · B1 · 타겟 시스템",
+                     "세 시스템은 메모리 구성과 KV 처리 정책이 모두 다르다 — B1 = 일반 시스템 + 단순 offloading, 타겟 = B1 메모리 + 신규 메모리 4종 + 우리 런타임",
+                     "SYS-H100 노드 1대 기준(HBM 640 GiB, 가중치 131 GiB·활성값 20 GiB 제외 시 KV 풀 425 GiB). 용량·대역폭은 memories_default.json·system-specs. 일반 SSD 용량 16 TiB는 ASSUMED. 후보 이론값은 아직 신규 메모리를 반영하지 않음")
+    BLUE, GRAY, ORG, GREEN = "DEEBF7", "EDEDED", "FCE4D6", "E2F0D9"
+
+    def blk(x, y, w, h, title, lines, fill, line="7F7F7F", dashed=False, tsize=8.6, lsize=7.4):
+        r = rect(s, x, y, w, h, fill=fill, line=line, line_w=1.0, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
+        if dashed:
+            ln = r.line._get_or_add_ln()
+            d = etree.SubElement(ln, qn("a:prstDash"))
+            d.set("val", "dash")
+        tbox(s, x, y, w, h, [[(title, {"bold": True, "size": tsize, "color": "262626"})]] + [[(t, {"size": lsize, "color": "404040"})] for t in lines],
+             size=lsize, align="c", anchor="m", margins=(0.03, 0.02, 0.03, 0.02), line_spacing=0.95)
+
+    def link(x1, y1, x2, y2, label, lx=None, ly=None, color="595959"):
+        hline(s, x1, y1, x2, y2, color=color, w=1.5)
+        tbox(s, (lx if lx is not None else (x1 + x2) / 2 + 0.05), (ly if ly is not None else (y1 + y2) / 2 - 0.1), 1.6, 0.2, [[(label, {"size": 6.8, "color": color})]],
+             size=6.8, margins=(0.02, 0, 0, 0))
+
+    panels = [(0.4, "B0 : GPU-only (HBM only)", "D9D9D9"), (4.65, "B1 : 일반 시스템 + 단순 offloading", "BDD7EE"), (8.9, "타겟 : B1 메모리 + 신규 메모리 + 우리 런타임", "F8CBAD")]
+    for px, ttl, col in panels:
+        rect(s, px, 1.15, 4.05, 0.36, fill=col, line="7F7F7F", line_w=0.75)
+        tbox(s, px, 1.15, 4.05, 0.36, [[(ttl, {"bold": True, "size": 9.5})]], size=9.5, align="c", anchor="m")
+        rect(s, px, 1.51, 4.05, 3.95, fill=None, line="BFBFBF", line_w=0.75)
+
+    # ---- B0
+    x0 = 0.4
+    blk(x0 + 0.3, 1.65, 3.45, 0.95, "GPU ×8 (H100)", ["HBM 640 GiB · 26.8 TB/s", "KV 풀 425 GiB (가중치·활성값 제외) ≈ 85세션(16K)"], BLUE, "2F5597")
+    blk(x0 + 0.3, 3.0, 3.45, 0.55, "DRAM 사용 안 함", ["host DRAM에는 KV를 두지 않는다"], "FFFFFF", "BFBFBF", dashed=True)
+    blk(x0 + 0.3, 3.75, 3.45, 0.55, "SSD 사용 안 함", ["밀려난 KV는 버린다"], "FFFFFF", "BFBFBF", dashed=True)
+    tbox(s, x0 + 0.3, 4.4, 3.45, 1.0, [[("HBM에 없는 KV → 재 prefill (16K ≈ 0.65 s)", {"size": 8.2, "bold": True, "color": "C00000"})],
+                                        [("보존 가능 세션: 85 (HBM만)", {"size": 8.2})]], size=8.2, align="c")
+
+    # ---- B1
+    x1 = 4.65
+    blk(x1 + 0.3, 1.65, 3.45, 0.95, "GPU ×8 (H100)", ["HBM 640 GiB (B0와 동일) · 26.8 TB/s", "KV 풀 425 GiB ≈ 85세션"], BLUE, "2F5597")
+    link(x1 + 2.0, 2.6, x1 + 2.0, 3.0, "PCIe5 64 GB/s", x1 + 2.1, 2.7)
+    blk(x1 + 0.3, 3.0, 3.45, 0.7, "DRAM 1 TiB", ["KV 922 GiB ≈ 184세션분 · host 경유"], GRAY)
+    link(x1 + 2.0, 3.7, x1 + 2.0, 4.05, "NVMe 16 GB/s", x1 + 2.1, 3.77)
+    blk(x1 + 0.3, 4.05, 3.45, 0.6, "SSD 16 TiB (NVMe)", ["넘치는 KV의 backing store [용량 ASSUMED]"], GRAY)
+    tbox(s, x1 + 0.3, 4.72, 3.45, 0.7, [[("보존 가능 세션: 85 + 184 = 269 (SSD 제외)", {"size": 8.2, "bold": True})]], size=8.2, align="c")
+
+    # ---- 타겟
+    x2 = 8.9
+    blk(x2 + 0.1, 1.65, 3.85, 0.7, "GPU ×8 (H100)", ["HBM 640 GiB (동일) · KV 풀 425 GiB"], BLUE, "2F5597")
+    blk(x2 + 0.1, 2.75, 1.8, 0.62, "DRAM 1 TiB", ["B1과 동일"], GRAY, lsize=7.2)
+    blk(x2 + 0.1, 3.6, 1.8, 0.62, "SSD 16 TiB (NVMe)", ["B1과 동일"], GRAY, lsize=7.2)
+    link(x2 + 1.0, 2.35, x2 + 1.0, 2.75, "PCIe5 64 GB/s", x2 + 1.05, 2.42)
+    link(x2 + 1.0, 3.37, x2 + 1.0, 3.6, "16 GB/s", x2 + 1.05, 3.37)
+    blk(x2 + 2.05, 2.55, 1.9, 0.72, "HBF 2 TiB", ["GPU 직결 UCIe 1 TB/s", "쓰기 50 GB/s·수명 100 PB"], ORG, "C55A11", lsize=6.8)
+    link(x2 + 3.0, 2.35, x2 + 3.0, 2.55, "", 0, 0, "C55A11")
+    blk(x2 + 2.05, 3.32, 1.9, 0.62, "ScHBM 160 GiB", ["63 GB/s · 내부 6.7 TB/s", "Attention offload"], ORG, "C55A11", lsize=6.8)
+    blk(x2 + 2.05, 4.0, 1.9, 0.62, "CXL-PNM 512 GiB", ["63 GB/s · 연산 3.3 TFLOPS", "Attention offload"], ORG, "C55A11", lsize=6.8)
+    blk(x2 + 0.1, 4.45, 1.8, 0.62, "SSD-PIM 16 TiB", ["16 GB/s · GEMV 연산"], ORG, "C55A11", lsize=6.8)
+    tbox(s, x2 + 0.1, 5.08, 3.85, 0.38, [[("주황 = 신규 메모리(타겟에만). 보존 용량: HBM·DRAM + 신규 메모리 [미계산]", {"size": 7.4, "bold": True, "color": "C55A11"})]], size=7.4, align="c")
+
+    # ---- 정책 박스
+    pol = [(0.4, "KV 처리 정책: 없음", "vLLM 기본. HBM prefix cache + preemption recompute. 스케줄링도 offload도 없음"),
+           (4.65, "KV 처리 정책: 단순 offloading", "HBM→DRAM→SSD 고정 순서 LRU, 증분 write-through, 동기 복원. prefetch·예측·배치 정책 없음"),
+           (8.9, "KV 처리 정책: 우리 런타임 (DP1~4)", "상태·접근 특성 기반 이동 결정과 prefetch(DP1), P/D 실행 위치 결정(DP2), KV 재사용·선택 재계산(DP3), 서버 간 공유(DP4). 신규 메모리의 연산·직접 읽기 활용")]
+    for px, t1, t2 in pol:
+        rect(s, px, 5.55, 4.05, 0.95, fill="F2F6FC", line="2F5597", line_w=0.75, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
+        tbox(s, px, 5.55, 4.05, 0.95, [[(t1, {"bold": True, "size": 8.6, "color": NAVY})], [(t2, {"size": 7.8})]], size=7.8, margins=(0.1, 0.04, 0.1, 0.04), line_spacing=1.0)
+    tbox(s, 0.4, 6.58, 12.5, 0.6,
+         [[("읽는 법: ", {"bold": True, "color": NAVY, "size": 8.8}),
+           ("별 기준은 B0(GPU-only) 대비 변화량이고 ★2는 경쟁 기술(B1 계열)의 수준이다. B0와 B1은 처리 시스템이 다르므로(메모리 구성과 정책) 함께 경계로 본다. 후보 이론값은 신규 메모리를 아직 반영하지 않아 현재는 'B1 하드웨어 + 우리 정책'의 효과이고, 신규 메모리 효과는 확장 모델 이후 추가된다.", {"size": 8.6})]],
+         size=8.6, line_spacing=1.05)
+    return s
+
+
 def system_slide(prs):
     s = clone_chrome(prs, 5, "평가 시나리오 - 시스템 구성 (노드 1대, SYS-H100, 메모리 6종 + SSD)",
                      "기존 HBM·DRAM·SSD에 신규 target 메모리(ScHBM, CXL-PNM, HBF)까지 포함한 이기종 메모리 구성",
@@ -964,7 +1035,7 @@ def system_slide(prs):
          [[("이 덱의 이론 값이 반영한 메모리와 반영하지 않은 메모리", {"bold": True, "color": "C00000", "size": 10})],
           [("• 반영: HBM, DRAM, SSD(링크 16 GB/s×0.8). B0 = HBM만, 경쟁 기술 B1 = HBM→DRAM→SSD 단순 offloading", {"size": 9})],
           [("• 미반영: ScHBM, CXL-PNM, HBF. 이 메모리를 후보 설계가 어떻게 쓰는지(보존 tier, Attention offload, GPU 직접 읽기)와 B1이 이 메모리를 어떻게 쓰는지 정해야 모델에 넣을 수 있다. 따라서 현재 후보 값은 기존 3 tier 기준의 잠정값이다", {"size": 9})],
-          [("• 경쟁 기술 B1은 후보와 같은 메모리 6종(용량·대역폭 동일)을 갖고 정책만 단순하다(C안). 신규 메모리는 용량 tier로만 쓰고 Attention offload·GPU 직접 읽기는 쓰지 않는다. 후보와 B1 모두 같은 모델에서 확장해야 하므로 지금 값은 둘 다 3 tier 기준이다", {"size": 9})],
+          [("• 시스템 구성: B0 = HBM only, B1 = HBM + DRAM + SSD(일반 시스템), 타겟 = B1의 HBM·DRAM·SSD(같은 크기) + 신규 메모리 4종(ScHBM, CXL-PNM, HBF, SSD-PIM). 후보 이론값은 아직 신규 메모리를 반영하지 않았다", {"size": 9})],
           [("• SSD는 이 시스템 구성에 포함한다(노드당 16 TiB, ASSUMED). 다만 Capacity는 SSD를 보존 용량에서 제외한다(Q1과 중복 방지)", {"size": 9})]],
          size=9, line_spacing=1.12)
     return s
@@ -1037,8 +1108,9 @@ def main():
     tok_s = token_slide(prs)
     cap_s = capacity_slide(prs)
     sys_s = system_slide(prs)
+    top_s = topology_slide(prs)
     order = [S[0], S[1], res["DP1"], S[2], res["DP2"], S[3], res["DP3"], S[4], res["DP4"], base_s, meth_s, sim_s,
-             S[5], S[6], cap_s, S[7], S[8], S[9], S[10], tok_s, sc1, sys_s, sc2, map_s]
+             S[5], S[6], cap_s, S[7], S[8], S[9], S[10], tok_s, sc1, top_s, sys_s, sc2, map_s]
     lst = prs.slides._sldIdLst
     ids = [sl.slide_id for sl in order]
     els = {int(e.get("id")): e for e in lst}
