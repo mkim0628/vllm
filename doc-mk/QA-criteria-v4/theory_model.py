@@ -7,7 +7,10 @@
   3) 출력: Q1 goodput(query/s, query = 요청 1건 = 1 turn, 출력 256 token), Q2 HBM 사용(GiB), Q3 TTFT·TPOT P99와 개선 r, Q4 SE(N=16).
 
 요청 모델: open-loop. 세션 idle 시간은 지수분포(평균 Z). LRU stack distance 근사로 반환 세션이
-HBM/DRAM/SSD에서 발견될 확률을 계산한다. 가용 부하율 0.8(=SLO 유지용 이용률 상한)을 Max SLO goodput에 적용한다.
+HBM/DRAM/SSD에서 발견될 확률을 계산한다. Max SLO goodput = TTFT P99 ≤ 2 s 그리고 TPOT P99 ≤ 50 ms를 이 모델의 대기열식으로
+실제로 만족하는 최대 처리율(slo_max)이다(2026-10-27 정정: 이전에는 처리 한계의 0.8배를 썼고 SLO 만족을 확인하지 않았다).
+
+컨텍스트: 세션은 8K에서 시작해 턴당 +1.25K(입력 1K + 출력 256), 12턴(종료 약 22K, 평균 약 15K). 이론 모델은 평균을 올린 대표 컨텍스트 16K로 계산한다.
 """
 import math
 
@@ -27,7 +30,8 @@ W_TIME = 5.3e-3                     # decode step 가중치 읽기 하한 (s)
 KV_STEP = 0.2e-3                    # 세션당 KV 읽기 (s/step, 16K)
 B_DEC = 64                          # 대표 decode batch
 OUT = 256
-UTIL_CAP = 0.8                      # Max SLO goodput 용 이용률 상한 [가정]
+TTFT_SLO, TPOT_SLO = 2.0, 50.0      # s, ms
+TURNS = 12                          # 세션당 턴 수(시작 8K, 턴당 +1.25K)
 Z_MEAN = 60.0                       # idle(tool 대기+사용자) 평균 s [가정]
 N_HBM = HBM_POOL / KV_S             # 85 세션분
 N_DRAM = DRAM_POOL / KV_S           # 184 세션분
@@ -89,8 +93,21 @@ def max_lambda(c, n_hbm=None):
     return lo
 
 
-def goodput(lam):
-    return UTIL_CAP * lam                 # query/s: SLO를 만족하는 요청의 초당 처리 수 (1 query = 1 turn)
+def slo_max(c, lam_cap=None, ttft_extra=0.0, ttft_fn=None):
+    """Max SLO goodput(query/s, 1 query = 1 turn): TTFT P99 ≤ TTFT_SLO 그리고 TPOT P99 ≤ TPOT_SLO를 만족하는 최대 λ.
+    lam_cap = 처리 한계(링크·GPU). ttft_fn(λ)이 있으면 TTFT를 그것으로 계산한다."""
+    cap = max_lambda(c) if lam_cap is None else lam_cap
+    lo, hi = 0.001, cap
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        tt, tp, _ = latencies(c, mid, cap)
+        if ttft_fn is not None:
+            tt = ttft_fn(mid)
+        if tt + ttft_extra <= TTFT_SLO and tp <= TPOT_SLO:
+            lo = mid
+        else:
+            hi = mid
+    return lo
 
 
 def latencies(c, lam_test, lam_cap, n_hbm=None):
@@ -140,13 +157,13 @@ def capacity_sessions(c):
 
 def single_node():
     out = {}
-    lam0 = max_lambda(B0)
-    lam_test = 0.9 * lam0                                    # 고부하 = B0(GPU-only) 포화 부하의 90%
+    lam0 = slo_max(B0)
+    lam_test = 0.9 * lam0                                    # 고부하 = B0(GPU-only) Max SLO goodput의 90%
     for key, c in [("B0", B0), ("B1", B1)] + [(k, v) for k, v in CFG.items()]:
         lam = max_lambda(c)
         ttft, tpot, rho = latencies(c, lam_test, lam)
         hbm = HBM_POOL / GiB * (1.0 if key in ("B0", "B1") else c.wm)   # 정적 LRU offload는 HBM을 캐시로 채운다
-        out[key] = dict(lam=lam, qps=goodput(lam), ttft=ttft, tpot=tpot, rho=rho, hbm=hbm, cfg=c)
+        out[key] = dict(lam=lam, qps=slo_max(c, lam), ttft=ttft, tpot=tpot, rho=rho, hbm=hbm, cfg=c)
     return out, lam_test
 
 
@@ -186,7 +203,7 @@ def cluster_dp2(single):
         tpot = tau() * 1e3 * (1 + 0.5 * rho)
         res[("DP2", k)] = dict(qps=qps, ttft=ttft, tpot=tpot, hbm=D_NODES * 425.0 * p["wm"])
     # SE(N=16): 단일 scheduler 결정 용량 vs 요구 (결정 비용 2 ms × N, 후보 수 선형 [repo ASSUMED])
-    lam_node = single["B1"]["lam"]
+    lam_node = single["B1"]["qps"]
     demand = 16 * lam_node
     cap_c1 = 1 / (0.002 * 16)
     cap_c2 = 4 / (0.002 * 16)                                # worker 4
@@ -214,21 +231,29 @@ def cluster_dp4(single, lam_test_node):
             lo = mid
         else:
             hi = mid
-    res["B0"] = dict(qps=N4 * goodput(lo))
-    res["B1"] = dict(qps=goodput(lam_b1_cluster) , lam=lam_b1_cluster)
-    lam_test = lam_test_node                                  # 노드당 시험 부하 = B0 포화 부하의 90%
-    # B1 latency (노드당)
-    c_pool = {}
+    lam_b0_cap = lo
+
+    def ttft_b0(lam):
+        m = 1 - (1 - x_cross) * hit_rates(lam)[0]
+        rho = min(lam / lam_b0_cap, 0.95)
+        return T_NEW + m * T_REC / max(1 - rho, 0.05)
+
+    lam_b0 = slo_max(B0, lam_b0_cap, ttft_fn=ttft_b0)
+    res["B0"] = dict(qps=N4 * lam_b0)
+    cb1 = Cfg("B1 cross", w=1.0)
+    lam_b1_node = lam_b1_cluster / N4
+    lam_b1 = slo_max(cb1, lam_b1_node, ttft_extra=x_cross * T_REC)      # P99는 교차 라우팅 재계산 경로가 더해진다
+    res["B1"] = dict(qps=N4 * lam_b1, lam=lam_b1_cluster)
+    lam_test = lam_test_node                                  # 노드당 시험 부하 = B0 Max SLO goodput의 90%
     for k in (1, 2):
         c = Cfg("DP4 %d안" % k, pool=True, pool_bw=pool_bw, extra_gpu=0.0, d_crit=ctl[k])
         lam = max_lambda(c)
         ttft, tpot, rho = latencies(c, lam_test, lam)
-        res[("DP4", k)] = dict(qps=N4 * goodput(lam) * (1 - ctl[k] / G0 * 0.0), ttft=ttft, tpot=tpot, rho=rho)
-    cb1 = Cfg("B1 cross", w=1.0)
-    ttft_b1, tpot_b1, _ = latencies(cb1, lam_test, lam_b1_cluster / N4)
+        res[("DP4", k)] = dict(qps=N4 * slo_max(c, lam), ttft=ttft, tpot=tpot, rho=rho)
+    ttft_b1, tpot_b1, _ = latencies(cb1, lam_test, lam_b1_node)
     ttft_b1 += x_cross * T_REC                               # P99는 교차 라우팅 재계산 경로
     res["B1"].update(ttft=ttft_b1, tpot=tpot_b1)
-    lam_node = res[("DP4", 1)]["qps"] / N4 / UTIL_CAP
+    lam_node = res[("DP4", 1)]["qps"] / N4
     demand = 16 * lam_node * 4                               # 16노드 × 4 op/turn
     res["SE16"] = {"B1": 0.98, ("DP4", 1): min(1.0, 204_800 / demand) * 0.99, ("DP4", 2): min(1.0, 102_400 / demand) * 0.99}
     return res

@@ -15,7 +15,7 @@ from deck_lib import *  # noqa: F401,F403  (헬퍼: tbox, rect, add_table, band_
 from deck_lib import _font, BAND_FILL, NAVY, BASE, OUT
 
 
-_l0 = tm.max_lambda(tm.B0)
+_l0 = tm.slo_max(tm.B0)
 _n0, _h0 = [tm.latencies(tm.B0, f * _l0, tm.max_lambda(tm.B0))[0] for f in (0.5, 0.9)]
 _n1, _h1 = [tm.latencies(tm.B1, f * _l0, tm.max_lambda(tm.B1))[0] for f in (0.5, 0.9)]
 _LOADROW = (_n0, _h0, _h0 / _n0, _n1, _h1)
@@ -179,7 +179,7 @@ B0_QPS, B1_QPS = SGL["B0"]["qps"], SGL["B1"]["qps"]
 B0_TTFT, B0_TPOT = SGL["B0"]["ttft"], SGL["B0"]["tpot"]
 B1_TTFT, B1_TPOT = SGL["B1"]["ttft"], SGL["B1"]["tpot"]
 HBM_B0 = SGL["B0"]["hbm"]
-CEIL_RATIO = (1 / tm.G0) / SGL["B1"]["lam"]                   # GPU 한계 ÷ 경쟁 기술(B1)
+CEIL_RATIO = (1 / tm.G0) / SGL["B1"]["qps"]                   # GPU 한계 ÷ 경쟁 기술(B1) Max SLO goodput
 HBM_FLOOR_GIB = 53                                             # decode 상주분 + 버퍼(이론 하한)
 COMP = cd.competitor_stars()
 
@@ -300,19 +300,19 @@ def q3_spec():
         return [[(r[star] + " (감소율 %.0f%%)" % reds[i], {})], [("(TPOT 동일 시 TTFT ≤ %.2f s)" % tt[i], {"size": 7.5, "color": "595959"})]]
     return dict(
         title="고부하 지연시간(Tail Latency) - 평가 기준",
-        subtitle="Baseline(GPU-only) 대비 TTFT·TPOT P99 개선 r (고부하 = B0 포화 부하의 90%, SLO 충족 전제) — ★2는 경쟁 기술 수준",
+        subtitle="Baseline(GPU-only) 대비 TTFT·TPOT P99 개선 r (고부하 = B0 Max SLO goodput의 90%, SLO 충족 전제) — ★2는 경쟁 기술 수준",
         src="출처: LMCache (arXiv 2510.09665, 검색 요약 기준) · KVFlow (arXiv 2507.07400) · DirectKV OSDI'26. LMCache E2E 50~75%는 사용자 인용(원문 대조 필요). 절대값은 분석 모델",
         metric=["[Metric] r = √[ (B0 TTFT P99 ÷ 후보 TTFT P99) × (B0 TPOT P99 ÷ 후보 TPOT P99) ],  감소율 = 1 − 1/r",
-                "고부하: 부하를 B0 포화 부하(%.2f turn/s)의 90%%(%.2f)에 고정. Baseline 절대값(이론): B0 TTFT P99 %.2f s · TPOT P99 %.1f ms (이 부하에서 B0는 TTFT SLO 초과). TPOT이 같으면 TTFT가 ★1 ≤ %.2f · ★2 ≤ %.2f · ★3 ≤ %.2f s" % (
-                    SGL["B0"]["lam"], cd.LAM_TEST, B0_TTFT, B0_TPOT, tt[0], tt[2], tt[4]),
-                "경쟁 기술의 이론값(B1): TTFT %.2f s · TPOT %.1f ms → r %.2f (★2 구간). 후보는 SLO(TTFT ≤ 2 s, TPOT ≤ 50 ms) 충족 필수" % (B1_TTFT, B1_TPOT, rb1),
+                "고부하: 부하를 B0 Max SLO goodput(%.2f query/s)의 90%%(%.2f)에 고정. Baseline 절대값(이론): B0 TTFT P99 %.2f s · TPOT P99 %.1f ms (SLO 만족). TPOT이 같으면 TTFT가 ★1 ≤ %.2f · ★2 ≤ %.2f · ★3 ≤ %.2f s" % (
+                    SGL["B0"]["qps"], cd.LAM_TEST, B0_TTFT, B0_TPOT, tt[0], tt[2], tt[4]),
+                "경쟁 기술의 이론값(B1): TTFT %.2f s · TPOT %.1f ms → r %.2f (%s, 문헌 ★2 r 2.0에는 못 미침: B0가 90%% 부하에서도 SLO 안이라 개선 여지가 작다). 후보는 SLO(TTFT ≤ 2 s, TPOT ≤ 50 ms) 충족 필수" % (B1_TTFT, B1_TPOT, rb1, cd.fmt_star(COMP["Q3"][1])),
                 "구간 규칙: ★1 = Stakeholder 체감 30%(r 1.43) · ★2 = 경쟁 기술 수준 50%(r 2.0) · ★3 = ★2 × 1.5 = r 3.0(감소율 67%) · 반 단계는 기하 중점"],
         metric_h=1.15,
         table_y=2.3,
         rows=[
             (3, rng(3, 4), "경쟁 기술(r 2.0)의 1.5x(offload baseline 대비 문헌 개선 1.2~1.83x의 중간). LMCache 고 QPS 실트래픽 TTFT 4.4~6.6x·ITL 34~58%를 r로 환산하면 2.6~4.0이라 그 중간~상단에 해당", "LMCache, KVFlow, DirectKV"),
             (2.5, rng(2.5, 3), "★2와 ★3의 기하 중점(√(2.0×3.0)=2.45)", "—"),
-            (2, rng(2, 2), "경쟁 기술 수준: LMCache Context 벤치마크 E2E 지연 약 50~75%% 감소의 하한(r 2.0). 이론 B1 r %.2f가 이 구간에 놓인다" % rb1, "LMCache"),
+            (2, rng(2, 2), "경쟁 기술 수준: LMCache Context 벤치마크 E2E 지연 약 50~75%% 감소의 하한(r 2.0). 이론 B1 r %.2f는 이 구간에 못 미친다(B0가 SLO 안이라 개선 여지가 작음)" % rb1, "LMCache"),
             (1.5, rng(1.5, 1), "★1과 ★2의 기하 중점(√(1.43×2.0)=1.7)", "—"),
             (1, rng(1, 0), "Stakeholder 요구: 사용자 체감 성능 개선 기준 30% 감소(r 1.43, GPU-only 대비)", "Stakeholder 요구사항"),
             (0, [[(r[0], {})]], "r < 1.43 또는 SLO 위반. 음수는 B0보다 나빠진 경우", "—"),
@@ -581,6 +581,14 @@ def clone_chrome(prs, ref_idx, title, subtitle, src):
     return s
 
 
+B1R_TXT = "%.2f" % (B1_QPS / B0_QPS)
+CEIL0_TXT = "%.1f" % (CEIL_RATIO * B1_QPS / B0_QPS)
+
+
+def _ph(x):
+    return x.replace("@B1R@", B1R_TXT).replace("@CEIL0@", CEIL0_TXT)
+
+
 def scenario_slides(prs):
     s = clone_chrome(prs, 5, "평가 시나리오 - Agent KV Fleet (DP1~4 공통)",
                      "KV 캐시 관리만 대상(RAG·LoRA·MoE 제외). KV가 HBM·DRAM 용량을 넘고 재사용할 history가 있는 구간을 겨냥한 통합 시나리오",
@@ -588,26 +596,27 @@ def scenario_slides(prs):
     rows = [["항목", "값", "근거 / 계산"],
             ["모델·HW", "Llama-3.1-70B BF16, 8-GPU 노드(SYS-H100). 메모리 6종: HBM 640 GiB · ScHBM 160 GiB · CXL-PNM 512 GiB · DRAM 1 TiB · HBF 2 TiB · SSD 16 TiB(NVMe 16 GB/s). DP2·DP4는 4~16 노드",
              "기존 평가 환경과 동일(비교 가능성). 노드 간 링크는 RDMA 50 GB/s [ASSUMED]"],
-            ["요청 모델", "open-loop. 세션 idle 시간 지수분포 평균 60 s(tool·사용자 대기, 0.2 s~수 분), 컨텍스트 평균 16K, 턴당 +1K 입력·출력 256, 세션당 10~20턴",
-             "16K 세션 KV = 327,680 B × 16,384 ≈ 5.0 GiB. 동시 세션 수 = λ × (idle + 응답) ≈ 250~450"],
+            ["요청 모델", "open-loop. 세션 idle 시간 지수분포 평균 60 s(tool·사용자 대기, 0.2 s~수 분), 세션은 8K에서 시작해 턴당 +1.25K(입력 1K + 출력 256), 12턴(종료 약 22K, 평균 약 15K → 이론 모델은 대표 컨텍스트 16K로 계산)",
+             "16K 세션 KV = 327,680 B × 16,384 ≈ 5.0 GiB. 동시 세션 수 = λ × (idle 60 s + 응답 4.7 s) ≈ 120(B0) ~ 390(후보 최대)"],
             ["신규 메모리 운용 계획 (아직 미실행, 가정)", "ScHBM(내부 6.7 TB/s, 연산 198 TFLOPS, GPU 직접 접근 불가): 복원해 쓰는 warm tier와 Attention을 그 자리에서 수행(offload)하는 두 경로를 비교. CXL-PNM(512 GiB, 연산 3.3 TFLOPS): 유휴 KV 대용량 보관 tier. HBF(2 TiB, GPU 직접 1 TB/s, 쓰기 50 GB/s·수명 100 PB): 읽기 위주 KV(공유 문서 chunk, DP3)를 두고 쓰기량·수명 소모를 같이 측정",
              "시나리오 구간별 적용: P1 유휴→복귀(DP1) tier 선택·복원 vs offload, P3 공유 문서 wave(DP3) HBF 배치. 측정: tier별 점유·복원 지연, HBF 쓰기량, offload 비율. B1(C안)은 같은 6종을 고정 순서 LRU(HBM→HBF→DRAM→CXL-PNM→ScHBM→SSD)의 용량 tier로만 사용 [순서는 제안]"],
             ["메모리 압박", "HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분). 동시 세션 KV가 HBM+DRAM(1.35 TiB)을 넘으면 SSD가 쓰인다",
              "반환 세션이 HBM/DRAM/SSD에서 발견될 확률은 LRU stack distance로 계산(idle ~ Exp(60 s))"],
             ["재사용", "세션 간 공유 문서 청크 30%, 그중 50%는 non-prefix 위치. 선택 재계산 15% 토큰 [가정]",
              "DP3 재사용·선택 재계산이 겨냥하는 조건. B0·경쟁 기술은 세션마다 복제 저장"],
-            ["부하 구간·SLO", "Q1: 부하 sweep의 Max SLO goodput(이용률 상한 0.8 [가정]). Q3: 일반 부하 = B0 포화 부하의 50%, 고부하 = 90% 두 점에서 TTFT·TPOT P99를 잰다(별점은 고부하의 B0 대비 r, 일반 부하는 열화 확인용). SLO: TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms",
-             "이론값 TTFT P99(일반→고부하): B0 %.2f→%.2f s(×%.0f, 고부하에서 SLO 초과), B1 %.2f→%.2f s. Q4: 노드 2→16 sweep, SE(16)" % _LOADROW],
+            ["부하 구간·SLO", "Q1: Max SLO goodput = TTFT P99 ≤ 2 s·TPOT P99 ≤ 50 ms를 모델의 대기열식으로 실제 만족하는 최대 처리율. Q3: 일반 부하 = B0 Max SLO goodput의 50%, 고부하 = 90% 두 점에서 TTFT·TPOT P99를 잰다(별점은 고부하의 B0 대비 r, 일반 부하는 열화 확인용). SLO: TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms",
+             "이론값 TTFT P99(일반→고부하): B0 %.2f→%.2f s(×%.1f), B1 %.2f→%.2f s. Q4: 노드 2→16 sweep, SE(16)" % _LOADROW],
             ["Baseline: B0 GPU-only", "vLLM 기본: HBM prefix cache + preemption recompute, DRAM·SSD 사용 없음. 모든 별 기준은 B0 대비 변화량",
              "HBM에 없으면 16K 재prefill ≈ 0.65 s. '스케줄링도 offload도 없는' 하한"],
             ["경쟁 기술: 단순 offloading (B1, 경쟁 기술의 이론 대리)", "후보와 같은 메모리 6종(용량·대역폭 동일)을 쓰되 정책만 단순: 고정 순서 LRU로 하위 tier에 이동(턴 종료 시 증분만 기록하는 write-through, 축출은 복사 없이 삭제), 신규 메모리는 용량 tier로만 사용(Attention offload·직접 읽기 활용 없음). 요청 시 동기 복원, prefetch·예측·배치 정책 없음",
-             "같은 하드웨어에서 정책만 다르게 하는 대등 비교(C안). 현재 이론값 B1 = B0의 ×2.35는 HBM·DRAM·SSD만 반영한 값으로 LMCache 단일 노드 하한(2.3x) 수준이며, 6종 확장 모델은 후보와 함께 반영해야 한다 [잠정]"],
+             "같은 하드웨어에서 정책만 다르게 하는 대등 비교(C안). 현재 이론값 B1 = B0의 ×@B1R@는 HBM·DRAM·SSD만 반영한 값으로 LMCache 단일 노드 하한(2.3x)보다 약간 낮으며, 6종 확장 모델은 후보와 함께 반영해야 한다 [잠정]"],
             ["반복", "분석 모델은 결정적(deterministic). 시뮬레이션 전환 시 seed ≥ 5, median, 95% CI", "단일 seed로 별점을 매기지 않는다"]]
+    rows = [[_ph(c) if isinstance(c, str) else c for c in r] for r in rows]
     add_table(s, 0.4, 1.1, [1.9, 6.0, 4.63], rows, [0.26] + [0.46] * 9, fills=[None] * 9, size=7.6, aligns=["l", "l", "l"])
     tbox(s, 0.4, 6.62, 12.5, 0.6,
          [[("조건부 별: ", {"bold": True, "color": "C00000", "size": 9.5}),
-           ("이 시나리오는 KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 의도적으로 겨냥한다(문헌이 이득을 보고한 조건과 같은 영역). "
-            "시나리오 한계: 단순 offloading의 이론값은 지연(Q3)에서 문헌 수준(r 2.0)에 놓이지만 처리량(Q1)에서는 ×2.35로 문헌 하단이다. 이 시나리오는 세션별 히스토리 재사용만 있어 처리량 이론 상한이 ×4.0이라, ★3(8x)는 공유 캐시·고 적중 regime(문헌)에서만 가능하다. 값은 분석 모델의 예상값이며 시뮬레이션 전이다.", {"size": 9})]],
+           ("이 시나리오는 KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 의도적으로 겨냥한다(문헌이 이득을 보고한 조건과 같은 영역). " +
+            _ph("시나리오 한계: 단순 offloading의 이론값은 지연(Q3)에서 r 1.3로 문헌 ★2 수준(r 2.0)에 못 미치고 처리량(Q1)에서도 ×@B1R@로 문헌 하단 이하다. 이 시나리오는 세션별 히스토리 재사용만 있어 처리량 이론 상한이 ×@CEIL0@이라, ★3(8x)는 공유 캐시·고 적중 regime(문헌)에서만 가능하다. 값은 분석 모델의 예상값이며 시뮬레이션 전이다."), {"size": 9})]],
          size=9, line_spacing=1.1)
 
     s2 = clone_chrome(prs, 5, "평가 시나리오 - 구간(Phase)과 DP·QA 대응",
@@ -626,7 +635,7 @@ def scenario_slides(prs):
     add_table(s2, 0.4, 1.2, [1.6, 3.9, 5.5, 1.53], rows, [0.26] + [0.62] * 5, fills=[None] * 5, size=8.5, aligns=["l", "l", "l", "c"])
     tbox(s2, 0.4, 4.9, 12.5, 1.5,
          [[("측정 규칙", {"bold": True, "color": NAVY, "size": 10})],
-          [("• Q1: 부하 sweep 최댓값끼리 R = 후보 ÷ B0 · Q2: HBM 상주 KV 시간 평균의 B0 대비 감소율 · Q3: B0 포화 부하의 90%에서 TTFT·TPOT P99로 r 계산(B0 대비)", {"size": 9})],
+          [("• Q1: 부하 sweep 최댓값끼리 R = 후보 ÷ B0 · Q2: HBM 상주 KV 시간 평균의 B0 대비 감소율 · Q3: B0 Max SLO goodput의 90%에서 TTFT·TPOT P99로 r 계산(B0 대비)", {"size": 9})],
           [("• Q4: 노드 2→16 sweep, SE(16) = goodput 배율 ÷ 노드 배율 · Q5: 변경 시나리오 3종을 각 후보에 구현해 module 수 평균(M/M 환산 병기)", {"size": 9})],
           [("• 경쟁 기술(단순 offloading)은 판정 기준이 아니라 ★2 앵커와 비교용이다. 기준·시나리오 값은 결과를 보기 전에 고정한다. 기존 중립 벤치마크 시뮬 결과는 md의 참고 표에만 둔다.", {"size": 9})]],
          size=9, line_spacing=1.12)
@@ -636,7 +645,7 @@ def scenario_slides(prs):
 def baseline_slide(prs):
     s = clone_chrome(prs, 5, "평가 Baseline(GPU-only)과 경쟁 기술(단순 offloading) 절대 수치",
                      "모든 별 기준은 B0(GPU-only) 대비 변화량. 경쟁 기술(B1)의 이론값이 어느 별에 놓이는지 확인용으로 병기 (이론 계산, Agent KV Fleet, SYS-H100)",
-                     "분석 모델: theory_model.py (GPU 한계 · DRAM 링크 51 GB/s · SSD 링크 12.8 GB/s 중 최솟값 × 이용률 0.8). 시뮬레이션이 아니며 후보 파라미터는 [가정]")
+                     "분석 모델: theory_model.py (GPU 한계 · DRAM 링크 51 GB/s · SSD 링크 12.8 GB/s 중 최솟값에서 SLO(TTFT·TPOT P99)를 만족하는 최대 처리율). 시뮬레이션이 아니며 후보 파라미터는 [가정]")
     c2, c4 = _R["dp2"], _R["dp4"]
     e1, e3 = cd.EDGES["Q1"], cd.EDGES["Q3"]
     t = lambda base, i: cd.fmt_q(base * e1[i])
@@ -653,8 +662,8 @@ def baseline_slide(prs):
              "≥ %d (2x)" % round(cd.QC_EDGES[0] * tm.capacity_sessions(tm.B0)), "≥ %d" % round(cd.QC_EDGES[2] * tm.capacity_sessions(tm.B0)), "≥ %d" % round(cd.QC_EDGES[4] * tm.capacity_sessions(tm.B0))],
             ["Q2' HBM 효율(참고)", "1 노드", "HBM 상주 KV (GiB, 낮을수록 좋음)", n0(HBM_B0), "%s (0%%, ☆: LRU가 HBM을 채움)" % n0(COMP_B1_HBM),
              "≤ %s" % n0(HBM_B0 * 0.8), "≤ %s" % n0(HBM_B0 * 0.6), "≤ %s" % n0(HBM_B0 * 0.4)],
-            ["Q3 고부하 지연", "B0 포화 부하 90%", "TTFT P99 (s) / TPOT P99 (ms)", "%.2f s / %.1f ms (SLO 초과)" % (B0_TTFT, B0_TPOT),
-             "%.2f s / %.1f ms (r %.2f, ★2)" % (B1_TTFT, B1_TPOT, COMP["Q3"][0]),
+            ["Q3 고부하 지연", "B0 Max SLO goodput 90%", "TTFT P99 (s) / TPOT P99 (ms)", "%.2f s / %.1f ms (SLO 만족)" % (B0_TTFT, B0_TPOT),
+             "%.2f s / %.1f ms (r %.2f, %s)" % (B1_TTFT, B1_TPOT, COMP["Q3"][0], cd.fmt_star(COMP["Q3"][1])),
              "TTFT ≤ %.2f s" % (B0_TTFT / e3[0] ** 2), "≤ %.2f s" % (B0_TTFT / e3[2] ** 2), "≤ %.2f s" % (B0_TTFT / e3[4] ** 2)],
             ["Q4 확장성", "N=16", "SE (%)", "98 (노드 독립)", "98 (노드 독립, ★3)", "≥ 80", "≥ 90", "≥ 95"],
             ["Q5 변경 용이성", "후보 구현", "module 수 (환산 M/M)", "—", "—", "≤5 (≈1.0)", "≤3 (≈0.6)", "≤2 (≈0.4)"]]
@@ -683,18 +692,18 @@ def method_slide(prs):
     tbox(s, 0.4, 1.17, 6.2, 3.0,
          [[("계산 구조", {"bold": True, "color": NAVY, "size": 10})],
           [("① 반환 세션 hit: LRU stack distance. idle ~ Exp(60 s), 그 사이 서로 다른 세션 λT개 접근 → HBM(85 세션분)·DRAM(184 세션분)에서 발견될 확률", {"size": 8.5})],
-          [("② 처리 한계 λ = min(GPU 1/0.113 s, DRAM 링크 51 GB/s ÷ 이동 바이트, SSD 링크 12.8 GB/s ÷ 이동 바이트). B0는 miss마다 0.65 s 재계산. Max SLO goodput = 0.8 × 256 tok × λ", {"size": 8.5})],
+          [("② 처리 한계 λ = min(GPU 1/0.113 s, DRAM 링크 51 GB/s ÷ 이동 바이트, SSD 링크 12.8 GB/s ÷ 이동 바이트). B0는 miss마다 0.65 s 재계산. Max SLO goodput = TTFT P99 ≤ 2 s·TPOT P99 ≤ 50 ms를 만족하는 최대 λ (query/s)", {"size": 8.5})],
           [("③ 이동 바이트 = miss × (1−π) 동기 복원 + miss × π × (1+ω) prefetch + w × miss write-back (π 적시율, ω 낭비, w write-back 비율; B1은 w=0.1 증분 기록)", {"size": 8.5})],
-          [("④ 고부하 = B0 포화 부하의 90%. TTFT P99 = 새 입력 prefill 41 ms + 결정 지연 + 99% 복원 경로 ÷ (1 − 링크 이용률). TPOT P99 = 18.1 ms × (1 + 0.5 × 이용률)", {"size": 8.5})],
+          [("④ 고부하 = B0 Max SLO goodput의 90%. TTFT P99 = 새 입력 prefill 41 ms + 결정 지연 + 99% 복원 경로 ÷ (1 − 링크 이용률). TPOT P99 = 18.1 ms × (1 + 0.5 × 이용률)", {"size": 8.5})],
           [("⑥ Capacity = θ × (HBM 85 + DRAM 184 세션분) ÷ f′ (HBM 가득 채움, SSD 제외, 신규 메모리 미반영 [잠정]). B0는 HBM만 85세션", {"size": 8.5})],
           [("⑤ SE(16) = min(1, 결정 용량 ÷ 요구 결정률). 결정 비용은 후보 수에 선형(2 ms × N) [기존 평가의 ASSUMED]", {"size": 8.5})]],
          size=8.5, line_spacing=1.1)
     tbox(s, 6.8, 1.17, 6.1, 3.0,
          [[("한계(정직하게)", {"bold": True, "color": "C00000", "size": 10})],
           [("• 후보 파라미터(θ, π, ω, watermark, u_P …)는 가정이다. 값이 바뀌면 별이 바뀐다", {"size": 8.5})],
-          [("• 시나리오는 단순 offloading 이론값이 Q3(r 2.0)에서 문헌 수준이 되도록 정했다. Q1은 문헌 하단(×2.35)이며 이 선택 자체가 설계 선택이다", {"size": 8.5})],
+          [(_ph("• 단순 offloading 이론값은 Q1 ×@B1R@(문헌 하단 이하), Q3 r 1.3(문헌 ★2 r 2.0 미달)이다. 시나리오·B1 정의 자체가 설계 선택이다"), {"size": 8.5})],
           [("• 큐잉은 링크 이용률 1/(1−ρ)로 근사했다. 연속 배칭·chunked prefill의 세부는 반영하지 않았다", {"size": 8.5})],
-          [("• 이용률 상한 0.8, idle 평균 60 s, 공유 문서 30%는 설계값이다", {"size": 8.5})],
+          [("• idle 평균 60 s, 공유 문서 30%, 세션 12턴은 설계값이다", {"size": 8.5})],
           [("• DP2·DP4는 4노드 요약 모델이다. 결정 용량·제어 평면 지연은 기존 평가의 상수를 썼다", {"size": 8.5})]],
          size=8.5, line_spacing=1.1)
     rows = [["후보", "θ 배치 효율", "w write-back", "π prefetch 적시", "ω 낭비", "추가 GPU·결정 지연", "HBM watermark", "근거(덱 장단점·요구 수치)"],
@@ -747,7 +756,7 @@ def sim_env_slide(prs):
 QLAB = {"Q1": ("Q1 처리량", "SLO(TTFT ≤ 2 s, TPOT ≤ 50 ms) 만족 Max goodput"),
         "Q2": ("Q2 HBM 효율", "HBM 상주 KV 시간 평균(GiB), 같은 부하·SLO"),
         "QC": ("Q2 Capacity", "같은 HBM에서 KV를 보존해 재개 가능한 최대 동시 세션 수(HBM 가득 채움, SSD 제외, 신규 메모리 미반영 [잠정])"),
-        "Q3": ("Q3 고부하 지연", "B0 포화 부하의 90%에서 TTFT·TPOT P99"),
+        "Q3": ("Q3 고부하 지연", "B0 Max SLO goodput의 90%에서 TTFT·TPOT P99"),
         "Q4": ("Q4 확장성", "SE(N=16) = goodput 배율 ÷ 노드 배율"),
         "Q5": ("Q5 변경 용이성", "변경 시나리오 평균 module 수 (기존 구현 측정, M/M은 환산 병기)")}
 
@@ -755,8 +764,8 @@ DPINFO = {
     "DP1": dict(title="DP1. Data Migration 결정 구조 — Trade-off 평가 결과", names=("1안 상태 관측+이동 결정 통합", "2안 관측·결정 분리"),
                 qs=["Q1", "QC", "Q3", "Q5"], scope="single",
                 env=["1 노드: H100×8(HBM 640 GiB), DRAM 1 TiB(호스트 링크 64 GB/s), SSD 16 TiB(NVMe 16 GB/s), 신규 메모리는 다음 페이지", "Llama-3.1-70B BF16, SYS-H100. Baseline B0 = GPU-only, 경쟁 기술 B1 = 단순 offloading"],
-                scen=["Agent KV Fleet P1 정상 multi-turn: 컨텍스트 16K, 턴당 +1K·출력 256, idle 평균 60 s(open-loop)",
-                      "동시 세션 ≈ 250~450 → KV 1.3~2.2 TiB(HBM 전체 640 GiB 중 KV 풀 425 GiB의 3~5배, HBM+DRAM도 초과)"]),
+                scen=["Agent KV Fleet P1 정상 multi-turn: 8K 시작·턴당 +1.25K·12턴(평균 약 15K→16K로 계산), 출력 256, idle 평균 60 s(open-loop)",
+                      "동시 세션 ≈ 120(B0)~390(후보 최대) → KV 0.6~1.9 TiB(HBM 전체 640 GiB 중 KV 풀 425 GiB의 1.4~4.6배, 후보 최대는 HBM+DRAM 1.35 TiB도 초과)"]),
     "DP2": dict(title="DP2. 연산(Prefill/Decode) 실행 위치 결정 구조 — Trade-off 평가 결과", names=("1안 스케줄링 시점 결정", "2안 사전 계획 결정"),
                 qs=["Q1", "QC", "Q3", "Q4"], scope="cluster",
                 env=["H100×8 4노드 클러스터(실장 구성 기준): B0 = P 2대 + D 2대 고정 역할 GPU-only, B1 = 같은 구성 + 노드별 단순 offloading", "노드 간 링크 RDMA 50 GB/s [ASSUMED], 결정 비용은 후보 수에 선형(2 ms × N). 수치는 이론 예상값"],
@@ -779,8 +788,9 @@ def _conclusion(dp):
     a, b = cd.THEORY[(dp, 1)], cd.THEORY[(dp, 2)]
     q1c = COMP["Q1"][0]
     if dp == "DP1":
-        return ["GPU-only(B0) 대비 처리량 ×%.2f(1안)·×%.2f(2안), TTFT P99 r %.2f·%.2f로 경쟁 기술(단순 offloading, ×%.2f·r %.2f)과 같은 수준이다(처리량 ★1, 지연 ★2). 경쟁 기술 대비 처리량 %+.0f%%·%+.0f%%, TTFT %+.0f%%·%+.0f%%." % (
+        return ["GPU-only(B0) 대비 처리량 ×%.2f(1안)·×%.2f(2안), TTFT P99 r %.2f·%.2f로 경쟁 기술(단순 offloading, ×%.2f·r %.2f)과 같은 수준이다(처리량 %s, 지연 %s). 경쟁 기술 대비 처리량 %+.0f%%·%+.0f%%, TTFT %+.0f%%·%+.0f%%." % (
             a["Q1"]["r0"], b["Q1"]["r0"], a["Q3"]["r0"], b["Q3"]["r0"], q1c, COMP["Q3"][0],
+            cd.fmt_star(cd.theory_star(dp, 1, "Q1")), cd.fmt_star(cd.theory_star(dp, 1, "Q3")),
             (a["Q1"]["r1"] - 1) * 100, (b["Q1"]["r1"] - 1) * 100, -a["Q3"]["ttft_red1"], -b["Q3"]["ttft_red1"]),
             "Capacity는 2안(데이터 특성 기반)이 배치 효율 θ가 높아 ×%.1f로 1안(×%.1f)보다 많은 세션을 보존한다. 지연은 prefetch(적시 60%%)를 쓰는 2안이 앞서지만 링크 병목 구간에서는 prefetch가 바이트를 줄이지 못해 처리량 이득이 작다." % (b["QC"]["r0"], a["QC"]["r0"])]
     if dp == "DP2":
@@ -789,11 +799,11 @@ def _conclusion(dp):
             "확장성은 1안이 단일 scheduler 결정 용량에 막혀 N=16에서 SE %.0f%%, 2안은 worker 분산으로 %.0f%%. Capacity는 유휴 P 노드 tier를 쓰는 2안이 ×%.1f로 1안(×%.1f)보다 많은 세션을 보존한다(활용 비율 u_P 0.5 대 0.2 [가정])." % (
                 a["Q4"]["c"], b["Q4"]["c"], b["QC"]["r0"], a["QC"]["r0"])]
     if dp == "DP3":
-        return ["두 안 모두 공유 문서를 1회만 보관(−30%%)해 GPU-only 대비 처리량 ×%.2f~×%.2f(★1.5), TTFT P99 r %.2f~%.2f(★2.5). 경쟁 기술(×%.2f) 대비 처리량 %+.0f%%~%+.0f%%." % (
-            a["Q1"]["r0"], b["Q1"]["r0"], a["Q3"]["r0"], b["Q3"]["r0"], q1c, (a["Q1"]["r1"] - 1) * 100, (b["Q1"]["r1"] - 1) * 100),
-            "Capacity는 두 안 모두 공유 문서 1회 보관(dedup 0.70)으로 ×%.1f(HBM 가득 채움 기준이라 두 안 차이가 사라진다). 안 간 처리량 차이는 링크 병목 구간이라 거의 없고, 1안의 고부하 tail 발산은 B0 포화 90%% 부하에서는 나타나지 않는다." % a["QC"]["r0"]]
-    return ["CXL 공유 풀이 SSD(16 GB/s)를 대체하고 교차 라우팅 재계산을 없애 GPU-only 대비 처리량 ×%.2f(★1.5), TTFT P99 r %.2f(★3). 경쟁 기술 대비 처리량 %+.0f%%." % (
-        a["Q1"]["r0"], a["Q3"]["r0"], (a["Q1"]["r1"] - 1) * 100),
+        return ["두 안 모두 공유 문서를 1회만 보관(−30%%)해 GPU-only 대비 처리량 ×%.2f~×%.2f(%s~%s), TTFT P99 r %.2f~%.2f(%s~%s). 경쟁 기술(×%.2f) 대비 처리량 %+.0f%%~%+.0f%%." % (
+            a["Q1"]["r0"], b["Q1"]["r0"], cd.fmt_star(cd.theory_star(dp, 1, "Q1")), cd.fmt_star(cd.theory_star(dp, 2, "Q1")), a["Q3"]["r0"], b["Q3"]["r0"], cd.fmt_star(cd.theory_star(dp, 1, "Q3")), cd.fmt_star(cd.theory_star(dp, 2, "Q3")), q1c, (a["Q1"]["r1"] - 1) * 100, (b["Q1"]["r1"] - 1) * 100),
+            "Capacity는 두 안 모두 공유 문서 1회 보관(dedup 0.70)으로 ×%.1f(HBM 가득 채움 기준이라 두 안 차이가 사라진다). 안 간 처리량 차이는 링크 병목 구간이라 거의 없고, 1안의 고부하 tail 발산은 B0 Max SLO goodput 90%% 부하에서는 나타나지 않는다." % a["QC"]["r0"]]
+    return ["CXL 공유 풀이 SSD(16 GB/s)를 대체하고 교차 라우팅 재계산을 없애 GPU-only 대비 처리량 ×%.2f(%s), TTFT P99 r %.2f(%s). 경쟁 기술 대비 처리량 %+.0f%%." % (
+        a["Q1"]["r0"], cd.fmt_star(cd.theory_star(dp, 1, "Q1")), a["Q3"]["r0"], cd.fmt_star(cd.theory_star(dp, 1, "Q3")), (a["Q1"]["r1"] - 1) * 100),
         "두 안의 제어 평면 차이(중앙 RPC 7 µs vs 락 P99 804 µs)는 요청당 수 ms 이하라 성능이 거의 같고, N=16에서 SE %.0f%%로 동일하다. 소유자가 예상한 락 기반의 확장 우위는 이 규모에서는 드러나지 않는다." % a["Q4"]["c"]]
 
 
@@ -827,7 +837,7 @@ def dp_result_slide(prs, dp):
             b0c = n0(t1["b0"]) + " GiB"
             b1c = "%s GiB (0%%, ☆)" % n0(t1["b1"])
         elif q == "Q3":
-            b0c = "TTFT %.2f s · TPOT %.1f ms (SLO 초과)" % (t1["b0_ttft"], t1["b0_tpot"])
+            b0c = "TTFT %.2f s · TPOT %.1f ms (SLO 만족)" % (t1["b0_ttft"], t1["b0_tpot"])
             b1c = "TTFT %.2f s · TPOT %.1f ms (r %.2f, %s)" % (t1["b1_ttft"], t1["b1_tpot"], t1["r0"] / t1["r1"] if False else tm.r_reduction(t1["b0_ttft"], t1["b0_tpot"], t1["b1_ttft"], t1["b1_tpot"])[0],
                                                               cd.fmt_star(cd.star_q3(tm.r_reduction(t1["b0_ttft"], t1["b0_tpot"], t1["b1_ttft"], t1["b1_tpot"])[0])))
         elif q == "Q4":
@@ -1004,8 +1014,8 @@ def mapping_slide(prs):
     tbox(s, 0.4, 5.6, 12.5, 1.5,
          [[("읽는 법", {"bold": True, "color": NAVY, "size": 10})],
           [("• 굵은 줄: 소유자 별과 그 별이 요구하는 새 기준 구간. 작은 줄: 이론 예상값(B0 → 후보)과 새 기준으로 환산한 별. 경쟁 기술(B1)은 Q1 %s(×%.2f), Q3 %s(r %.2f), Q2 ☆, Q4 ★3." % (cd.fmt_star(cs["Q1"][1]), cs["Q1"][0], cd.fmt_star(cs["Q3"][1]), cs["Q3"][0]), {"size": 9})],
-          [("• 소유자 별과 ±0.5 이내로 맞는 칸: %d / %d. 후보 간 순위가 소유자 평가와 같은 곳: DP1 Q2(뚜렷), DP2 Q1·Q2·Q4, DP3 Q2. DP1 Q1·Q3는 같은 방향이나 차이가 1%% 미만." % (hit, tot), {"size": 9})],
-          [("• 어긋나는 곳(예상값에서 두 안이 사실상 같음): DP2 Q3, DP3 Q1·Q3, DP4 Q1·Q3·Q4. 소유자는 안 간 차이를 예상했다. 파라미터를 바꾸면 달라지는 값이며 가정은 방법 페이지에 적었다.", {"size": 9})]],
+          [("• 소유자 별과 ±0.5 이내로 맞는 칸: %d / %d. Capacity(Q2)는 소유자 별이 아직 없어 제외했다. 안 간 순위·차이는 각 DP 페이지의 값을 본다." % (hit, tot), {"size": 9})],
+          [("• Max SLO goodput을 SLO 만족 기준으로 정정한 뒤(2026-10-27) B0가 90% 부하에서도 SLO 안이라 Q3 개선 r이 작아졌고 대부분 ☆~★1.5로 내려갔다. 파라미터를 바꾸면 달라지는 값이며 가정은 방법 페이지에 적었다.", {"size": 9})]],
          size=9, line_spacing=1.12)
     return s
 
