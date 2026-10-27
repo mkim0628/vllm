@@ -145,7 +145,7 @@ def slo_page(slide):
              "요청 도착 → 첫 출력 토큰 수신. 큐잉 + prefill + (필요 시) KV 복원 시간 포함. 요청별 값의 P99로 판정",
              [[("TTFT P99 ≤ 2 s", {"bold": True})]],
              ["8K prefill 이론 0.32 s = (2 × 70.6B × 8,192 = 1.16 PFLOP) ÷ (H100×8 989 TFLOPS×8 × MFU 0.45 = 3.56 PFLOP/s). 2 s는 이의 약 6배(큐잉 여유).",
-              "Agent KV Fleet의 16K 컨텍스트 재prefill은 0.65 s라 약 3배 여유. MLPerf Llama-2-70B 표준 시나리오와 같은 자릿수(2차 자료)"]],
+              "Agent KV Fleet의 대표 컨텍스트 16K(시작 8K·턴당 +1.25K·12턴의 평균 약 15K) 재prefill은 0.65 s라 약 3배 여유. MLPerf Llama-2-70B 표준 시나리오와 같은 자릿수(2차 자료)"]],
             ["TPOT\n(출력 토큰당 시간)",
              "(요청 E2E − TTFT) ÷ (출력 토큰 수 − 1). 토큰 간 지연의 요청별 평균에 대한 P99로 판정",
              [[("TPOT P99 ≤ 50 ms", {"bold": True})]],
@@ -490,6 +490,7 @@ def edit_requirements(slide):
         pars = c.text_frame.paragraphs
         if n == "QA-01":
             _replace_run(pars[0], "(Baseline)", "(Baseline: GPU-only)")
+            _replace_run(r.cells[2].text_frame.paragraphs[0], "를 만족하는 토큰 처리량", "를 만족하는 요청 처리량 (query/s)")
         elif n == "QA-02":
             _replace_run(pars[0], "Baseline", "Baseline(GPU-only)")
             _replace_run(pars[0], "20% ] ]", "20% ]")
