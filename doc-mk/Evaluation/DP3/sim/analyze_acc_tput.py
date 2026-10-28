@@ -26,6 +26,7 @@ BOUNDS = (1.0, 2.0, 3.0)
 
 
 def gm(x):
+    # pairs whose candidate goodput is 0 (SLO never met) cannot enter a geometric mean; they are counted in n_zero and make the true G lower
     x = [v for v in x if v > 0]
     return math.exp(sum(map(math.log, x)) / len(x))
 
@@ -55,7 +56,7 @@ def main():
                 drop = (1 - m) * d["repB"] + m * d["repC"]
                 h = (1 - m) * hw("repB") + m * hw("repC")
             G = gm(g_pairs)
-            rows[c].append(dict(r=float(r), G=G, n_pairs=len(valid), pairs_gt1=sum(v > 1.02 for v in g_pairs), pairs_lt1=sum(v < 0.98 for v in g_pairs),
+            rows[c].append(dict(r=float(r), G=G, n_pairs=len(valid), n_zero=sum(v <= 0 for v in g_pairs), pairs_gt1=sum(v > 1.02 for v in g_pairs), pairs_lt1=sum(v < 0.98 for v in g_pairs),
                                 drop=drop, ci_hw=h, upper=drop + h, star=stars(drop), qgp=G * (1 - max(drop, 0) / 100)))
     out = {"mean_mismatch": m, "rows": rows, "R_acc": {}, "control": tp["control_r0.3_vs_dp3_qa1"]}
     for c in rows:
@@ -80,7 +81,7 @@ def main():
     for c in rows:
         print(c)
         for x in rows[c]:
-            print(f"  r={x['r']:.1f} G={x['G']:.3f} (pairs >1.02: {x['pairs_gt1']}/{x['n_pairs']}, <0.98: {x['pairs_lt1']}) drop={x['drop']:.2f}% +-{x['ci_hw']:.2f} star={x['star']} QGP={x['qgp']:.3f}")
+            print(f"  r={x['r']:.1f} G={x['G']:.3f} (pairs >1.02: {x['pairs_gt1']}/{x['n_pairs']}, <0.98: {x['pairs_lt1']}, zero-goodput pairs excluded from G: {x['n_zero']}) drop={x['drop']:.2f}% +-{x['ci_hw']:.2f} star={x['star']} QGP={x['qgp']:.3f}")
         print("  R_acc", json.dumps(out["R_acc"][c]))
     print("control", out["control"], "m", m)
     for k, v in nreq.items():
