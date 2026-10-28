@@ -1,3 +1,5 @@
+> **[superseded 2026-10-28]** 이 초안은 PPT 67p의 1/2/3% 경계를 앞세워 목표를 잡았다. 사용자가 "기존 1/2/3%를 무시하고 문헌 근거로 정하라"고 정정해 `DP3-QS-accuracy-throughput-v2.md`로 대체한다. 이력 보존을 위해 내용은 그대로 둔다.
+
 # DP3 품질 시나리오 추가안 — 정확도 제약 하 처리량 (DP3-QS-12, 제안)
 
 > 상태: **제안**. 기존 `DP3-requirements.md`는 수정하지 않고(버전 규칙), QS-1(Goodput)과 QS-5(Accuracy)의 임계값이 `TBD(통합 단계)`인 부분을 근거 기반 수치로 채우는 결합 시나리오를 추가한다. 근거 문서: `Evaluation/DP3/results/2026-10-28_dp3-accuracy-throughput-evidence.md`.
