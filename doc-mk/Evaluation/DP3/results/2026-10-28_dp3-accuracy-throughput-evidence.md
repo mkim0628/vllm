@@ -66,7 +66,7 @@ R_acc(X) = F1 하락 ≤ X%를 만족하는 r 중 최대 goodput 배수 (r=1.0 B
 | 처리량 | `dp3sim.py` + SYS-H100, SYS-B200 profile, Llama-3.1-70B BF16(KV 320 KiB/token), TP8 aggregate 장치, rho=0.15, seeds 11/23/37/53/71, 부하 격자와 확장 규칙은 `run_qa1.py`와 같음 |
 | 정확도 | Qwen2.5-1.5B-Instruct fp32 CPU, SQuAD v1.1 validation 93개 예시, 문맥 평균 1,381 token, r ∈ {0.5, 0.3, 0.2, 0.1}, paired bootstrap 2,000회 (`../accuracy`) |
 | 재현 | `cd doc-mk/Evaluation/DP3/sim && PYTHONHASHSEED=0 python3 accuracy_throughput.py --workers 4 && python3 analyze_acc_tput.py` |
-| Raw | `results/data/dp3_acc_tput.json`(r별 pair goodput), `dp3_acc_tput_joint.json`(결합 표), 실행 로그 `acc_tput_run.log`, 이전 실행 `pre_hashseed_random_dp3_acc_tput.json`(보존, §6-2) |
+| Raw | `results/data/dp3_acc_tput.json`(r별 pair goodput), `dp3_acc_tput_joint.json`(결합 표), 이전 실행 `pre_hashseed_random_dp3_acc_tput.json`(보존, §6-2) |
 | 시뮬레이터 상태 | `test_dp3sim.py` 7개 통과 후 실행 |
 
 # 2. 평가 항목
