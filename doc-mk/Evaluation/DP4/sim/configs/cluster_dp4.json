@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "_note": "DP4 cluster profile. Every parameter of simulation-plan.md section 4 with value / range (sweep) / provenance. PAPER = value read from the two papers as recorded in the plan table (Evidence B). ASSUMED = assumption, sweep target. Entries with in_spec_table=false are simulator implementation parameters that the plan does not list; they are ASSUMED and recorded in DESIGN_NOTES.md. Do not retune after seeing results (H16).",
+  "params": {
+    "cxl_latency_ns": {"value": 640, "range": [400, 650], "provenance": "PAPER", "unit": "ns", "source": "plan 4.1 (TraCT: 640 ns device, 10.1 GB/s)", "in_spec_table": true, "used_in_model": false, "note": "informational; meta read/write costs below already include it"},
+    "pool_capacity_bytes": {"value": 8796093022208, "range": null, "provenance": "PAPER", "unit": "B", "source": "plan 4.1 (8 TiB)", "in_spec_table": true, "used_in_model": true},
+    "pool_bw_Bps": {"value": 1e12, "range": null, "provenance": "PAPER", "unit": "B/s", "source": "plan 4.1 (1 TB/s aggregate)", "in_spec_table": true, "used_in_model": true},
+    "cxl_adapters_per_node": {"value": 2, "range": null, "provenance": "PAPER", "unit": "count", "source": "plan 4.1 (2 x PCIe5 x16)", "in_spec_table": true, "used_in_model": true},
+    "cxl_adapter_bw_Bps": {"value": 63e9, "range": null, "provenance": "PAPER", "unit": "B/s", "source": "plan 4.1 (63 GB/s per adapter)", "in_spec_table": true, "used_in_model": true},
+    "eta_cxl": {"value": 0.5, "range": [0.25, 0.5, 0.9], "provenance": "ASSUMED", "unit": "ratio", "source": "plan 4.1", "in_spec_table": true, "used_in_model": true},
+    "block_tokens": {"value": 64, "range": [16, 64, 256], "provenance": "PAPER/ASSUMED", "unit": "tokens", "source": "plan 4.1 (TraCT 64, vLLM 16; 256 assumed)", "in_spec_table": true, "used_in_model": true},
+    "gpu_cxl_write_16KB_us": {"value": 9.14, "range": null, "provenance": "PAPER", "unit": "us", "source": "plan 4.1 (Beluga Table 4, DDIO off)", "in_spec_table": true, "used_in_model": true, "note": "added once per candidate flow as DMA fixed latency"},
+    "gpu_cxl_write_flush_16KB_us": {"value": 11.06, "range": null, "provenance": "PAPER", "unit": "us", "source": "plan 4.1 (CPU flush path)", "in_spec_table": true, "used_in_model": false},
+    "overlap_ratio": {"value": 0.7, "range": [0.5, 0.7, 0.9], "provenance": "ASSUMED", "unit": "ratio", "source": "plan 4.1 (layer pipeline)", "in_spec_table": true, "used_in_model": true},
+
+    "rpc_rtt_us": {"value": 2.11, "range": null, "provenance": "PAPER", "unit": "us", "source": "plan 4.2 (Beluga Exp #11, QD=1, 64 B)", "in_spec_table": true, "used_in_model": true},
+    "server_threads": {"value": 1, "range": [1, 2, 4], "provenance": "ASSUMED", "unit": "count", "source": "plan 4.2 (single-thread measurement is PAPER; thread count sweep is assumed)", "in_spec_table": true, "used_in_model": true},
+    "server_thread_mops": {"value": 12.13, "range": null, "provenance": "PAPER", "unit": "Mops/thread", "source": "plan 4.2 (Beluga Exp #11, QD=128)", "in_spec_table": true, "used_in_model": true},
+    "rpc_hash_batch": {"value": 8, "range": [4, 8, 16], "provenance": "ASSUMED", "unit": "hashes/RPC", "source": "plan 4.2 (64 B / 8 B)", "in_spec_table": true, "used_in_model": true},
+    "client_ntstore_us": {"value": 2.41, "range": null, "provenance": "PAPER", "unit": "us", "source": "plan 4.2 (Beluga Table 4)", "in_spec_table": true, "used_in_model": false, "note": "included in the RTT floor per plan"},
+    "server_restart_s": {"value": 0.5, "range": [0.1, 0.5, 2.0], "provenance": "ASSUMED", "unit": "s", "source": "plan 4.2", "in_spec_table": true, "used_in_model": true},
+    "server_rebuild_s": {"value": 30.0, "range": [10.0, 30.0, 120.0], "provenance": "ASSUMED", "unit": "s", "source": "plan 4.2", "in_spec_table": true, "used_in_model": true},
+
+    "meta_read_us": {"value": 1.0, "range": [0.7, 1.0, 2.0], "provenance": "ASSUMED", "unit": "us", "source": "plan 4.3 (cacheline read incl. flush-before-read)", "in_spec_table": true, "used_in_model": true},
+    "meta_write_flush_us": {"value": 1.0, "range": [0.7, 1.0, 2.0], "provenance": "ASSUMED", "unit": "us", "source": "plan 4.3 (cacheline write + clflush)", "in_spec_table": true, "used_in_model": true},
+    "lock_stripes": {"value": 64, "range": [1, 8, 64, 512], "provenance": "ASSUMED", "unit": "count", "source": "plan 4.3", "in_spec_table": true, "used_in_model": true},
+    "probe_us": {"value": 0.35, "range": [0.1, 0.35, 0.7], "provenance": "ASSUMED", "unit": "us", "source": "plan 4.3 (lock manager scan, 1 probe)", "in_spec_table": true, "used_in_model": true},
+    "local_lock_us": {"value": 0.1, "range": null, "provenance": "ASSUMED", "unit": "us", "source": "plan 4.3 (node-local DRAM mutex, uncontended)", "in_spec_table": true, "used_in_model": true},
+    "cs_per_request": {"value": 3, "range": [2, 3, 5], "provenance": "ASSUMED", "unit": "count", "source": "plan 4.3 (pin / publish / unpin)", "in_spec_table": true, "used_in_model": true},
+    "lookup_probe_mult": {"value": 1.3, "range": null, "provenance": "ASSUMED", "unit": "probes/lookup", "source": "plan 4.3 (linear probing; lock-free lookup itself is PAPER)", "in_spec_table": true, "used_in_model": true},
+    "lease_s": {"value": 1.0, "range": [0.2, 1.0, 5.0], "provenance": "ASSUMED", "unit": "s", "source": "plan 4.3 (as-published has no lease; not found in the paper; lease is a supplementary design)", "in_spec_table": true, "used_in_model": true},
+
+    "nic_bw_Bps": {"value": 100e9, "range": null, "provenance": "PAPER", "unit": "B/s", "source": "plan 4.4 (4 x 200 Gbps)", "in_spec_table": true, "used_in_model": true},
+    "eta_rdma": {"value": 0.85, "range": [0.6, 0.85, 0.95], "provenance": "ASSUMED", "unit": "ratio", "source": "plan 4.4 (strong baseline, no fragmentation penalty)", "in_spec_table": true, "used_in_model": true},
+    "index_lookup_us": {"value": 100.0, "range": [50.0, 100.0, 300.0], "provenance": "ASSUMED", "unit": "us", "source": "plan 4.4", "in_spec_table": true, "used_in_model": true},
+
+    "batch_cap": {"value": 32, "range": null, "provenance": "SPEC", "unit": "requests", "source": "plan 3 / common benchmark (batch 32)", "in_spec_table": false, "used_in_model": true},
+    "slo_ttft_s": {"value": 2.0, "range": null, "provenance": "SPEC", "unit": "s", "source": "common-benchmark.md section 2", "in_spec_table": false, "used_in_model": true},
+    "slo_tpot_s": {"value": 0.05, "range": null, "provenance": "SPEC", "unit": "s", "source": "common-benchmark.md section 2", "in_spec_table": false, "used_in_model": true},
+    "warmup_frac": {"value": 0.1, "range": null, "provenance": "SPEC", "unit": "ratio", "source": "task brief (warm-up 10% excluded)", "in_spec_table": false, "used_in_model": true},
+    "base_load_frac": {"value": 0.6, "range": null, "provenance": "SPEC", "unit": "ratio", "source": "task brief (base_rate = P saturation x 0.6)", "in_spec_table": false, "used_in_model": true},
+    "n_req_base": {"value": 2000, "range": null, "provenance": "ASSUMED", "unit": "requests", "source": "implementation: requests at load x1.0 (sets horizon)", "in_spec_table": false, "used_in_model": true},
+    "node_recovery_s": {"value": 30.0, "range": null, "provenance": "ASSUMED", "unit": "s", "source": "implementation: crashed node returns after this time (d4_fail_lockholder)", "in_spec_table": false, "used_in_model": true},
+    "meta_entries_per_line": {"value": 4, "range": null, "provenance": "ASSUMED", "unit": "entries/64B line", "source": "implementation: 16 B metadata entry", "in_spec_table": false, "used_in_model": true},
+    "evict_threshold": {"value": 0.9, "range": null, "provenance": "ASSUMED", "unit": "ratio", "source": "implementation: pool occupancy at/above which each publish needs an evict critical section", "in_spec_table": false, "used_in_model": true},
+    "turn_gap_s": {"value": 8.0, "range": null, "provenance": "ASSUMED", "unit": "s", "source": "implementation: fixed open-loop gap between agent turns (same trace for all arms)", "in_spec_table": false, "used_in_model": true},
+    "turn_new_tokens": {"value": 1024, "range": null, "provenance": "ASSUMED", "unit": "tokens", "source": "implementation: new input tokens per agent turn after turn 1", "in_spec_table": false, "used_in_model": true},
+    "shared_prefix_tokens": {"value": 6144, "range": null, "provenance": "ASSUMED", "unit": "tokens", "source": "implementation: hot shared prefix length (d4_hot_prefix_fanout)", "in_spec_table": false, "used_in_model": true},
+    "shared_prefix_frac": {"value": 0.9, "range": null, "provenance": "SPEC", "unit": "ratio", "source": "benchmark.md (shared-prefix 90%)", "in_spec_table": false, "used_in_model": true}
+  }
+}

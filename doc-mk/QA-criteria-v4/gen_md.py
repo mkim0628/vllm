@@ -1,0 +1,219 @@
+"""qa-criteria-v4.md 생성 (값은 criteria_data / theory_model에서 읽는다). python3 gen_md.py"""
+import criteria_data as cd
+import theory_model as tm
+
+R = tm.all_results()
+S = R["single"]
+b0, b1 = S["B0"], S["B1"]
+c2, c4 = R["dp2"], R["dp4"]
+n0 = lambda x: format(round(x), ",")
+comp = cd.competitor_stars()
+CEIL_R0 = (1 / tm.G0) / b0["qps"]            # B0 대비 이론 상한(GPU 한계 ÷ B0 Max SLO goodput)
+e = cd.EDGES
+out = []
+w = out.append
+
+w("""# QA 평가 기준 v4 (GPU-only 대비 5구간), 경쟁 기술 기준 ★2, 이론 예상값, 평가 시나리오
+
+> 상태: **설명용 장표의 기준안** (2026-10-24). 기존 문서(`Evaluation/`, `Requirements/`)는 수정하지 않았다. 이 폴더가 단일 출처다.
+> 덱: `DP-QA-criteria-v4.pptx` (첨부 덱을 베이스로 `build_deck.py`가 생성) · 값: `criteria_data.py`, `theory_model.py` · 이 문서: `gen_md.py`가 생성.
+
+## 0. 범위와 별 규칙
+
+- 범위: **KV 캐시 관리만** (RAG·LoRA·MoE 제외). 압축은 범위 밖, DP3는 선택 재계산만. 정확도 QA는 제외.
+- **Baseline = B0(GPU-only)**: vLLM 기본. HBM에 없으면 recompute. 모든 별 기준은 **B0 대비 변화량**이다.
+- 별 정의 (5구간: ★1, ★1.5, ★2, ★2.5, ★3, 미달은 ☆):
+  - **★1 = Stakeholder 요구**(B0 대비). QA마다 값이 다르다. 변경 용이성은 근거로 정한 값.
+  - **★2 = 경쟁 기술(KV offload·재사용 시스템) 문헌 대표 수준**. Q1은 문헌 8건 headline 개선의 중앙값 4x, Q2·Q3는 LMCache·DirectKV 등 보고값.
+  - **★3 = 경쟁 기술 위에서 우리가 목표하는 수준**. Q1은 문헌 상위권 8x(★2의 2배, 비극단 최고 AttentionStore 7.8x), Q2·Q3는 ★2 × 1.5(offload baseline 대비 문헌 개선 DirectKV 1.2x ~ KVFlow 1.83x의 중간).
+  - ★1.5, ★2.5는 인접 앵커의 중점(비율 지표는 기하 중점).
+- 경쟁 기술의 이론 대리 **B1(단순 offloading)**: 일반 시스템(HBM은 B0와 동일 + DRAM 1 TiB + NVMe SSD 16 TiB [SSD 용량 ASSUMED])에서의 단순 offloading이다. 고정 순서 LRU로 하위 tier 이동, 턴 종료 시 증분만 write-through, 요청 시 동기 복원, prefetch·예측·배치 정책 없음, 신규 메모리 없음. 세 시스템: B0 = HBM only, B1 = HBM + DRAM + SSD, 타겟 = B1의 HBM·DRAM·SSD(같은 크기) + 신규 메모리 4종(ScHBM, CXL-PNM, HBF, SSD-PIM) + 우리 런타임. 후보 이론값은 아직 신규 메모리를 반영하지 않았다(B1 하드웨어 + 우리 정책의 효과). 판정 기준이 아니라 "시나리오가 문헌의 경쟁 기술 수준에 맞게 보정되었는가"를 확인하는 용도다.
+- 문헌 수치는 모두 "up to" 보고값이며 지표·baseline·workload·논문 버전이 달라 직접 비교가 아니다.
+
+## 1. 기준 (B0 대비)
+
+| QA | 지표 | ★1 (Stakeholder) | ★1.5 | ★2 (경쟁 기술) | ★2.5 | ★3 (목표) |
+|---|---|---|---|---|---|---|
+| Q1 처리량 | R = Max SLO goodput ÷ B0 | ≥ %g | ≥ %g | ≥ %g | ≥ %g | ≥ %g |
+| Q2 Capacity | 같은 HBM에서 KV를 보존해 재개 가능한 최대 동시 세션 수 (B0 대비 R_cap, HBM 가득 채움) | ≥ 2.0 | ≥ 2.52 | ≥ 3.17 | ≥ 3.88 | ≥ 4.75 |
+| Q2' HBM 효율 (참고) | HBM 사용량 감소율 (B0 대비) | ≥ 20%% | ≥ 30%% | ≥ 40%% | ≥ 50%% | ≥ 60%% |
+| Q3 고부하 지연 | r = √(TTFT 개선 × TPOT 개선, P99), B0 Max SLO goodput의 90%% | ≥ %g (감소율 30%%) | ≥ %g | ≥ %g (50%%) | ≥ %g | ≥ %g (67%%) |
+| Q4 확장성 | SE(N=16) | ≥ 80%% | ≥ 85%% | ≥ 90%% | ≥ 92.5%% | ≥ 95%% |
+| Q5 변경 용이성 | 변경 module 수 (시나리오 평균). M/M은 환산 병기 | ≤5 (≈1.0 MM) | ≤4 (≈0.8) | ≤3 (≈0.6) | ≤2.5 (≈0.5) | ≤2 (≈0.4) |
+""" % (tuple(e["Q1"]) + (e["Q3"][0], e["Q3"][1], e["Q3"][2], e["Q3"][3], e["Q3"][4])))
+
+w("""### 근거와 확인 상태
+
+| QA | 앵커 | 근거 | 확인 상태 |
+|---|---|---|---|
+| Q1 | ★1 = 2.0x | Stakeholder: "처리량 개선 2배 이상 되어야 제품화 논의 가능" (GPU-only 대비). 문헌 하위 사분위(≈2.2x)와 같은 수준 | 사용자 확정 |
+| Q1 | ★2 = 4x | KV offload·재사용 시스템 8건의 headline 개선(Mooncake 실트래픽 1.75, InferCept 2.0, LMCache 단일 노드 2.3, Pensieve 3.0, LMCache 실서비스 QPS 확장 5.0, Mooncake 시뮬 6.25, AttentionStore prefill 7.8, LMCache 최대 14)의 중앙값 4.0x, 기하평균 4.1x. 이론 B1은 ×%.2f로 이보다 낮다 | InferCept·Mooncake·Pensieve·AttentionStore는 abstract/검색 요약 확인, LMCache는 사용자 인용(원문 대조 필요) |
+| Q1 | ★3 = 8x | 문헌 상위권: AttentionStore prefill 처리량 7.8~8.2x, DistServe 요청 수 7.4x, Sarathi-Serve 최대 6.9x. ★2의 2배. LMCache 14x·Mooncake 시뮬은 극단·시뮬이라 제외. 이 시나리오의 이론 상한은 ×%.1f라 ★3에 도달할 수 없다(×%.1f = 상한의 %.0f%%) | 검색 요약 기준 |
+| Q2 | ★1 = 20%% | 시나리오 요구. 20%% 감소 = 같은 HBM에 KV 1.25배 수용(계산) | 사용자 확정 |
+| Q2 | ★2 = 40%% | DirectKV: 기존 offload 대비 GPU 메모리 43%% 감소. 사용자 인용 "배치·오프로딩 계열 40~80%%"의 하한. 단순 LRU offload(B1)는 HBM을 캐시로 채워 0%%라 이 앵커는 문헌 값 | DirectKV 검색 요약, 범위는 사용자 인용 |
+| Q2 | ★3 = 60%% | 경쟁 기술이 줄이고 남은 HBM(60%%)을 1.5x 더 줄이면 40%%만 남음 → 감소율 60%%. 이론 상한 ≈ 88%%, HeadInfer 92%%(1M ctx 극단)·ShadowKV(압축 포함)는 제외 | 계산 |
+| Q3 | ★1 = r 1.43 | Stakeholder 체감 개선 30%% 감소 (GPU-only 대비) | 사용자 확정 |
+| Q3 | ★2 = r 2.0 | LMCache Context 벤치마크 E2E 지연 약 50~75%% 감소의 하한(r 2.0). 이론 B1 r %.2f가 이 구간 | 사용자 인용. 원문 대조 필요 |
+| Q3 | ★3 = r 3.0 | ★2 × 1.5. LMCache 고 QPS TTFT 4.4~6.6x·ITL 34~58%%를 r로 환산하면 2.6~4.0 | LMCache 검색 요약 |
+| Q4 | 80 / 90 / 95%% | ★1 Stakeholder 80%%(AthenaK 65,536 GPU 80%%, 학습). ★2 90%% = '효율적' 관례(경쟁 기술인 노드 독립 offload는 SE 98%%지만 노드 간 공유 이득 없음). ★3 95%% = 조율 계층을 두고도 손실 5%% 이내(USL σ 0.35%%) | 정책 선택. 90%% 관례의 인용 논문(arXiv 1704.03329)은 부적합해 뺐다 |
+| Q2 Capacity | ★1 = 2.0x, ★2 = ×3.17, ★3 = ×4.75 | ★1 Stakeholder 요구(QA-06). ★2: 경쟁 기술(KV offload) 구조에서 계산 — HBM 밖 KV를 호스트 DRAM에 보관하면 (HBM 풀 425 + DRAM 922 GiB) ÷ 425 = ×3.17. 문헌(LMCache, Ray Serve LLM, vLLM offloading connector)은 'CPU 메모리로 KV 용량을 확장'을 정성적으로만 밝히고, 같은 HBM에서 동시 세션 N배를 직접 보고한 수치는 확인하지 못했다(AttentionStore는 hit rate 86~90%%, FlexGen은 batch 256으로 단위가 다름). ★3: ★2 × 1.5(Q2·Q3와 같은 규칙), 경쟁 기술 고성능 구성인 호스트 DRAM 2 TiB급(×5.3)보다 약간 낮음. 반 단계는 기하 중점 | 계산 근거라 호스트 DRAM 용량 가정(1 TiB, 2 TiB)에 의존. 신규 메모리 미반영 [잠정] |
+| Q5 | ★1 = 5 module(≈1.0 MM), ★3 = 2 module(≈0.4 MM) | module: 설계 component 12~14개 중 약 1/3(5개)까지만 바뀌면 변경이 설계 일부에 국한된다고 본 최소 충족선(6개 이상이면 설계 전반으로 퍼짐, 설계 정책값), ★3은 component 12~14개 중 2개 이하(약 1/7)로 본 정책값이며, SWE-bench 평균 패치 1.7 file은 단위가 file이라 module과 같지 않은 규모감 참고치다. M/M은 module 수에서 환산한 값이며 판정 조건이 아니다. 경쟁 기술 비교는 없는 절대 기준 | LOC는 저장소에서 직접 계수, 공식·상수는 DP1 사전 등록(ASSUMED) |
+
+Q5 판정은 module 수 하나다. M/M이 module 수에서 계산되는 값이라 둘을 AND로 걸면 같은 정보를 두 번 세기 때문이다. 환산: module 1개 = 고정 3일 + 24 LOC ÷ 40 LOC/일 × 2.0 = 4.2일 = 0.2 MM(21일/MM). 24 LOC은 SWE-bench 평균 패치 19 LOC/file을 올린 값이다. 고정 3일(interface 파악·설계 리뷰·통합 테스트)과 40 LOC/일(순 생산성), overhead 2.0은 문헌값이 아니라 DP1 사전 등록 가정(ASSUMED; 범위 2~5일, 25~80 LOC/일, 1.5~3.0)이며, 범위 양 끝에서 module 1개 = 0.12~0.38 MM이라 M/M 환산은 약 ±50%% 불확실하다(module 수 판정은 영향 없음). 변경 시나리오 3종: S1 새 tier, S2 정책 교체, S3 vLLM upstream 갱신.
+
+**참고: 에이전트 토큰 비용(Claude Sonnet 5.5, 별점 아님)** — 입력 $2 · 캐시 읽기 $0.20 · 출력 $10 per MTok. 산식·상수는 DP1 `qa4-preregistration.md` M3(ASSUMED)이며 실제 에이전트 실행 측정이 아니다.
+
+| module 수 | 환산 M/M | 총 토큰 | 비용 | 재시도 x3 |
+|---|---|---|---|---|
+| 1 | 0.2 | 0.51 M | $0.21 | $0.62 |
+| 2 | 0.4 | 0.80 M | $0.30 | $0.90 |
+| 3 | 0.6 | 1.16 M | $0.40 | $1.21 |
+| 4 | 0.8 | 1.58 M | $0.52 | $1.55 |
+| 5 | 1.0 | 2.07 M | $0.65 | $1.94 |
+
+토큰 비용을 별점 조건으로 쓰지 않는 이유: (1) 비용은 돈이고 변경 용이성은 사람의 시간을 묻는다. 에이전트가 써도 사람이 리뷰·통합 테스트·승인을 해야 하므로 공수는 0이 되지 않는다. (2) 5개 module도 약 $0.65라 후보를 가르지 못한다(사람 공수 1.0 MM과 비교). (3) 가격표가 바뀌면 설계가 같아도 별이 바뀐다. 그래서 module 수가 판정, 토큰 비용은 보조 근거다.
+""" % (b1["qps"] / b0["qps"], CEIL_R0, 8.0, 8.0 / CEIL_R0 * 100, comp["Q3"][0]))
+
+w("## 2. Baseline 절대값과 경쟁 기술 이론값 (Agent KV Fleet, 이론 계산)\n")
+w("| QA | 범위 | B0 GPU-only | 경쟁 기술 B1 | ★1 / ★2 / ★3 (B0 환산) |")
+w("|---|---|---|---|---|")
+w("| Q1 goodput (query/s) | 1 노드 | %s | %s (×%.2f, %s) | ≥ %s / %s / %s |" % (cd.fmt_q(b0["qps"]), cd.fmt_q(b1["qps"]), b1["qps"] / b0["qps"], cd.fmt_star(comp["Q1"][1]),
+                                                                   cd.fmt_q(b0["qps"] * e["Q1"][0]), cd.fmt_q(b0["qps"] * e["Q1"][2]), cd.fmt_q(b0["qps"] * e["Q1"][4])))
+w("| | DP2 4노드(P2+D2 고정) | %s | %s (×%.2f) | ≥ %s / %s / %s |" % (cd.fmt_q(c2["B0"]["qps"]), cd.fmt_q(c2["B1"]["qps"]), c2["B1"]["qps"] / c2["B0"]["qps"],
+                                                                  cd.fmt_q(c2["B0"]["qps"] * e["Q1"][0]), cd.fmt_q(c2["B0"]["qps"] * e["Q1"][2]), cd.fmt_q(c2["B0"]["qps"] * e["Q1"][4])))
+w("| | DP4 4노드(노드 독립) | %s | %s (×%.2f) | ≥ %s / %s / %s |" % (cd.fmt_q(c4["B0"]["qps"]), cd.fmt_q(c4["B1"]["qps"]), c4["B1"]["qps"] / c4["B0"]["qps"],
+                                                                  cd.fmt_q(c4["B0"]["qps"] * e["Q1"][0]), cd.fmt_q(c4["B0"]["qps"] * e["Q1"][2]), cd.fmt_q(c4["B0"]["qps"] * e["Q1"][4])))
+w("| Q2 HBM (GiB) | 1 노드 / DP2 4노드 | %s / %s | %s / %s (0%%, ☆) | ≤ %s / %s / %s (1 노드) |" % (n0(b0["hbm"]), n0(c2["B1"]["hbm"]), n0(b1["hbm"]), n0(c2["B1"]["hbm"]),
+                                                                                              n0(b0["hbm"] * .8), n0(b0["hbm"] * .6), n0(b0["hbm"] * .4)))
+w("| Q3 TTFT/TPOT P99 | B0 Max SLO goodput 90%% | %.2f s / %.1f ms (SLO 만족) | %.2f s / %.1f ms (r %.2f, %s) | TTFT ≤ %.2f / %.2f / %.2f s (TPOT 동일 시) |" % (
+    b0["ttft"], b0["tpot"], b1["ttft"], b1["tpot"], comp["Q3"][0], cd.fmt_star(comp["Q3"][1]),
+    b0["ttft"] / e["Q3"][0] ** 2, b0["ttft"] / e["Q3"][2] ** 2, b0["ttft"] / e["Q3"][4] ** 2))
+w("| Q4 SE(16) | N=16 | 98%% | 98%% (★3) | ≥ 80 / 90 / 95%% |")
+w("\n경쟁 기술(B1) 이론값은 Q1 ×%.2f(%s, 문헌 중앙값 4x 미만), Q3 r %.2f(%s)다. Q2는 정적 LRU offload가 HBM을 캐시로 채워 0%%(☆), Q4는 노드 독립이라 98%%(★3)다. 이론 상한: 처리량은 GPU 한계로 B1의 %.1f배(= B0의 ×%.1f).\n" % (b1["qps"] / b0["qps"], cd.fmt_star(comp["Q1"][1]), comp["Q3"][0], cd.fmt_star(comp["Q3"][1]), (1 / tm.G0) / b1["lam"], CEIL_R0))
+
+w(("""## 3. 평가 시나리오: Agent KV Fleet
+
+KV가 HBM·DRAM을 넘고 재사용할 history가 있는 구간을 겨냥한 통합 시나리오. 세션별 히스토리 재사용만 있어 처리량 이론 상한이 ×@CEIL@다. 값은 설계값이고 시뮬레이션 전이다.
+
+| 항목 | 값 | 계산·근거 |
+|---|---|---|
+| 모델·HW | Llama-3.1-70B BF16, 8-GPU 노드(SYS-H100): HBM 640 GiB, DRAM 1 TiB(호스트 링크 64 GB/s), NVMe 16 GB/s. DP2·DP4는 4~16 노드 | system-specs |
+| 요청 모델 | open-loop, idle 지수분포 평균 60 s, 세션은 8K 시작·턴당 +1.25K(입력 1K + 출력 256)·12턴(종료 약 22K, 평균 약 15K → 이론 모델은 대표 컨텍스트 16K로 계산) | 16K KV = 5.0 GiB. 동시 세션 = λ × (idle 60 s + 응답 4.7 s) ≈ 120(B0)~390(후보 최대) |
+| 시스템 구성(메모리 6종 + SSD) | HBM 640 GiB · ScHBM 160 GiB(63 GB/s, 내부 6.7 TB/s, 연산 197.8 TFLOPS) · CXL-PNM 512 GiB(63 GB/s, 연산 3.28 TFLOPS) · DRAM 1 TiB(64 GB/s) · HBF 2 TiB(1 TB/s, 쓰기 50 GB/s, 수명 100 PB) · SSD 16 TiB(16 GB/s, SSD-PIM) | `DP1/sim/configs/memories_default.json`, system-specs SYS-H100. 이론 값은 HBM·DRAM·SSD만 반영, ScHBM·CXL-PNM·HBF는 미반영 [잠정] |
+| 신규 메모리 운용 계획(미실행, 가정) | ScHBM: 복원해 쓰는 warm tier와 그 자리에서 Attention을 수행(offload)하는 경로를 비교. CXL-PNM: 유휴 KV 대용량 보관 tier. HBF(2 TiB, GPU 직접 1 TB/s, 쓰기 50 GB/s·수명 100 PB): 읽기 위주 KV(공유 문서 chunk)를 두고 쓰기량·수명 소모를 같이 측정 | P1 유휴→복귀(DP1) tier 선택·복원 vs offload, P3 공유 문서 wave(DP3) HBF 배치. 측정: tier별 점유·복원 지연, HBF 쓰기량, offload 비율. 신규 메모리는 타겟 시스템에만 있고 B1은 HBM·DRAM·SSD만 갖는다 |
+| Capacity 측정 | HBM을 가득 채운 상태에서 KV 보존율 ≥ 95%, 재개 TTFT P99 ≤ 2 s인 최대 동시 세션 수. SSD는 보존 용량에서 제외. B0 = 85세션, B1 = 269세션(×3.2) | 설계 watermark와 무관. 포함 tier(신규 메모리) 미정 |
+| 메모리 압박 | HBM 640 GiB 중 KV 풀(가중치·활성값 제외) ≈ 425 GiB(≈85 세션분) + DRAM 922 GiB(≈184 세션분) | 넘으면 SSD 사용 |
+| 재사용 | 공유 문서 30%, 그중 50% non-prefix, 선택 재계산 15% 토큰 [가정] | DP3 조건 |
+| 부하 구간·SLO | Q1 Max SLO goodput = TTFT P99 ≤ 2 s·TPOT P99 ≤ 50 ms를 모델의 대기열식으로 실제 만족하는 최대 처리율. Q3 일반 부하 = B0 Max SLO goodput의 50%, 고부하 = 90% 두 점에서 측정(별점은 고부하의 B0 대비 r, 일반 부하는 열화 확인용). TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms | 이론값 TTFT P99 일반→고부하: B0 0.29→1.21 s(×4.2), B1 0.17→0.82 s |
+
+Phase: P1 정상 multi-turn(DP1) · P2 burst(DP2) · P3 공유 문서 wave(DP3) · P4 노드 확장 2→16(DP4) · 변경 시나리오(Q5). 별은 이 regime에서의 조건부 별이다.
+
+## 4. 이론 예상값 산출 방식과 후보 파라미터
+
+계산 구조(`theory_model.py`): ① 반환 세션 hit = LRU stack distance(idle ~ Exp(60 s)) ② 처리 한계 λ = min(GPU 1/0.113 s, DRAM 링크 51 GB/s ÷ 이동 바이트, SSD 링크 12.8 GB/s ÷ 이동 바이트), B0는 miss마다 0.65 s 재계산, Max SLO goodput = TTFT P99 ≤ 2 s·TPOT P99 ≤ 50 ms를 만족하는 최대 λ(query/s) ③ TTFT P99 = prefill 41 ms + 결정 지연 + 99% 복원 경로 ÷ (1 − 링크 이용률), TPOT P99 = 18.1 ms × (1 + 0.5 × 이용률) ④ SE = min(1, 결정 용량 ÷ 요구 결정률).
+
+| 후보 | 파라미터(가정) | 근거 |
+|---|---|---|
+| B1 경쟁 기술 | θ 1.0, w 0.1(증분 write-through), π 0 | 정의 |
+| DP1 1안 | θ 1.1, π 0, 결정 3 ms, watermark 0.80 | 임계 trigger로 HBM 압박 구간 단축, 접근 특성 구분 한계 |
+| DP1 2안 | θ 1.3, π 0.6, ω 0.3, watermark 0.95 | 접근 특성 기반 prefetch(요구 70%에서 낭비 차감), snapshot stale로 HBM 확보 지연 |
+| DP2 1안 / 2안 | 유휴 P 노드 활용 u_P 0.2 / 0.5, 결정 8 ms / 0 + Re-plan P99 40 ms, watermark 0.85 / 0.92 | 실시간 결정(지연 있음) / 사전 계획(Re-plan 31%) |
+| DP3 1안 / 2안 | 공유 문서 dedup 0.70, GPU +27 ms·체인 tail 25 ms / GPU +3 ms, watermark 0.60 / 0.75 | 관련 KV만 보유·요청마다 체인 / 분석 1회+조회·사전 보유 |
+| DP4 1안 / 2안 | CXL 풀이 SSD 대체(노드 유효 63 GB/s), 교차 라우팅 25% 재계산 제거, 제어 평면 RPC 7 µs / 락 P99 804 µs | 제어 평면은 요청당 ms 이하 |
+
+한계: 후보 파라미터는 가정이라 값이 바뀌면 별이 바뀐다. 시나리오 보정(경쟁 기술 B1의 B0 대비 배율) 자체가 설계 선택이다. 큐잉은 1/(1−ρ)로 근사했고 연속 배칭·chunked prefill 세부는 반영하지 않았다.
+
+## 4b. 평가 환경과 시뮬레이션 정의
+
+| DP | 평가 환경 | 실장 / 시뮬레이션 | 수치 산출 (이 문서) |
+|---|---|---|---|
+| DP1 | H100×8 1노드, HBM 640 GiB · DRAM 1 TiB · NVMe 16 GB/s | 모두 실장 장비 구성 | 이론 예상값(분석 모델) |
+| DP2 | H100×8 4노드(P 2 + D 2 고정 역할이 Baseline), 노드 간 링크 RDMA 50 GB/s [ASSUMED] | 노드·메모리는 실장 구성, 링크는 가정 | 이론 예상값(분석 모델) |
+| DP3 | H100×8 1노드 | 모두 실장 장비 구성 | 이론 예상값(분석 모델) |
+| DP4 | H100×8 4노드 + CXL 공유 메모리 풀 8 TiB | 노드는 실장, CXL 풀은 장비가 없어 시뮬레이션 | 덱 수치는 이론 예상값. DP4 시뮬레이터로 Agent KV Fleet 실행 완료(별도 결과 문서, Baseline-RDMA 대비) |
+
+DP4 시뮬레이터(`doc-mk/Evaluation/DP4/sim`): 이산 사건 시뮬레이터. P/D 분리 클러스터에서 Baseline-RDMA, 중앙 직렬화(C1), 분산 락(C2)을 같은 요청 흐름으로 비교한다. 링크는 선입선출 유체 서버(FIFO fluid server), decode는 processor sharing이고 prefill·decode 단계 시간은 DP1 모델을 그대로 가져온다. 제어 평면은 lookup · publish · pin · unpin 연산별 지연(중앙 RPC 약 2~7 µs, 분산 락 2.6~804 µs P99)을 둔다. 모든 파라미터는 값·범위·출처(PAPER / SPEC / ASSUMED)를 기록하고 결과를 본 뒤 바꾸지 않는다. seed 5개(11, 23, 37, 53, 71), 부하 격자 ×0.5~×8, 95% 신뢰구간, 요청별 SLO로 goodput을 계산한다.
+
+CXL 풀 모델: 8 TiB, 노드당 어댑터 2개(PCIe 5.0 x16, 각 63 GB/s), 풀 집계 1 TB/s, 유효 효율 0.5 [ASSUMED] → 노드 유효 약 63 GB/s. 미반영: CXL 스위치 혼잡, 메모리 뱅크 경합, 락 매니저 스레드의 CPU 스케줄링 간섭, 풀 장치 장애, 전력, 풀 용량 한계와 HBM OOM.
+
+**이번 수치의 위치**: 이 문서의 별점·표 값은 `theory_model.py` 이론 예상값(GPU-only B0 기준)이다. 별도로 DP4 시뮬레이터에 Agent KV Fleet(`agent_fleet_benchmark`)을 추가해 실제로 실행했다. 시뮬레이터 실행(2026-10-25, Agent KV Fleet 16K/10턴/노드 2~16, seeds 5): Baseline-RDMA 대비 goodput H100 x1.00(N=4)·x1.2(N=8)·x1.4(N=16), B200 x0.51(CXL ingress 포화). 상세 DP4/results/2026-10-25_dp4-agent-kv-fleet.md. 시뮬레이터 Baseline-RDMA는 B0도 B1도 아니고(HBM 용량 압박·DRAM/SSD tier 미모델링) 유휴 모델도 다르므로(8 s vs 60 s) 이론값과 직접 대조하지 않는다. 노드·HBM·DRAM·SSD는 실장 장비라 DP1·DP3와 B0·B1 값은 실측으로 검증해 모델 파라미터를 보정할 수 있다.
+
+## 5. DP별 결과 (B0 · 경쟁 기술 B1 · 후보, 이론 예상값)
+""").replace("@CEIL@", "%.1f" % CEIL_R0))
+names = {"DP1": ("상태 관측+이동 결정 통합", "관측·결정 분리"), "DP2": ("스케줄링 시점 결정", "사전 계획 결정"),
+         "DP3": ("Pipe-and-Filter", "Shared Repository"), "DP4": ("중앙 서버 중재", "락 기반 직접 접근")}
+qs = {"DP1": ["Q1", "QC", "Q3", "Q5"], "DP2": ["Q1", "QC", "Q3", "Q4"], "DP3": ["Q1", "QC", "Q3"], "DP4": ["Q1", "QC", "Q3", "Q4"]}
+for dp in ("DP1", "DP2", "DP3", "DP4"):
+    w("### %s (1안 %s / 2안 %s)\n" % (dp, names[dp][0], names[dp][1]))
+    w("| QA | B0 | 경쟁 기술 B1 | 1안 (B0 대비 → 별, 소유자) | 2안 (B0 대비 → 별, 소유자) |")
+    w("|---|---|---|---|---|")
+    for q in qs[dp]:
+        t1, t2 = cd.THEORY[(dp, 1)].get(q), cd.THEORY[(dp, 2)].get(q)
+        if t1 is None:
+            w("| Q2 Capacity | — | — | 산정 보류(CXL 풀 보존 방식 필요) | 산정 보류 |")
+            continue
+        if q == "QC":
+            b0c, b1c = "%d 세션(HBM만)" % round(t1["b0"]), "%d 세션 (×%.1f)" % (round(t1["b1"]), t1["b1"] / t1["b0"])
+        elif q == "Q1":
+            b0c, b1c = cd.fmt_q(t1["b0"]) + " query/s", "%s query/s (×%.2f)" % (cd.fmt_q(t1["b1"]), t1["b1"] / t1["b0"])
+        elif q == "Q2":
+            b0c, b1c = n0(t1["b0"]) + " GiB", n0(t1["b1"]) + " GiB (0%)"
+        elif q == "Q3":
+            b0c = "TTFT %.2f s · TPOT %.1f ms" % (t1["b0_ttft"], t1["b0_tpot"])
+            b1c = "TTFT %.2f s · TPOT %.1f ms" % (t1["b1_ttft"], t1["b1_tpot"])
+        elif q == "Q4":
+            b0c = b1c = "SE %.0f%%" % t1["b0"]
+        else:
+            b0c = b1c = "—"
+        cells = []
+        for k in (1, 2):
+            t = cd.THEORY[(dp, k)][q]
+            extra = ""
+            if q == "QC":
+                cells.append("%s · 경쟁 기술 대비 ×%.2f → %s (소유자 별 미정)" % (cd.cell_text(dp, k, q), t["r1"], cd.fmt_star(cd.theory_star(dp, k, q))))
+                continue
+            if q == "Q3":
+                extra = " · r %.2f" % t["r0"]
+            elif q == "Q1":
+                extra = " · 경쟁 기술 대비 %+.0f%%" % ((t["r1"] - 1) * 100)
+            cells.append("%s%s → %s (소유자 %s)" % (cd.cell_text(dp, k, q), extra, cd.fmt_star(cd.theory_star(dp, k, q)), cd.fmt_star(cd.OWNER[(dp, k)][q])))
+        w("| %s | %s | %s | %s | %s |" % ("Q2 Capacity" if q == "QC" else q, b0c, b1c, cells[0], cells[1]))
+    w("")
+w("""## 6. 참고: 기존 중립 벤치마크 시뮬레이션 값 (새 시나리오 아님)
+
+8K 입력·batch 32·압박 없는 조건의 H100+B200 시뮬레이션이다. 새 기준·새 시나리오와 직접 비교하지 않는다.
+
+| 후보 | 기존 시뮬 |
+|---|---|""")
+for k, v in cd.OLD_SIM.items():
+    w("| %s %d안 | %s |" % (k[0], k[1], v))
+w(("""
+## 7. 알려진 문제
+
+1. DP2·DP4 페이지의 일부 장단점 문구가 확장성을 `(Q5)`로 적고 있다(표의 번호는 Q4). 수정하지 않았다.
+2. 슬라이드의 소유자 코멘트 박스(파란 글씨)는 그대로 두었다. LibreOffice 렌더링에서는 표가 PowerPoint보다 커서 위치가 어긋나 보일 수 있다.
+3. (정정 전 기준 기록) 이론 예상값에서 두 안이 사실상 같게 나온 곳(소유자는 차이를 예상): DP2 Q3, DP3 Q1·Q3, DP4 Q1·Q3·Q4. 덱 마지막 정합표 참조.
+4. DP1 Q5의 module·M/M은 기존 구현 측정(시나리오 4종 기준)이라 새 시나리오 3종으로 다시 재야 한다.
+5. Q1 ★3(8x)는 이 시나리오의 이론 상한(×@CEIL@)보다 높아 어떤 후보도 도달할 수 없다. 문헌의 높은 값은 공유 캐시·고 적중 regime(여러 세션이 같은 문서·prefix를 재사용)에서 나온 것이라, 도달하려면 시나리오에 교차 세션 재사용 비중을 키우거나(P3 확장) 목표를 낮춰야 한다.
+6. Q2·Q3의 ★2 앵커(40%, r 2.0)는 LMCache·DirectKV 보고값 중 하나를 고른 것이다. 같은 문헌의 더 큰 값(TTFT 4.4~6.6x 등)을 고르면 ★2·★3가 함께 올라간다.
+""").replace("@CEIL@", "%.1f" % CEIL_R0))
+w(r'''
+## 8. 이론 모델 정정 기록 (2026-10-27)
+
+**정정 내용**: Max SLO goodput을 '처리 한계의 0.8배'로 계산했으나 이는 SLO(TTFT P99 ≤ 2 s, TPOT P99 ≤ 50 ms) 만족을 확인한 값이 아니었다. 모델의 대기열식으로 두 SLO를 실제로 만족하는 최대 처리율(`slo_max`)로 바꿨다. B1·DP1은 이전 값이 TTFT 2.66 s로 SLO를 위반하고 있었다. Q3의 고부하는 정의(Baseline Max SLO goodput의 90%)대로 B0 SLO 처리율 기준으로 바꿨다(이전에는 B0 포화 부하 기준). 컨텍스트는 8K 시작·턴당 +1.25K·12턴(평균 약 15K)으로 정의하고 이론 모델은 대표 16K로 계산한다. SLO 값과 별 기준은 바꾸지 않았다.
+
+| 항목 | 이전 | 이후 |
+|---|---|---|
+| B0 Max SLO goodput (query/s) | 1.76 | 1.86 |
+| B1 Max SLO goodput (query/s) | 4.13 | 3.78 |
+| B1 ÷ B0 | 2.35 | 2.04 |
+| DP1 1안 ÷ B0 | 2.46 | 2.13 |
+| DP1 2안 ÷ B0 | 2.47 | 2.14 |
+| DP3 1안 ÷ B0 | 3.25 | 3.07 |
+| DP3 2안 ÷ B0 | 3.36 | 3.23 |
+| B0 TTFT P99 @고부하(90%) | 3.22 s | 1.21 s |
+
+별이 바뀐 칸: DP1 Q3 ★2→☆(두 안), DP2 Q1 1안 ★1.5→★1, DP2 Q3 ★2→★1(두 안), DP3 Q3 ★2.5→★1/★1.5, DP4 Q3 ★3→★2. 원인: B0가 90% 부하에서도 SLO 안(TTFT 1.21 s)이라 후보와의 지연 차이가 줄었다. 이론 상한은 GPU 한계 ÷ B0 Max SLO goodput(×4.8)으로 다시 정의했다. DP4 시뮬레이터 Agent KV Fleet은 16K 시작·10턴으로 실행한 이전 결과이며 새 컨텍스트 정의로 다시 돌리지 않았다.
+''')
+open("qa-criteria-v4.md", "w", encoding="utf8").write("\n".join(out))
+print("written", len(out), "blocks")

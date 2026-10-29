@@ -1,0 +1,32 @@
+SYS-H100 n_cb_kv_8k_b32                     peak load     4 (interior) goodput    341.7  curve 2:223 3:290 4:342 6:294 8:0 12:0 16:17 24:0
+SYS-H100 n_cb_kv_8k_b32_ramp                peak load     4 (interior) goodput    341.6  curve 2:223 3:291 4:342 6:310 8:0 12:43 16:0 24:0
+SYS-H100 n_cb_mixed_8k_b32                  peak load     4 (interior) goodput    341.5  curve 2:223 3:290 4:341 6:290 8:23 12:0 16:0 24:0
+SYS-H100 n_dp2_turn_hbm_small_tool          peak load   108 (interior) goodput   1846.0  curve 12:262 24:508 36:755 48:986 60:1212 72:1444 84:1626 96:1763 108:1846 132:449 156:61 192:66 240:74
+SYS-H100 n_dp2_turn_dram_small_tool         peak load    36 (interior) goodput    634.4  curve 6:122 12:239 18:354 24:457 36:634 48:385 60:2 72:0 96:0
+SYS-H100 n_dp2_turn_hbf_hist                peak load    12 (interior) goodput    123.1  curve 2:38 4:73 8:115 12:123 16:84 24:8
+SYS-H100 n_dp2_turn_ssd_hist                peak load     8 (interior) goodput     93.8  curve 1:18 2:37 3:52 4:64 6:80 8:94 12:91 16:68 24:21
+SYS-H100 n_dp2_tool_large_result            peak load    12 (interior) goodput    116.9  curve 4:75 8:113 12:117 16:103 24:56 32:25 48:4 64:2
+SYS-H100 n_dp2_decode_heavy_p_idle          peak load   320 (interior) goodput   8396.8  curve 32:2498 48:3411 64:4244 96:5560 128:6363 160:6507 192:7331 256:8238 320:8397 384:8040 512:7229 768:4248
+SYS-H100 n_dp2_long_ctx_decode_offload      peak load     4 (interior) goodput     83.4  curve 1:22 2:45 3:70 4:83 6:60 8:35 12:9 16:2 24:1
+SYS-H100 n_dp2_session_size_skew            peak load   1.5 (interior) goodput   3732.4  curve 0.5:1477 0.75:1966 1.0:2639 1.25:3282 1.5:3732 2.0:3544 2.5:3726 3.0:2798
+SYS-H100 n_dp2_stale_telemetry              peak load   2.0 (interior) goodput    333.2  curve 0.5:100 0.75:153 1.0:203 1.25:251 1.5:299 2.0:333 2.5:292 3.0:299
+SYS-H100 n_dp2_planner_fault_fallback       peak load   1.5 (interior) goodput    294.5  curve 0.5:131 0.75:195 1.0:239 1.25:274 1.5:294 2.0:260
+SYS-H100 n_dyn_turn_demotion_wave           peak load    24 (LOW-END) goodput    147.7  curve 24:148
+SYS-H100 n_dyn_load_ramp_burst              peak load   1.5 (interior) goodput   1214.6  curve 0.5:531 0.75:698 1.0:816 1.25:1139 1.5:1215 2.0:939
+SYS-H100 n_dyn_decode_phase_shift           peak load   512 (interior) goodput  11122.7  curve 32:2219 48:2804 64:3203 96:4252 128:5128 160:5952 192:6463 256:7655 320:8232 384:9216 512:11123 768:4160
+SYS-B200 n_cb_kv_8k_b32                     peak load    12 (interior) goodput   1192.8  curve 2:506 3:663 4:784 6:948 8:1053 12:1193 16:633 24:0
+SYS-B200 n_cb_kv_8k_b32_ramp                peak load    12 (interior) goodput   1189.0  curve 2:503 3:664 4:783 6:948 8:1057 12:1189 16:0 24:57
+SYS-B200 n_cb_mixed_8k_b32                  peak load    12 (interior) goodput   1194.7  curve 2:505 3:664 4:784 6:950 8:1054 12:1195 16:632 24:2
+SYS-B200 n_dp2_turn_hbm_small_tool          peak load   192 (interior) goodput   4263.3  curve 12:289 24:565 36:854 48:1126 60:1404 72:1713 84:1987 96:2203 108:2469 132:3025 156:3525 192:4263 240:4100
+SYS-B200 n_dp2_turn_dram_small_tool         peak load    48 (interior) goodput    951.9  curve 6:137 12:267 18:402 24:526 36:767 48:952 60:879 72:628 96:63
+SYS-B200 n_dp2_turn_hbf_hist                peak load    16 (interior) goodput    202.6  curve 2:42 4:88 8:156 12:199 16:203 24:151
+SYS-B200 n_dp2_turn_ssd_hist                peak load     8 (interior) goodput     96.6  curve 1:20 2:41 3:60 4:70 6:85 8:97 12:91 16:70 24:15
+SYS-B200 n_dp2_tool_large_result            peak load    24 (interior) goodput    443.5  curve 4:109 8:218 12:320 16:389 24:443 32:413 48:279 64:135
+SYS-B200 n_dp2_decode_heavy_p_idle          peak load   512 (interior) goodput  20734.1  curve 32:4054 48:5743 64:7477 96:10229 128:12447 160:14382 192:16046 256:18341 320:19338 384:18273 512:20734 768:19570
+SYS-B200 n_dp2_long_ctx_decode_offload      peak load    12 (interior) goodput    231.9  curve 1:26 2:52 3:81 4:102 6:155 8:209 12:232 16:135 24:12
+SYS-B200 n_dp2_session_size_skew            peak load   2.0 (interior) goodput   9769.2  curve 0.5:2666 0.75:3801 1.0:5185 1.25:6318 1.5:7413 2.0:9769 2.5:8848 3.0:5542
+SYS-B200 n_dp2_stale_telemetry              peak load   1.5 (interior) goodput    620.4  curve 0.5:247 0.75:381 1.0:503 1.25:572 1.5:620 2.0:605 2.5:281 3.0:0
+SYS-B200 n_dp2_planner_fault_fallback       peak load  1.25 (interior) goodput    798.3  curve 0.5:458 0.75:629 1.0:711 1.25:798 1.5:689 2.0:222
+SYS-B200 n_dyn_turn_demotion_wave           peak load    24 (LOW-END) goodput    151.1  curve 24:151
+SYS-B200 n_dyn_load_ramp_burst              peak load   1.5 (interior) goodput   3125.1  curve 0.5:1114 0.75:1619 1.0:2121 1.25:2511 1.5:3125 2.0:2301
+SYS-B200 n_dyn_decode_phase_shift           peak load   768 (HIGH-END) goodput  21031.8  curve 32:3201 48:3882 64:4937 96:6982 128:8850 160:10494 192:11970 256:14582 320:16622 384:18379 512:19945 768:21032

@@ -1,0 +1,167 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "DP2 run result (one scenario, SYS, candidate, seed, load)",
+ "type": "object",
+ "required": [
+  "meta",
+  "qa",
+  "requests",
+  "utilization",
+  "transfers",
+  "planner",
+  "ttft_components_mean_s"
+ ],
+ "properties": {
+  "meta": {
+   "type": "object",
+   "required": [
+    "system",
+    "scenario",
+    "candidate",
+    "seed",
+    "load",
+    "git_rev",
+    "dirty",
+    "params_sha"
+   ],
+   "properties": {
+    "system": {
+     "type": "string"
+    },
+    "scenario": {
+     "type": "string"
+    },
+    "candidate": {
+     "enum": [
+      "Baseline-PD-fixed",
+      "C1-scheduling-time",
+      "C2-pre-planned",
+      "Ref-D-local-always",
+      "Ref-Oracle",
+      "Ref-P-retain"
+     ]
+    },
+    "seed": {
+     "type": "integer"
+    },
+    "load": {
+     "type": "number"
+    },
+    "git_rev": {
+     "type": "string"
+    },
+    "dirty": {
+     "type": "boolean"
+    },
+    "params_sha": {
+     "type": "string"
+    }
+   }
+  },
+  "qa": {
+   "type": "object",
+   "required": [
+    "goodput_tok_s",
+    "ttft_p50_s",
+    "ttft_p95_s",
+    "ttft_p99_s",
+    "tpot_p50_s",
+    "tpot_p95_s",
+    "tpot_p99_s",
+    "slo_met_frac",
+    "useful_utilization"
+   ],
+   "additionalProperties": {
+    "type": "number"
+   }
+  },
+  "requests": {
+   "type": "object",
+   "required": [
+    "offered",
+    "served",
+    "measured_turns",
+    "dropped"
+   ],
+   "additionalProperties": {
+    "type": "number"
+   }
+  },
+  "utilization": {
+   "type": "object",
+   "required": [
+    "node_busy_frac",
+    "pool_busy_frac",
+    "cv_p",
+    "cv_d"
+   ],
+   "properties": {
+    "node_busy_frac": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "number"
+     }
+    },
+    "pool_busy_frac": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "number"
+     }
+    },
+    "cv_p": {
+     "type": "number"
+    },
+    "cv_d": {
+     "type": "number"
+    },
+    "gpu_idle_frac": {
+     "type": "number"
+    }
+   }
+  },
+  "transfers": {
+   "type": "object",
+   "required": [
+    "internode_bytes",
+    "intranode_bytes",
+    "per_turn_internode_gib_mean",
+    "link_util_mean",
+    "link_util_p99"
+   ],
+   "additionalProperties": {
+    "type": "number"
+   }
+  },
+  "planner": {
+   "type": "object",
+   "required": [
+    "decisions",
+    "t_dec_mean_s",
+    "t_dec_p99_s",
+    "plan_age_mean_s",
+    "plan_age_p99_s",
+    "replans",
+    "fallbacks",
+    "regret_mean_s",
+    "regret_p99_s",
+    "mis_selection_rate"
+   ],
+   "additionalProperties": {
+    "type": "number"
+   }
+  },
+  "ttft_components_mean_s": {
+   "type": "object",
+   "required": [
+    "schedule",
+    "decision",
+    "queue",
+    "move",
+    "prefill"
+   ],
+   "additionalProperties": {
+    "type": "number"
+   }
+  }
+ }
+}

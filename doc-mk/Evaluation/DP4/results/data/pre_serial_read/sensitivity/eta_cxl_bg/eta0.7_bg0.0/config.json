@@ -1,0 +1,29 @@
+{
+ "group": "eta_cxl_bg",
+ "label": "eta0.7_bg0.0",
+ "overrides": {
+  "eta_cxl": 0.7,
+  "bg_scale": 0.0
+ },
+ "sets": [
+  "common_benchmark",
+  "dp4_benchmark"
+ ],
+ "systems": [
+  "SYS-H100",
+  "SYS-B200"
+ ],
+ "git": {
+  "revision": "2524bb2",
+  "dirty": true
+ },
+ "seeds": [
+  11,
+  23,
+  37,
+  53,
+  71
+ ],
+ "main_bg": 0.85,
+ "command": "python sensitivity.py run --group eta_cxl_bg"
+}

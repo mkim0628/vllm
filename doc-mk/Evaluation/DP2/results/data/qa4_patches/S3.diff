@@ -1,0 +1,37 @@
+diff -ru -x __pycache__ -x DP1 base/DP2/sim/dp2sim/engine.py s3/DP2/sim/dp2sim/engine.py
+--- base/DP2/sim/dp2sim/engine.py	2026-10-04 16:51:13.760596921 +0000
++++ s3/DP2/sim/dp2sim/engine.py	2026-10-04 16:52:50.342882814 +0000
+@@ -85,7 +85,7 @@
+         self.sched_busy = False
+         self.net_ver = 0
+         self.snap = None
+-        self.est = Estimator(self, o["eps"])
++        self.est = Estimator(self, o["eps"], o.get("selector"))
+         self.planner_q: list[Req] = []
+         self.planned = defaultdict(float)          # C2: the planner's ledger of its own not-yet-dispatched plans
+         self.planned_cnt = defaultdict(int)
+diff -ru -x __pycache__ -x DP1 base/DP2/sim/dp2sim/policies.py s3/DP2/sim/dp2sim/policies.py
+--- base/DP2/sim/dp2sim/policies.py	2026-10-04 16:51:13.760730124 +0000
++++ s3/DP2/sim/dp2sim/policies.py	2026-10-04 16:52:50.338968562 +0000
+@@ -38,10 +38,11 @@
+ 
+ 
+ class Estimator:
+-    def __init__(self, sim, eps=0.0):
++    def __init__(self, sim, eps=0.0, selector=None):
+         self.sim = sim
+         self.P = sim.P
+         self.eps = eps
++        self.select_key = selector or (lambda r: r[0])        # Resource Selector: rank key over (cost, n_p, n_d, ttft, tpot)
+         self.lam = {}          # per-node EWMA dispatch rate (planner's own knowledge)
+         self._last = {}
+ 
+@@ -166,7 +167,7 @@
+                     results.append((cost, i, (d, t), ttft_p[i], tpot))
+         if not results:
+             return None, []
+-        results.sort(key=lambda x: x[0])
++        results.sort(key=self.select_key)
+         feas = [r for r in results if r[3] <= SLO_TTFT]
+         use = feas if feas else None
+         if use is None:

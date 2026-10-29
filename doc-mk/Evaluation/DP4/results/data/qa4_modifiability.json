@@ -1,0 +1,838 @@
+{
+ "schema": "qa4_modifiability v2",
+ "date": "2026-10-04",
+ "evidence": "[B+C] proxy implementation in the DP4 simulator, not vLLM",
+ "inputs": "DP4/results/data/qa4_measured_counts.json",
+ "constants_mid": {
+  "c_mod": 3.0,
+  "k_real": 5.0,
+  "P": 40.0,
+  "f_ovh": 2.0,
+  "tpl": 12.0,
+  "C0": 25000.0,
+  "a_read": 1.5,
+  "n0": 10.0,
+  "n_m": 5.0,
+  "n_iter": 2.0,
+  "o_turn": 300.0
+ },
+ "constants_low": {
+  "c_mod": 2.0,
+  "k_real": 3.0,
+  "P": 80.0,
+  "f_ovh": 1.5,
+  "tpl": 8.0
+ },
+ "constants_high": {
+  "c_mod": 5.0,
+  "k_real": 10.0,
+  "P": 25.0,
+  "f_ovh": 3.0,
+  "tpl": 16.0
+ },
+ "prices_assumed_2026-10-03": {
+  "T1_frontier": {
+   "p_in": 15.0,
+   "p_cache": 1.5,
+   "p_out": 75.0,
+   "mult": 0.6
+  },
+  "T2_mid": {
+   "p_in": 3.0,
+   "p_cache": 0.3,
+   "p_out": 15.0,
+   "mult": 1.0
+  }
+ },
+ "thresholds": {
+  "M1_modules": "<=2 ★★★, 3-5 ★★, >=6 ★",
+  "M2_man_months": "<=0.5 ★★★, <=1.0 ★★, else ★",
+  "M3_usd_T1": "<=3 ★★★, <=10 ★★, else ★",
+  "qa4": "median of M1, M2, M3 stars",
+  "aggregation": "mean metric over the 4 scenarios, then star (v2); worst-case v1 kept as *_worst_case"
+ },
+ "scenarios": {
+  "S1": {
+   "title": "new hardware capability (CXL 3.x CoherentRegion: cross-node CAS in a 64 KiB hardware-coherent region)",
+   "C1": {
+    "modules": 1,
+    "shared_modules": 0,
+    "files": [
+     "arms.py"
+    ],
+    "loc_added": 11,
+    "module_size_loc": 20,
+    "engineer_days": 5.75,
+    "man_months": 0.274,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 260772,
+      "usd": 0.86
+     },
+     "T2_mid": {
+      "tokens": 434620,
+      "usd": 0.29
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.125,
+     0.867
+    ],
+    "usd_T1_range": [
+     0.8,
+     1.03
+    ]
+   },
+   "C2": {
+    "modules": 1,
+    "shared_modules": 0,
+    "files": [
+     "arms.py"
+    ],
+    "loc_added": 13,
+    "module_size_loc": 109,
+    "engineer_days": 6.25,
+    "man_months": 0.298,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 337812,
+      "usd": 1.06
+     },
+     "T2_mid": {
+      "tokens": 563020,
+      "usd": 0.35
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.13,
+     0.981
+    ],
+    "usd_T1_range": [
+     0.88,
+     1.54
+    ]
+   }
+  },
+  "S2": {
+   "title": "new object class (variable-length COMP_KV object, 1..16 blocks, format_version)",
+   "C1": {
+    "modules": 3,
+    "shared_modules": 2,
+    "files": [
+     "arms.py"
+    ],
+    "loc_added": 16,
+    "module_size_loc": 86,
+    "engineer_days": 13.0,
+    "man_months": 0.619,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 516396,
+      "usd": 1.46
+     },
+     "T2_mid": {
+      "tokens": 860660,
+      "usd": 0.49
+     }
+    },
+    "stars": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.329,
+     1.629
+    ],
+    "usd_T1_range": [
+     1.26,
+     2.01
+    ]
+   },
+   "C2": {
+    "modules": 3,
+    "shared_modules": 2,
+    "files": [
+     "arms.py"
+    ],
+    "loc_added": 16,
+    "module_size_loc": 85,
+    "engineer_days": 13.0,
+    "man_months": 0.619,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 514992,
+      "usd": 1.45
+     },
+     "T2_mid": {
+      "tokens": 858320,
+      "usd": 0.48
+     }
+    },
+    "stars": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.329,
+     1.629
+    ],
+    "usd_T1_range": [
+     1.26,
+     2.0
+    ]
+   }
+  },
+  "S3": {
+   "title": "policy swap (pool eviction: LRU -> access frequency x reconstruction cost score, constructor injection)",
+   "C1": {
+    "modules": 1,
+    "shared_modules": 0,
+    "files": [
+     "arms.py"
+    ],
+    "loc_added": 6,
+    "module_size_loc": 16,
+    "engineer_days": 4.5,
+    "man_months": 0.214,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 256956,
+      "usd": 0.83
+     },
+     "T2_mid": {
+      "tokens": 428260,
+      "usd": 0.28
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.111,
+     0.581
+    ],
+    "usd_T1_range": [
+     0.79,
+     0.94
+    ]
+   },
+   "C2": {
+    "modules": 1,
+    "shared_modules": 0,
+    "files": [
+     "arms.py"
+    ],
+    "loc_added": 6,
+    "module_size_loc": 18,
+    "engineer_days": 4.5,
+    "man_months": 0.214,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 258684,
+      "usd": 0.83
+     },
+     "T2_mid": {
+      "tokens": 431140,
+      "usd": 0.28
+     }
+    },
+    "stars": {
+     "M1": "★★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.111,
+     0.581
+    ],
+    "usd_T1_range": [
+     0.79,
+     0.95
+    ]
+   }
+  },
+  "S4": {
+   "title": "new topology element (two pools, object id carries pool_id, sharded allocate/lookup)",
+   "C1": {
+    "modules": 4,
+    "shared_modules": 3,
+    "files": [
+     "arms.py",
+     "simulator.py"
+    ],
+    "loc_added": 14,
+    "module_size_loc": 101,
+    "engineer_days": 15.5,
+    "man_months": 0.738,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 640482,
+      "usd": 1.71
+     },
+     "T2_mid": {
+      "tokens": 1067470,
+      "usd": 0.57
+     }
+    },
+    "stars": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.418,
+     1.752
+    ],
+    "usd_T1_range": [
+     1.47,
+     2.38
+    ]
+   },
+   "C2": {
+    "modules": 4,
+    "shared_modules": 3,
+    "files": [
+     "arms.py",
+     "simulator.py"
+    ],
+    "loc_added": 28,
+    "module_size_loc": 194,
+    "engineer_days": 19.0,
+    "man_months": 0.905,
+    "agent": {
+     "T1_frontier": {
+      "tokens": 797172,
+      "usd": 2.08
+     },
+     "T2_mid": {
+      "tokens": 1328620,
+      "usd": 0.69
+     }
+    },
+    "stars": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "man_months_range": [
+     0.456,
+     2.552
+    ],
+    "usd_T1_range": [
+     1.62,
+     3.38
+    ]
+   }
+  }
+ },
+ "sub_stars_worst_case": {
+  "C1": {
+   "M1": "★★",
+   "M2": "★★",
+   "M3": "★★★"
+  },
+  "C2": {
+   "M1": "★★",
+   "M2": "★★",
+   "M3": "★★★"
+  }
+ },
+ "qa4_stars_worst_case": {
+  "C1": "★★",
+  "C2": "★★"
+ },
+ "sub_stars": {
+  "C1": {
+   "M1": "★★",
+   "M2": "★★★",
+   "M3": "★★★"
+  },
+  "C2": {
+   "M1": "★★",
+   "M2": "★★",
+   "M3": "★★★"
+  }
+ },
+ "qa4_stars": {
+  "C1": "★★★",
+  "C2": "★★"
+ },
+ "mean_over_scenarios": {
+  "C1": {
+   "modules": 2.25,
+   "man_months": 0.461,
+   "usd_T1": 1.21,
+   "usd_T2": 0.41,
+   "tokens_T1": 418652,
+   "tokens_T2": 697752
+  },
+  "C2": {
+   "modules": 2.25,
+   "man_months": 0.509,
+   "usd_T1": 1.35,
+   "usd_T2": 0.45,
+   "tokens_T1": 477165,
+   "tokens_T2": 795275
+  }
+ },
+ "sensitivity_constants": {
+  "optimistic": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "mid": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "pessimistic": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  }
+ },
+ "sensitivity_constants_cross": {
+  "mm_low_tokens_low": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "mm_low_tokens_high": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "mm_high_tokens_low": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "mm_high_tokens_high": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  }
+ },
+ "sensitivity_one_at_a_time": {
+  "c_mod=2.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "c_mod=5.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "k_real=3.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "k_real=10.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "P=80.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "P=25.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "f_ovh=1.5": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   }
+  },
+  "f_ovh=3.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "tpl=8.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "tpl=16.0": {
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  }
+ },
+ "sensitivity_structure_alternatives": {
+  "S1_coherent_region_counted_as_shared_module": {
+   "note": "analytic: +1 shared module, +4 LOC (config 2 + Params 2) for both candidates; size 36 = Sim.on_xfer+on_move_done+on_pinned",
+   "mean_man_months": {
+    "C1": 0.509,
+    "C2": 0.557
+   },
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "S3_C2_entry_layout_extended": {
+   "note": "analytic: C2 +1 module, +2 LOC (two per-entry fields); C1 unchanged",
+   "mean_man_months": {
+    "C1": 0.461,
+    "C2": 0.551
+   },
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "S1_C2_flagged_major_interface_change": {
+   "note": "preregistration rule: M1 = one star for C2 (module count irrelevant)",
+   "mean_man_months": {
+    "C1": 0.461,
+    "C2": 0.509
+   },
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  },
+  "all_analytic_alternatives_together": {
+   "note": "(a)+(b)+(c)",
+   "mean_man_months": {
+    "C1": 0.509,
+    "C2": 0.598
+   },
+   "C1": {
+    "sub": {
+     "M1": "★★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   },
+   "C2": {
+    "sub": {
+     "M1": "★",
+     "M2": "★★",
+     "M3": "★★★"
+    },
+    "qa4": "★★"
+   }
+  }
+ },
+ "T1_break_even_token_multiplier": {
+  "S1_C1": 0.202,
+  "S1_C2": 0.198,
+  "S2_C1": 0.201,
+  "S2_C2": 0.199,
+  "S3_C1": 0.202,
+  "S3_C2": 0.202,
+  "S4_C1": 0.2,
+  "S4_C2": 0.199
+ },
+ "mean_over_scenarios_unrounded": {
+  "C1": {
+   "modules": 2.25,
+   "man_months": 0.46130952380952384,
+   "usd_T1": 1.2144375
+  },
+  "C2": {
+   "modules": 2.25,
+   "man_months": 0.5089285714285714,
+   "usd_T1": 1.3567275
+  }
+ },
+ "major_interface_change_flags": {
+  "S1": {
+   "C1": false,
+   "C2": false
+  },
+  "S2": {
+   "C1": false,
+   "C2": false
+  },
+  "S3": {
+   "C1": false,
+   "C2": false
+  },
+  "S4": {
+   "C1": false,
+   "C2": false
+  }
+ }
+}
