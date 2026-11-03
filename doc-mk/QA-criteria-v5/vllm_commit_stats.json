@@ -1,0 +1,197 @@
+{
+ "commits": 1498,
+ "date_from": "2026-10-13",
+ "date_to": "2026-11-04",
+ "all_files": {
+  "n": 1498,
+  "mean": 5.805740987983978,
+  "median": 3.0,
+  "p75": 6.0,
+  "p80": 7.0,
+  "p90": 12.0,
+  "cdf": {
+   "1": 0.2162883845126836,
+   "2": 0.44659546061415223,
+   "3": 0.5814419225634179,
+   "4": 0.671562082777036,
+   "5": 0.7202937249666221,
+   "6": 0.7690253671562083,
+   "7": 0.8057409879839786,
+   "8": 0.829105473965287,
+   "9": 0.849799732977303,
+   "10": 0.8711615487316422
+  }
+ },
+ "src_files": {
+  "n": 1279,
+  "mean": 4.193119624706802,
+  "median": 2.0,
+  "p75": 4.0,
+  "p80": 5.0,
+  "p90": 9.0,
+  "cdf": {
+   "1": 0.4354964816262705,
+   "2": 0.6168881939014855,
+   "3": 0.7052384675527756,
+   "4": 0.7724784988272088,
+   "5": 0.8107896794370602,
+   "6": 0.8412822517591869,
+   "7": 0.8670836591086787,
+   "8": 0.8913213448006255,
+   "9": 0.9053948397185301,
+   "10": 0.9210320562939797
+  }
+ },
+ "kv_all": {
+  "n": 165,
+  "mean": 7.903030303030303,
+  "median": 4.0,
+  "p75": 8.0,
+  "p80": 10.0,
+  "p90": 14.0,
+  "cdf": {
+   "1": 0.07272727272727272,
+   "2": 0.34545454545454546,
+   "3": 0.47878787878787876,
+   "4": 0.5575757575757576,
+   "5": 0.6121212121212121,
+   "6": 0.6848484848484848,
+   "7": 0.7393939393939394,
+   "8": 0.7696969696969697,
+   "9": 0.7818181818181819,
+   "10": 0.806060606060606
+  }
+ },
+ "kv_src": {
+  "n": 150,
+  "mean": 4.48,
+  "median": 2.0,
+  "p75": 4.0,
+  "p80": 5.0,
+  "p90": 8.0,
+  "cdf": {
+   "1": 0.43333333333333335,
+   "2": 0.5533333333333333,
+   "3": 0.6866666666666666,
+   "4": 0.7666666666666667,
+   "5": 0.8133333333333334,
+   "6": 0.8466666666666667,
+   "7": 0.8666666666666667,
+   "8": 0.92,
+   "9": 0.92,
+   "10": 0.92
+  }
+ },
+ "kv_feature_src": {
+  "n": 15,
+  "mean": 5.866666666666666,
+  "median": 5.0,
+  "p75": 7.5,
+  "p80": 8.0,
+  "p90": 10.399999999999999,
+  "cdf": {
+   "1": 0.13333333333333333,
+   "2": 0.2,
+   "3": 0.3333333333333333,
+   "4": 0.4666666666666667,
+   "5": 0.5333333333333333,
+   "6": 0.6666666666666666,
+   "7": 0.7333333333333333,
+   "8": 0.8666666666666667,
+   "9": 0.8666666666666667,
+   "10": 0.8666666666666667
+  }
+ },
+ "kv_feature_titles": [
+  [
+   "2026-11-03",
+   12,
+   6,
+   "[KV Offload] Refactor cpu offloading - calculate gpu pointers and introduce fs ABC (#56076)"
+  ],
+  [
+   "2026-11-03",
+   38,
+   18,
+   "[KV Connector][Spec Decode] Support lookahead block hashes in KV connectors (#64096)"
+  ],
+  [
+   "2026-11-02",
+   7,
+   4,
+   "[Mooncake] Support selective leases for prefix lookups (#63420)"
+  ],
+  [
+   "2026-10-30",
+   12,
+   6,
+   "[KV Connector] Support heterogeneous TP sharing for hybrid KV cache in Mooncake Store (#54307)"
+  ],
+  [
+   "2026-10-29",
+   4,
+   2,
+   "[KV Connector] Support sleep mode with MooncakeStoreConnector (#59934)"
+  ],
+  [
+   "2026-10-28",
+   3,
+   1,
+   "[KV Connector][NIXL] Add a ucx_backend_params key for UCX backend init params (#62905)"
+  ],
+  [
+   "2026-10-26",
+   2,
+   1,
+   "[Bugfix][KV Offload] Preserve new loads during same-step resume (#60574)"
+  ],
+  [
+   "2026-10-20",
+   8,
+   4,
+   "[Test][UMBP][2/10] Add shared connector contract coverage (#61790)"
+  ],
+  [
+   "2026-10-19",
+   14,
+   7,
+   "[KV Connector] Support sleep mode with the NIXL pull connector (#59635)"
+  ],
+  [
+   "2026-10-19",
+   13,
+   5,
+   "[Bugfix][ROCm][MoRIIO] Support heterogeneous TP in WRITE mode for all attention and mamba layers (#6"
+  ],
+  [
+   "2026-10-17",
+   14,
+   3,
+   "[Feature][MoRIIO] Support hybrid WRITE transfers with DSpark (#60544)"
+  ],
+  [
+   "2026-10-15",
+   8,
+   8,
+   "[UMBP][1/10] Add shared connector, runtime contracts, and request lifecycle (#61789)"
+  ],
+  [
+   "2026-10-15",
+   6,
+   3,
+   "[Core] Add PROMOTION_LATENCY histogram metric for tiering offload (#53910)"
+  ],
+  [
+   "2026-10-14",
+   17,
+   12,
+   "[Metrics][KV Offload] Add vllm:kv_offload_config_info - generic info metrics for offloading the offl"
+  ],
+  [
+   "2026-10-14",
+   14,
+   8,
+   "[KV Connector] Support sleep mode with MooncakeConnector over RDMA (#59625)"
+  ]
+ ]
+}

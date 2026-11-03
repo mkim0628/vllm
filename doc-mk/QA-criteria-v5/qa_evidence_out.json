@@ -95,7 +95,69 @@
   "n_ge_3": 4,
   "n_lt_1_05": 5
  },
- "qa2": [
+ "qa3": [
+  {
+   "name": "전 노드 단일 공유 pool (shard=16)",
+   "SE": 0.7185997878871245
+  },
+  {
+   "name": "pool shard 4노드당 1개",
+   "SE": 0.9830322942790808
+  },
+  {
+   "name": "pool shard 2노드당 1개",
+   "SE": 1.0
+  },
+  {
+   "name": "노드 로컬 tier + 전역 metadata만",
+   "SE": 1.0
+  },
+  {
+   "name": "노드 로컬 tier + 중앙 router 20 ms/요청",
+   "SE": 0.6793589371717171
+  },
+  {
+   "name": "단일 공유 pool, 대역폭 2x(400GB/s)",
+   "SE": 0.9509196477984454
+  }
+ ],
+ "qa3_usl": {
+  "0.8": 0.016666666666666666,
+  "0.875": 0.00952380952380952,
+  "0.95": 0.0035087719298245576
+ },
+ "qa4": {
+  "flexkv": {
+   "all": 5,
+   "non_test": 4,
+   "src_only": 2
+  },
+  "mooncake": {
+   "all": 8,
+   "non_test": 6,
+   "src_only": 3
+  },
+  "lmcache": {
+   "all": 10,
+   "non_test": 7,
+   "src_only": 4
+  },
+  "simple_cpu_offload": {
+   "all": 8,
+   "non_test": 6,
+   "src_only": 6
+  },
+  "offloading": {
+   "all": 16,
+   "non_test": 9,
+   "src_only": 8
+  }
+ },
+ "qa5_roundtrip": {
+  "blocks": 10000,
+  "mismatch": 0
+ },
+ "qa2_superseded": [
   {
    "n_sess": 150,
    "S": 16384,
@@ -193,7 +255,7 @@
    "p99_cand": 5.8624
   }
  ],
- "qa2_summary": {
+ "qa2_summary_superseded": {
   "min": 0.0010135171412881893,
   "max": 0.4361721292576419,
   "mean": 0.13474279389277685,
@@ -202,66 +264,5 @@
   "n_ge_50": 0,
   "n_ge_67": 0
  },
- "qa3": [
-  {
-   "name": "전 노드 단일 공유 pool (shard=16)",
-   "SE": 0.7185997878871245
-  },
-  {
-   "name": "pool shard 4노드당 1개",
-   "SE": 0.9830322942790808
-  },
-  {
-   "name": "pool shard 2노드당 1개",
-   "SE": 1.0
-  },
-  {
-   "name": "노드 로컬 tier + 전역 metadata만",
-   "SE": 1.0
-  },
-  {
-   "name": "노드 로컬 tier + 중앙 router 20 ms/요청",
-   "SE": 0.6793589371717171
-  },
-  {
-   "name": "단일 공유 pool, 대역폭 2x(400GB/s)",
-   "SE": 0.9509196477984454
-  }
- ],
- "qa3_usl": {
-  "0.8": 0.016666666666666666,
-  "0.875": 0.00952380952380952,
-  "0.95": 0.0035087719298245576
- },
- "qa4": {
-  "flexkv": {
-   "all": 5,
-   "non_test": 4,
-   "src_only": 2
-  },
-  "mooncake": {
-   "all": 8,
-   "non_test": 6,
-   "src_only": 3
-  },
-  "lmcache": {
-   "all": 10,
-   "non_test": 7,
-   "src_only": 4
-  },
-  "simple_cpu_offload": {
-   "all": 8,
-   "non_test": 6,
-   "src_only": 6
-  },
-  "offloading": {
-   "all": 16,
-   "non_test": 9,
-   "src_only": 8
-  }
- },
- "qa5_roundtrip": {
-  "blocks": 10000,
-  "mismatch": 0
- }
+ "qa2_note": "superseded: 이 값은 '고부하 = Baseline SLO 한계 처리량의 70%' 정의(모델에서 ρ≈0.34). 현행 정의(ρ=70%)는 qa2_load_rho.json (룰 H16(i): 평가 정의 오류 수정, 이전 값 보존)"
 }
