@@ -1,0 +1,94 @@
+{
+  "schema": "qa4_measured_counts v1",
+  "date": "2026-10-03",
+  "preregistration": "doc-mk/Evaluation/DP1/qa4-preregistration.md",
+  "evidence": "[B+C] proxy implementation in the DP1 simulator, not vLLM",
+  "provenance": {
+    "base": "DP1/sim copied once at the start of agent D work (working tree of branch claude/vllm-call-path-analysis-qxulkr, 2026-10-03; test_sim.py 26 tests OK). Each scenario was implemented in a separate copy of that base and diffed against it.",
+    "loc_rule": "added (+) lines that are neither blank nor comment-only in `diff -u`; a modified line counts once (as its + line). Deleted lines are not added.",
+    "module_size_rule": "module_size_loc = current LOC of the touched component in the pristine base (AST class/method/table span; JSON descriptor = neighbouring dram descriptor + profile entry; Event Source = tick-loop event emission block). It approximates how much the agent must read.",
+    "smoke_helpers": "scratchpad/agentD/{smoke_lib,s1_smoke,s2_smoke,s3_smoke,s4_smoke,s4c_smoke}.py (not part of the repo; spies wrap on_migration_committed / estimator / on_event)"
+  },
+  "scenarios": {
+    "S1": {
+      "title": "new memory (cxl_mem, CXL.mem DRAM expander)",
+      "smoke": {
+        "scenario": "dyn_cold_resident_chat_wave, profile SYS-QA4 {hbm, cxl_mem}, seed 11",
+        "scenario_choice": "chosen from a pristine control: on SYS-1 {hbm, dram} this scenario is the one where both candidates commit migrations to the existing dram tier",
+        "C1_before_policy_edit": "committed migrations to cxl_mem = 3 (no C1 policy code change)",
+        "C2_before_policy_edit": "committed migrations to cxl_mem = 0 (type preference lists do not name cxl_mem)",
+        "C2_after_policy_edit": "committed migrations to cxl_mem = 24",
+        "tests": "test_sim.py 26 OK"
+      },
+      "harness_not_counted": {"files": ["simulator.py"], "loc": 2, "note": "As-Is initial/alloc tier order lists name cxl_mem"},
+      "C1": {"changes": [
+        {"module": "Memory Backend I/F plug-in", "shared": true, "files": ["configs/memories_default.json", "configs/systems.json"], "loc_added": 23, "module_size_loc": 35}
+      ]},
+      "C2": {"changes": [
+        {"module": "Memory Backend I/F plug-in", "shared": true, "files": ["configs/memories_default.json", "configs/systems.json"], "loc_added": 23, "module_size_loc": 35},
+        {"module": "Destination Tier Selector (C2)", "shared": false, "files": ["policies.py"], "loc_added": 6, "module_size_loc": 71}
+      ]}
+    },
+    "S2": {
+      "title": "new AI data class (SPARSE_EMBED, op class weight_fetch)",
+      "smoke": {
+        "scenario": "custom smoke trace: dyn_cold_resident_chat_wave with AGENT_MEMORY replaced by 9 SPARSE_EMBED objects, profile SYS-4, seed 11",
+        "C1": "op hint weight_fetch reaches the estimator, estimate(dram) not None = True; migrations in this trace = 0 (decision use of the class by C1 is therefore shown only at the estimator-input level)",
+        "C2": "class_metadata of SPARSE_EMBED records = prior dict (non-empty), preferred() = ('hbm','hbf','dram','cxl_pnm') (class list, not fallback), committed migrations of SPARSE_EMBED objects = 23",
+        "tests": "test_sim.py 26 OK"
+      },
+      "harness_not_counted": {"files": ["scenarios.py", "simulator.py"], "loc": 6, "note": "workload tables (4) + access physics tuples (2)"},
+      "C1": {"changes": [
+        {"module": "Access-cost Estimator input hint table (op class)", "shared": true, "files": ["simulator.py"], "loc_added": 1, "module_size_loc": 44}
+      ]},
+      "C2": {"changes": [
+        {"module": "Access-cost Estimator input hint table (op class)", "shared": true, "files": ["simulator.py"], "loc_added": 1, "module_size_loc": 44},
+        {"module": "Type-aware Registry (class metadata)", "shared": false, "files": ["model.py"], "loc_added": 1, "module_size_loc": 75},
+        {"module": "Destination Tier Selector (C2)", "shared": false, "files": ["policies.py"], "loc_added": 1, "module_size_loc": 71}
+      ]}
+    },
+    "S3": {
+      "title": "policy swap (C1: Affinity Mapper latency-first; C2: Predictor observed-only)",
+      "smoke": {
+        "scenario": "dyn_cold_resident_chat_wave, profile SYS-4, seed 11, constructor injection",
+        "C1": "swapped class called 404x, default class 0x; migrations 4 -> 2",
+        "C2": "swapped class called 2031x, default class 0x; migrations 57 -> 32",
+        "tests": "test_sim.py 26 OK"
+      },
+      "harness_not_counted": {"files": [], "loc": 0, "note": "smoke script builds the policy with the injected object"},
+      "C1": {"changes": [
+        {"module": "Data-Memory Affinity Mapper", "shared": false, "files": ["policies.py"], "loc_added": 6, "module_size_loc": 21},
+        {"module": "Decision pipeline composition (C1)", "shared": false, "files": ["policies.py"], "loc_added": 2, "module_size_loc": 16}
+      ]},
+      "C2": {"changes": [
+        {"module": "Future Behavior Predictor", "shared": false, "files": ["policies.py"], "loc_added": 5, "module_size_loc": 12},
+        {"module": "Decision pipeline composition (C2)", "shared": false, "files": ["policies.py"], "loc_added": 2, "module_size_loc": 15}
+      ]}
+    },
+    "S4": {
+      "title": "new event type (SLO_ALERT)",
+      "smoke": {
+        "scenario": "dyn_cold_resident_chat_wave, profile SYS-4, seed 11 (hbm_capacity_mult 0.4)",
+        "C1": "SLO_ALERT dispatched 138x, decision pipeline executed 138x",
+        "C2": "SLO_ALERT dispatched 66x, decision pipeline executed 66x",
+        "negative_control": "event schema + Event Source only (pristine policies): SLO_ALERT dispatched (C1 138, C2 63) but pipeline executed 0x (the event is silently ignored)",
+        "tests": "test_sim.py 26 OK"
+      },
+      "harness_not_counted": {"files": [], "loc": 0, "note": "Event Source emission is counted as a module (real vLLM hook)"},
+      "C1": {"changes": [
+        {"module": "Event/Migration Scheduler event schema", "shared": true, "files": ["events.py"], "loc_added": 1, "module_size_loc": 68},
+        {"module": "Event Source", "shared": true, "files": ["simulator.py"], "loc_added": 9, "module_size_loc": 28},
+        {"module": "Decision pipeline event dispatch (C1)", "shared": false, "files": ["policies.py"], "loc_added": 1, "module_size_loc": 105}
+      ]},
+      "C2": {"changes": [
+        {"module": "Event/Migration Scheduler event schema", "shared": true, "files": ["events.py"], "loc_added": 1, "module_size_loc": 68},
+        {"module": "Event Source", "shared": true, "files": ["simulator.py"], "loc_added": 9, "module_size_loc": 28},
+        {"module": "Decision pipeline event dispatch (C2)", "shared": false, "files": ["policies.py"], "loc_added": 1, "module_size_loc": 139}
+      ]}
+    }
+  },
+  "sensitivity_alternatives": {
+    "S1_C2_capability_class_preference": "Design doc 5.8.6 says new memory needs no selector change if preference is expressed as capability classes. The sim C2 uses memory NAMES, so S1 C2 measured 2 modules. If preference were capability-class based, C2 S1 = 1 module (not measured, analytic).",
+    "S4_event_schema_merged_into_event_source": "If the event enum is regarded as part of Event Source, S4 = 2 modules for both candidates."
+  }
+}

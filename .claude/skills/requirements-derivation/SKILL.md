@@ -1,0 +1,179 @@
+---
+name: requirements-derivation
+description: "Use when deriving use cases, functional requirements (FR), quality attributes (QA), quality scenarios (6-element, quantitative) or constraints from the project's scenarios or from a Design Point (DP0~DP4) design doc / QA evaluation doc / design slide (PPT). Triggers: 요구사항 도출, 기능 요구사항, Use Case, 품질 속성, 품질 시나리오, 제약 사항, 시나리오로부터 요구사항, DP 설계 문서에서 QA 추출, doc-mk/Requirements."
+---
+
+# Requirements Derivation Skill (시나리오/DP → UC → FR → QA → 품질 시나리오 → 제약)
+
+과제 산출물(기능 요구사항, 품질 속성, 제약 사항)을 **이미 만들어진 DP 문서에서 역으로** 도출하기 위한 절차와 문서 형식을 고정한다. 순서가 일반 SW 개발과 반대(설계 → 요구사항)이므로, **설계 문서에 쓰인 것과 도출자가 추가한 것을 반드시 구분**해서 쓴다.
+
+## Quick start
+1. 사용자가 입력을 준다: (Phase 1) 과제 관점 시나리오 목록, (Phase 2) DP 설계 문서 / QA 평가 문서 / 설계 PPT.
+2. Phase에 맞는 절차를 따른다. **정보가 부족하면 추측해서 채우지 말고 사용자에게 먼저 묻는다** (§4 질문 규칙).
+3. 산출물은 `doc-mk/Requirements/` 아래에만 만든다 (§6). 기존 파일은 덮어쓰지 않고 버전을 올린다.
+4. 마지막에 §7 체크리스트를 통과시킨다.
+
+## Hard rules (비협상)
+- R1. **출처 구분.** 모든 항목에 `출처` 열을 둔다: `DP문서`(문서에 명시, 위치 표기: 파일 §번호 / 슬라이드 n) · `도출`(문서에 없고 Claude가 시나리오·구조에서 추론) · `사용자`(사용자가 말함). `도출` 항목은 사용자 확인 전까지 `제안` 상태다.
+- R2. **QA는 두 묶음으로 낸다**: (a) DP가 **선정한 QA**, (b) DP 시나리오와 관련 있어 보이는 **추가 후보 QA**. (b)에는 왜 관련 있는지 한 줄 이유를 적는다. (b)를 (a)에 섞지 않는다.
+- R3. **품질 시나리오는 6요소를 모두 채운다**: ① 자극 유발원(Source of Stimulus) ② 자극(Stimulus) ③ 환경(Environment) ④ 자극 대상체(Artifact) ⑤ 응답(Response) ⑥ 응답 측정(Response Measure). 한 요소라도 비면 작성 실패다.
+- R4. **응답 측정은 명확한 metric + 정량 조건 + 측정 방법**이다. "빠르게", "충분히", "개선"은 금지. 형식: `<metric 이름·단위·통계량(P50/P99/평균) > / ≤ 값 (비교 대상) , 측정 조건`. 예: `TTFT P99 ≤ 800 ms (Baseline 대비 ≤ 1.0배), 부하 x1.0, seed ≥ 5`.
+- R5. **수치의 근거를 표기한다.** 목표값마다 근거 라벨: `[DP문서]` 문서에 있는 값 / `[기준]` 공통 평가 기준·Baseline에서 가져온 값 / `[가정]` 도출자가 둔 값(확정 필요). `[가정]` 값은 숨기지 않고 사용자 확정 질문 목록(§4.3)에 올린다. 근거 없는 수치를 근거 있는 것처럼 쓰지 않는다.
+- R6. **metric은 프로젝트의 기존 정의를 재사용한다.** QA 이름·지표(예: Max SLO Goodput, TTFT/TPOT, HBM 사용량, 변경 module 수 등)는 `doc-mk/Evaluation/qa-evaluation-criteria.md`와 DP별 QA 문서를 먼저 읽고 맞춘다. 새 metric은 `신규 metric`으로 표시하고 정의(식, 단위)를 적는다.
+- R7. **제약 사항은 "설계 구조도를 본 리뷰어가 던질 질문" 기반이다** (§3.5). 설계 범위를 벗어나는 요구는 요구사항이 아니라 제약(범위 밖)으로 명시한다.
+- R8. **FR은 검증 가능한 문장이다**: `<주체>는 <조건>일 때 <관측 가능한 동작>을 한다`. 구현 방식(클래스명 등)을 FR 본문에 넣지 않는다 (필요하면 `설계 매핑` 열).
+- R9. 한국어, 기술 용어는 영어. 전문가 독자 기준으로 상세히 쓴다. 불확실하면 `미확인`이라고 쓴다.
+- R10. ID 체계 고정: UC-n, FR-n(전체) 또는 DPn-FR-n, DPn-QA-n, DPn-QS-n(품질 시나리오), DPn-C-n(제약). 문서 간 추적성 열을 유지한다 (UC ↔ FR ↔ QA/QS ↔ C).
+
+
+### 진행 방침 (사용자 결정 2026-10-09, `doc-mk/Requirements/memo-threshold-unification.md`)
+- **3단계로 진행한다**: (1) 각 DP를 읽고 FR, QA, 품질 시나리오, 제약을 뽑는다. (2) 전 DP(DP1~DP4)를 모두 훑는다(DP5는 없고 DP6은 이번에는 건너뜀). (3) **품질 요구사항의 정량 조건만** 모든 DP를 보고 일관된 규칙으로 다시 정한다.
+- **(1)~(2) 단계에서 R4를 임시 완화한다.** 품질 시나리오의 응답 측정은 `metric / 통계량 / 비교 기준 / 측정 조건`까지 쓰고 **임계값은 `TBD(통합 단계)`** 로 둔다. 각 DP의 평가 결과와 별점은 요구사항 문서에 쓰지 않는다(치워 둠). 대신 **DP 간 평가 환경·Baseline·정의의 차이는 반드시 알린다**(`dp-evaluation-inventory.md`).
+- 3단계에서는 DP 고유 지표 대신 **임계값을 정하는 규칙**을 통일하고, 외부 근거에 묶고, 결과에 맞춰 구간을 조정하지 않는다(`evaluation` 스킬 H5, H16).
+- QA3 정의는 `memo-qa3-resource-utilization.md`를 따른다(사용자 결정 전).
+
+---
+
+## Phase 1. 시나리오 → Use Case → 기본 기능 요구사항
+
+**입력**: 사용자가 말하는 과제 관점 시나리오(자유 서술). `doc-mk/scenarios/`의 동작 시나리오는 *참고*일 뿐 사용자 시나리오를 대체하지 않는다.
+
+### 절차
+1. 시나리오를 한 줄씩 받아 적고 번호(SC-n)를 붙인다. 모호한 부분은 **바로 §4.1 질문**으로 묻는다 (한 번에 최대 5개, 선택지를 제시).
+2. SC마다 Use Case를 쓴다 (§5.1 형식): Actor, 목표, 사전조건, 트리거, 주 흐름, 대안/예외 흐름, 사후조건. 이기종 메모리 환경이면 *어느 메모리 tier / 어떤 데이터 종류(KV·LoRA·MoE·RAG)가 관여하는지*를 흐름에 명시한다.
+3. UC에서 **기본 FR**을 뽑는다. 각 흐름 단계 중 시스템이 책임지는 동작 → FR 후보. 대안/예외 흐름 → 예외 처리 FR. 중복은 병합하고 UC ↔ FR 추적 표를 만든다.
+4. FR마다 우선순위(Must/Should/Could)를 **제안**하되 확정은 사용자에게 묻는다.
+5. 산출: `doc-mk/Requirements/usecases.md` (UC + FR + 추적 표 + 미해결 질문).
+
+---
+
+## Phase 2. DP 문서 → FR / QA / 제약 + 품질 시나리오
+
+**입력**: DP 설계 문서(`doc-mk/DPn/*.md`), QA 평가 문서(`doc-mk/Evaluation/DPn/`), 설계 PPT(`doc-mk/DPn/*.pptx`, `anthropic-skills:pptx`로 텍스트 추출), 사용자 지시.
+
+### 3.0 읽기 순서
+1. Phase 1 산출물(`usecases.md`)이 있으면 먼저 읽는다 — DP 시나리오와의 관련성 판단 기준이다.
+2. DP 설계 문서 → QA 평가 문서(`qa-evaluation-criteria.md`, `DPn/qa-criteria-dpn.md`, 결과 문서) → PPT 순.
+3. 설계 구조도(블록/인터페이스/데이터 흐름)를 텍스트로 재구성해 둔다 (제약 도출에 사용, §3.5).
+4. 읽은 파일 목록과 읽지 못한 것(예: 읽기 실패한 PPT)을 산출물 머리에 적는다.
+
+### 3.1 기능 요구사항 추출
+- DP 설계 구조의 각 컴포넌트·인터페이스·결정 로직이 **책임지는 동작**을 FR로 쓴다 (R8).
+- 열: `ID | 요구사항 | 출처(R1) | 대응 컴포넌트(설계 매핑) | 관련 UC | 검증 방법 | 상태(확정/제안)`.
+- Phase 1 FR과 겹치면 ID를 연결하고, DP에서 새로 생긴 FR은 `DP 신규`로 표시한다.
+
+### 3.2 품질 속성 추출 (R2)
+- (a) **DP 선정 QA**: 문서가 명시한 QA(예: QA1~QA4)를 그대로 가져온다. 이름·정의·metric은 원문 유지, 위치 표기.
+- (b) **추가 후보 QA**: **ISO/IEC 25010:2023(SQuaRE 제품 품질 모델)의 9개 품질 특성과 하위 특성 목록 안에서만** 고른다(사용자 지정, 2026-10-09). 표준에 없는 이름(Observability, Predictability, Cost efficiency 등)은 가장 가까운 하위 특성으로 매핑하고 매핑 근거를 적는다. 매핑이 약하면 독립 QA로 만들지 않고 다른 QA의 세부 시나리오로 편입한다.
+  1 Functional suitability(Functional completeness / correctness / appropriateness), 2 Performance efficiency(Time behavior / Resource utilization / Capacity), 3 Compatibility(Co-existence / Interoperability), 4 Interaction capability(Appropriateness recognizability, Learnability, Operability, User error protection, User engagement, Inclusivity, User assistance, Self-descriptiveness), 5 Reliability(Faultlessness / Availability / Fault tolerance / Recoverability), 6 Security(Confidentiality / Integrity / Non-repudiation / Accountability / Authenticity / Resistance), 7 Maintainability(Modularity / Reusability / Analysability / Modifiability / Testability), 8 Flexibility(Adaptability / Scalability / Installability / Replaceability), 9 Safety(Operational constraint / Risk identification / Fail safe / Hazard warning / Safe integration).
+  이 과제에서 기본적으로 해당 없음: Interaction capability(최종 사용자 UI 없음), Safety(사람·환경에 대한 위해 없음), Security(tenant 격리 범위 밖, GC-6). Reliability 중 device runtime 내부 오류·복구는 범위 밖(GC-3)이며 우리 계층의 degradation 처리(Fault tolerance, Recoverability)만 후보로 둔다.
+  각 후보에 `관련 이유(어느 시나리오/구조 때문에)`, `미선정 시 위험`을 한 줄씩 적고, 선정 QA와의 **trade-off 관계**(충돌/강화)를 표시한다.
+- 선정 여부는 사용자 결정이다. Claude는 `권장/보류` 의견만 낸다.
+
+### 3.3 품질 시나리오 작성 (R3, R4, R5)
+- **선정 QA 전부 + 사용자가 채택한 추가 QA**에 대해 QA당 최소 1개, 서로 다른 stress 조건이 의미 있으면 여러 개 작성.
+- 형식은 §5.3의 표. 6요소 각각의 작성 지침:
+  | 요소 | 작성 지침 |
+  |---|---|
+  | 자극 유발원 | 자극을 일으키는 주체(요청 클라이언트, 운영자, 개발자, 다른 DP 컴포넌트, HW 장애 등). 시스템 내부 컴포넌트도 가능 |
+  | 자극 | 구체적 이벤트 + 양(요청률, 동시 시퀀스 수, context 길이, 변경 요구 종류 등 **숫자**) |
+  | 환경 | 시스템 상태·조건: 하드웨어 세대/메모리 구성(SYS id), 부하 수준, 모델/precision, 정상/과부하/장애 중 어느 모드 |
+  | 자극 대상체 | 영향을 받는 **설계 컴포넌트**(DP 구조도의 블록 이름 그대로) |
+  | 응답 | 대상체가 해야 하는 관측 가능한 행동 |
+  | 응답 측정 | R4 형식. metric + 통계량 + 임계값 + 비교 기준(Baseline/SLO) + 측정 방법·조건 + 근거 라벨(R5) |
+- 정량 조건은 **통과/실패가 판정 가능**해야 한다. 임계값이 문서에 없으면 (i) Baseline 대비 배수, (ii) 공통 평가 기준의 별점 경계, (iii) 업계/문헌 SLO 순으로 근거를 찾고, 그래도 없으면 `[가정]`으로 제안값을 적고 §4.3 질문에 올린다.
+- 같은 metric을 DP 평가 문서가 이미 정의했다면 **같은 정의·같은 통계량**을 쓴다 (평가 결과와 직접 대조 가능해야 함).
+- Modifiability류는 "변경 시나리오 1건당 수정 module 수 ≤ n, 외부 코드 수정 0, 소요 공수 ≤ x man-day" 식으로 정량화한다.
+- Correctness류는 "출력 token 동일(bit-exact) 비율 100%", "정확도 저하 ≤ x%p" 식으로 쓴다.
+
+### 3.4 DP 시나리오와 관련된 추가 품질 시나리오
+- 3.2(b)에서 채택된 QA도 3.3과 동일하게 6요소 + 정량으로 작성하되 표에 `구분: 추가` 를 표시한다.
+
+### 3.5 제약 사항 도출 (R7)
+1. 설계 구조도의 각 블록·화살표(인터페이스)에 대해 **리뷰어가 던질 법한 질문**을 만든다. 질문 유형:
+   - 범위: "이건 누가 책임지나?" (예: 요청 라우팅, 모델 정확도, 장애 복구, 보안, 멀티 노드, 학습/훈련)
+   - 환경: "어떤 HW/세대/메모리 구성에서만 성립하나?"
+   - 전제: "vLLM 버전/엔진/모델은 고정인가? upstream 변경은?"
+   - 경계: "다른 DP와의 접점 계약은?" (예: DP4 요청 조율 계층 ↔ DP1~DP3)
+   - 한계: "어느 규모/context 길이/동시성까지 보장하나?"
+   - 증거: "측정 vs 시뮬레이션, 어디까지 실측([A])인가?"
+2. 질문 중 **설계 범위를 벗어나 보이는 것**을 제약으로 확정 문구화한다: `이 설계는 <X>를 다루지 않는다 / <Y>를 전제로 한다. 따라서 <Z>는 요구사항이 아니다.`
+3. 표: `ID | 예상 질문 | 제약 문장 | 유형(범위 밖/전제/환경/경계/증거 한계) | 설계에 미치는 영향 | 출처 | 근거 위치`.
+4. 질문은 답이 이미 DP 문서에 있으면 제약이 아니라 FR/QA로 보낸다. 답이 없으면 `미확인`으로 두고 §4.3에 올린다.
+
+### 3.6 산출 구성
+`doc-mk/Requirements/DPn-requirements.md`: ① 읽은 입력 목록 ② FR ③ QA(a 선정 / b 추가 후보) ④ 품질 시나리오 ⑤ 제약(예상 질문 포함) ⑥ 추적성 표 ⑦ 미확인·사용자 확정 필요 항목.
+
+---
+
+## 4. 질문 규칙 (Claude가 사용자에게 묻는 법)
+- 4.1 **Phase 1 필수 확인 항목**(사용자가 말하지 않았으면 묻는다): Actor 목록(운영자/모델 서비스 개발자/최종 사용자/다른 DP 컴포넌트), 대상 workload(chat, RAG, agent, long context 등)와 데이터 종류(KV/LoRA/MoE/RAG), 시스템 구성(GPU/메모리 종류·세대, 단일/멀티 노드), 시나리오의 성공 기준, 이 시나리오의 범위 밖, FR 우선순위.
+- 4.2 **Phase 2 필수 확인 항목**: 문서 간 충돌(설계 문서 vs 평가 문서 수치)은 어느 쪽이 최신인지, 추가 QA 채택 여부, 수치 목표가 `Baseline 대비 배수`인지 `절대값 SLO`인지, 평가 환경(SYS id).
+- 4.3 **누적 질문 목록**: 산출물 마지막 절에 `사용자 확정 필요`(ID, 질문, 현재 가정값, 영향받는 항목)를 계속 갱신한다.
+- 질문은 **선택지 + 권장안**을 제시한다 (`AskUserQuestion` 사용 가능). 사용자가 답할 필요가 없는 사소한 것은 기본값으로 진행하고 가정으로 기록한다.
+- 사용자가 "알아서 해"라고 하면 `[가정]`/`제안`으로 표시하고 진행한다.
+
+---
+
+## 5. 템플릿
+
+### 5.1 Use Case
+```
+### UC-n <이름>   (시나리오: SC-n)
+| 항목 | 내용 |
+|---|---|
+| Actor | 주 Actor / 보조 Actor |
+| 목표 | |
+| 사전조건 | 시스템 구성, 메모리 tier, 데이터 상태 |
+| 트리거 | |
+| 주 흐름 | 1. … 2. … (시스템 책임 단계에 [S] 표시) |
+| 대안/예외 흐름 | 1a. … |
+| 사후조건 | |
+| 관련 데이터 종류 | KV / LoRA / MoE / RAG |
+| 파생 FR | FR-… |
+```
+
+### 5.2 FR 표
+`ID | 요구사항(R8) | 우선순위(제안) | 출처 UC/DP | 검증 방법 | 상태`
+
+### 5.3 품질 시나리오 표 (QA당)
+```
+#### DPn-QS-m  <QA 이름> — <한 줄 제목>   (구분: 선정|추가)
+| 요소 | 내용 |
+|---|---|
+| 1. 자극 유발원 (Source of Stimulus) | |
+| 2. 자극 (Stimulus) | |
+| 3. 환경 (Environment) | |
+| 4. 자극 대상체 (Artifact) | |
+| 5. 응답 (Response) | |
+| 6. 응답 측정 (Response Measure) | metric / 통계량 / 임계값 / 비교 기준 / 측정 조건 [근거 라벨] |
+| 연결 | QA id, UC id, 평가 문서 위치 |
+```
+Good 예시(응답 측정): `Max SLO Goodput(tokens/s, SLO 만족 하에서 최대) ≥ 1.25 × Baseline-static [기준: Baseline 대비 별점 경계], SYS-H100·SYS-B200, 부하 sweep x0.5~2.0, seed ≥ 5의 geometric mean`.
+Bad 예시: `처리량이 충분히 향상된다`.
+
+### 5.4 제약 표
+`ID | 예상 질문 | 제약 문장 | 유형 | 설계 영향 | 출처 | 근거 위치`
+
+---
+
+## 6. 폴더 구조
+```
+doc-mk/Requirements/
+  usecases.md              # Phase 1: SC, UC, 기본 FR, 추적 표
+  DP1-requirements.md ...  # Phase 2: DPn별 (n=1..4). DP 번호는 project-context.md §0 (2026-10-09 확정)
+  consolidated.md          # (선택) 전 DP 통합 FR/QA/C 목록과 충돌 정리
+  open-questions.md        # (선택) 사용자 확정 필요 누적 목록
+```
+기존 `doc-mk/DP0/dp0-requirements.md`(**확정된 번호로는 DP4 요청 조율 계층**)처럼 이미 요구사항 문서가 있는 DP는 **그 문서를 입력으로 읽고** 새 형식(6요소 품질 시나리오, 예상 질문 기반 제약)에서 부족한 부분을 보강한다. 원본 문서는 수정하지 않는다.
+
+## 7. 완료 체크리스트
+- [ ] 모든 항목에 출처(R1)와 상태(확정/제안)가 있다.
+- [ ] 선정 QA와 추가 후보 QA가 분리되어 있고 추가 후보에 관련 이유가 있다 (R2).
+- [ ] 모든 품질 시나리오가 6요소를 채웠다 (R3).
+- [ ] 모든 응답 측정에 metric·통계량·임계값·비교 기준·측정 조건·근거 라벨이 있다 (R4, R5).
+- [ ] 평가 문서의 metric 정의와 일치한다 (R6). 새 metric은 정의가 있다.
+- [ ] 제약마다 "예상 질문"이 있고, 설계 범위 밖/전제가 명확하다 (R7).
+- [ ] UC ↔ FR ↔ QA/QS ↔ C 추적성 표가 있다 (R10).
+- [ ] `[가정]` 값과 미확인 항목이 `사용자 확정 필요` 목록에 올라 있다.
+- [ ] 읽지 못한 입력 파일이 있으면 명시했다.

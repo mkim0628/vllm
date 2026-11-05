@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 890 350" width="890" height="350" font-family="'Malgun Gothic','맑은 고딕','WenQuanYi Zen Hei','Noto Sans CJK KR',sans-serif"><rect width="890" height="350" fill="#fff"/>
+<rect x="0" y="0" width="448" height="30" rx="6" fill="#F2F2F2" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="224.0" y="21" font-size="15" fill="#222" text-anchor="middle" font-weight="bold">① 정확성 · 방어 장치 1개만 빠져도 위반 (7/7)</text>
+<text x="8" y="48" font-size="12" fill="#555" text-anchor="start">2노드 model check — 불변식 위반 반례의 최단 길이 (step)</text>
+<text x="8" y="74" font-size="12.5" fill="#222" text-anchor="start">C1 서버 CLFLUSH 생략</text>
+<rect x="172" y="61" width="36.75" height="18" rx="2" fill="#E57373" stroke="#C00000" stroke-width="1"/>
+<text x="213.75" y="75" font-size="13" fill="#C00000" text-anchor="start" font-weight="bold">21</text>
+<rect x="372" y="62" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="383" y="74" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I1</text>
+<rect x="397" y="62" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="408" y="74" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I2</text>
+<text x="8" y="101" font-size="12.5" fill="#222" text-anchor="start">락 매니저 이중 grant</text>
+<rect x="172" y="88" width="101.5" height="18" rx="2" fill="#E57373" stroke="#C00000" stroke-width="1"/>
+<text x="278.5" y="102" font-size="13" fill="#C00000" text-anchor="start" font-weight="bold">58</text>
+<rect x="372" y="89" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="383" y="101" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I1</text>
+<rect x="397" y="89" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="408" y="101" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I2</text>
+<rect x="422" y="89" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="433" y="101" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I3</text>
+<text x="8" y="128" font-size="12.5" fill="#222" text-anchor="start">DMA 완료 전 READY publish</text>
+<rect x="172" y="115" width="106.75" height="18" rx="2" fill="#E57373" stroke="#C00000" stroke-width="1"/>
+<text x="283.75" y="129" font-size="13" fill="#C00000" text-anchor="start" font-weight="bold">61</text>
+<rect x="372" y="116" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="383" y="128" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I1</text>
+<text x="8" y="155" font-size="12.5" fill="#222" text-anchor="start">payload를 CPU 캐시로 쓰기</text>
+<rect x="172" y="142" width="108.5" height="18" rx="2" fill="#E57373" stroke="#C00000" stroke-width="1"/>
+<text x="285.5" y="156" font-size="13" fill="#C00000" text-anchor="start" font-weight="bold">62</text>
+<rect x="372" y="143" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="383" y="155" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I1</text>
+<text x="8" y="182" font-size="12.5" fill="#222" text-anchor="start">읽기 전 invalidate 생략</text>
+<rect x="172" y="169" width="126.0" height="18" rx="2" fill="#E57373" stroke="#C00000" stroke-width="1"/>
+<text x="303.0" y="183" font-size="13" fill="#C00000" text-anchor="start" font-weight="bold">72</text>
+<rect x="372" y="170" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="383" y="182" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I1</text>
+<rect x="397" y="170" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="408" y="182" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I2</text>
+<rect x="422" y="170" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="433" y="182" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I4</text>
+<text x="8" y="209" font-size="12.5" fill="#222" text-anchor="start">unlock 전 flush 생략</text>
+<rect x="172" y="196" width="133.0" height="18" rx="2" fill="#E57373" stroke="#C00000" stroke-width="1"/>
+<text x="310.0" y="210" font-size="13" fill="#C00000" text-anchor="start" font-weight="bold">76</text>
+<rect x="372" y="197" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="383" y="209" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I1</text>
+<rect x="397" y="197" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="408" y="209" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I2</text>
+<rect x="422" y="197" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="433" y="209" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I4</text>
+<text x="8" y="236" font-size="12.5" fill="#222" text-anchor="start">clflushopt(비동기) 사용</text>
+<rect x="172" y="223" width="138.25" height="18" rx="2" fill="#E57373" stroke="#C00000" stroke-width="1"/>
+<text x="315.25" y="237" font-size="13" fill="#C00000" text-anchor="start" font-weight="bold">79</text>
+<rect x="372" y="224" width="22" height="16" rx="3" fill="#FDE8E6" stroke="#C00000" stroke-width="1"/>
+<text x="383" y="236" font-size="11" fill="#C00000" text-anchor="middle" font-weight="bold">I2</text>
+<rect x="8" y="252" width="432" height="30" rx="5" fill="#E8F5E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="224.0" y="272" font-size="13" fill="#2E7D32" text-anchor="middle" font-weight="bold">정상 C1·C2 (전수 탐색 32~35만 상태): 위반 0</text>
+<text x="8" y="303" font-size="11.5" fill="#555" text-anchor="start">I1 payload 가시성 · I2 use-after-free · I3 상호 배제 · I4 stale index</text>
+<text x="8" y="319" font-size="11.5" fill="#555" text-anchor="start">결함 변종 = 정상 프로토콜에서 메커니즘 1개를 제거한 것.</text>
+<text x="8" y="334" font-size="11.5" fill="#555" text-anchor="start">설계 수준 추상 모델이며 실제 HW 메모리 모델 검증은 아님</text>
+<rect x="462" y="0" width="428" height="30" rx="6" fill="#F2F2F2" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="676.0" y="21" font-size="15" fill="#222" text-anchor="middle" font-weight="bold">② 성능 · 안전하게 우회하면 느리다</text>
+<text x="470" y="48" font-size="12" fill="#555" text-anchor="start">CPU↔CXL 풀 16 KB 접근 지연 (µs, Beluga Table 4)</text>
+<text x="470" y="72" font-size="13" fill="#2F5597" text-anchor="start" font-weight="bold">쓰기</text>
+<text x="470" y="93" font-size="12.5" fill="#222" text-anchor="start">ntstore</text>
+<rect x="604" y="79" width="3" height="18" rx="2" fill="#81C784" stroke="#2E7D32" stroke-width="1"/>
+<text x="612" y="93" font-size="12.5" fill="#2E7D32" text-anchor="start" font-weight="bold">2.41 µs</text>
+<text x="470" y="117" font-size="12.5" fill="#222" text-anchor="start">flush-after-write</text>
+<rect x="604" y="103" width="6.12" height="18" rx="2" fill="#FFB74D" stroke="#C55A11" stroke-width="1"/>
+<text x="615.12" y="117" font-size="12.5" fill="#C55A11" text-anchor="start" font-weight="bold">8.50 µs</text>
+<text x="470" y="141" font-size="12.5" fill="#222" text-anchor="start">uncacheable</text>
+<rect x="604" y="127" width="202.7232" height="18" rx="2" fill="#E57373" stroke="#C00000" stroke-width="1"/>
+<text x="705.3616" y="141" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">ntstore 대비 117배</text>
+<text x="811.7232" y="141" font-size="12.5" fill="#C00000" text-anchor="start" font-weight="bold">281.56 µs</text>
+<text x="470" y="166" font-size="13" fill="#2F5597" text-anchor="start" font-weight="bold">읽기</text>
+<text x="470" y="187" font-size="12.5" fill="#222" text-anchor="start">flush-before-read</text>
+<rect x="604" y="173" width="4.3056" height="18" rx="2" fill="#FFB74D" stroke="#C55A11" stroke-width="1"/>
+<text x="613.3056" y="187" font-size="12.5" fill="#C55A11" text-anchor="start" font-weight="bold">5.98 µs</text>
+<text x="470" y="211" font-size="12.5" fill="#222" text-anchor="start">uncacheable</text>
+<rect x="604" y="197" width="119.8728" height="18" rx="2" fill="#E57373" stroke="#C00000" stroke-width="1"/>
+<text x="663.9364" y="211" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">flush 방식 대비 28배</text>
+<text x="728.8728" y="211" font-size="12.5" fill="#C00000" text-anchor="start" font-weight="bold">166.49 µs</text>
+<rect x="470" y="236" width="412" height="64" rx="5" fill="#FBE5D6" stroke="#C55A11" stroke-width="1.5"/>
+<text x="676.0" y="256" font-size="13" fill="#222" text-anchor="middle" font-weight="bold">단순한 방법(uncacheable)은 27~117배 느리고,</text>
+<text x="676.0" y="274" font-size="13" fill="#222" text-anchor="middle" font-weight="bold">빠른 경로(ntstore·flush)는 주체·순서별 규칙을</text>
+<text x="676.0" y="292" font-size="13" fill="#C00000" text-anchor="middle" font-weight="bold">SW가 직접 보장해야 한다</text>
+<text x="470" y="326" font-size="11.5" fill="#555" text-anchor="start">※ 2서버 규모 측정값 (논문 보고치, as reported)</text>
+</svg>

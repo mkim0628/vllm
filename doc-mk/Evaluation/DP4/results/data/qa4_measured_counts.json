@@ -1,0 +1,883 @@
+{
+ "schema": "qa4_measured_counts v1",
+ "date": "2026-10-04",
+ "preregistration": "doc-mk/Evaluation/DP4/qa4-preregistration.md",
+ "evidence": "[B+C] proxy implementation in the DP4 simulator, not vLLM",
+ "provenance": {
+  "base": "DP4/sim/ copied once into the scratchpad (git 2524bb2; DP4/sim working tree dirty: another agent was editing qa_eval.py, merge_systems.py and adding sensitivity.py; arms.py and simulator.py are unmodified vs HEAD). Only dp1_bridge.py was changed in the copy (absolute path to the read-only DP1 physics) so that tests run from the scratchpad; the 52 tests of test_sim.py pass on the pristine copy. Each scenario is an ordered edit list (harness H, shared S, C1, C2) applied to this base; per-hunk diff -u was run on each edit.",
+  "base_sha1": {
+   "ablation.py": "ff075c0a63da79f294d628e50c655fc12a3712ea",
+   "arms.py": "1d12e2ef9f21b31a6543261879526292ced4bf7f",
+   "dp1_bridge.py": "ca663696a085f405f07e10f544f1b5e8b0013a7b",
+   "merge_systems.py": "a40c0e76fc8c28625c5652269bf7670517ef18fa",
+   "params.py": "8de53bdc9bbdd192084ba6eec9a0c6def265e0dc",
+   "qa_eval.py": "9d4225e90bb691e2914a8123ec75e9410b6bc5bf",
+   "scenarios.py": "80de0e0a83775ea105d8dda31cec67a0a34d110e",
+   "sensitivity.py": "98745f4901781a3a28d971fdac2bb149975150d7",
+   "simulator.py": "7da9d3be8e0e2272e046c644ec9e6373650caa94",
+   "star_basis.py": "ac5bfcad9bd114331dd5ed8e7403bf0a5746ece0",
+   "test_sim.py": "96ee6e21daff17183713f14826677150e524fd3b",
+   "configs/cluster_dp4.json": "8812188fbd34bee16c9160502154e5e1c1e28ac3"
+  },
+  "loc_rule": "added (+) lines that are neither blank nor comment-only in `diff -u`; a modified line counts once (as its + line). Deleted lines are recorded as loc_deleted and not added.",
+  "module_size_rule": "module_size_loc = current AST line span (end_lineno - lineno + 1) of the pristine class/method nodes listed in component_size_basis for that component; where one method holds several components (C2DistLock._submit, C1Central.__init__/_submit) the component is a judgement and sizes of two components can overlap",
+  "component_size_basis": {
+   "GPU<->CXL Copy/DMA handler": [
+    {
+     "file": "simulator.py",
+     "node": "Sim.flow"
+    },
+    {
+     "file": "simulator.py",
+     "node": "Sim.move_items"
+    }
+   ],
+   "KV block object format": [
+    {
+     "file": "simulator.py",
+     "node": "Req"
+    },
+    {
+     "file": "simulator.py",
+     "node": "Sim.nblk"
+    }
+   ],
+   "Client library API": [
+    {
+     "file": "arms.py",
+     "node": "Arm"
+    },
+    {
+     "file": "simulator.py",
+     "node": "Sim.on_arrive"
+    }
+   ],
+   "Publish/Visibility protocol": [
+    {
+     "file": "simulator.py",
+     "node": "Sim.on_xfer"
+    },
+    {
+     "file": "simulator.py",
+     "node": "Sim.on_move_done"
+    },
+    {
+     "file": "simulator.py",
+     "node": "Sim.on_pinned"
+    }
+   ],
+   "Failure/Recovery handler": [
+    {
+     "file": "simulator.py",
+     "node": "Sim.on_crash"
+    },
+    {
+     "file": "arms.py",
+     "node": "C1Central.server_down"
+    },
+    {
+     "file": "arms.py",
+     "node": "C1Central._after_down"
+    },
+    {
+     "file": "arms.py",
+     "node": "C2DistLock.arm_crash"
+    },
+    {
+     "file": "arms.py",
+     "node": "C2DistLock.node_crash"
+    }
+   ],
+   "CXL-RPC channel": [
+    {
+     "file": "arms.py",
+     "node": "C1Central._submit"
+    }
+   ],
+   "Metadata server": [
+    {
+     "file": "arms.py",
+     "node": "C1Central.__init__"
+    },
+    {
+     "file": "arms.py",
+     "node": "C1Central.op_sequence"
+    },
+    {
+     "file": "arms.py",
+     "node": "C1Central.stats"
+    }
+   ],
+   "Two-tier lock + lock manager": [
+    {
+     "file": "arms.py",
+     "node": "C2DistLock.__init__"
+    },
+    {
+     "file": "arms.py",
+     "node": "C2DistLock.stripe_of"
+    },
+    {
+     "file": "arms.py",
+     "node": "C2DistLock._next_probe"
+    },
+    {
+     "file": "arms.py",
+     "node": "C2DistLock._try"
+    },
+    {
+     "file": "arms.py",
+     "node": "C2DistLock.on_event"
+    },
+    {
+     "file": "arms.py",
+     "node": "C2DistLock.stats"
+    }
+   ],
+   "Shared metadata layout": [
+    {
+     "file": "arms.py",
+     "node": "C2DistLock._submit"
+    }
+   ],
+   "Refcount/LRU in shared memory": [
+    {
+     "file": "arms.py",
+     "node": "C2DistLock.op_sequence"
+    },
+    {
+     "file": "arms.py",
+     "node": "C2DistLock._submit"
+    }
+   ],
+   "Cacheline flush layer": [
+    {
+     "file": "arms.py",
+     "node": "C2DistLock._submit"
+    }
+   ],
+   "Shared allocator": [
+    {
+     "file": "arms.py",
+     "node": "C2DistLock.op_sequence"
+    },
+    {
+     "file": "arms.py",
+     "node": "C2DistLock.stripe_of"
+    }
+   ]
+  },
+  "shared_rule": "a component is shared if both candidates must change it (shared-stage hunk, or the same component touched by both candidates). A hunk replicated into two different components (S3 ScorePolicy class) is counted in each candidate's own component, not shared.",
+  "harness_rule": "not counted: workload/trace generation, request record fields used only as carriers, hardware parameters in the config, pool device topology, metrics, and for S3 the reference pool population + existing LRU (the 'existing implementation' that the scenario swaps out, absent from the pristine simulator).",
+  "smoke_helpers": "scratchpad/qa4/{qa4build,run_build,assemble}.py, s{1..4}_edits.py (edit lists), smoke/s{1..4}_smoke.py, smoke/regress.py, smoke/cmp.py, verify.sh (not part of the repo)"
+ },
+ "scenarios": {
+  "S1": {
+   "title": "new hardware capability (CXL 3.x CoherentRegion: cross-node CAS in a 64 KiB hardware-coherent region)",
+   "smoke": {
+    "scenario": "d4_hot_prefix_fanout, SYS-H100, seed 11, n_req_base 400, knob coherent=True vs False (control)",
+    "criteria": "CAS-path calls >= 1; C2 lock-manager grant ops == 0; C1 slot flush calls == 0",
+    "C1": "coherent: cas_calls 18424, slot_flush_calls 0; control (coherent off): slot_flush_calls 18424, cas_calls 0",
+    "C2": "coherent: n_cas 1128, n_grants 0; control: n_grants 1128, n_cas 0",
+    "note": "CAS latency cas_us is ASSUMED = 1.0 us = meta_write_flush_us, so C1 per-RPC transport time is unchanged (delta 0); the change shows in counters and in C2 (no scan wait, no manager core), not as a C1 latency change",
+    "tests": "test_sim.py 52 OK on the full, C1-only and C2-only trees; metrics of 9 existing scenario rows x 5 arms bit-identical to the pristine copy (knobs of the change off)",
+    "acceptance": "PASS"
+   },
+   "harness_not_counted": {
+    "files": [
+     "configs/cluster_dp4.json",
+     "params.py"
+    ],
+    "loc": 4,
+    "hunks": [
+     {
+      "id": "S1-H1",
+      "what": "harness: CoherentRegion hardware parameters (config)",
+      "loc_added": 2
+     },
+     {
+      "id": "S1-H2",
+      "what": "harness: CoherentRegion hardware parameters (Params)",
+      "loc_added": 2
+     }
+    ]
+   },
+   "C1": {
+    "changes": [
+     {
+      "module": "CXL-RPC channel",
+      "shared": false,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 11,
+      "loc_deleted": 1,
+      "module_size_loc": 20,
+      "hunks": [
+       {
+        "id": "S1-C1a",
+        "loc_added": 5,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       },
+       {
+        "id": "S1-C1b",
+        "loc_added": 4,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       },
+       {
+        "id": "S1-C1c",
+        "loc_added": 2,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       }
+      ]
+     }
+    ],
+    "major_interface_change": false,
+    "major_interface_note": "flag handshake mechanism switches to CAS behind the coherent knob; slot field meanings unchanged, old path kept"
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Two-tier lock + lock manager",
+      "shared": false,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 13,
+      "loc_deleted": 5,
+      "module_size_loc": 109,
+      "hunks": [
+       {
+        "id": "S1-C2a",
+        "loc_added": 5,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       },
+       {
+        "id": "S1-C2b",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S1-C2c",
+        "loc_added": 4,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S1-C2d",
+        "loc_added": 2,
+        "loc_deleted": 2,
+        "file": "arms.py"
+       },
+       {
+        "id": "S1-C2e",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       }
+      ]
+     }
+    ],
+    "major_interface_change": false,
+    "major_interface_note": "grant protocol is bypassed (no WAITING slot post, no manager grant) when the knob is on; old path kept, so no existing field changes meaning. Judgement: a deployed protocol cannot mix CAS and scan nodes, see sensitivity"
+   }
+  },
+  "S2": {
+   "title": "new object class (variable-length COMP_KV object, 1..16 blocks, format_version)",
+   "smoke": {
+    "scenario": "d4_hot_prefix_fanout, SYS-H100, seed 11, n_req_base 400, knob comp_kv=True (every 4th request is a COMP_KV object)",
+    "criteria": "COMP_KV objects created by the trace and published; lookup returns length and version",
+    "C1": "94 objects published and done; lookup_obj == (nblocks, format_version) for all 94; lengths 1..16, versions {1,2,3}; publish op size == object length",
+    "C2": "same as C1 (hash-table entries)",
+    "tests": "test_sim.py 52 OK on the full, C1-only and C2-only trees; metrics of 9 existing scenario rows x 5 arms bit-identical to the pristine copy (knobs of the change off)",
+    "acceptance": "PASS"
+   },
+   "harness_not_counted": {
+    "files": [
+     "simulator.py"
+    ],
+    "loc": 4,
+    "hunks": [
+     {
+      "id": "S2-H1",
+      "what": "harness: Req record carries the object descriptor",
+      "loc_added": 1
+     },
+     {
+      "id": "S2-H2",
+      "what": "harness: import",
+      "loc_added": 1
+     },
+     {
+      "id": "S2-H3",
+      "what": "harness: trace generator creates COMP_KV objects",
+      "loc_added": 2
+     }
+    ]
+   },
+   "C1": {
+    "changes": [
+     {
+      "module": "KV block object format",
+      "shared": true,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 8,
+      "loc_deleted": 0,
+      "module_size_loc": 29,
+      "hunks": [
+       {
+        "id": "S2-S1",
+        "loc_added": 1,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       },
+       {
+        "id": "S2-S2",
+        "loc_added": 7,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       }
+      ]
+     },
+     {
+      "module": "Client library API",
+      "shared": true,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 2,
+      "loc_deleted": 0,
+      "module_size_loc": 41,
+      "hunks": [
+       {
+        "id": "S2-S3",
+        "loc_added": 2,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       }
+      ]
+     },
+     {
+      "module": "Metadata server",
+      "shared": false,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 6,
+      "loc_deleted": 0,
+      "module_size_loc": 16,
+      "hunks": [
+       {
+        "id": "S2-C1a",
+        "loc_added": 4,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       },
+       {
+        "id": "S2-C1b",
+        "loc_added": 2,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       }
+      ]
+     }
+    ],
+    "major_interface_change": false,
+    "major_interface_note": "append-only: new class and fields"
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "KV block object format",
+      "shared": true,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 8,
+      "loc_deleted": 0,
+      "module_size_loc": 29,
+      "hunks": [
+       {
+        "id": "S2-S1",
+        "loc_added": 1,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       },
+       {
+        "id": "S2-S2",
+        "loc_added": 7,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       }
+      ]
+     },
+     {
+      "module": "Client library API",
+      "shared": true,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 2,
+      "loc_deleted": 0,
+      "module_size_loc": 41,
+      "hunks": [
+       {
+        "id": "S2-S3",
+        "loc_added": 2,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       }
+      ]
+     },
+     {
+      "module": "Shared metadata layout",
+      "shared": false,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 6,
+      "loc_deleted": 0,
+      "module_size_loc": 15,
+      "hunks": [
+       {
+        "id": "S2-C2a",
+        "loc_added": 4,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       },
+       {
+        "id": "S2-C2b",
+        "loc_added": 2,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       }
+      ]
+     }
+    ],
+    "major_interface_change": false,
+    "major_interface_note": "append-only: new class and fields; existing fixed-size entry layout untouched in the sim (see sensitivity)"
+   }
+  },
+  "S3": {
+   "title": "policy swap (pool eviction: LRU -> access frequency x reconstruction cost score, constructor injection)",
+   "smoke": {
+    "scenario": "d4_pool_full_eviction, SYS-H100, seed 11, n_req_base 400; pool pre-populated with 20000 synthetic entries (harness)",
+    "criteria": "swapped implementation called > 0 and existing LRU 0 (mock spy); evicted block set changes",
+    "C1": "LRU run: LRU 376 calls / score 0; score run: LRU 0 / score 376; evicted sets differ (overlap 459 of 3008)",
+    "C2": "identical numbers (376 / 0 and 0 / 376, overlap 459 of 3008)",
+    "note": "latency/goodput identical between policies because victim choice is not on the timing path in this simulator; the pool population (freq, reconstruction cost, last use) is synthetic random harness data",
+    "tests": "test_sim.py 52 OK on the full, C1-only and C2-only trees; metrics of 9 existing scenario rows x 5 arms bit-identical to the pristine copy (knobs of the change off)",
+    "acceptance": "PASS"
+   },
+   "harness_not_counted": {
+    "files": [
+     "arms.py",
+     "simulator.py"
+    ],
+    "loc": 27,
+    "hunks": [
+     {
+      "id": "S3-H1",
+      "what": "harness: pool population + reference LRU (the 'existing implementation')",
+      "loc_added": 1
+     },
+     {
+      "id": "S3-H2",
+      "what": "harness: pool population + reference LRU (the 'existing implementation')",
+      "loc_added": 20
+     },
+     {
+      "id": "S3-H3",
+      "what": "harness: C1 evict op uses the existing LRU",
+      "loc_added": 2
+     },
+     {
+      "id": "S3-H4",
+      "what": "harness: C2 evict op uses the existing LRU",
+      "loc_added": 2
+     },
+     {
+      "id": "S3-H5",
+      "what": "harness: Sim owns the pool population",
+      "loc_added": 1
+     },
+     {
+      "id": "S3-H6",
+      "what": "harness: Sim owns the pool population",
+      "loc_added": 1
+     }
+    ]
+   },
+   "C1": {
+    "changes": [
+     {
+      "module": "Metadata server",
+      "shared": false,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 6,
+      "loc_deleted": 2,
+      "module_size_loc": 16,
+      "hunks": [
+       {
+        "id": "S3-R1",
+        "loc_added": 3,
+        "loc_deleted": 0,
+        "file": "arms.py",
+        "replicated_in_both_candidates": true
+       },
+       {
+        "id": "S3-C1a",
+        "loc_added": 2,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S3-C1b",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       }
+      ]
+     }
+    ],
+    "major_interface_change": false,
+    "major_interface_note": "policy injected through a new constructor argument"
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Refcount/LRU in shared memory",
+      "shared": false,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 6,
+      "loc_deleted": 2,
+      "module_size_loc": 18,
+      "hunks": [
+       {
+        "id": "S3-R1",
+        "loc_added": 3,
+        "loc_deleted": 0,
+        "file": "arms.py",
+        "replicated_in_both_candidates": true
+       },
+       {
+        "id": "S3-C2a",
+        "loc_added": 2,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S3-C2b",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       }
+      ]
+     }
+    ],
+    "major_interface_change": false,
+    "major_interface_note": "policy injected through a new constructor argument"
+   }
+  },
+  "S4": {
+   "title": "new topology element (two pools, object id carries pool_id, sharded allocate/lookup)",
+   "smoke": {
+    "scenario": "d4_hot_prefix_fanout and d4_agent_multiturn, SYS-H100, seed 11, n_req_base 400, knob n_pools=2",
+    "criteria": "objects distributed over both pools; lookup/allocate reach the correct pool",
+    "C1": "188/188 and 193/190 objects per pool; both pool links used; 0 mis-routed flows, 0 mis-routed metadata ops (checked per op via per-pool busy arrays, lookup included)",
+    "C2": "same distribution; 0 mis-routed flows, 0 mis-routed lock ops (stripe // S == pool); C2 lookup is lock-free so its pool routing is observable only through the pool read flow",
+    "note": "object id = (pool_id << 48) | session; pool = session % 2; hot shared prefix is not modelled as a pool-resident object",
+    "tests": "test_sim.py 52 OK on the full, C1-only and C2-only trees; metrics of 9 existing scenario rows x 5 arms bit-identical to the pristine copy (knobs of the change off)",
+    "acceptance": "PASS"
+   },
+   "harness_not_counted": {
+    "files": [
+     "simulator.py"
+    ],
+    "loc": 4,
+    "hunks": [
+     {
+      "id": "S4-H1",
+      "what": "harness: Req record carries the object id",
+      "loc_added": 1
+     },
+     {
+      "id": "S4-H2",
+      "what": "harness: pool devices (topology)",
+      "loc_added": 2
+     },
+     {
+      "id": "S4-H3",
+      "what": "harness: metrics",
+      "loc_added": 1
+     }
+    ]
+   },
+   "C1": {
+    "changes": [
+     {
+      "module": "KV block object format",
+      "shared": true,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 5,
+      "loc_deleted": 0,
+      "module_size_loc": 29,
+      "hunks": [
+       {
+        "id": "S4-S1",
+        "loc_added": 5,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       }
+      ]
+     },
+     {
+      "module": "Client library API",
+      "shared": true,
+      "files": [
+       "arms.py",
+       "simulator.py"
+      ],
+      "loc_added": 4,
+      "loc_deleted": 1,
+      "module_size_loc": 41,
+      "hunks": [
+       {
+        "id": "S4-S2",
+        "loc_added": 2,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-S3",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "simulator.py"
+       },
+       {
+        "id": "S4-S4",
+        "loc_added": 1,
+        "loc_deleted": 0,
+        "file": "simulator.py"
+       }
+      ]
+     },
+     {
+      "module": "GPU<->CXL Copy/DMA handler",
+      "shared": true,
+      "files": [
+       "simulator.py"
+      ],
+      "loc_added": 2,
+      "loc_deleted": 2,
+      "module_size_loc": 15,
+      "hunks": [
+       {
+        "id": "S4-S5",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "simulator.py"
+       },
+       {
+        "id": "S4-S6",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "simulator.py"
+       }
+      ]
+     },
+     {
+      "module": "Metadata server",
+      "shared": false,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 3,
+      "loc_deleted": 3,
+      "module_size_loc": 16,
+      "hunks": [
+       {
+        "id": "S4-C1a",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-C1b",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-C1c",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       }
+      ]
+     }
+    ],
+    "major_interface_change": false,
+    "major_interface_note": "append-only: pool_id bits added to the object id; pool 0 ids unchanged"
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "KV block object format",
+      "shared": true,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 5,
+      "loc_deleted": 0,
+      "module_size_loc": 29,
+      "hunks": [
+       {
+        "id": "S4-S1",
+        "loc_added": 5,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       }
+      ]
+     },
+     {
+      "module": "Client library API",
+      "shared": true,
+      "files": [
+       "arms.py",
+       "simulator.py"
+      ],
+      "loc_added": 4,
+      "loc_deleted": 1,
+      "module_size_loc": 41,
+      "hunks": [
+       {
+        "id": "S4-S2",
+        "loc_added": 2,
+        "loc_deleted": 0,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-S3",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "simulator.py"
+       },
+       {
+        "id": "S4-S4",
+        "loc_added": 1,
+        "loc_deleted": 0,
+        "file": "simulator.py"
+       }
+      ]
+     },
+     {
+      "module": "GPU<->CXL Copy/DMA handler",
+      "shared": true,
+      "files": [
+       "simulator.py"
+      ],
+      "loc_added": 2,
+      "loc_deleted": 2,
+      "module_size_loc": 15,
+      "hunks": [
+       {
+        "id": "S4-S5",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "simulator.py"
+       },
+       {
+        "id": "S4-S6",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "simulator.py"
+       }
+      ]
+     },
+     {
+      "module": "Two-tier lock + lock manager",
+      "shared": false,
+      "files": [
+       "arms.py"
+      ],
+      "loc_added": 17,
+      "loc_deleted": 14,
+      "module_size_loc": 109,
+      "hunks": [
+       {
+        "id": "S4-C2a",
+        "loc_added": 3,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-C2b",
+        "loc_added": 6,
+        "loc_deleted": 6,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-C2c",
+        "loc_added": 3,
+        "loc_deleted": 2,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-C2d",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-C2e",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-C2f",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-C2g",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       },
+       {
+        "id": "S4-C2h",
+        "loc_added": 1,
+        "loc_deleted": 1,
+        "file": "arms.py"
+       }
+      ]
+     }
+    ],
+    "major_interface_change": false,
+    "major_interface_note": "append-only; lock id = pool * S + stripe, pool 0 unchanged"
+   }
+  }
+ },
+ "sensitivity_alternatives": {
+  "S1_C2_grant_protocol_change_is_major": "If replacing the lock-manager grant protocol by CAS acquire is regarded as a protocol meaning change (nodes cannot mix modes), the pre-registration rule gives M1 = one star for that change. Modelled in qa4_modifiability.json as an analytic alternative.",
+  "S1_coherent_region_model_as_shared_module": "The CoherentRegion hardware model (CAS latency, 64 KiB capacity) is counted as harness. If it were counted as a shared change of the Publish/Visibility protocol (flush/invalidate rules), both candidates get +1 module and +4 LOC (config 2, Params 2).",
+  "S3_C2_entry_layout": "A real frequency x reconstruction-cost score needs two more per-entry fields. In C1 they live in the server index (no extra module). In C2 the cacheline-packed shared entry (Shared metadata layout) must grow and lock-free lookups would have to write the frequency (or an approximate counter): +1 module for C2 (analytic, not measured; the simulator keeps freq/cost in the harness pool population).",
+  "S4_C2_per_shard_objects": "C2's S4 hunks are large (16 LOC) because the proxy keeps lock arrays monolithic. Refactoring C2DistLock into per-pool shard objects would shrink the diff, but is a refactor beyond the minimal change; not measured."
+ }
+}

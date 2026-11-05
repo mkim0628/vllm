@@ -1,0 +1,27 @@
+{
+ "group": "overlap",
+ "label": "overlap0.5",
+ "overrides": {
+  "overlap_ratio": 0.5
+ },
+ "sets": [
+  "common_benchmark"
+ ],
+ "systems": [
+  "SYS-H100",
+  "SYS-B200"
+ ],
+ "git": {
+  "revision": "852ca10",
+  "dirty": true
+ },
+ "seeds": [
+  11,
+  23,
+  37,
+  53,
+  71
+ ],
+ "main_bg": 0.85,
+ "command": "python sensitivity.py run --group overlap"
+}

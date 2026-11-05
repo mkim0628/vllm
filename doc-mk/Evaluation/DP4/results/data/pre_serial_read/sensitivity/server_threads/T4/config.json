@@ -1,0 +1,28 @@
+{
+ "group": "server_threads",
+ "label": "T4",
+ "overrides": {
+  "server_threads": 4
+ },
+ "sets": [
+  "common_benchmark",
+  "dp4_benchmark"
+ ],
+ "systems": [
+  "SYS-H100",
+  "SYS-B200"
+ ],
+ "git": {
+  "revision": "852ca10",
+  "dirty": true
+ },
+ "seeds": [
+  11,
+  23,
+  37,
+  53,
+  71
+ ],
+ "main_bg": 0.85,
+ "command": "python sensitivity.py run --group server_threads"
+}

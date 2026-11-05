@@ -1,0 +1,28 @@
+{
+ "group": "probe_us",
+ "label": "probe0.7",
+ "overrides": {
+  "probe_us": 0.7
+ },
+ "sets": [
+  "common_benchmark",
+  "dp4_benchmark"
+ ],
+ "systems": [
+  "SYS-H100",
+  "SYS-B200"
+ ],
+ "git": {
+  "revision": "852ca10",
+  "dirty": true
+ },
+ "seeds": [
+  11,
+  23,
+  37,
+  53,
+  71
+ ],
+ "main_bg": 0.85,
+ "command": "python sensitivity.py run --group probe_us"
+}

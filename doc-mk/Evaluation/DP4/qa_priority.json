@@ -1,0 +1,13 @@
+{
+  "dp": "DP4",
+  "priority": ["QA2", "QA1", "QA4", "QA3"],
+  "status": "proposal (사용자 확정 전)",
+  "rationale": "DP4의 목적은 비일관 CXL 공유 풀에서 일관성 보장 비용이 지연(QA2)과 처리량(QA1)을 해치지 않게 하는 것이다. 사전 예측(simulation-plan.md §10)상 QA1~QA3는 두 후보가 같을 가능성이 높고, 그 경우 변경 용이성(QA4)이 실질적 판별 축이다. QA3는 두 후보의 data plane이 같아 차이가 없을 것으로 예상해 마지막에 둔다.",
+  "diagnostic": [
+    "control plane op latency P50/P99",
+    "saturation offered load",
+    "scaling efficiency (proposed QA, no stars)",
+    "model-check counterexamples",
+    "failure window / SLO violations"
+  ]
+}

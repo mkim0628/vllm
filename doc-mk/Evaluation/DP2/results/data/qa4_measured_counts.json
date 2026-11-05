@@ -1,0 +1,209 @@
+{
+ "schema": "qa4_measured_counts v1",
+ "date": "2026-10-04",
+ "preregistration": "doc-mk/Evaluation/DP2/qa4-preregistration.md",
+ "evidence": "[B+C] proxy implementation in the DP2 simulator, not vLLM",
+ "scenarios": {
+  "S1": {
+   "title": "new Tier (cxl_pnm2, CXL-PNM-class device with 2x internal BW)",
+   "C1": {
+    "changes": [
+     {
+      "module": "Resource Intelligence",
+      "shared": true,
+      "files": [
+       "engine.py",
+       "physics.py"
+      ],
+      "loc_added": 4,
+      "module_size_loc": 36
+     },
+     {
+      "module": "Candidate Generator",
+      "shared": true,
+      "files": [
+       "physics.py"
+      ],
+      "loc_added": 1,
+      "module_size_loc": 13
+     }
+    ]
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Resource Intelligence",
+      "shared": true,
+      "files": [
+       "engine.py",
+       "physics.py"
+      ],
+      "loc_added": 4,
+      "module_size_loc": 36
+     },
+     {
+      "module": "Candidate Generator",
+      "shared": true,
+      "files": [
+       "physics.py"
+      ],
+      "loc_added": 1,
+      "module_size_loc": 13
+     }
+    ]
+   },
+   "smoke": {
+    "fixture": "cb_kv_8k_b32, SYS-H100, load 16, hbm_mult 0.001 and ScHBM capacity 1 B (squeeze fixture; deviation from the pre-registered 'cb_kv_8k_b32 or long_ctx at mid load' because there the planner never chooses CXL-PNM-class tiers, the base control also chooses none)",
+    "base": "C1 {hbf 487, cxl_pnm 20}, C2 {hbf 482, cxl_pnm 35}",
+    "after": "C1 {hbf 484, cxl_pnm2 108}, C2 {hbf 470, cxl_pnm2 119, cxl_pnm 3}",
+    "tests": "test_sim.py 12 OK"
+   }
+  },
+  "S2": {
+   "title": "new Cost term (relative energy per decoded token, weight w_E)",
+   "C1": {
+    "changes": [
+     {
+      "module": "Cost Model",
+      "shared": true,
+      "files": [
+       "policies.py"
+      ],
+      "loc_added": 3,
+      "module_size_loc": 153
+     }
+    ]
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Cost Model",
+      "shared": true,
+      "files": [
+       "policies.py"
+      ],
+      "loc_added": 3,
+      "module_size_loc": 153
+     }
+    ]
+   },
+   "smoke": {
+    "fixture": "dp2_long_ctx_decode_offload, SYS-H100, mid load",
+    "w_E=0": "C1 {hbm 65}, C2 {hbm 65}",
+    "w_E=5": "C1 {custom_hbm 50}, C2 {custom_hbm 50}",
+    "tests": "test_sim.py 12 OK"
+   }
+  },
+  "S3": {
+   "title": "policy swap (Selector: argmin Cost -> min TTFT among TPOT-feasible, constructor-injected)",
+   "C1": {
+    "changes": [
+     {
+      "module": "Resource Selector",
+      "shared": true,
+      "files": [
+       "engine.py",
+       "policies.py"
+      ],
+      "loc_added": 4,
+      "module_size_loc": 21
+     }
+    ]
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Resource Selector",
+      "shared": true,
+      "files": [
+       "engine.py",
+       "policies.py"
+      ],
+      "loc_added": 4,
+      "module_size_loc": 21
+     }
+    ]
+   },
+   "smoke": {
+    "fixture": "cb_kv_8k_b32, SYS-H100, load 24",
+    "default": "selector calls 0 (both)",
+    "new": "C1 60,748 calls, C2 60,720 calls; n_p distribution and TTFT P99 change (3.69/3.71 s -> 0.69/0.68 s)",
+    "tests": "test_sim.py 12 OK",
+    "note": "side observation, not an evaluation result: choosing min TTFT among TPOT-feasible plans cuts CB TTFT P99 by 5x vs the pre-registered Cost v2 argmin (Cost v2 trades TTFT for TPOT slack). Reported as a Cost-Model-structure limitation (M)."
+   }
+  },
+  "S4": {
+   "title": "new telemetry signal (node health/degraded flag as hard constraint on n_p)",
+   "C1": {
+    "changes": [
+     {
+      "module": "Resource Intelligence",
+      "shared": true,
+      "files": [
+       "engine.py",
+       "node.py",
+       "policies.py"
+      ],
+      "loc_added": 6,
+      "module_size_loc": 36
+     },
+     {
+      "module": "Candidate Generator",
+      "shared": true,
+      "files": [
+       "engine.py"
+      ],
+      "loc_added": 1,
+      "module_size_loc": 13
+     }
+    ]
+   },
+   "C2": {
+    "changes": [
+     {
+      "module": "Resource Intelligence",
+      "shared": true,
+      "files": [
+       "engine.py",
+       "node.py",
+       "policies.py"
+      ],
+      "loc_added": 6,
+      "module_size_loc": 36
+     },
+     {
+      "module": "Plan Cache (planner ledger view)",
+      "shared": false,
+      "files": [
+       "engine.py"
+      ],
+      "loc_added": 1,
+      "module_size_loc": 27
+     },
+     {
+      "module": "Candidate Generator",
+      "shared": true,
+      "files": [
+       "engine.py"
+      ],
+      "loc_added": 1,
+      "module_size_loc": 13
+     }
+    ]
+   },
+   "smoke": {
+    "fixture": "cb_kv_8k_b32, SYS-H100, load 24, node 0 flagged degraded at t=60 s; count dispatches after t=61.2 s",
+    "base": "C1 96/754 to node 0, C2 132/761",
+    "after": "C1 0/747, C2 0/761",
+    "tests": "test_sim.py 12 OK"
+   }
+  }
+ },
+ "provenance": {
+  "base": "DP2/sim copied once (working tree 2026-10-04, test_sim.py 12 tests OK, includes the QA5 `ntiers` option). Each scenario implemented in a separate copy and diffed against it; patches in results/data/qa4_patches/S*.diff, smoke scripts smoke_s*.py in the same folder.",
+  "loc_rule": "added (+) lines in diff -u that are neither blank nor comment-only; a modified line counts once as its + line.",
+  "module_size_loc": "AST span (function/class) or marker span LOC of the touched component in the pristine base; approximates how much an agent must read.",
+  "attribution": "explicit regex rules in sim/qa4_count.py (unmatched lines abort). Injection wiring (S3 Sim.__init__ line) is attributed to the injected component; counting it as a separate composition-root module would add +1 module to both candidates.",
+  "minimality": "S4: a validator-only change leaks (99 dispatches to the degraded node, the sync re-plan view lacks the flag); a planner-view-only change passes. The Plan Validator hunk is therefore optional defense-in-depth and not counted (C2 count = planner ledger view). S1: TIERS/OFFLOAD/ALLOC_ORDER edits were dropped as unnecessary after smoke passed without them."
+ }
+}

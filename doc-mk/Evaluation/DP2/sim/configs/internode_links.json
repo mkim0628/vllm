@@ -1,0 +1,42 @@
+{
+ "schema_version": 1,
+ "_note": "DP2 inter-node link profiles (NEW; DP1 configs have no inter-node link). Do not edit system-specs/systems.json values (SKILL H10); add profiles here. All values ASSUMED unless stated.",
+ "default": "rdma_400g_1rail",
+ "model": "per-node NIC egress/ingress capacity, non-blocking fabric, max-min fair share among active transfers (A05)",
+ "profiles": {
+  "rdma_100g": {
+   "bw_bytes_per_s": 12500000000.0,
+   "base_latency_s": 0.0001,
+   "efficiency": 1.0,
+   "evidence": "ASSUMED",
+   "provenance": "100 Gb/s = 12.5 GB/s theoretical line rate, 1 NIC"
+  },
+  "rdma_400g_1rail": {
+   "bw_bytes_per_s": 50000000000.0,
+   "base_latency_s": 0.0001,
+   "efficiency": 1.0,
+   "evidence": "ASSUMED",
+   "provenance": "400 Gb/s = 50 GB/s theoretical line rate, one rail used per transfer (conservative). Latency 100 us covers RDMA/NIXL setup, ASSUMED. Protocol overhead not modeled (same convention as DP1: theoretical link BW)."
+  },
+  "rdma_400g_4rail": {
+   "bw_bytes_per_s": 200000000000.0,
+   "base_latency_s": 0.0001,
+   "efficiency": 1.0,
+   "evidence": "ASSUMED",
+   "provenance": "4 x 400G rails striped"
+  },
+  "rdma_400g_8rail": {
+   "bw_bytes_per_s": 400000000000.0,
+   "base_latency_s": 0.0001,
+   "efficiency": 1.0,
+   "evidence": "ASSUMED",
+   "provenance": "8 x 400G rails (HGX 8-NIC node), full striping"
+  }
+ },
+ "sweep": [
+  "rdma_100g",
+  "rdma_400g_1rail",
+  "rdma_400g_4rail",
+  "rdma_400g_8rail"
+ ]
+}

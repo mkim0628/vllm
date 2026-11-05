@@ -1,0 +1,115 @@
+##### SYS-4
+== common_benchmark  scenarios: {'comparison_valid': 3, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 44% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.905 (±0.016) | QA2 ★ TTFT 568ms TPOT 311ms | QA3 ★ 37% | mig 110/1266GiB
+   C2-behavior-driven   QA1 ★★ x0.998 (±0.002) | QA2 ★★ TTFT 449ms TPOT 71ms | QA3 ★ 50% | mig 389/3767GiB
+   C1-resource-driven   win 0 tie 0 loss 3  loss=['cb_kv_8k_b32', 'cb_kv_8k_b32_ramp', 'cb_mixed_8k_b32']
+   C2-behavior-driven   win 0 tie 3 loss 0  loss=[]
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 7, 'saturated': 2, 'infeasible': 14}
+   (QA table over feasible scenarios n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 31% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.975 (±0.041) | QA2 ★ TTFT 797154ms TPOT 617ms | QA3 ★ 31% | mig 20/8545GiB
+   C2-behavior-driven   QA1 ★★ x0.949 (±0.073) | QA2 ★ TTFT 802559ms TPOT 497ms | QA3 ★ 27% | mig 86/16472GiB
+   C1-resource-driven   win 0 tie 7 loss 2  loss=['kv_b16_c32k_burst_chbm', 'kv_hbm_relief_behavior_recovery']
+   C2-behavior-driven   win 0 tie 5 loss 4  loss=['agent_memory_long_lived', 'behavior_flip_stress', 'kv_hbm_relief_behavior_recovery', 'rag_1tib_b16']
+== combined over feasible scenarios (n=12, discriminating n=10)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 34% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.957 (±0.032) | QA2 ★ TTFT 797154ms TPOT 617ms | QA3 ★ 33% | mig 42/6725GiB
+   C2-behavior-driven   QA1 ★★ x0.961 (±0.055) | QA2 ★ TTFT 802559ms TPOT 497ms | QA3 ★ 33% | mig 162/13295GiB
+   C1-resource-driven   win 0 []
+                          loss 5 ['common_benchmark/cb_kv_8k_b32', 'common_benchmark/cb_kv_8k_b32_ramp', 'common_benchmark/cb_mixed_8k_b32', 'dp1_stress_benchmark/kv_b16_c32k_burst_chbm', 'dp1_stress_benchmark/kv_hbm_relief_behavior_recovery']
+   C2-behavior-driven   win 0 []
+                          loss 4 ['dp1_stress_benchmark/agent_memory_long_lived', 'dp1_stress_benchmark/behavior_flip_stress', 'dp1_stress_benchmark/kv_hbm_relief_behavior_recovery', 'dp1_stress_benchmark/rag_1tib_b16']
+##### SYS-1
+== common_benchmark  scenarios: {'comparison_valid': 3, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 44% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 41% | mig 2/26GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 370ms TPOT 5ms | QA3 ★ 52% | mig 387/3730GiB
+   C1-resource-driven   win 0 tie 3 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 3 loss 0  loss=[]
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 6, 'saturated': 3, 'infeasible': 14}
+   (QA table over feasible scenarios n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 79% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 80% | mig 1/18GiB
+   C2-behavior-driven   QA1 ★★ x0.990 (±0.003) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 77% | mig 56/1047GiB
+   C1-resource-driven   win 0 tie 9 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 7 loss 2  loss=['behavior_flip_stress', 'rag_1tib_b16']
+== combined over feasible scenarios (n=12, discriminating n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 71% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 70% | mig 1/20GiB
+   C2-behavior-driven   QA1 ★★ x0.992 (±0.002) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 71% | mig 138/1718GiB
+   C1-resource-driven   win 0 []
+                          loss 0 []
+   C2-behavior-driven   win 0 []
+                          loss 2 ['dp1_stress_benchmark/behavior_flip_stress', 'dp1_stress_benchmark/rag_1tib_b16']
+##### SYS-2
+== common_benchmark  scenarios: {'comparison_valid': 3, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 44% | mig 0/0GiB
+   C1-resource-driven   QA1 ★ x0.850 (±0.017) | QA2 ★ TTFT 389ms TPOT 311ms | QA3 ★ 35% | mig 108/1804GiB
+   C2-behavior-driven   QA1 ★ x0.544 (±0.019) | QA2 ★ TTFT 253ms TPOT 311ms | QA3 ★ 29% | mig 401/3880GiB
+   C1-resource-driven   win 0 tie 0 loss 3  loss=['cb_kv_8k_b32', 'cb_kv_8k_b32_ramp', 'cb_mixed_8k_b32']
+   C2-behavior-driven   win 0 tie 0 loss 3  loss=['cb_kv_8k_b32', 'cb_kv_8k_b32_ramp', 'cb_mixed_8k_b32']
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 7, 'saturated': 2, 'infeasible': 14}
+   (QA table over feasible scenarios n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 79% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.982 (±0.008) | QA2 ★ TTFT 793052ms TPOT 617ms | QA3 ★★ 79% | mig 7/109GiB
+   C2-behavior-driven   QA1 ★★ x0.934 (±0.006) | QA2 ★ TTFT 793052ms TPOT 617ms | QA3 ★★ 75% | mig 55/1044GiB
+   C1-resource-driven   win 0 tie 7 loss 2  loss=['kv_b16_c32k_burst_chbm', 'kv_hbm_relief_behavior_recovery']
+   C2-behavior-driven   win 0 tie 5 loss 4  loss=['behavior_flip_stress', 'kv_b16_c32k_burst_chbm', 'kv_hbm_relief_behavior_recovery', 'rag_1tib_b16']
+== combined over feasible scenarios (n=12, discriminating n=10)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★★ 71% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.947 (±0.010) | QA2 ★ TTFT 793052ms TPOT 617ms | QA3 ★★ 68% | mig 32/533GiB
+   C2-behavior-driven   QA1 ★ x0.816 (±0.005) | QA2 ★ TTFT 793052ms TPOT 617ms | QA3 ★ 63% | mig 142/1753GiB
+   C1-resource-driven   win 0 []
+                          loss 5 ['common_benchmark/cb_kv_8k_b32', 'common_benchmark/cb_kv_8k_b32_ramp', 'common_benchmark/cb_mixed_8k_b32', 'dp1_stress_benchmark/kv_b16_c32k_burst_chbm', 'dp1_stress_benchmark/kv_hbm_relief_behavior_recovery']
+   C2-behavior-driven   win 0 []
+                          loss 7 ['common_benchmark/cb_kv_8k_b32', 'common_benchmark/cb_kv_8k_b32_ramp', 'common_benchmark/cb_mixed_8k_b32', 'dp1_stress_benchmark/behavior_flip_stress', 'dp1_stress_benchmark/kv_b16_c32k_burst_chbm', 'dp1_stress_benchmark/kv_hbm_relief_behavior_recovery', 'dp1_stress_benchmark/rag_1tib_b16']
+##### SYS-3
+== common_benchmark  scenarios: {'comparison_valid': 3, 'saturated': 0, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 337ms TPOT 5ms | QA3 ★ 44% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 255ms TPOT 5ms | QA3 ★ 41% | mig 15/218GiB
+   C2-behavior-driven   QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 369ms TPOT 5ms | QA3 ★ 51% | mig 396/3811GiB
+   C1-resource-driven   win 0 tie 3 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 3 loss 0  loss=[]
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 6, 'saturated': 3, 'infeasible': 14}
+   (QA table over feasible scenarios n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 63% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.991 (±0.010) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 59% | mig 3/89GiB
+   C2-behavior-driven   QA1 ★★ x0.988 (±0.009) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 55% | mig 63/1243GiB
+   C1-resource-driven   win 0 tie 9 loss 0  loss=[]
+   C2-behavior-driven   win 0 tie 8 loss 1  loss=['rag_1tib_b16']
+== combined over feasible scenarios (n=12, discriminating n=9)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 58% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.993 (±0.008) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 54% | mig 6/121GiB
+   C2-behavior-driven   QA1 ★★ x0.991 (±0.007) | QA2 ★ TTFT 793052ms TPOT 14ms | QA3 ★ 54% | mig 146/1885GiB
+   C1-resource-driven   win 0 []
+                          loss 0 []
+   C2-behavior-driven   win 0 []
+                          loss 1 ['dp1_stress_benchmark/rag_1tib_b16']
+##### SYS-5
+== common_benchmark  scenarios: {'comparison_valid': 2, 'saturated': 1, 'infeasible': 0}
+   (QA table over feasible scenarios n=3)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★★★ TTFT 301ms TPOT 2ms | QA3 ★ 43% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.974 (±0.024) | QA2 ★ TTFT 326ms TPOT 309ms | QA3 ★ 41% | mig 25/361GiB
+   C2-behavior-driven   QA1 ★★ x0.996 (±0.004) | QA2 ★ TTFT 353ms TPOT 129ms | QA3 ★ 42% | mig 208/2027GiB
+   C1-resource-driven   win 0 tie 1 loss 2  loss=['cb_kv_8k_b32', 'cb_kv_8k_b32_ramp']
+   C2-behavior-driven   win 0 tie 3 loss 0  loss=[]
+== dp1_stress_benchmark  scenarios: {'comparison_valid': 15, 'saturated': 3, 'infeasible': 5}
+   (QA table over feasible scenarios n=18)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 3041794ms TPOT 7872ms | QA3 ★ 28% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.999 (±0.003) | QA2 ★ TTFT 3082818ms TPOT 5923ms | QA3 ★ 28% | mig 22/8345GiB
+   C2-behavior-driven   QA1 ★★ x0.977 (±0.014) | QA2 ★ TTFT 3271900ms TPOT 9820ms | QA3 ★ 26% | mig 118/21748GiB
+   C1-resource-driven   win 0 tie 18 loss 0  loss=[]
+   C2-behavior-driven   win 1 tie 10 loss 7  loss=['agent_memory_long_lived', 'behavior_flip_stress', 'data_mix_shift_b64', 'host_path_pressure_b64', 'mixed_all_ai_data_b64', 'rag_1tib_b16', 'rag_8tib_b256_ssd_pim']
+== combined over feasible scenarios (n=21, discriminating n=17)
+   Baseline-static      QA1 ★★ x1.000 (±0.000) | QA2 ★ TTFT 3041794ms TPOT 7872ms | QA3 ★ 30% | mig 0/0GiB
+   C1-resource-driven   QA1 ★★ x0.995 (±0.005) | QA2 ★ TTFT 3082818ms TPOT 5923ms | QA3 ★ 29% | mig 22/7204GiB
+   C2-behavior-driven   QA1 ★★ x0.979 (±0.012) | QA2 ★ TTFT 3271900ms TPOT 9820ms | QA3 ★ 28% | mig 131/18931GiB
+   C1-resource-driven   win 0 []
+                          loss 2 ['common_benchmark/cb_kv_8k_b32', 'common_benchmark/cb_kv_8k_b32_ramp']
+   C2-behavior-driven   win 1 ['dp1_stress_benchmark/six_tier_capacity_stress']
+                          loss 7 ['dp1_stress_benchmark/agent_memory_long_lived', 'dp1_stress_benchmark/behavior_flip_stress', 'dp1_stress_benchmark/data_mix_shift_b64', 'dp1_stress_benchmark/host_path_pressure_b64', 'dp1_stress_benchmark/mixed_all_ai_data_b64', 'dp1_stress_benchmark/rag_1tib_b16', 'dp1_stress_benchmark/rag_8tib_b256_ssd_pim']
