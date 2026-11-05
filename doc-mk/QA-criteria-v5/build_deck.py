@@ -278,8 +278,10 @@ def build_slide(prs, layout, nav, qa):
 def build_highload(prs, layout, nav, page):
     s = new_slide(prs, layout, nav, "QA-02 보충. 고부하(High Load) - 조건 · 의미 · 빈도")
     fr = BG["60s"]
-    key_box(s, "핵심", "고부하 = 서버 이용률 ρ(요청률 ÷ 포화 처리율) 70% 이상. 큐 대기가 ρ=70% 부근부터 급증해 P99가 커지고(이론·시뮬레이션), "
-                       "실트래픽에서는 시간으로는 드물어도 요청의 약 1~11%가 이 구간에서 처리되어 P99를 결정한다(BurstGPT 계산 [C]).")
+    mmk = fr["mu_mult"]
+    key_box(s, "핵심", "고부하 = 서버 이용률 ρ(요청률 ÷ 포화 처리율 μ) 70% 이상. 큐 대기가 ρ=70% 부근부터 급증해 P99가 커진다(이론·시뮬레이션). "
+                       f"실트래픽에서의 빈도는 μ가 평균 요청률의 몇 배인지에 달려 있다: 10배 이하이면 시간의 {mmk['10']['time']*100:.0f}% 이상, "
+                       f"요청의 {mmk['10']['req']*100:.0f}% 이상이 고부하에서 처리된다(BurstGPT 계산 [C]).")
     # 좌: 곡선 (네이티브 차트, 편집 가능)
     textbox(s, 0.27, 1.52, 6.8, 0.24, "이용률 ρ별 P99 큐 대기시간 (평균 서비스 시간 대비 배수, 로그 축)", 10, True)
     cd = XyChartData()
@@ -344,25 +346,24 @@ def build_highload(prs, layout, nav, page):
         "ρ = 요청률 λ ÷ 포화 처리율(=1/평균 서비스시간) ≥ 70%. SLO와 무관한 서버 이용률이다.",
         "예: 평균 서비스 0.25 s → 포화 4 req/s → 고부하 시험 요청률 2.8 req/s.",
         "Baseline·후보를 같은 절대 요청률로 비교, working set > HBM+DRAM(KV miss 발생). 70%는 [정책]이며 50/70/90% sweep 병기."], "595959")
-    panel(2.9, 1.5, "의미: 왜 70%인가 (꼬리가 급증하는 지점)", [
+    panel(2.9, 1.4, "의미: 왜 70%인가 (꼬리가 급증하는 지점)", [
         f"큐 대기는 1/(1−ρ)에 비례해 늘어난다. 이론(M/M/1)에서 ρ 50%→70%는 P99 대기 ×{r_mm_5_7:.1f}, 70%→90%는 ×{r_mm_7_9:.1f}.",
         f"내부 모델도 같은 형태: ρ 50%→70% ×{r_des_5_7:.1f} 후 80%에서 급등(서비스 시간 편차가 커 knee가 일찍 옴).",
         "문헌(2차): 60~70%를 운영 상한으로 권고(arXiv 2608.14967), 70% 부근에서 꼬리가 커지기 시작. 서비스 편차가 크면 더 일찍 꺾임."], "595959")
-    # 빈도 표
-    rect(s, 7.3, 4.5, 5.8, 0.26, "595959")
-    textbox(s, 7.35, 4.52, 5.7, 0.22, "빈도: 실트래픽에서 얼마나 자주 ρ ≥ 70%인가 (BurstGPT)", 10, True, "FFFFFF")
-    pct = lambda v: f"{v*100:.1f}%" if v >= 0.001 else f"{v*100:.2f}%"
-    rows = [["용량 가정 (1분 요청률)", "시간 기준 ρ ≥ 70%", "요청 기준 ρ ≥ 70%"],
-            ["관측 최대치에 맞춤", pct(fr["max"]["0.7"]["time"]), pct(fr["max"]["0.7"]["req"])],
-            ["99.9 분위에 맞춤", pct(fr["p99.9"]["0.7"]["time"]), pct(fr["p99.9"]["0.7"]["req"])],
-            ["99 분위에 맞춤", pct(fr["p99"]["0.7"]["time"]), pct(fr["p99"]["0.7"]["req"])]]
-    table(s, 7.3, 4.76, [2.3, 1.75, 1.75], rows, [0.24] + [0.26] * 3, 8.5, aligns=[PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.CENTER],
-          header_bold=False)
-    textbox(s, 7.3, 5.82, 5.8, 0.8, [
-        f"트레이스: Azure OpenAI 실서비스 {fr['n']:,} 요청, {fr['days']:.0f}일. 1분 요청률 최대/평균 {fr['peak_to_mean']:.0f}배, 중앙값은 평균의 {fr['median']/fr['mean']*100:.0f}%.",
-        "P99는 '상위 1% 요청'이 결정하므로 요청 기준 비율이 1% 이상이면 P99는 고부하 상태가 정한다. 용량을 최대치에 맞추면 요청의 1.2%(10초 창 0.13%)로 경계적이다.",
-        "한계: 챗/API 트래픽(agent 세션 아님), 요청 수만 반영(토큰 작업량 제외), 용량은 가정, 오토스케일링 효과 없음 [C]."],
-        7.5, False, GRAY)
+    # 빈도 표: 포화 처리율 μ를 평균 요청률의 k배로 가정했을 때 0.7μ 이상인 비율
+    rect(s, 7.3, 4.4, 5.8, 0.26, "595959")
+    textbox(s, 7.35, 4.42, 5.7, 0.22, "빈도: ρ ≥ 70%(요청률 ≥ 0.7μ)가 얼마나 자주인가 (BurstGPT)", 10, True, "FFFFFF")
+    pct = lambda v: f"{v*100:.1f}%" if v >= 0.01 else f"{v*100:.2f}%"
+    rows = [["μ (평균 요청률 대비)", "0.7μ 이상인 시간", "하루 중", "그 구간 처리 요청"]]
+    for k in ("2", "5", "10", "20", "50"):
+        d = mmk[k]
+        rows.append([f"{k}배 ({d['mu']:.2f} req/s)", pct(d["time"]), f"{d['hours']*60:.0f}분" if d["hours"] < 1 else f"{d['hours']:.1f}시간", pct(d["req"])])
+    table(s, 7.3, 4.66, [1.9, 1.3, 1.1, 1.5], rows, [0.24] + [0.25] * 5, 8.5,
+          aligns=[PP_ALIGN.LEFT, PP_ALIGN.CENTER, PP_ALIGN.CENTER, PP_ALIGN.CENTER], header_bold=False)
+    textbox(s, 7.3, 6.17, 5.8, 0.45, [
+        f"트레이스: Azure OpenAI 실서비스 {fr['n']:,} 요청, {fr['days']:.0f}일, 1분 요청률(평균 {fr['mean']:.2f} req/s, 최대/평균 {fr['peak_to_mean']:.0f}배). "
+        "P99는 상위 1% 요청이 정하므로 그 구간 처리 요청이 1% 이상이면 고부하 상태가 P99를 결정한다.",
+        "한계: 챗/API 트래픽(agent 세션 아님), 요청 수만 반영(토큰 작업량 제외), 오토스케일링 없음 [C]."], 7.5, False, GRAY)
     footer(s, "출처: arXiv 2401.17644(BurstGPT, GitHub HPMLL/BurstGPT BurstGPT_1.csv), arXiv 2608.14967(검색 요약 기준, 2차), M/M/1 대기 분포 P(Wq>t)=ρe^{-μ(1-ρ)t}. "
               "내부: doc-mk/QA-criteria-v5/qa2_load_rho.py, burstgpt_load_stats.py", page)
     return s

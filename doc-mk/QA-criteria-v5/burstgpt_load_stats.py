@@ -12,6 +12,8 @@ for win in (60, 10):
     d = dict(n=int(len(ts)), days=float(T / 86400), mean=float(c.mean()), median=float(np.median(c)), peak_to_mean=float(c.max() / c.mean()))
     for name, ref in (("max", c.max()), ("p99.9", np.percentile(c, 99.9)), ("p99", np.percentile(c, 99))):
         d[name] = {str(x): dict(time=float((c >= x * ref).mean()), req=float((r_req >= x * ref).mean())) for x in (0.5, 0.7, 0.9)}
+    d["mu_mult"] = {str(k): dict(mu=float(k * c.mean()), time=float((c >= 0.7 * k * c.mean()).mean()), hours=float((c >= 0.7 * k * c.mean()).mean() * 24),
+                                 req=float((r_req >= 0.7 * k * c.mean()).mean())) for k in (2, 3, 5, 10, 20, 50)}  # μ = 평균 요청률의 k배일 때 0.7μ 이상
     res[f"{win}s"] = d
 json.dump(res, open(__file__.replace("burstgpt_load_stats.py", "burstgpt_load_stats.json"), "w"), indent=1)
 print(json.dumps(res["60s"], indent=1)[:900])
